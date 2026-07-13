@@ -39,6 +39,8 @@ async def test_run_serializes_config_catalog_id(
 
     await agents_client.run(
         user_prompt="Summarize this",
+        preset_slug="triage-agent",
+        preset_version=3,
         config=AgentConfig(
             model_name="gpt-4.1",
             model_provider="openai",
@@ -48,6 +50,8 @@ async def test_run_serializes_config_catalog_id(
 
     mock_tracecat_client.post.assert_awaited_once()
     _, kwargs = mock_tracecat_client.post.await_args
+    assert kwargs["json"]["preset_slug"] == "triage-agent"
+    assert "preset_version" not in kwargs["json"]
     assert kwargs["json"]["config"]["catalog_id"] == str(catalog_id)
 
 

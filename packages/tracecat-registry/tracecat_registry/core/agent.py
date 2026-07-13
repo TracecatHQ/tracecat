@@ -321,7 +321,11 @@ async def preset_agent(
     ],
     preset_version: Annotated[
         int | None,
-        Doc("Optional preset version number to pin for this run."),
+        Doc(
+            "Deprecated and ignored. Presets always resolve through their current "
+            "head. This field remains accepted for existing workflow definitions."
+        ),
+        Field(deprecated=True),
     ] = None,
     actions: Annotated[
         list[str] | None,

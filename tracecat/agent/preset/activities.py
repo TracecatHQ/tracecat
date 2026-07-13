@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.preset.resolved_refs import ResolvedRefs, merge_resolved_refs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -15,10 +16,13 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentCatalog
+from tracecat.db.models import AgentCatalog, AgentTurnProvenance
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -27,6 +31,8 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
     preset_id: uuid.UUID | None = None
     preset_version_id: uuid.UUID | None = None
     preset_version: int | None = None
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
 
     @model_validator(mode="after")
     def ensure_identifier(self) -> ResolveAgentPresetConfigActivityInput:
@@ -42,9 +48,12 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
 
 
 class ResolveAgentPresetVersionRefActivityInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     role: Role
     preset_slug: str
-    preset_version: int | None = None
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
 
 
 class AgentPresetVersionRef(BaseModel):
@@ -57,7 +66,79 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
+    # Legacy Temporal payload field. ResourceHead resolution is unconditional.
     follow_latest_versions: bool | None = None
+    # NOTE(ENG-1526): optional-with-default so pre-existing workflow histories
+    # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
+    # resolution) may subsume or remove this flag.
+    preserve_resolved_versions: bool = False
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
+    parent_resolved_refs: ResolvedRefs | None = None
+
+
+async def _write_agent_turn_provenance(
+    service: AgentPresetService | AgentManagementService,
+    *,
+    session_id: uuid.UUID | None,
+    wf_exec_id: str | None,
+    resolved_refs: ResolvedRefs | None,
+    skip_if_exists: bool,
+) -> None:
+    """Persist an append-only per-turn resolution snapshot when identifiers exist.
+
+    A turn may accumulate more than one snapshot; the row with the highest
+    ``surrogate_id`` for a ``wf_exec_id`` is the final snapshot. Two write
+    policies keep that contract under mixed-version overlap:
+
+    - ``skip_if_exists=True`` (root and resolution-failure writes): these are
+      the weakest snapshots and must never land after — and thereby become
+      "latest" over — a dispatch-time or merged snapshot, e.g. an old
+      worker's root write racing the new dispatch staging.
+    - ``skip_if_exists=False`` (merged subagent write): appends so the merged
+      snapshot supersedes the root row on the legacy fallback path (DSL
+      preset agents, pre-dispatch-resolution histories); skipped only when
+      the latest row already carries identical refs (dispatch staging wrote
+      the same snapshot).
+
+    Calling activities still use ``activity:fail_fast`` and replay reads
+    their recorded result instead of re-running the insert.
+    """
+
+    if session_id is None or wf_exec_id is None or resolved_refs is None:
+        return
+    workspace_id = service.role.workspace_id
+    if workspace_id is None:
+        return
+
+    dumped_refs = resolved_refs.model_dump(mode="json")
+    latest_refs = (
+        await service.session.execute(
+            select(AgentTurnProvenance.resolved_refs)
+            .where(
+                AgentTurnProvenance.workspace_id == workspace_id,
+                AgentTurnProvenance.session_id == session_id,
+                AgentTurnProvenance.wf_exec_id == wf_exec_id,
+            )
+            .order_by(AgentTurnProvenance.surrogate_id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_refs is not None:
+        if skip_if_exists:
+            return
+        if latest_refs == dumped_refs:
+            return
+
+    service.session.add(
+        AgentTurnProvenance(
+            workspace_id=workspace_id,
+            session_id=session_id,
+            wf_exec_id=wf_exec_id,
+            resolved_refs=dumped_refs,
+        )
+    )
+    await service.session.commit()
 
 
 @activity.defn
@@ -65,24 +146,83 @@ async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
     async with AgentManagementService.with_session(role=args.role) as service:
+
+        async def write_failure_refs(_err: TracecatNotFoundError) -> None:
+            if service.presets is None:
+                return
+            failure_refs = await service.presets.build_root_preset_failure_refs(
+                preset_id=args.preset_id,
+                slug=args.preset_slug,
+                preset_version_id=args.preset_version_id,
+                preset_version=args.preset_version,
+            )
+            await _write_agent_turn_provenance(
+                service,
+                session_id=args.session_id,
+                wf_exec_id=args.wf_exec_id,
+                resolved_refs=failure_refs,
+                skip_if_exists=True,
+            )
+
+        async def write_root_refs(resolved: AgentConfig) -> None:
+            # Always record root refs at resolution-success time, before
+            # credential loading and even when a later subagent activity
+            # appends a merged snapshot: anything that fails afterwards
+            # (provider credentials, custom-provider config, session load,
+            # subagent resolution) would otherwise leave the turn with no
+            # provenance row.
+            await _write_agent_turn_provenance(
+                service,
+                session_id=args.session_id,
+                wf_exec_id=args.wf_exec_id,
+                resolved_refs=resolved.resolved_refs,
+                skip_if_exists=True,
+            )
+
+        config: AgentConfig | None = None
         async with service.with_preset_config(
             preset_id=args.preset_id,
             slug=args.preset_slug,
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
-        ) as config:
-            return agent_config_to_payload(config)
+            on_resolution_error=write_failure_refs,
+            on_resolved=write_root_refs,
+        ) as resolved_config:
+            config = resolved_config
+
+        assert config is not None
+        return agent_config_to_payload(config)
 
 
 @activity.defn
 async def resolve_agent_preset_version_ref_activity(
     args: ResolveAgentPresetVersionRefActivityInput,
 ) -> AgentPresetVersionRef:
+    # Legacy fallback; remove after workflow drain.
     async with AgentPresetService.with_session(role=args.role) as service:
-        version = await service.resolve_agent_preset_version(
-            slug=args.preset_slug,
-            preset_version=args.preset_version,
-        )
+        try:
+            version = await service.resolve_agent_preset_version(
+                slug=args.preset_slug,
+            )
+        except TracecatNotFoundError:
+            # DSL preflight failures happen before the agent child workflow
+            # exists; record the classified failure refs so the turn still
+            # leaves provenance, then let the domain error propagate.
+            try:
+                failure_refs = await service.build_root_preset_failure_refs(
+                    slug=args.preset_slug,
+                )
+                await _write_agent_turn_provenance(
+                    service,
+                    session_id=args.session_id,
+                    wf_exec_id=args.wf_exec_id,
+                    resolved_refs=failure_refs,
+                    skip_if_exists=True,
+                )
+            except Exception:
+                # A provenance write failure must never mask the domain error.
+                logger.exception("Failed to record preset preflight failure refs")
+            raise
         return AgentPresetVersionRef(
             preset_id=version.preset_id,
             preset_version_id=version.id,
@@ -94,18 +234,30 @@ async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
-        follow_latest_versions = args.follow_latest_versions
-        if follow_latest_versions is None:
-            follow_latest_versions = await service.use_latest_resource_versions()
         resolved = await resolve_agents_config(
             service,
             agents=args.agents,
             parent_preset_id=args.parent_preset_id,
             parent_slug=args.parent_slug,
             include_runtime_config=True,
-            follow_latest_versions=follow_latest_versions,
+            preserve_resolved_versions=args.preserve_resolved_versions,
         )
-        return resolved.to_runtime_config()
+        runtime_config = resolved.to_runtime_config()
+        runtime_config.resolved_refs = merge_resolved_refs(
+            args.parent_resolved_refs,
+            runtime_config.resolved_refs,
+        )
+        await _write_agent_turn_provenance(
+            service,
+            session_id=args.session_id,
+            wf_exec_id=args.wf_exec_id,
+            resolved_refs=runtime_config.resolved_refs,
+            # Legacy fallback turns (DSL preset agents, histories predating
+            # dispatch-time resolution) write the root row first; the merged
+            # snapshot must append over it, not be dropped.
+            skip_if_exists=False,
+        )
+        return runtime_config
 
 
 class CustomModelProviderConfigResult(BaseModel):

@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.preset.resolver import ResolvedAgentsRuntimeConfig
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -64,10 +65,10 @@ class RunAgentArgs(BaseModel):
     rows. None for legacy executions."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
+    resolved_agents_config: ResolvedAgentsRuntimeConfig | None = None
+    """Dispatch-time resolved runtime subagent tree. None for legacy executions."""
     preset_slug: str | None = None
     """Slug for the preset configuration (if using a preset)."""
-    preset_version: int | None = None
-    """Optional preset version number to pin for this execution."""
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
@@ -82,8 +83,6 @@ class RunAgentArgs(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        if self.preset_version is not None and self.preset_slug is None:
-            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
@@ -312,7 +311,6 @@ class InternalRunAgentRequest(BaseModel):
     user_prompt: str
     config: AgentConfigSchema | None = None
     preset_slug: str | None = None
-    preset_version: int | None = None
     max_requests: int = Field(default=120, le=120)
     max_tool_calls: int | None = Field(default=None, le=40)
 
@@ -321,8 +319,6 @@ class InternalRunAgentRequest(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
-        if self.preset_version is not None and self.preset_slug is None:
-            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 

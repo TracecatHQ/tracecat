@@ -15,13 +15,10 @@ import sqlalchemy as sa
 import yaml
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
 from tracecat.db.models import (
-    AgentPreset,
-    AgentPresetSkill,
-    AgentPresetVersionSkill,
     Skill,
     SkillBlob,
     SkillVersion,
@@ -312,17 +309,10 @@ class SkillAdapter(DirectoryManifestAdapter):
     async def project(
         self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
-        """Project skills and the version snapshots needed to preserve pins."""
+        """Project skills and their current published version snapshots."""
         stmt = self._projection_stmt(workspace_service)
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
-        versions_by_skill_id = await self._exported_bound_versions_by_skill(
-            workspace_service
-        )
-        return await self._projection_from_skills(
-            workspace_service,
-            skills,
-            versions_by_skill_id=versions_by_skill_id,
-        )
+        return await self._projection_from_skills(workspace_service, skills)
 
     async def project_dependency_refs(
         self,
@@ -348,20 +338,23 @@ class SkillAdapter(DirectoryManifestAdapter):
                 ).values()
             )
         stmt = self._projection_stmt(workspace_service)
+        effective_slug = sa.func.coalesce(Skill.slug, Skill.name)
         if local_ids and slugs:
-            stmt = stmt.where(sa.or_(Skill.id.in_(local_ids), Skill.name.in_(slugs)))
+            stmt = stmt.where(
+                sa.or_(Skill.id.in_(local_ids), effective_slug.in_(slugs))
+            )
         elif local_ids:
             stmt = stmt.where(Skill.id.in_(local_ids))
         else:
-            stmt = stmt.where(Skill.name.in_(slugs))
+            stmt = stmt.where(effective_slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
         versions_by_skill_id = {
-            skill.id: versions_by_slug[skill.name]
+            skill.id: versions_by_slug[skill.slug or skill.name]
             for skill in skills
-            if skill.name in versions_by_slug
+            if (skill.slug or skill.name) in versions_by_slug
         }
         return await self._projection_from_skills(
             workspace_service,
@@ -377,13 +370,11 @@ class SkillAdapter(DirectoryManifestAdapter):
             select(Skill)
             .where(
                 Skill.workspace_id == workspace_service.workspace_id,
-                # Expand-window check: legacy writers set only archived_at; the
-                # contract release drops the archived_at leg.
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
-            .order_by(Skill.name.asc(), Skill.id.asc())
+            .order_by(sa.func.coalesce(Skill.slug, Skill.name).asc(), Skill.id.asc())
         )
 
     async def _projection_from_skills(
@@ -397,9 +388,10 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
-            source_id = assigner.assign(skill.id, skill.name)
-            # Keep the top-level manifest as metadata only, then emit immutable
-            # file snapshots below ``versions/`` for current and pinned versions.
+            effective_slug = skill.slug or skill.name
+            source_id = assigner.assign(skill.id, effective_slug)
+            # Keep the top-level manifest as metadata only, then emit the current
+            # immutable file snapshot below ``versions/``.
             version = skill.current_version
             version_numbers = set((versions_by_skill_id or {}).get(skill.id, set()))
             if version is not None:
@@ -412,63 +404,14 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             specs[source_id] = SkillResourceSpec(
                 id=source_id,
-                slug=skill.name,
-                name=version.name if version is not None else skill.name,
+                slug=effective_slug,
+                name=skill.name,
                 current_version=version.version if version is not None else None,
                 description=skill.description,
                 versions=versions,
             )
             resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)
-
-    async def _exported_bound_versions_by_skill(
-        self,
-        workspace_service: SyncMappingService,
-    ) -> dict[uuid.UUID, set[int]]:
-        """Return skill versions bound by exported agent preset state."""
-        # Soft-deleted presets keep their skill bindings but are excluded from the
-        # preset projection, so their pins must not keep versions exported.
-        head_stmt = (
-            select(SkillVersion.skill_id, SkillVersion.version)
-            .join(
-                AgentPresetSkill,
-                AgentPresetSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                AgentPreset,
-                AgentPresetSkill.preset_id == AgentPreset.id,
-            )
-            .where(
-                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        current_version_stmt = (
-            select(SkillVersion.skill_id, SkillVersion.version)
-            .select_from(AgentPresetVersionSkill)
-            .join(
-                AgentPreset,
-                AgentPreset.current_version_id
-                == AgentPresetVersionSkill.preset_version_id,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        versions_by_skill_id: dict[uuid.UUID, set[int]] = defaultdict(set)
-        for stmt in (head_stmt, current_version_stmt):
-            for skill_id, version_number in (
-                await workspace_service.session.execute(stmt)
-            ).tuples():
-                versions_by_skill_id[skill_id].add(version_number)
-        return versions_by_skill_id
 
     async def _version_specs_for_skill(
         self,
@@ -505,6 +448,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                         path=version_file.path,
                         sha256=blob_row.sha256,
                         encoding=encoding,
+                        content_type=version_file.content_type,
                     )
                 )
                 file_contents[version_file.path] = content_text
@@ -554,19 +498,22 @@ class SkillAdapter(DirectoryManifestAdapter):
         declared current version.
         """
         skills = workspace_spec.skills
-        # Skill identity lives on ``Skill.name`` but specs key off ``slug``; the
-        # shorter temp prefix keeps placeholders within the slug length budget.
+        # Skill package identity lives on ``Skill.slug``; the shorter temp
+        # prefix keeps placeholders within the slug length budget.
         swap = await self.plan_name_swap(
             workspace_service,
             targets={source_id: spec.slug for source_id, spec in skills.items()},
             model=Skill,
-            name_column=Skill.name,
+            name_column=cast(InstrumentedAttribute[str], Skill.slug),
             noun="slug",
             kind_label="Skill",
             owner_label="skill",
             error_cls=TracecatValidationError,
             temp_prefix="__tc_sync_tmp_",
-            row_predicates=(Skill.deleted_at.is_(None), Skill.archived_at.is_(None)),
+            row_predicates=(
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            ),
             availability_predicates=(
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
@@ -589,7 +536,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 await skill_service._validate_skill_slug_available(spec.slug)
                 skill = Skill(
                     workspace_id=workspace_service.workspace_id,
-                    name=spec.slug,
+                    name=spec.name,
                     slug=spec.slug,
                     description=getattr(spec, "description", None),
                     draft_revision=0,
@@ -598,9 +545,9 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
-                # Keep existing name-based sync behavior; slug is stable identity.
-                skill.name = spec.slug
+                skill.name = spec.name
                 skill.description = getattr(spec, "description", None)
+                skill.slug = spec.slug
 
             version_specs = dict(spec.versions)
             if (
@@ -636,6 +583,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # existing skill stops pointing at a version it no longer declares,
                 # and clear draft files copied from the previously pinned version.
                 skill.current_version_id = None
+                skill.slug = spec.slug
                 await skill_service._replace_draft_with_blob_map(
                     skill=skill,
                     path_to_blob={},
@@ -653,7 +601,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         skill: Skill,
         version: SkillVersionResourceSpec,
     ) -> tuple[SkillVersion, dict[str, SkillFileBlobRef]]:
-        """Create or update one skill version and its file rows."""
+        """Create an exact-number version or verify an identical existing one."""
         file_refs: list[tuple[str, SkillFileBlobRef]] = []
         for file_spec in version.files:
             content_text = version.file_contents.get(file_spec.path)
@@ -675,7 +623,10 @@ class SkillAdapter(DirectoryManifestAdapter):
                     file_spec.path,
                     SkillFileBlobRef(
                         blob=blob_row,
-                        content_type=skill_service._guess_content_type(file_spec.path),
+                        content_type=(
+                            file_spec.content_type
+                            or skill_service._guess_content_type(file_spec.path)
+                        ),
                     ),
                 )
             )
@@ -716,14 +667,82 @@ class SkillAdapter(DirectoryManifestAdapter):
             workspace_service.session.add(existing)
             await workspace_service.session.flush()
         else:
-            for key, value in attrs.items():
-                setattr(existing, key, value)
-            await workspace_service.session.execute(
-                sa.delete(SkillVersionFile).where(
-                    SkillVersionFile.workspace_id == workspace_service.workspace_id,
-                    SkillVersionFile.skill_version_id == existing.id,
+            declared_content_types = {
+                file_spec.path: file_spec.content_type for file_spec in version.files
+            }
+            existing_rows = (
+                await workspace_service.session.execute(
+                    select(
+                        SkillVersionFile.path,
+                        SkillBlob.sha256,
+                        SkillBlob.size_bytes,
+                        SkillVersionFile.content_type,
+                    )
+                    .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
+                    .where(
+                        SkillVersionFile.workspace_id == workspace_service.workspace_id,
+                        SkillVersionFile.skill_version_id == existing.id,
+                    )
                 )
+            ).tuples()
+            existing_files = {
+                path: (sha256, size_bytes, content_type)
+                for path, sha256, size_bytes, content_type in existing_rows
+            }
+            desired_files = {
+                path: (
+                    file_ref.blob.sha256,
+                    file_ref.blob.size_bytes,
+                    declared_content_types[path],
+                )
+                for path, file_ref in file_refs
+            }
+            has_legacy_content_types = any(
+                content_type is None for _, _, content_type in desired_files.values()
             )
+            metadata_changed = any(
+                getattr(existing, key) != value
+                for key, value in attrs.items()
+                if key != "manifest_sha256" or not has_legacy_content_types
+            )
+            files_changed = existing_files.keys() != desired_files.keys()
+            for path, (
+                desired_sha256,
+                desired_size_bytes,
+                desired_content_type,
+            ) in desired_files.items():
+                if files_changed:
+                    break
+                (
+                    existing_sha256,
+                    existing_size_bytes,
+                    existing_content_type,
+                ) = existing_files[path]
+                files_changed = (
+                    existing_sha256 != desired_sha256
+                    or existing_size_bytes != desired_size_bytes
+                    or (
+                        desired_content_type is not None
+                        and existing_content_type != desired_content_type
+                    )
+                )
+            if metadata_changed or files_changed:
+                raise TracecatValidationError(
+                    f"Skill {skill.slug!r} version {version.version_number} "
+                    "already exists with different content",
+                    detail={
+                        "code": "immutable_skill_version_conflict",
+                        "skill_slug": skill.slug,
+                        "version": version.version_number,
+                    },
+                )
+            return existing, {
+                path: SkillFileBlobRef(
+                    blob=file_ref.blob,
+                    content_type=existing_files[path][2],
+                )
+                for path, file_ref in file_refs
+            }
 
         for path, file_ref in sorted(file_refs, key=lambda item: item[0]):
             workspace_service.session.add(
@@ -767,17 +786,20 @@ class SkillAdapter(DirectoryManifestAdapter):
                 name=spec.slug,
                 row_id=skill.id,
             )
+            await SkillService(
+                session=workspace_service.session,
+                role=workspace_service.role,
+            )._validate_skill_slug_available(
+                spec.slug,
+                excluding_skill_id=skill.id,
+            )
             return skill
 
-        # No mapping yet: fall back to matching an existing skill by slug.
-        return await workspace_service.session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == spec.slug,
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        # No mapping yet: resolve by stable package slug.
+        return await SkillService(
+            session=workspace_service.session,
+            role=workspace_service.role,
+        ).get_skill_by_slug(spec.slug)
 
     async def _skill_by_source_id(
         self,
@@ -790,7 +812,10 @@ class SkillAdapter(DirectoryManifestAdapter):
             workspace_service,
             source_id=source_id,
             model=Skill,
-            row_predicates=(Skill.deleted_at.is_(None), Skill.archived_at.is_(None)),
+            row_predicates=(
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            ),
         )
 
 

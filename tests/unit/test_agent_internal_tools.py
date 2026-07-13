@@ -46,6 +46,30 @@ def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
     return AgentPresetRead.model_validate(data)
 
 
+def _published_preset_read(
+    *,
+    preset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    actions: list[str],
+) -> AgentPresetRead:
+    return _build_preset_read(
+        {
+            "id": preset_id,
+            "workspace_id": workspace_id,
+            "name": "Builder Preset",
+            "slug": "builder-preset",
+            "description": None,
+            "current_version_id": uuid.uuid4(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "instructions": None,
+            "model_name": "gpt-5.4",
+            "model_provider": "openai",
+            "actions": actions,
+        }
+    )
+
+
 def test_builder_bundled_actions_exclude_exa_tools():
     assert all(
         not action.startswith("tools.exa.")
@@ -110,10 +134,27 @@ async def test_list_available_tools_includes_configuration_fields(monkeypatch):
         get_preset=lambda _preset_id: None,
     )
 
+    head = SimpleNamespace(id=preset_id)
+    preset_read = _published_preset_read(
+        preset_id=preset_id,
+        workspace_id=claims.workspace_id,
+        actions=["tools.alpha"],
+    )
+
     async def _get_preset(_preset_id):
-        return SimpleNamespace(actions=["tools.alpha"])
+        return head
+
+    async def _build_preset(_preset):
+        assert _preset is head
+        return preset_read
+
+    async def _get_current_version(_preset):
+        assert _preset is head
+        return SimpleNamespace(actions=preset_read.actions)
 
     preset_service.get_preset = _get_preset
+    preset_service.build_preset_read = _build_preset
+    preset_service.get_current_version_for_preset = _get_current_version
 
     async def _search_actions(_query):
         return [
@@ -184,15 +225,32 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)
 
+    head = SimpleNamespace(id=preset_id)
+    preset_read = _published_preset_read(
+        preset_id=preset_id,
+        workspace_id=claims.workspace_id,
+        actions=["tools.alpha"],
+    )
+
     async def _get_preset(_preset_id):
-        return SimpleNamespace(actions=["tools.alpha"])
+        return head
+
+    async def _build_preset(_preset):
+        assert _preset is head
+        return preset_read
 
     async def _update_preset(_preset, _params):
         return _preset
 
+    async def _get_current_version(_preset):
+        assert _preset is head
+        return SimpleNamespace(actions=preset_read.actions)
+
     preset_service = SimpleNamespace(
         get_preset=_get_preset,
         update_preset=_update_preset,
+        build_preset_read=_build_preset,
+        get_current_version_for_preset=_get_current_version,
     )
     registry_service = SimpleNamespace()
 
@@ -239,28 +297,18 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)
 
-    existing_preset = SimpleNamespace(actions=["tools.alpha"])
-    updated_preset = {
-        "id": preset_id,
-        "workspace_id": claims.workspace_id,
-        "name": "Builder Preset",
-        "slug": "builder-preset",
-        "description": None,
-        "current_version_id": None,
-        "created_at": datetime.now(UTC),
-        "updated_at": datetime.now(UTC),
-        "instructions": None,
-        "model_name": "gpt-5.4",
-        "model_provider": "openai",
-        "base_url": None,
-        "output_type": None,
-        "actions": ["tools.alpha", "tools.google_docs.create_document"],
-        "namespaces": None,
-        "tool_approvals": None,
-        "mcp_integrations": None,
-        "retries": 3,
-        "enable_internet_access": False,
-    }
+    existing_preset = SimpleNamespace(id=preset_id)
+    updated_preset = SimpleNamespace(id=preset_id)
+    existing_read = _published_preset_read(
+        preset_id=preset_id,
+        workspace_id=claims.workspace_id,
+        actions=["tools.alpha"],
+    )
+    updated_read = _published_preset_read(
+        preset_id=preset_id,
+        workspace_id=claims.workspace_id,
+        actions=["tools.alpha", "tools.google_docs.create_document"],
+    )
 
     async def _get_preset(_preset_id):
         return existing_preset
@@ -269,7 +317,14 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
         return updated_preset
 
     async def _build_preset(_preset):
-        return _build_preset_read(updated_preset)
+        if _preset is existing_preset:
+            return existing_read
+        assert _preset is updated_preset
+        return updated_read
+
+    async def _get_current_version(_preset):
+        assert _preset is existing_preset
+        return SimpleNamespace(actions=existing_read.actions)
 
     async def _get_action_from_index(_action_name):
         return SimpleNamespace(manifest=object())
@@ -287,6 +342,7 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
         get_preset=_get_preset,
         update_preset=_update_preset,
         build_preset_read=_build_preset,
+        get_current_version_for_preset=_get_current_version,
     )
 
     async def _secret_inventory(_role):

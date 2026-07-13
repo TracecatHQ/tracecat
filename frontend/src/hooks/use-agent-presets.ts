@@ -518,7 +518,7 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
       })
       toast({
         title: "Version restored",
-        description: `${preset.name} now points to the selected version.`,
+        description: `${preset.name} was restored as a new published version.`,
       })
     },
     onError: (error) => {

@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { FormEvent } from "react"
-import type { AgentPresetRead, AgentPresetVersionReadMinimal } from "@/client"
+import type {
+  AgentPresetRead,
+  AgentPresetVersionDiff,
+  AgentPresetVersionReadMinimal,
+} from "@/client"
 import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import {
   useAgentPresetVersions,
@@ -162,5 +166,57 @@ describe("AgentPresetVersionsPanel", () => {
       versionId: "version-1",
     })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it("renders skill attachment changes without child versions", async () => {
+    const user = userEvent.setup()
+    const diff: AgentPresetVersionDiff = {
+      base_version_id: "version-1",
+      base_version: 1,
+      compare_version_id: "version-2",
+      compare_version: 2,
+      base_instructions: "v1 prompt",
+      compare_instructions: "v2 prompt",
+      skill_changes: [
+        {
+          skill_id: "skill-attached",
+          skill_name: "incident-enrichment",
+          change_type: "attached",
+        },
+        {
+          skill_id: "skill-detached",
+          skill_name: "legacy-enrichment",
+          change_type: "detached",
+        },
+      ],
+      total_changes: 2,
+    }
+
+    mockUseCompareAgentPresetVersions.mockReturnValue({
+      diff,
+      diffIsLoading: false,
+      diffError: null,
+      refetchDiff: jest.fn(),
+    })
+    mockUseRestoreAgentPresetVersion.mockReturnValue({
+      restoreAgentPresetVersion: jest.fn(),
+      restoreAgentPresetVersionIsPending: false,
+      restoreAgentPresetVersionError: null,
+    })
+
+    render(
+      <AgentPresetVersionsPanel
+        workspaceId="workspace-1"
+        preset={presetFixture}
+      />
+    )
+
+    await user.click(screen.getAllByRole("button", { name: "Compare" })[0])
+
+    expect(screen.getByText("incident-enrichment")).toBeInTheDocument()
+    expect(screen.getByText("legacy-enrichment")).toBeInTheDocument()
+    expect(screen.getByText("Attached")).toBeInTheDocument()
+    expect(screen.getByText("Detached")).toBeInTheDocument()
+    expect(screen.queryByText("Not attached")).not.toBeInTheDocument()
   })
 })

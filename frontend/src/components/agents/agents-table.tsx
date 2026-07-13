@@ -50,7 +50,13 @@ import {
 } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type AgentPresetTableRow = AgentPresetReadMinimal & Partial<AgentPresetRead>
+type AgentPresetTableRow = AgentPresetReadMinimal &
+  Partial<
+    Omit<
+      AgentPresetRead,
+      "current_version_id" | "model_name" | "model_provider"
+    >
+  >
 
 const toolPrefixes = {
   namespace: "namespace:",
@@ -146,6 +152,7 @@ function toDuplicateSourcePreset(
 ): AgentPresetRead | null {
   if (
     typeof preset.slug !== "string" ||
+    typeof preset.current_version_id !== "string" ||
     typeof preset.model_name !== "string" ||
     typeof preset.model_provider !== "string"
   ) {
@@ -158,7 +165,7 @@ function toDuplicateSourcePreset(
     name: preset.name,
     slug: preset.slug,
     description: preset.description ?? null,
-    current_version_id: preset.current_version_id ?? null,
+    current_version_id: preset.current_version_id,
     created_at: preset.created_at,
     updated_at: preset.updated_at,
     instructions: preset.instructions ?? null,

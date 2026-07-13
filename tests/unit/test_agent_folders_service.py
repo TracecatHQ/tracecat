@@ -8,13 +8,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
+from tracecat.agent.folders.schemas import (
+    AgentFolderDirectoryItem,
+    AgentPresetDirectoryItem,
+)
 from tracecat.agent.folders.service import (
     AgentFolderErrorCode,
     AgentFolderService,
 )
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentFolder, AgentPreset
+from tracecat.db.models import AgentFolder, AgentPreset, AgentPresetVersion
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -265,10 +268,6 @@ async def test_move_preset_rejects_soft_deleted_preset(
         workspace_id=folder_service.workspace_id,
         name="Soft-deleted preset",
         slug="soft-deleted-preset",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        retries=3,
-        enable_internet_access=False,
         deleted_at=datetime.now(UTC),
     )
     folder_service.session.add(preset)
@@ -330,30 +329,18 @@ async def test_get_directory_items_returns_real_direct_item_counts(
                 workspace_id=folder_service.workspace_id,
                 name="alpha",
                 slug="alpha",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                retries=3,
-                enable_internet_access=False,
                 folder_id=parent.id,
             ),
             AgentPreset(
                 workspace_id=folder_service.workspace_id,
                 name="beta",
                 slug="beta",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                retries=3,
-                enable_internet_access=False,
                 folder_id=parent.id,
             ),
             AgentPreset(
                 workspace_id=folder_service.workspace_id,
                 name="soft deleted",
                 slug="soft-deleted",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                retries=3,
-                enable_internet_access=False,
                 folder_id=parent.id,
                 deleted_at=datetime.now(UTC),
             ),
@@ -369,6 +356,48 @@ async def test_get_directory_items_returns_real_direct_item_counts(
     )
 
     assert parent_item.num_items == 4
+
+
+@pytest.mark.anyio
+async def test_directory_items_read_models_from_current_version(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Published heads expose version models; unpublished heads expose none."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    published = AgentPreset(
+        workspace_id=folder_service.workspace_id,
+        name="Published",
+        slug="published",
+    )
+    unpublished = AgentPreset(
+        workspace_id=folder_service.workspace_id,
+        name="Unpublished",
+        slug="unpublished",
+    )
+    folder_service.session.add_all([published, unpublished])
+    await folder_service.session.flush()
+    version = AgentPresetVersion(
+        workspace_id=folder_service.workspace_id,
+        preset_id=published.id,
+        version=1,
+        model_name="gpt-5.5",
+        model_provider="openai",
+    )
+    folder_service.session.add(version)
+    await folder_service.session.flush()
+    published.current_version_id = version.id
+    await folder_service.session.commit()
+
+    items = await folder_service.get_directory_items("/")
+    presets = {
+        item.slug: item for item in items if isinstance(item, AgentPresetDirectoryItem)
+    }
+
+    assert presets["published"].model_provider == "openai"
+    assert presets["published"].model_name == "gpt-5.5"
+    assert presets["unpublished"].model_provider is None
+    assert presets["unpublished"].model_name is None
 
 
 @pytest.mark.anyio
@@ -441,20 +470,12 @@ async def test_delete_folder_recursive_clears_presets_and_deletes_descendants(
                 workspace_id=folder_service.workspace_id,
                 name="Parent preset",
                 slug="parent-preset",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                retries=3,
-                enable_internet_access=False,
                 folder_id=parent.id,
             ),
             AgentPreset(
                 workspace_id=folder_service.workspace_id,
                 name="Child preset",
                 slug="child-preset",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                retries=3,
-                enable_internet_access=False,
                 folder_id=child.id,
             ),
         ]

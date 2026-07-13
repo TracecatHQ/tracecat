@@ -374,7 +374,8 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
 
 
 @pytest.mark.anyio
-async def test_build_config_prefers_pinned_preset_version_id() -> None:
+@pytest.mark.parametrize("pin_version", [False, True])
+async def test_build_config_prefers_resolved_preset_id(pin_version: bool) -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -383,14 +384,16 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
         user_id=uuid.uuid4(),
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
-    pinned_version_id = uuid.uuid4()
+    resolved_preset_id = uuid.uuid4()
+    resolved_version_id = uuid.uuid4() if pin_version else None
+    run_id = uuid.uuid4()
     workflow_args = AgentWorkflowArgs(
         role=role,
         agent_args=RunAgentArgs(
             session_id=uuid.uuid4(),
+            curr_run_id=run_id,
             user_prompt="hello",
             preset_slug="triage-agent",
-            preset_version=None,
             config=cast(
                 Any,
                 AgentConfig(
@@ -403,10 +406,11 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
         ),
         entity_type=AgentSessionEntity.WORKSPACE_CHAT,
         entity_id=uuid.uuid4(),
-        agent_preset_version_id=pinned_version_id,
+        agent_preset_id=resolved_preset_id,
+        agent_preset_version_id=resolved_version_id,
     )
     workflow_instance = DurableAgentWorkflow(workflow_args)
-    pinned_config = AgentConfig(
+    resolved_config = AgentConfig(
         model_name="claude-3-5-sonnet-20241022",
         model_provider="anthropic",
         instructions="base instructions",
@@ -415,7 +419,7 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
 
     with patch(
         "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
-        AsyncMock(return_value=agent_config_to_payload(pinned_config)),
+        AsyncMock(return_value=agent_config_to_payload(resolved_config)),
     ) as execute_activity_mock:
         cfg = await workflow_instance._build_config(workflow_args)
 
@@ -423,11 +427,13 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert execute_activity_mock.await_args is not None
     call_args = execute_activity_mock.await_args.args
     assert isinstance(call_args[1], ResolveAgentPresetConfigActivityInput)
-    assert call_args[1].preset_version_id == pinned_version_id
-    assert call_args[1].preset_slug is None
+    assert call_args[1].preset_id == resolved_preset_id
+    assert call_args[1].preset_version_id == resolved_version_id
+    assert call_args[1].preset_slug == "triage-agent"
     assert call_args[1].preset_version is None
-    assert cfg.model_name == pinned_config.model_name
-    assert cfg.model_provider == pinned_config.model_provider
+    assert call_args[1].wf_exec_id == str(run_id)
+    assert cfg.model_name == resolved_config.model_name
+    assert cfg.model_provider == resolved_config.model_provider
     assert cfg.actions == ["core.http_request"]
     assert cfg.instructions == "base instructions\nappend this"
 

@@ -57,8 +57,6 @@ async def agent_preset(session: AsyncSession, svc_workspace: Workspace) -> Agent
         workspace_id=svc_workspace.id,
         name="Slack Agent",
         slug=f"slack-agent-{uuid.uuid4().hex[:8]}",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
     )
     session.add(preset)
     await session.commit()

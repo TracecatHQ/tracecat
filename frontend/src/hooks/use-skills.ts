@@ -487,7 +487,7 @@ export function usePublishSkill(workspaceId: string) {
 }
 
 /**
- * Set the currently active published version for a skill.
+ * Roll a historical skill version forward as a new published version.
  *
  * @param workspaceId Workspace identifier.
  * @returns Restore mutation state.
@@ -514,9 +514,12 @@ export function useRestoreSkillVersion(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["skill-draft-file", workspaceId, variables.skillId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["skill-versions", workspaceId, variables.skillId],
+      })
       toast({
-        title: "Active version updated",
-        description: "The selected published version is now active.",
+        title: "Version restored",
+        description: "Restored as a new published version.",
       })
     },
     onError: (error) => {

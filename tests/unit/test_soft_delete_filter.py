@@ -38,8 +38,6 @@ def _agent_preset(
         workspace_id=workspace_id,
         name=slug,
         slug=slug,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
         folder_id=folder_id,
         deleted_at=datetime.now(UTC) if deleted else None,
     )

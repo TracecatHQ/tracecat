@@ -39,6 +39,7 @@ from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetVersion,
     AgentSession,
     MCPIntegration,
     OAuthIntegration,
@@ -2373,6 +2374,11 @@ class IntegrationService(BaseWorkspaceService):
             .cte("candidate_mcp_integrations")
         )
 
+        candidate_id_strs = (
+            await self.session.scalars(select(candidate_mcp_integrations.c.id_str))
+        ).all()
+        await self._prune_agent_preset_mcp_integrations(candidate_id_strs)
+
         candidate_ids = select(
             sa.func.coalesce(
                 sa.func.array_agg(candidate_mcp_integrations.c.id_str),
@@ -2380,25 +2386,6 @@ class IntegrationService(BaseWorkspaceService):
             )
         ).scalar_subquery()
         candidate_exists = select(candidate_mcp_integrations.c.id).exists()
-
-        pruned_preset_ids = (
-            await self.session.scalars(
-                update(AgentPreset)
-                .where(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.deleted_at.is_(None),
-                    AgentPreset.mcp_integrations.isnot(None),
-                    candidate_exists,
-                    AgentPreset.mcp_integrations.op("?|")(candidate_ids),
-                )
-                .values(
-                    mcp_integrations=AgentPreset.mcp_integrations.op("-")(candidate_ids)
-                )
-                .returning(AgentPreset.id)
-                .execution_options(synchronize_session="fetch")
-            )
-        ).all()
-        await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
 
         await self.session.execute(
             update(AgentSession)
@@ -2422,30 +2409,48 @@ class IntegrationService(BaseWorkspaceService):
         )
         return len(deleted.all())
 
-    async def _version_pruned_agent_presets(
-        self, *, preset_ids: Sequence[uuid.UUID]
+    async def _prune_agent_preset_mcp_integrations(
+        self, mcp_integration_ids: Sequence[str]
     ) -> None:
-        """Create current versions for presets whose MCP refs were pruned."""
-        if not preset_ids:
+        """Create versions without deleted MCP integration references."""
+        if not mcp_integration_ids:
             return
 
         from tracecat.agent.preset.service import AgentPresetService
 
         preset_service = AgentPresetService(self.session, role=self.role)
-        presets = await self.session.scalars(
-            select(AgentPreset)
+        candidate_ids = sa.cast(
+            sa.literal(list(mcp_integration_ids)),
+            sa.ARRAY(sa.String()),
+        )
+        rows = await self.session.execute(
+            select(AgentPreset, AgentPresetVersion)
+            .join(
+                AgentPresetVersion,
+                AgentPreset.current_version_id == AgentPresetVersion.id,
+            )
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.deleted_at.is_(None),
-                AgentPreset.id.in_(preset_ids),
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.mcp_integrations.isnot(None),
+                AgentPresetVersion.mcp_integrations.op("?|")(candidate_ids),
             )
             .order_by(AgentPreset.id)
-            .with_for_update()
+            .with_for_update(of=AgentPreset)
         )
 
-        for preset in presets:
-            version = await preset_service._create_version_from_preset(
+        removed_ids = set(mcp_integration_ids)
+        for preset, current in rows.tuples():
+            mcp_integrations = [
+                integration_id
+                for integration_id in current.mcp_integrations or []
+                if integration_id not in removed_ids
+            ]
+            version = await preset_service.create_version_from_current(
                 preset,
+                current=current,
+                config_updates={"mcp_integrations": mcp_integrations or None},
                 preset_locked=True,
             )
             preset.current_version_id = version.id
@@ -4160,25 +4165,7 @@ class IntegrationService(BaseWorkspaceService):
         id_str = str(mcp_integration_id)
 
         try:
-            pruned_preset_ids = (
-                await self.session.scalars(
-                    update(AgentPreset)
-                    .where(
-                        and_(
-                            AgentPreset.workspace_id == self.workspace_id,
-                            AgentPreset.deleted_at.is_(None),
-                            AgentPreset.mcp_integrations.isnot(None),
-                            AgentPreset.mcp_integrations.contains([id_str]),
-                        )
-                    )
-                    .values(
-                        mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str)
-                    )
-                    .returning(AgentPreset.id)
-                    .execution_options(synchronize_session="fetch")
-                )
-            ).all()
-            await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
+            await self._prune_agent_preset_mcp_integrations([id_str])
 
             await self.session.execute(
                 update(AgentSession)

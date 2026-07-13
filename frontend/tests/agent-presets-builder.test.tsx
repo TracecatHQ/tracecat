@@ -102,6 +102,7 @@ describe("canSubmitAgentPresetForm", () => {
         workspace_id: "ws-1",
         name: "Triage agent",
         slug: "triage-agent",
+        current_version_id: "7cb94fb2-53b4-46d9-ad4f-8a53d7b93c2e",
         description: "Handles inbound incidents",
         instructions: "Investigate alerts",
         model_name: "gpt-4o-mini",

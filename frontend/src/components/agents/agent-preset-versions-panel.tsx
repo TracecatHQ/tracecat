@@ -498,28 +498,17 @@ function VersionsCompareView({
               <h4 className="text-sm font-medium">Skill changes</h4>
               <div className="rounded-md border">
                 {skillChanges.map((change, index) => {
-                  const previousVersion =
-                    change.old_skill_version == null
-                      ? "Not attached"
-                      : `v${change.old_skill_version}`
-                  const nextVersion =
-                    change.new_skill_version == null
-                      ? "Not attached"
-                      : `v${change.new_skill_version}`
+                  const changeLabel =
+                    change.change_type === "attached" ? "Attached" : "Detached"
 
                   return (
                     <div key={change.skill_id}>
-                      <div className="px-3 py-3 text-xs">
+                      <div className="flex items-center justify-between gap-3 px-3 py-3 text-xs">
                         <div className="flex items-center gap-2 font-medium text-foreground">
                           <Pyramid className="size-3.5 text-muted-foreground" />
                           <span>{change.skill_name}</span>
                         </div>
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                          <div className="text-muted-foreground">
-                            {previousVersion}
-                          </div>
-                          <div className="text-foreground">{nextVersion}</div>
-                        </div>
+                        <Badge variant="outline">{changeLabel}</Badge>
                       </div>
                       {index < skillChanges.length - 1 ? <Separator /> : null}
                     </div>
