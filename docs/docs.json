@@ -162,6 +162,14 @@
               "authentication/saml",
               "authentication/oidc"
             ]
+          },
+          {
+            "group": "Audit logs",
+            "icon": "logs",
+            "pages": [
+              "audit-logs/organization",
+              "audit-logs/watchtower"
+            ]
           }
         ]
       },
