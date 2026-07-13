@@ -198,9 +198,19 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def get_version_subagent_binding(
-        self, version: AgentPresetVersion
+        self,
+        version: AgentPresetVersion,
+        *,
+        reconcile_legacy: bool = True,
     ) -> ResolvedAgentsConfig:
-        """Resolve a preset version's snapshotted ResourceHead edges."""
+        """Resolve a preset version's snapshotted ResourceHead edges.
+
+        ``reconcile_legacy=False`` skips the write-on-read repair for legacy
+        expand-window rows and returns the validated legacy binding directly:
+        read-only callers (e.g. workflow config resolution, whose session
+        never commits) must not take the repair row lock only to roll the
+        insert back on every run.
+        """
 
         edges_exist = await self._version_subagent_edges_exist(version.id)
         legacy_binding: ResolvedAgentsConfig | None = None
@@ -210,6 +220,8 @@ class AgentPresetService(BaseWorkspaceService):
                 version,
                 legacy_binding,
             ):
+                if not reconcile_legacy:
+                    return legacy_binding
                 version = await self._reconcile_legacy_version_subagent_binding(
                     version.id
                 )
@@ -2129,20 +2141,32 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
-        agents = AgentSubagentsConfig.model_validate(version.agents)
-        if use_latest_resource_versions:
-            resolved_agents = await resolve_agents_config(
-                self,
-                agents=agents,
-                parent_preset_id=version.preset_id,
-                include_runtime_config=False,
-                follow_latest_versions=True,
-            )
-            binding = resolved_agents.to_agents_binding()
-            agents = AgentSubagentsConfig(
-                enabled=binding.enabled,
-                subagents=list(binding.subagents),
-            )
+        # Normalized edges are authoritative for runtime membership; the raw
+        # JSON is only the mixed-version compatibility payload. Skip the
+        # write-on-read repair: this path runs inside read-only activities
+        # whose session never commits.
+        edge_binding = await self.get_version_subagent_binding(
+            version,
+            reconcile_legacy=False,
+        )
+        agents = AgentSubagentsConfig(
+            enabled=edge_binding.enabled,
+            subagents=list(edge_binding.subagents),
+        )
+        # Keep the child-validation pass in both modes: it rejects deleted or
+        # unpublished children before a binding escapes to direct callers.
+        resolved_agents = await resolve_agents_config(
+            self,
+            agents=agents,
+            parent_preset_id=version.preset_id,
+            include_runtime_config=False,
+            follow_latest_versions=use_latest_resource_versions,
+        )
+        binding = resolved_agents.to_agents_binding()
+        agents = AgentSubagentsConfig(
+            enabled=binding.enabled,
+            subagents=list(binding.subagents),
+        )
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,

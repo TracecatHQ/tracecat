@@ -3735,6 +3735,84 @@ class TestAgentPresetService:
             child_version.id
         ]
 
+    async def test_workflow_config_resolves_membership_from_version_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Runtime config derives subagent membership from normalized edges.
+
+        The durable workflow path resolves presets through
+        ``resolve_agent_preset_config``; when the legacy version JSON drifts
+        from the normalized edges (e.g. an expand-window write raced the
+        snapshot), the edges must win — otherwise the main production path
+        executes stale JSON.
+        """
+
+        edge_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Edge Child", "slug": "edge-child"}
+            )
+        )
+        stale_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Stale Child", "slug": "stale-child"}
+            )
+        )
+        stale_child_version = await agent_preset_service.get_current_version_for_preset(
+            stale_child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Drift Parent",
+                    "slug": "drift-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": edge_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        # Drift only the legacy JSON toward a different child.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": stale_child.slug,
+                            "preset_id": str(stale_child.id),
+                            "preset_version_id": str(stale_child_version.id),
+                            "preset_version": stale_child_version.version,
+                        }
+                    ],
+                }
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_version_id=parent_version.id
+        )
+
+        assert config.agents.enabled is True
+        resolved_children = [
+            ref.preset_id
+            for ref in config.agents.subagents
+            if isinstance(ref, ResolvedAttachedSubagentRef)
+        ]
+        assert resolved_children == [edge_child.id]
+
     async def test_reconcile_returns_fresh_row_after_concurrent_winner(
         self,
         session: AsyncSession,
@@ -3765,12 +3843,14 @@ class TestAgentPresetService:
         # Loaded into the identity map with agents_enabled=False.
         assert parent_version.agents_enabled is False
 
-        # Simulate the concurrent winner with core statements that bypass the
-        # ORM identity map: enable the flag and write a normalized edge.
+        # Simulate the concurrent winner without touching the ORM identity
+        # map: synchronize_session=False keeps the loaded parent_version
+        # stale, exactly like a write from another session.
         await session.execute(
             sa.update(AgentPresetVersion)
             .where(AgentPresetVersion.id == parent_version.id)
             .values(agents_enabled=True)
+            .execution_options(synchronize_session=False)
         )
         await session.execute(
             sa.insert(AgentPresetVersionSubagent).values(
@@ -3782,7 +3862,9 @@ class TestAgentPresetService:
                 position=0,
             )
         )
-
+        # Self-check: the identity-mapped instance really is stale; without
+        # populate_existing the locked re-select would return this object.
+        assert parent_version.agents_enabled is False
         version = await agent_preset_service._reconcile_legacy_version_subagent_binding(
             parent_version.id
         )
