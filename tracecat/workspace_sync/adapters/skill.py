@@ -358,6 +358,34 @@ class SkillAdapter(DirectoryManifestAdapter):
         else:
             stmt = stmt.where(effective_slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+        # Expand-window dedupe: coalesce(slug, name) can match both the
+        # canonical slug owner and a legacy slugless row projecting the same
+        # name; exporting both would emit two specs claiming one slug (a
+        # poisoned artifact import then rejects). Prefer the exact owner and
+        # fail loud when only legacy rows contend, matching
+        # get_skill_by_identifier semantics.
+        if slugs:
+            contenders_by_slug: dict[str, list[Skill]] = defaultdict(list)
+            for skill in skills:
+                contenders_by_slug[skill.slug or skill.name].append(skill)
+            deduped: list[Skill] = []
+            for skill in skills:
+                effective = skill.slug or skill.name
+                contenders = contenders_by_slug[effective]
+                if len(contenders) == 1 or effective not in slugs:
+                    deduped.append(skill)
+                    continue
+                exact_owners = [
+                    contender for contender in contenders if contender.slug == effective
+                ]
+                if len(exact_owners) != 1:
+                    raise TracecatValidationError(
+                        f"Skill slug '{effective}' is ambiguous during sync export",
+                        detail={"code": "ambiguous_skill_slug", "slug": effective},
+                    )
+                if skill.id == exact_owners[0].id:
+                    deduped.append(skill)
+            skills = deduped
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
@@ -578,6 +606,10 @@ class SkillAdapter(DirectoryManifestAdapter):
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             ),
+            # Expand-window check: legacy rows still carry a NULL slug whose
+            # name acts as the effective slug; a mapped rename must not land
+            # on one of those either.
+            availability_column=sa.func.coalesce(Skill.slug, Skill.name),
         )
         imported: list[ImportedResource] = []
         skill_service = SkillService(
@@ -777,16 +809,14 @@ class SkillAdapter(DirectoryManifestAdapter):
             )
             return skill
 
-        # No mapping yet: fall back to the canonical slug, or the legacy name
-        # when reading an expand-window row that has not been backfilled yet.
-        return await workspace_service.session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                sa.func.coalesce(Skill.slug, Skill.name) == spec.slug,
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        # No mapping yet: resolve through the runtime resolver so an exact
+        # slug owner wins over expand-window legacy rows (slug IS NULL
+        # projecting their name) and ambiguous legacy-only matches fail loud
+        # instead of updating an arbitrary skill.
+        return await SkillService(
+            session=workspace_service.session,
+            role=workspace_service.role,
+        ).get_skill_by_slug(spec.slug)
 
     async def _skill_by_source_id(
         self,

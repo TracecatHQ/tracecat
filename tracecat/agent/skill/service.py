@@ -8,6 +8,7 @@ import mimetypes
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclasses_replace
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Never
@@ -165,7 +166,13 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
-type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillDraftBlobMapFactory = Callable[[str], Awaitable[dict[str, SkillFileBlobRef]]]
+"""Builds the seeded draft blob map for a new skill.
+
+Receives the allocated live slug so the seeded ``SKILL.md`` package name can
+match it: publishing assigns the live slug from the manifest name, so a draft
+seeded with a colliding display name would be unpublishable out of the box.
+"""
 
 
 def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
@@ -1292,7 +1299,7 @@ class SkillService(BaseWorkspaceService):
                 await self.session.flush()
                 await self._replace_draft_with_blob_map(
                     skill=skill,
-                    path_to_blob=await path_to_blob_factory(),
+                    path_to_blob=await path_to_blob_factory(slug),
                 )
                 await self.session.commit()
             except IntegrityError as exc:
@@ -1389,8 +1396,17 @@ class SkillService(BaseWorkspaceService):
             if uuid_match := await self.get_skill(parsed_skill_id):
                 return uuid_match
 
+        return await self.get_skill_by_slug(identifier)
+
+    async def get_skill_by_slug(self, slug: str) -> Skill | None:
+        """Return the live skill owning an effective slug, exact match first.
+
+        Raises ``TracecatValidationError`` when only legacy (``slug IS NULL``)
+        rows match and more than one projects the requested fallback slug.
+        """
+
         try:
-            skill_slug = SKILL_SLUG_ADAPTER.validate_python(identifier)
+            skill_slug = SKILL_SLUG_ADAPTER.validate_python(slug)
         except ValidationError:
             return None
         # Legacy rows inserted by old pods during the expand window have
@@ -1532,9 +1548,13 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def default_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # Seed the package name with the allocated live slug (which may
+            # carry a deduplication suffix); publish assigns the live slug
+            # from the manifest, so a colliding display name here would make
+            # the untouched default draft unpublishable.
             root_markdown = self._build_default_skill_markdown(
-                name=params.name,
+                name=slug,
                 description=params.description,
             )
             root_blob = await self._get_or_create_blob(
@@ -1568,10 +1588,28 @@ class SkillService(BaseWorkspaceService):
 
         validation, prepared_files = self._validate_upload_draft(params)
 
-        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def uploaded_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # If slug allocation had to suffix past a live duplicate, rewrite
+            # the uploaded package name to the allocated slug so the draft
+            # stays publishable (publish assigns the live slug from the
+            # manifest name).
+            files = prepared_files
+            if slug != validation.name:
+                files = [
+                    dataclasses_replace(
+                        file,
+                        content=self._merge_skill_markdown_metadata(
+                            file.content.decode("utf-8"),
+                            name=slug,
+                        ).encode("utf-8"),
+                    )
+                    if file.path == "SKILL.md"
+                    else file
+                    for file in prepared_files
+                ]
             prepared_draft = await self._materialize_upload_draft(
                 validation=validation,
-                prepared_files=prepared_files,
+                prepared_files=files,
             )
             return prepared_draft.path_to_blob
 
@@ -2365,6 +2403,13 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
+        # The restored package name becomes the live slug. Like the publish
+        # paths, validate it against live rows first: the partial unique index
+        # cannot see expand-window legacy rows whose slug is still NULL.
+        await self._validate_skill_slug_available(
+            version.name,
+            excluding_skill_id=skill.id,
+        )
         rows = await self._list_version_rows(version.id)
         await self._create_version_from_blob_refs(
             skill=skill,

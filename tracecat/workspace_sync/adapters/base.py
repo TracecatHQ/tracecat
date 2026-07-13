@@ -276,6 +276,13 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
     """Desired ``source_id`` -> scope value; set whenever ``scope_attr`` is."""
     availability_predicates: Sequence[ColumnElement[bool]] = ()
     """Extra predicates applied when checking whether a target name is free."""
+    availability_column: ColumnElement[str] | None = None
+    """Expression checked for conflicts instead of ``column``, if set.
+
+    Lets the availability check cover an effective identity wider than the
+    physical column, e.g. ``coalesce(Skill.slug, Skill.name)`` while
+    expand-window legacy rows still carry a NULL slug.
+    """
 
     @property
     def column(self) -> InstrumentedAttribute[str]:
@@ -305,9 +312,14 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
         ``scope`` narrows the collision to rows sharing that scope value (e.g.
         environment) when the plan is scoped.
         """
+        match_column: ColumnElement[str] | InstrumentedAttribute[str]
+        if self.availability_column is not None:
+            match_column = self.availability_column
+        else:
+            match_column = self.column
         conditions = [
             self.model.workspace_id == workspace_service.workspace_id,
-            self.column == name,
+            match_column == name,
             self.model.id != row_id,
             *self.availability_predicates,
         ]
@@ -642,6 +654,7 @@ class ResourceAdapter(ABC):
         rename: Callable[[ModelT, str], Awaitable[None]] | None = None,
         row_predicates: Sequence[ColumnElement[bool]] = (),
         availability_predicates: Sequence[ColumnElement[bool]] = (),
+        availability_column: ColumnElement[str] | None = None,
     ) -> NameSwapPlan[ModelT]:
         """Validate target names and park mapped rows whose names change.
 
@@ -691,6 +704,7 @@ class ResourceAdapter(ABC):
             scope_attr=scope_attr,
             target_scopes=target_scopes,
             availability_predicates=availability_predicates,
+            availability_column=availability_column,
         )
         for source_id, row in mapped.items():
             await plan.ensure_available(
