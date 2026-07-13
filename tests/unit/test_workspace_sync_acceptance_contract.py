@@ -4512,24 +4512,31 @@ async def test_agent_preset_sync_replaces_existing_normalized_subagent_edges(
     assert new_child is not None
     assert updated_version.id == original_version.id
     assert updated_version.subagents_enabled is True
-    edge = await session.scalar(
-        select(AgentPresetVersionSubagent).where(
-            AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
-            AgentPresetVersionSubagent.parent_preset_version_id == updated_version.id,
+    edges = (
+        await session.scalars(
+            select(AgentPresetVersionSubagent).where(
+                AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id
+                == updated_version.id,
+            )
         )
-    )
-    assert edge is not None
+    ).all()
+    assert len(edges) == 1
+    edge = edges[0]
     assert edge.child_preset_id == new_child.id
     assert edge.alias == "replacement-child"
     assert edge.description == "Use the replacement child"
     assert edge.max_turns == 4
-    head_edge = await session.scalar(
-        select(AgentPresetSubagent).where(
-            AgentPresetSubagent.workspace_id == svc_role.workspace_id,
-            AgentPresetSubagent.parent_preset_id == parent.id,
+    head_edges = (
+        await session.scalars(
+            select(AgentPresetSubagent).where(
+                AgentPresetSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetSubagent.parent_preset_id == parent.id,
+            )
         )
-    )
-    assert head_edge is not None
+    ).all()
+    assert len(head_edges) == 1
+    head_edge = head_edges[0]
     assert head_edge.child_preset_id == new_child.id
 
     runtime_binding = await AgentPresetService(
@@ -4583,6 +4590,10 @@ async def test_agent_preset_sync_clears_normalized_subagent_edges(
     assert version is not None
     assert parent.subagents_enabled is False
     assert version.subagents_enabled is False
+    # The JSON stays the expand-window compatibility contract for old pods,
+    # so clearing must round-trip through it as well as the edge tables.
+    assert parent.agents == {"enabled": False, "subagents": []}
+    assert version.agents == {"enabled": False, "subagents": []}
     assert (
         await session.scalars(
             select(AgentPresetSubagent).where(
