@@ -1,0 +1,58 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/run_detection_rule_yaml_tests.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/update_event_sink.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/start_query.yml
+  s_0f8f592a8c0e82::t_ac3b3690a8cdb7 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/validate_detection_rule_yaml.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/run_query.yml
+  s_0f8f592a8c0e82::t_ac3b3690a8cdb7 1-75
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/delete_event_sink.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/get_event_sink.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/delete_detection_rule.yml
+  s_0f8f592a8c0e82::t_81b5f12a2fbd3a 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/cancel_query.yml
+  s_0f8f592a8c0e82::t_ac3b3690a8cdb7 1-29
+packages/tracecat-registry/tracecat_registry/core/http.py
+  s_0f8f592a8c0e82::t_ce82e1d302edbf 137-143,597,620-626,664
+tests/registry/test_scanner_templates.py
+  s_0f8f592a8c0e82::t_1eb3084a38fc49 1-4,6-61,63,65-220
+  s_0f8f592a8c0e82::t_bdc630196983b1 5,62,64
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/create_detection_rule.yml
+  s_0f8f592a8c0e82::t_81b5f12a2fbd3a 1-106
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/create_event_sink.yml
+  s_0f8f592a8c0e82::t_de2c2128ec22d5 24
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-23,25-44
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/update_detection_rule.yml
+  s_0f8f592a8c0e82::t_81b5f12a2fbd3a 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/get_detection_rule.yml
+  s_0f8f592a8c0e82::t_81b5f12a2fbd3a 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/get_query_progress.yml
+  s_0f8f592a8c0e82::t_ac3b3690a8cdb7 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/list_event_sinks.yml
+  s_0f8f592a8c0e82::t_5b01ab7690013c 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/scanner/list_detection_rules.yml
+  s_0f8f592a8c0e82::t_81b5f12a2fbd3a 1-53
+tests/registry/test_core_http.py
+  s_0f8f592a8c0e82::t_ce82e1d302edbf 228,230-274
+  s_0f8f592a8c0e82::t_031b2d45e32c6b 229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "6c4206e35cadd8ada5a0b7a526ada4e2e88a48c0",
+  "prompts": {},
+  "sessions": {
+    "s_0f8f592a8c0e82": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5d3e-a15b-76d3-93f8-62c606f381f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
