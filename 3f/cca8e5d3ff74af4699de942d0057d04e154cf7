@@ -1,0 +1,21 @@
+tracecat/mcp/oidc/endpoints.py
+  s_2f68703679935c::t_d2fbaabcc8ef06 322
+tests/unit/test_mcp_oidc_endpoints.py
+  s_2f68703679935c::t_8896d9a497a6e1 535,1484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "3fcca8e5d3ff74af4699de942d0057d04e154cf7",
+  "prompts": {},
+  "sessions": {
+    "s_2f68703679935c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c244fa6a-2eb7-4bb1-b67b-529657e2fb14",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
