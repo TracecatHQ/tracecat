@@ -14,7 +14,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -499,6 +499,73 @@ async def test_duplicate_skill_slug_is_validation_diagnostic(
         == ["qa-enrichment-skill", "qa-enrichment-skill-copy"]
         for diagnostic in diagnostics
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("resource_path", "invalid_slug"),
+    [
+        (f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml", "QA-Enrichment-Skill"),
+        (
+            f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml",
+            "qa enrichment skill",
+        ),
+    ],
+)
+async def test_pull_rejects_invalid_skill_slugs_before_writes(
+    workspace_sync_service: WorkspaceSyncService,
+    resource_path: str,
+    invalid_slug: str,
+) -> None:
+    files = _expanded_selected_git_tree()
+    resource = yaml.safe_load(files[resource_path])
+    if resource["type"] == "skill":
+        resource["slug"] = invalid_slug
+    else:
+        resource["skills"][0]["slug"] = invalid_slug
+    files[resource_path] = _yaml(resource)
+
+    snapshot, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.workflow_path == resource_path
+        and diagnostic.error_type == "validation"
+        and any(
+            error.get("loc", [])[-1:] == ["slug"]
+            for error in diagnostic.details.get("validation_errors", [])
+        )
+        for diagnostic in diagnostics
+    )
+    if resource["type"] == "skill":
+        assert "qa-enrichment-skill" not in snapshot.spec.skills
+    else:
+        assert snapshot.spec.agent_presets["qa-triage-parent"].versions == {}
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="i" * 40,
+        tree_sha="tree-sha",
+        files=files,
+    )
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="i" * 40)
+        )
+
+    assert result.success is False
+    assert any(
+        diagnostic.workflow_path == resource_path
+        and diagnostic.error_type == "validation"
+        for diagnostic in result.diagnostics
+    )
+    cast(AsyncMock, workspace_sync_service.session).add.assert_not_called()
 
 
 @pytest.mark.anyio
