@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.preset.resolver import ResolvedAgentsRuntimeConfig
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -64,6 +65,8 @@ class RunAgentArgs(BaseModel):
     rows. None for legacy executions."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
+    resolved_agents_config: ResolvedAgentsRuntimeConfig | None = None
+    """Dispatch-time resolved runtime subagent tree. None for legacy executions."""
     preset_slug: str | None = None
     """Slug for the preset configuration (if using a preset)."""
     max_requests: int | None = None

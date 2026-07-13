@@ -46,6 +46,11 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.resolved_refs import ResolvedRefs, merge_resolved_refs
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    resolve_agents_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
@@ -68,10 +73,9 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     TurnLifecycleResult,
 )
-from tracecat.agent.subagents import (
-    ResolvedAgentsConfig,
-)
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
@@ -147,23 +151,16 @@ class AgentSessionService(BaseWorkspaceService):
 
     service_name = "agent-session"
 
-    def _stage_root_turn_provenance(
+    def _stage_turn_provenance(
         self,
         *,
         session_id: uuid.UUID,
         run_id: uuid.UUID,
-        config: AgentConfig,
+        resolved_refs: ResolvedRefs | None,
     ) -> None:
-        """Stage the root resolution snapshot for a spawned turn.
+        """Stage the dispatch-time whole-tree resolution snapshot for this turn."""
 
-        Always staged, even when a later subagent activity will append a
-        merged snapshot: any failure between spawn and that write (custom
-        model provider config, session load, subagent resolution) must still
-        leave the turn's root refs on record. The highest ``surrogate_id``
-        per ``wf_exec_id`` is the final snapshot.
-        """
-
-        if config.resolved_refs is None:
+        if resolved_refs is None:
             return
 
         self.session.add(
@@ -171,9 +168,39 @@ class AgentSessionService(BaseWorkspaceService):
                 workspace_id=self.workspace_id,
                 session_id=session_id,
                 wf_exec_id=str(run_id),
-                resolved_refs=config.resolved_refs.model_dump(mode="json"),
+                resolved_refs=resolved_refs.model_dump(mode="json"),
             )
         )
+
+    async def _resolve_dispatch_agents_config(
+        self,
+        *,
+        agent_session: AgentSession,
+        config: AgentConfig,
+    ) -> ResolvedAgentsRuntimeConfig:
+        """Resolve the runtime agents tree before Temporal dispatch."""
+
+        agents_config = config.agents
+        if not agents_config.enabled:
+            return ResolvedAgentsRuntimeConfig(resolved_refs=config.resolved_refs)
+        if not agents_config.subagents:
+            return ResolvedAgentsRuntimeConfig(
+                enabled=True,
+                resolved_refs=config.resolved_refs,
+            )
+
+        resolved = await resolve_agents_config(
+            AgentPresetService(self.session, self.role),
+            agents=agents_config,
+            parent_preset_id=agent_session.agent_preset_id,
+            include_runtime_config=True,
+        )
+        runtime_config = resolved.to_runtime_config()
+        runtime_config.resolved_refs = merge_resolved_refs(
+            config.resolved_refs,
+            runtime_config.resolved_refs,
+        )
+        return runtime_config
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
         """Get entitlement-aware default tools for a session entity type."""
@@ -1464,10 +1491,14 @@ class AgentSessionService(BaseWorkspaceService):
                 await check_entitlement(
                     self.session, self.role, Entitlement.AGENT_ADDONS
                 )
-            self._stage_root_turn_provenance(
+            resolved_agents_config = await self._resolve_dispatch_agents_config(
+                agent_session=agent_session,
+                config=agent_config,
+            )
+            self._stage_turn_provenance(
                 session_id=session_id,
                 run_id=run_id,
-                config=agent_config,
+                resolved_refs=resolved_agents_config.resolved_refs,
             )
 
             args = RunAgentArgs(
@@ -1476,6 +1507,7 @@ class AgentSessionService(BaseWorkspaceService):
                 active_stream_id=stream_id,
                 curr_run_id=run_id,
                 config=agent_config,
+                resolved_agents_config=resolved_agents_config,
             )
 
             client = await get_temporal_client()
@@ -1490,6 +1522,7 @@ class AgentSessionService(BaseWorkspaceService):
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
+                resolved_agent_config=agent_config_to_payload(agent_config),
             )
 
             # Pin run_id (approval lookups) and the per-turn stream id before

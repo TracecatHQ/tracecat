@@ -90,6 +90,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
+    from tracecat.agent.workflow_schemas import AgentConfigPayload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
@@ -427,6 +428,10 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    resolved_agent_config: AgentConfigPayload | None = Field(
+        default=None,
+        description="Dispatch-time resolved root config. None for legacy executions.",
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -625,7 +630,9 @@ class DurableAgentWorkflow:
         return workflow.info().run_id
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
-        if args.agent_args.preset_slug:
+        if args.resolved_agent_config is not None:
+            cfg = agent_config_from_payload(args.resolved_agent_config)
+        elif args.agent_args.preset_slug:
             wf_exec_id = self._turn_wf_exec_id(args)
             activity_input = (
                 ResolveAgentPresetConfigActivityInput(
@@ -691,6 +698,13 @@ class DurableAgentWorkflow:
         persist_provenance: bool = False,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
+        if (
+            agents is None
+            and follow_latest_versions is None
+            and not preserve_resolved_versions
+            and args.agent_args.resolved_agents_config is not None
+        ):
+            return args.agent_args.resolved_agents_config
         if not agents_config.enabled and not persist_provenance:
             return ResolvedAgentsRuntimeConfig(resolved_refs=cfg.resolved_refs)
         if not agents_config.subagents and not persist_provenance:
@@ -1158,7 +1172,11 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         load_result: LoadSessionResult | None = None
-        if workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+        dispatch_resolved_agents = args.agent_args.resolved_agents_config
+        has_dispatch_resolved_agents = dispatch_resolved_agents is not None
+        if dispatch_resolved_agents is not None:
+            agents_result = dispatch_resolved_agents
+        elif workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
@@ -1207,7 +1225,11 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
-                agents_binding=agents_result.to_agents_binding(),
+                agents_binding=(
+                    None
+                    if has_dispatch_resolved_agents
+                    else agents_result.to_agents_binding()
+                ),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
@@ -1256,6 +1278,7 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
+        assert load_result is not None
 
         if load_result.found and load_result.sdk_session_id:
             logger.info(

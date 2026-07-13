@@ -6,10 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tracecat.agent.session.activities import (
+    CreateSessionInput,
     PendingToolResult,
     ReconcileToolResultsInput,
+    create_session_activity,
     reconcile_tool_results_activity,
 )
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
 from tracecat.storage.object import ExternalObject, ObjectRef
 
@@ -175,3 +179,58 @@ async def test_reconcile_tool_results_appends_artifact_side_effect(
     assert apply_args[0] == input.session_id
     assert len(apply_args[1]) == 1
     assert apply_args[1][0].op == "upsert"
+
+
+@pytest.mark.anyio
+async def test_create_session_activity_accepts_matching_legacy_session_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy workflows can verify a matching stored session binding."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    agents_binding = ResolvedAgentsConfig.model_validate(
+        {"enabled": True, "subagents": []}
+    )
+    agent_session = MagicMock()
+    agent_session.id = uuid.uuid4()
+    agent_session.agents_binding = agents_binding.model_dump(mode="json")
+    agent_session.sdk_session_id = "sdk-session"
+    agent_session.parent_session_id = None
+
+    service = MagicMock()
+    service.get_or_create_session = AsyncMock(return_value=(agent_session, False))
+    service.session.add = MagicMock()
+    service.session.commit = AsyncMock()
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = service
+    stream = MagicMock()
+    stream.clear_buffer = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentSessionService.with_session",
+        MagicMock(return_value=ctx),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentStream.new",
+        AsyncMock(return_value=stream),
+    )
+
+    result = await create_session_activity(
+        CreateSessionInput(
+            role=role,
+            session_id=agent_session.id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            agents_binding=agents_binding,
+            curr_run_id=uuid.uuid4(),
+        )
+    )
+
+    assert result.success is True
+    service.session.add.assert_called_with(agent_session)
+    service.session.commit.assert_awaited_once()
+    stream.clear_buffer.assert_awaited_once()
