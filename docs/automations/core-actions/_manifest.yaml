@@ -78,41 +78,42 @@ pages:
           `ctx.workflows`. Each client also provides an async variant under
           `.aio`, such as `ctx.cases.aio`.
 
-          SDK calls use the workflow's authenticated execution context. Set
-          `allow_network: true` whenever your script calls a Tracecat SDK API
-          method.
+          SDK calls use the workflow's internal authenticated execution context
+          and do not require `allow_network: true`.
 
-          #### List cases synchronously
+          <Tabs>
+            <Tab title="Synchronous">
 
-          ```yaml
-          - ref: list_recent_cases
-            action: core.script.run_python
-            args:
-              allow_network: true
-              script: |
-                from tracecat_registry import ctx
+              ```yaml
+              - ref: list_recent_cases
+                action: core.script.run_python
+                args:
+                  script: |
+                    from tracecat_registry import ctx
 
-                def main():
-                    return ctx.cases.list_cases(limit=10)
-          ```
+                    def main():
+                        return ctx.cases.list_cases(limit=10)
+              ```
+            </Tab>
 
-          #### Read a variable asynchronously
+            <Tab title="Asynchronous">
 
-          ```yaml
-          - ref: get_api_timeout
-            action: core.script.run_python
-            args:
-              allow_network: true
-              script: |
-                from tracecat_registry import ctx
+              ```yaml
+              - ref: get_api_timeout
+                action: core.script.run_python
+                args:
+                  script: |
+                    from tracecat_registry import ctx
 
-                async def main():
-                    return await ctx.variables.aio.get_or_default(
-                        "api_config",
-                        "timeout_seconds",
-                        30,
-                    )
-          ```
+                    async def main():
+                        return await ctx.variables.aio.get_or_default(
+                            "api_config",
+                            "timeout_seconds",
+                            30,
+                        )
+              ```
+            </Tab>
+          </Tabs>
         examples:
           - python-script-enrich
 

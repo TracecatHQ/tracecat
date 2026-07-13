@@ -46,7 +46,7 @@ async def run_python(
         Doc(
             "Whether to allow network access during script execution. "
             "Default is False. Set to True when installing PyPI dependencies "
-            "or calling Tracecat SDK API methods."
+            "or making external network requests."
         ),
     ] = False,
     env_vars: Annotated[
@@ -82,8 +82,8 @@ async def run_python(
     Async scripts can use the typed async client namespace:
         await ctx.cases.aio.list_cases(limit=10)
 
-    SDK API calls still use the sandbox network setting. Set allow_network=True
-    when the script needs to call Tracecat API endpoints.
+    SDK API calls use the preconfigured internal execution context and do not
+    require sandbox network access.
 
     Args:
         script: The Python script content with at least one function definition.
