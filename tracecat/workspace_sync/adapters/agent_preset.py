@@ -356,6 +356,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 for ref in (version.mcp_integrations or [])
             },
         )
+        subagent_bindings_by_version_id = await self._subagent_bindings_for_versions(
+            workspace_service,
+            [version.id for version in version_rows],
+        )
         versions: dict[int, AgentPresetVersionResourceSpec] = {}
         for version in version_rows:
             mcp_integrations = sorted(version.mcp_integrations or [])
@@ -366,6 +370,26 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     continue
                 if hint := mcp_hints_by_id.get(integration_id):
                     mcp_integration_hints[integration_id] = hint
+            json_subagent_refs = _subagent_refs(version.agents)
+            subagent_bindings = subagent_bindings_by_version_id.get(version.id)
+            if subagent_bindings is None:
+                subagent_bindings = json_subagent_refs
+            else:
+                # Edges own child identity and runtime metadata, but the optional
+                # child version pin remains in the compatibility JSON.
+                version_by_alias = {
+                    (ref.name or ref.slug): ref.version for ref in json_subagent_refs
+                }
+                subagent_bindings = [
+                    binding.model_copy(
+                        update={
+                            "version": version_by_alias.get(
+                                binding.name or binding.slug
+                            )
+                        }
+                    )
+                    for binding in subagent_bindings
+                ]
             versions[version.version] = AgentPresetVersionResourceSpec(
                 version_number=version.version,
                 name=preset.name,
@@ -373,7 +397,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 tool_approvals=version.tool_approvals or {},
                 actions=sorted(version.actions or []),
                 skills=skill_bindings_by_version_id.get(version.id, []),
-                subagents=_subagent_refs(version.agents),
+                subagents=subagent_bindings,
                 catalog_id=version.catalog_id,
                 model_name=version.model_name,
                 model_provider=version.model_provider,
@@ -1404,6 +1428,52 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         if isinstance(reference, AgentPresetMcpIntegrationReference):
             return reference.preset_name
         return reference.workflow_title
+
+    async def _subagent_bindings_for_versions(
+        self,
+        workspace_service: SyncMappingService,
+        version_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, list[AgentPresetSubagentRef]]:
+        """Return normalized subagent bindings grouped by preset version id."""
+        if not version_ids:
+            return {}
+        stmt = (
+            select(
+                AgentPresetVersionSubagent.parent_preset_version_id,
+                AgentPreset.slug,
+                AgentPresetVersionSubagent.alias,
+                AgentPresetVersionSubagent.description,
+                AgentPresetVersionSubagent.max_turns,
+            )
+            .select_from(AgentPresetVersionSubagent)
+            .join(
+                AgentPreset,
+                AgentPresetVersionSubagent.child_preset_id == AgentPreset.id,
+            )
+            .where(
+                AgentPresetVersionSubagent.workspace_id
+                == workspace_service.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id.in_(version_ids),
+            )
+            .order_by(
+                AgentPresetVersionSubagent.parent_preset_version_id.asc(),
+                AgentPreset.slug.asc(),
+                AgentPresetVersionSubagent.alias.asc(),
+            )
+        )
+        bindings: dict[uuid.UUID, list[AgentPresetSubagentRef]] = {}
+        for preset_version_id, slug, alias, description, max_turns in (
+            await workspace_service.session.execute(stmt)
+        ).tuples():
+            bindings.setdefault(preset_version_id, []).append(
+                AgentPresetSubagentRef(
+                    slug=slug,
+                    name=alias,
+                    description=description,
+                    max_turns=max_turns,
+                )
+            )
+        return bindings
 
     async def import_specs(
         self,
