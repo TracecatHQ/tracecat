@@ -414,18 +414,23 @@ class AgentSessionService(BaseWorkspaceService):
         scopes = (self.role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
         return self.role.model_copy(update={"scopes": scopes})
 
-    def _stage_root_only_turn_provenance(
+    def _stage_root_turn_provenance(
         self,
         *,
         session_id: uuid.UUID,
         run_id: uuid.UUID,
         config: AgentConfig,
     ) -> None:
-        """Stage root-only resolution provenance when no subagent activity will run."""
+        """Stage the root resolution snapshot for a spawned turn.
+
+        Always staged, even when a later subagent activity will append a
+        merged snapshot: any failure between spawn and that write (custom
+        model provider config, session load, subagent resolution) must still
+        leave the turn's root refs on record. The highest ``surrogate_id``
+        per ``wf_exec_id`` is the final snapshot.
+        """
 
         if config.resolved_refs is None:
-            return
-        if config.agents.enabled and config.agents.subagents:
             return
 
         self.session.add(
@@ -2140,7 +2145,7 @@ class AgentSessionService(BaseWorkspaceService):
                 await check_entitlement(
                     self.session, self.role, Entitlement.AGENT_ADDONS
                 )
-            self._stage_root_only_turn_provenance(
+            self._stage_root_turn_provenance(
                 session_id=session_id,
                 run_id=run_id,
                 config=agent_config,

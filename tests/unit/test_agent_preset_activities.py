@@ -19,6 +19,7 @@ from tracecat.agent.preset.resolved_refs import (
     ResolvedRef,
     ResolvedRefs,
     merge_resolved_refs,
+    without_subagent_refs,
 )
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -32,7 +33,7 @@ from tracecat.agent.subagents import (
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
 class _AsyncContext:
@@ -91,6 +92,75 @@ async def test_resolve_agent_preset_version_ref_activity_ignores_legacy_version(
     assert result.preset_version_id == version.id
 
 
+@pytest.mark.anyio
+async def test_preflight_records_failure_refs_before_reraising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: DSL preflight failures still leave turn provenance.
+
+    ai.preset_agent resolves the preset slug before the agent child workflow
+    exists; a missing/deleted/unpublished slug must record classified
+    failure refs (like the config activity's resolution-error path) instead
+    of failing with zero provenance rows.
+    """
+
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    failure_refs = ResolvedRefs(
+        refs=[
+            ResolvedRef(
+                resource_kind="preset",
+                slug="missing-preset",
+                status="skipped",
+                code="not_found",
+            )
+        ]
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+    )
+    no_rows = SimpleNamespace(scalar_one_or_none=MagicMock(return_value=None))
+    db_session = SimpleNamespace(
+        execute=AsyncMock(return_value=no_rows),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        role=role,
+        session=db_session,
+        resolve_agent_preset_version=AsyncMock(
+            side_effect=TracecatNotFoundError("Preset not found")
+        ),
+        build_root_preset_failure_refs=AsyncMock(return_value=failure_refs),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(TracecatNotFoundError):
+        await resolve_agent_preset_version_ref_activity(
+            ResolveAgentPresetVersionRefActivityInput(
+                role=role,
+                preset_slug="missing-preset",
+                session_id=session_id,
+                wf_exec_id="wf-dsl-exec-1",
+            )
+        )
+
+    service.build_root_preset_failure_refs.assert_awaited_once_with(
+        slug="missing-preset",
+    )
+    provenance = db_session.add.call_args.args[0]
+    assert provenance.session_id == session_id
+    assert provenance.wf_exec_id == "wf-dsl-exec-1"
+    assert provenance.resolved_refs == failure_refs.model_dump(mode="json")
+    db_session.commit.assert_awaited_once_with()
+
+
 def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> None:
     """Workflow histories recorded before the flag existed must deserialize,
     defaulting to fresh current-head resolution."""
@@ -137,6 +207,40 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     agents_binding = result.to_agents_binding()
     assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
+
+
+def test_without_subagent_refs_keeps_non_subagent_entries() -> None:
+    """Invariant: preserved-binding turns must not inherit fresh subagent refs.
+
+    When a preserved session binding overrides the preset's current topology,
+    the root snapshot's subagent entries describe children that will not run
+    this turn; only preset/skill entries may flow into the merge. An empty
+    preserved binding would otherwise persist the fresh snapshot wholesale.
+    """
+
+    preset_id = uuid.uuid4()
+    refs = ResolvedRefs(
+        refs=[
+            ResolvedRef(resource_kind="preset", resource_id=preset_id, status="ok"),
+            ResolvedRef(resource_kind="skill", resource_id=uuid.uuid4(), status="ok"),
+            ResolvedRef(
+                resource_kind="subagent", resource_id=uuid.uuid4(), status="ok"
+            ),
+            ResolvedRef(
+                resource_kind="subagent",
+                slug="gone-child",
+                status="skipped",
+                code="deleted",
+            ),
+        ]
+    )
+
+    filtered = without_subagent_refs(refs)
+
+    assert filtered is not None
+    assert [ref.resource_kind for ref in filtered.refs] == ["preset", "skill"]
+    assert filtered.refs[0].resource_id == preset_id
+    assert without_subagent_refs(None) is None
 
 
 def test_merge_resolved_refs_runtime_pass_wins_per_node() -> None:

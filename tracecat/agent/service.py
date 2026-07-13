@@ -1084,6 +1084,7 @@ class AgentManagementService(BaseOrgService):
         preset_version: int | None = None,
         on_resolution_error: Callable[[TracecatNotFoundError], Awaitable[None]]
         | None = None,
+        on_resolved: Callable[[AgentConfig], Awaitable[None]] | None = None,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1097,6 +1098,10 @@ class AgentManagementService(BaseOrgService):
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Exact version ID from a run or restore snapshot
             preset_version: Exact version number for legacy replay
+            on_resolution_error: Awaited when resolution itself fails.
+            on_resolved: Awaited immediately after resolution succeeds and
+                before credential loading, so callers can persist resolution
+                outcomes that must survive credential failures.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(
@@ -1125,6 +1130,9 @@ class AgentManagementService(BaseOrgService):
                     # error; record it and let the original propagate.
                     logger.exception("Failed to record preset resolution failure refs")
             raise
+
+        if on_resolved is not None:
+            await on_resolved(preset_config)
 
         credentials: dict[str, str] | None = None
         workspace_credentials_checked = False
