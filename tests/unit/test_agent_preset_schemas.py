@@ -294,3 +294,28 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
 
     assert payload.version == 1
     assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
+
+
+def test_agent_preset_read_minimal_falls_back_to_legacy_agents_json() -> None:
+    """Expand-window rows written by old pods expose their legacy enabled bit.
+
+    Old pods write only the legacy ``agents`` JSON; the normalized
+    ``subagents_enabled`` column stays false until a reconciling detail read
+    repairs it. List projections must reflect the effective enabled bit or
+    the picker wrongly offers nested-agent presets as attachable.
+    """
+
+    preset = make_agent_preset(
+        name="Legacy JSON preset",
+        slug="legacy-json-preset",
+        tool_approvals=None,
+        agents={"enabled": True, "subagents": []},
+    )
+    preset.subagents_enabled = False
+
+    payload = build_agent_preset_read_minimal(preset)
+
+    dumped = payload.model_dump(mode="json")
+    assert "subagents" in dumped["capabilities"]
+    assert dumped["current_version_subagent_eligibility"]["eligible"] is False
+    assert "agents_enabled" in dumped["current_version_subagent_eligibility"]["reasons"]
