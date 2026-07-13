@@ -38,8 +38,29 @@ pages:
     title: Python script
     actions:
       - id: core.script.run_python
+        info: |
+          ### Add external PyPI dependencies
+
+          Add pinned package specifications to `dependencies`, then import them
+          in your script. Set `allow_network: true` so Tracecat can install the
+          packages from PyPI. Tracecat caches installed packages between runs.
+
+          ### Import the Tracecat SDK
+
+          The Tracecat SDK is already available in the Python sandbox. Import
+          `ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
+          Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
+          `ctx.workflows`. Each client also provides an async variant under
+          `.aio`, such as `ctx.cases.aio`.
+
+          SDK calls use the workflow's authenticated execution context. Set
+          `allow_network: true` whenever your script calls a Tracecat SDK API
+          method.
         examples:
           - python-script-enrich
+          - python-script-pypi-dependency
+          - python-script-sdk-cases
+          - python-script-sdk-variable-async
 
   - slug: workflow-actions/scatter-gather-loops
     title: Scatter-gather loops
@@ -166,10 +187,6 @@ pages:
       - id: core.cases.delete_case
         examples:
           - cases-delete-case
-
-  - slug: case-actions/comments
-    title: Comments
-    actions:
       - id: core.cases.create_comment
         examples:
           - cases-comments
@@ -188,10 +205,6 @@ pages:
       - id: core.cases.get_comment_thread
         examples:
           - cases-comments
-
-  - slug: case-actions/attachments
-    title: Attachments
-    actions:
       - id: core.cases.upload_attachment
         examples:
           - cases-attachments
@@ -213,10 +226,6 @@ pages:
       - id: core.cases.delete_attachment
         examples:
           - cases-attachments
-
-  - slug: case-actions/tasks
-    title: "🔒 Tasks"
-    actions:
       - id: core.cases.create_task
         examples:
           - cases-tasks
@@ -232,18 +241,20 @@ pages:
       - id: core.cases.delete_task
         examples:
           - cases-tasks
-
-  - slug: case-actions/linked-rows
-    title: "🔒 Linked rows"
-    actions:
       - id: core.cases.link_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-rows
       - id: core.cases.unlink_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-rows
       - id: core.cases.insert_row
         info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
           <Info>
             Linked rows use regular tables. Create the destination table with
             the same `columns` schema documented in
@@ -251,10 +262,6 @@ pages:
           </Info>
         examples:
           - cases-rows
-
-  - slug: case-actions/metrics
-    title: "🔒 Metrics"
-    actions:
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics

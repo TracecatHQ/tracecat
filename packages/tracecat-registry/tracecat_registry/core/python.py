@@ -45,8 +45,8 @@ async def run_python(
         bool,
         Doc(
             "Whether to allow network access during script execution. "
-            "Default is False. Tracecat SDK API calls require network access. "
-            "Note: package installation always has network access."
+            "Default is False. Set to True when installing PyPI dependencies "
+            "or calling Tracecat SDK API methods."
         ),
     ] = False,
     env_vars: Annotated[

@@ -44,57 +44,22 @@
               },
               {
                 "group": "Core actions",
+                "expanded": true,
                 "pages": [
-                  {
-                    "group": "Request actions",
-                    "expanded": true,
-                    "pages": [
-                      "automations/core-actions/request-actions/http",
-                      "automations/core-actions/request-actions/sql",
-                      "automations/core-actions/request-actions/ssh",
-                      "automations/core-actions/request-actions/grpc",
-                      "automations/core-actions/request-actions/email"
-                    ]
-                  },
-                  {
-                    "group": "Transform actions",
-                    "expanded": true,
-                    "pages": [
-                      "automations/core-actions/transform-actions/reshape",
-                      "automations/core-actions/transform-actions/python-script",
-                      "automations/core-actions/transform-actions/data-transforms",
-                      "automations/core-actions/transform-actions/require"
-                    ]
-                  },
-                  {
-                    "group": "Workflow actions",
-                    "expanded": true,
-                    "pages": [
-                      "automations/core-actions/workflow-actions/run-subflow",
-                      "automations/core-actions/workflow-actions/scatter-gather-loops",
-                      "automations/core-actions/workflow-actions/while-loops"
-                    ]
-                  },
-                  {
-                    "group": "Case actions",
-                    "expanded": true,
-                    "pages": [
-                      "automations/core-actions/case-actions/cases",
-                      "automations/core-actions/case-actions/comments",
-                      "automations/core-actions/case-actions/attachments",
-                      "automations/core-actions/case-actions/tasks",
-                      "automations/core-actions/case-actions/linked-rows",
-                      "automations/core-actions/case-actions/metrics"
-                    ]
-                  },
-                  {
-                    "group": "Memory actions",
-                    "expanded": true,
-                    "pages": [
-                      "automations/core-actions/memory-actions/tables",
-                      "automations/core-actions/memory-actions/filesystem"
-                    ]
-                  }
+                  "automations/core-actions/request-actions/http",
+                  "automations/core-actions/request-actions/sql",
+                  "automations/core-actions/request-actions/ssh",
+                  "automations/core-actions/request-actions/grpc",
+                  "automations/core-actions/request-actions/email",
+                  "automations/core-actions/transform-actions/reshape",
+                  "automations/core-actions/transform-actions/python-script",
+                  "automations/core-actions/transform-actions/data-transforms",
+                  "automations/core-actions/transform-actions/require",
+                  "automations/core-actions/workflow-actions/run-subflow",
+                  "automations/core-actions/workflow-actions/scatter-gather-loops",
+                  "automations/core-actions/workflow-actions/while-loops",
+                  "automations/core-actions/case-actions/cases",
+                  "automations/core-actions/memory-actions/tables"
                 ]
               },
               {
@@ -257,6 +222,21 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core concepts",
+            "pages": [
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "https://platform.tracecat.com/api/openapi.json"
+          }
+        ]
       }
     ]
   },
@@ -315,26 +295,54 @@
     },
     {
       "source": "/automations/core-actions/case-comments",
-      "destination": "/automations/core-actions/case-actions/comments"
+      "destination": "/automations/core-actions/case-actions/cases"
     },
     {
       "source": "/automations/core-actions/case-attachments",
-      "destination": "/automations/core-actions/case-actions/attachments"
+      "destination": "/automations/core-actions/case-actions/cases"
     },
     {
       "source": "/automations/core-actions/case-tasks",
-      "destination": "/automations/core-actions/case-actions/tasks"
+      "destination": "/automations/core-actions/case-actions/cases"
     },
     {
       "source": "/automations/core-actions/case-tables",
-      "destination": "/automations/core-actions/case-actions/linked-rows"
+      "destination": "/automations/core-actions/case-actions/cases"
     },
     {
       "source": "/automations/core-actions/case-metrics",
-      "destination": "/automations/core-actions/case-actions/metrics"
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/comments",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/attachments",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/tasks",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/linked-rows",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-actions/metrics",
+      "destination": "/automations/core-actions/case-actions/cases"
     },
     {
       "source": "/automations/core-actions/tables",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
+      "source": "/automations/core-actions/filesystem",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
+      "source": "/automations/core-actions/memory-actions/filesystem",
       "destination": "/automations/core-actions/memory-actions/tables"
     },
     {
