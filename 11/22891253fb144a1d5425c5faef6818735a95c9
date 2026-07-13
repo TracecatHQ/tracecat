@@ -1,0 +1,22 @@
+docs/automations/core-actions/_manifest.yaml
+  s_a63947ed9bf464::t_837c70c685b5d6 42-47,53-73,84-115
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_a63947ed9bf464::t_837c70c685b5d6 11-16,22-42,54-84
+  s_a63947ed9bf464::t_e046c0e38fab7f 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "1122891253fb144a1d5425c5faef6818735a95c9",
+  "prompts": {},
+  "sessions": {
+    "s_a63947ed9bf464": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5c0d-72e6-7730-9ba9-2d486035ed1b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
