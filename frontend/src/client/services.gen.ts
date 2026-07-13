@@ -494,6 +494,7 @@ import type {
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListCurrentUserOrganizationMembershipsResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
@@ -4129,6 +4130,20 @@ export const organizationDeleteOrganization = (
     },
   })
 }
+
+/**
+ * List Current User Organization Memberships
+ * List active organizations the current user belongs to.
+ * @returns tracecat__organization__schemas__OrgRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListCurrentUserOrganizationMemberships =
+  (): CancelablePromise<OrganizationListCurrentUserOrganizationMembershipsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/memberships",
+    })
+  }
 
 /**
  * List Organization Domains
