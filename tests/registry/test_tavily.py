@@ -34,7 +34,7 @@ async def test_web_search_forwards_search_depth_to_sdk() -> None:
     client's **kwargs and the requested depth is silently ignored."""
     result = await tavily.web_search(
         query="tracecat",
-        search_deep="advanced",
+        search_depth="advanced",
         topic="news",
         time_range="week",
     )
