@@ -367,7 +367,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         stmt = (
             select(
                 AgentPresetVersionSkill.preset_version_id,
-                sa.func.coalesce(Skill.slug, Skill.name),
+                Skill.slug,
             )
             .select_from(AgentPresetVersionSkill)
             .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
@@ -377,7 +377,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             .order_by(
                 AgentPresetVersionSkill.preset_version_id.asc(),
-                sa.func.coalesce(Skill.slug, Skill.name).asc(),
+                Skill.slug.asc(),
             )
         )
         bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}

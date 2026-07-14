@@ -338,23 +338,20 @@ class SkillAdapter(DirectoryManifestAdapter):
                 ).values()
             )
         stmt = self._projection_stmt(workspace_service)
-        effective_slug = sa.func.coalesce(Skill.slug, Skill.name)
         if local_ids and slugs:
-            stmt = stmt.where(
-                sa.or_(Skill.id.in_(local_ids), effective_slug.in_(slugs))
-            )
+            stmt = stmt.where(sa.or_(Skill.id.in_(local_ids), Skill.slug.in_(slugs)))
         elif local_ids:
             stmt = stmt.where(Skill.id.in_(local_ids))
         else:
-            stmt = stmt.where(effective_slug.in_(slugs))
+            stmt = stmt.where(Skill.slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
         versions_by_skill_id = {
-            skill.id: versions_by_slug[skill.slug or skill.name]
+            skill.id: versions_by_slug[skill.slug]
             for skill in skills
-            if (skill.slug or skill.name) in versions_by_slug
+            if skill.slug in versions_by_slug
         }
         return await self._projection_from_skills(
             workspace_service,
@@ -374,7 +371,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
-            .order_by(sa.func.coalesce(Skill.slug, Skill.name).asc(), Skill.id.asc())
+            .order_by(Skill.slug.asc(), Skill.id.asc())
         )
 
     async def _projection_from_skills(
@@ -388,8 +385,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
-            effective_slug = skill.slug or skill.name
-            source_id = assigner.assign(skill.id, effective_slug)
+            source_id = assigner.assign(skill.id, skill.slug)
             # Keep the top-level manifest as metadata only, then emit the current
             # immutable file snapshot below ``versions/``.
             version = skill.current_version
@@ -404,7 +400,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             specs[source_id] = SkillResourceSpec(
                 id=source_id,
-                slug=effective_slug,
+                slug=skill.slug,
                 name=skill.name,
                 current_version=version.version if version is not None else None,
                 description=skill.description,

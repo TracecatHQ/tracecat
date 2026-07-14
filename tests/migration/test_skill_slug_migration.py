@@ -17,7 +17,7 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 MIGRATION_REVISION = "c6a8d4f3b2e1"
-CONTRACT_REVISION = "c7d9e1f3a5b2"
+CONTRACT_REVISION = "44320bf05445"
 
 PREVIOUS_REVISION = "8b4f6c2d1a9e"
 
@@ -548,9 +548,6 @@ def test_skill_slug_migration_treats_legacy_archived_rows_as_dead(
         engine.dispose()
 
 
-@pytest.mark.skip(
-    reason="skill contract revision is delivered after application cutover"
-)
 def test_skill_contract_closes_late_expand_writes(
     migration_db_url: str,
 ) -> None:
@@ -676,10 +673,23 @@ def test_skill_contract_closes_late_expand_writes(
         assert rows[canonical_id] == ("collision", None)
         assert rows[occupied_suffix_id] == ("collision-2", None)
         assert rows[late_slugless_id] == ("collision-3", None)
-        assert rows[legacy_archived_id] == ("collision", archived_at)
+        assert rows[legacy_archived_id] == ("collision", None)
         assert slug_nullable == "NO"
-        assert archived_column_count == 0
+        assert archived_column_count == 1
         assert "deleted_at IS NULL" in index_definition
-        assert "archived_at" not in index_definition
+        assert "archived_at IS NULL" in index_definition
+
+        _run_alembic(migration_db_url, "downgrade", MIGRATION_REVISION)
+        with engine.begin() as conn:
+            downgraded_slug_nullable = conn.execute(
+                text(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'skill' AND column_name = 'slug'
+                    """
+                )
+            ).scalar_one()
+        assert downgraded_slug_nullable == "YES"
     finally:
         engine.dispose()

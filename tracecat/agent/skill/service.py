@@ -1169,7 +1169,7 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             draft_revision=skill.draft_revision,
@@ -1191,7 +1191,7 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
@@ -1245,10 +1245,7 @@ class SkillService(BaseWorkspaceService):
 
         predicates = [
             Skill.workspace_id == self.workspace_id,
-            sa.or_(
-                Skill.slug == slug,
-                sa.and_(Skill.slug.is_(None), Skill.name == slug),
-            ),
+            Skill.slug == slug,
             Skill.deleted_at.is_(None),
             Skill.archived_at.is_(None),
         ]
@@ -1380,41 +1377,21 @@ class SkillService(BaseWorkspaceService):
     async def get_skill_by_slug(self, slug: str) -> Skill | None:
         """Return the live skill owning a slug."""
 
-        # Expand compatibility: the slug migration copied historical names
-        # verbatim, including values predating today's SkillName pattern.
+        # The slug backfill copied historical names verbatim, including values
+        # predating today's SkillName pattern.
         if not slug or len(slug) > SKILL_SLUG_MAX_LENGTH:
             return None
-        skill_slug = slug
         stmt = (
             select(Skill)
             .options(selectinload(Skill.current_version))
             .where(
                 Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == skill_slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == skill_slug),
-                ),
+                Skill.slug == slug,
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
-            .order_by(
-                sa.case((Skill.slug == skill_slug, 0), else_=1),
-                Skill.created_at.asc(),
-                Skill.id.asc(),
-            )
-            .limit(2)
         )
-        skills = (await self.session.execute(stmt)).scalars().all()
-        if not skills:
-            return None
-        if skills[0].slug == skill_slug:
-            return skills[0]
-        if len(skills) > 1:
-            raise TracecatValidationError(
-                "Skill identifier is ambiguous",
-                detail={"code": "ambiguous_skill_id"},
-            )
-        return skills[0]
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID

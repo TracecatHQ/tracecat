@@ -860,25 +860,6 @@ class TestSkillService:
         assert by_slug is not None
         assert by_slug.id == created.id
 
-    async def test_get_skill_by_slug_supports_legacy_name_fallback(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Slug-less rows remain reachable by pre-SkillName historical names."""
-
-        created = await skill_service.create_skill(SkillCreate(name="legacy-skill"))
-        legacy = await skill_service.get_skill(created.id)
-        assert legacy is not None
-        legacy.slug = None
-        legacy.name = "Legacy Skill"
-        skill_service.session.add(legacy)
-        await skill_service.session.commit()
-
-        resolved = await skill_service.get_skill_by_slug("Legacy Skill")
-
-        assert resolved is not None
-        assert resolved.id == created.id
-
     async def test_legacy_archived_at_alone_is_not_live(
         self,
         skill_service: SkillService,

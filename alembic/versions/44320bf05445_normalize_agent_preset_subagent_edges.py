@@ -8,12 +8,19 @@ This is the expand release. Existing application versions keep using the
 legacy JSON and pinned SkillVersion columns. The expand application dual-writes
 the nullable epoch marker and normalized version edges; a NULL marker means a
 late legacy writer still owns that row.
+
+Skill slugs are the exception to the expand-only shape: the b51 application
+already writes a slug on every Skill insert. This revision closes residual
+slug-less rows from the earlier nullable migration and enforces NOT NULL.
 """
 
+import logging
 from collections.abc import Sequence
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.engine import Connection
 
 from alembic import op
 from tracecat.db.tenant_rls import (
@@ -25,6 +32,9 @@ revision: str = "44320bf05445"
 down_revision: str | None = "c6a8d4f3b2e1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+logger = logging.getLogger("alembic.runtime.migration")
+SKILL_SLUG_MAX_LENGTH = 64
 
 
 def _create_version_subagent_table() -> None:
@@ -169,9 +179,15 @@ def _backfill_version_edges() -> None:
     op.execute(
         sa.text(
             """
+            -- Materialize the complete legacy-to-normalized mapping before
+            -- validating or writing any durable edge rows. The temp table is
+            -- transaction-local and disappears when the migration commits.
             CREATE TEMP TABLE _agent_preset_version_subagent_backfill
             ON COMMIT DROP AS
             WITH refs AS (
+                -- Expand each version's legacy JSON subagent array into one
+                -- candidate edge per element. Missing or malformed arrays are
+                -- treated as empty so versions without subagents need no row.
                 SELECT
                     parent.id AS parent_version_id,
                     parent.workspace_id,
@@ -189,13 +205,22 @@ def _backfill_version_edges() -> None:
                 refs.parent_version_id,
                 refs.workspace_id,
                 CASE
+                    -- Explicit ids take precedence over slugs. If an id was
+                    -- supplied but cannot be resolved, leave the edge NULL so
+                    -- the validation block below aborts instead of silently
+                    -- falling back to a possibly different slug target.
                     WHEN refs.ref ->> 'preset_id' IS NOT NULL THEN child_by_id.id
+                    -- A slug is safe when it identifies exactly one active
+                    -- head. A single tombstone is also preserved so historical
+                    -- version edges continue to identify their deleted target.
                     WHEN child_by_slug.active_count = 1 THEN child_by_slug.child_id
                     WHEN child_by_slug.active_count = 0
                         AND child_by_slug.total_count = 1
                         THEN child_by_slug.child_id
                     ELSE NULL
                 END AS child_id,
+                -- Legacy bindings used `name` as the invocation alias and
+                -- otherwise defaulted it to the referenced preset slug.
                 COALESCE(NULLIF(refs.ref ->> 'name', ''), refs.ref ->> 'preset')
                     AS alias,
                 refs.ref ->> 'description' AS description,
@@ -205,6 +230,8 @@ def _backfill_version_edges() -> None:
                     ELSE NULL
                 END AS max_turns
             FROM refs
+            -- Guard the UUID cast with the accepted UUID shape. Invalid ids
+            -- remain unresolved and are reported by the validation block.
             LEFT JOIN agent_preset AS child_by_id
                 ON child_by_id.workspace_id = refs.workspace_id
                 AND child_by_id.id = CASE
@@ -214,6 +241,10 @@ def _backfill_version_edges() -> None:
                     ELSE NULL
                 END
             LEFT JOIN LATERAL (
+                -- Resolve slug references inside the parent's workspace while
+                -- retaining counts needed to reject ambiguous active or
+                -- tombstoned matches. Ordering makes the selected candidate
+                -- deterministic and prefers an active head when one exists.
                 SELECT
                     (
                         array_agg(
@@ -238,6 +269,8 @@ def _backfill_version_edges() -> None:
             """
             DO $$
             BEGIN
+                -- Every legacy entry must resolve to a same-workspace child and
+                -- a non-NULL effective alias before normalized rows are added.
                 IF EXISTS (
                     SELECT 1
                     FROM _agent_preset_version_subagent_backfill
@@ -246,6 +279,8 @@ def _backfill_version_edges() -> None:
                     RAISE EXCEPTION
                         'Cannot normalize preset version subagents: unresolved or cross-workspace reference';
                 END IF;
+                -- The normalized table enforces alias uniqueness per parent
+                -- version, so surface conflicting legacy JSON explicitly.
                 IF EXISTS (
                     SELECT 1
                     FROM _agent_preset_version_subagent_backfill
@@ -255,6 +290,8 @@ def _backfill_version_edges() -> None:
                     RAISE EXCEPTION
                         'Cannot normalize preset version subagents: duplicate alias';
                 END IF;
+                -- A disabled legacy config must not contain child bindings. Do
+                -- not normalize inconsistent state that the new model forbids.
                 IF EXISTS (
                     SELECT 1
                     FROM _agent_preset_version_subagent_backfill AS edge
@@ -268,6 +305,8 @@ def _backfill_version_edges() -> None:
                 END IF;
             END $$;
 
+            -- Validation has succeeded for the whole dataset; copy the staged
+            -- mappings into the durable normalized edge table.
             INSERT INTO agent_preset_version_subagent (
                 id,
                 parent_preset_version_id,
@@ -288,6 +327,8 @@ def _backfill_version_edges() -> None:
             FROM _agent_preset_version_subagent_backfill
             ORDER BY parent_version_id, alias;
 
+            -- Split the enablement flag out of the legacy JSON. Missing or
+            -- non-boolean values preserve the application's disabled default.
             UPDATE agent_preset_version
             SET subagents_enabled = CASE
                 WHEN agents -> 'enabled' = 'true'::jsonb THEN true
@@ -296,6 +337,107 @@ def _backfill_version_edges() -> None:
             END;
             """
         )
+    )
+
+
+def _suffixed_skill_slug(slug: str, counter: int) -> str:
+    suffix = f"-{counter}"
+    return f"{slug[: SKILL_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
+
+
+def _report_skill_slug_rename(row: dict[str, Any], counter: int) -> None:
+    # Slugs derive from customer-authored names, so report identifiers only.
+    message = (
+        "Assigned a suffixed slug to an expand-window skill row: "
+        f"workspace_id={row['workspace_id']} "
+        f"skill_id={row['id']} "
+        f"suffix_counter={counter}"
+    )
+    print(message)
+    logger.info(message)
+
+
+def _contract_skill_slugs(bind: Connection) -> None:
+    # Keep the live-row set stable while reserving collision-free slugs. Reads
+    # remain available, but concurrent Skill inserts and updates wait until the
+    # migration transaction has applied NOT NULL.
+    bind.execute(sa.text("LOCK TABLE skill IN SHARE ROW EXCLUSIVE MODE"))
+
+    live_predicate = "deleted_at IS NULL AND archived_at IS NULL"
+    occupied_rows = (
+        bind.execute(
+            sa.text(
+                f"""
+                SELECT workspace_id, slug
+                FROM skill
+                WHERE {live_predicate} AND slug IS NOT NULL
+                """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    occupied_by_workspace: dict[Any, set[str]] = {}
+    for row in occupied_rows:
+        occupied_by_workspace.setdefault(row["workspace_id"], set()).add(row["slug"])
+
+    # Assign each late live row against both existing slugs and candidates
+    # reserved earlier in this pass. Ordering makes collision resolution stable.
+    missing_live_rows = (
+        bind.execute(
+            sa.text(
+                f"""
+                SELECT id, workspace_id, name
+                FROM skill
+                WHERE {live_predicate} AND slug IS NULL
+                ORDER BY workspace_id, created_at, id
+                """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for row in missing_live_rows:
+        occupied = occupied_by_workspace.setdefault(row["workspace_id"], set())
+        slug = row["name"]
+        counter = 1
+        while slug in occupied:
+            counter += 1
+            slug = _suffixed_skill_slug(row["name"], counter)
+        bind.execute(
+            sa.text("UPDATE skill SET slug = :slug WHERE id = :id"),
+            {"id": row["id"], "slug": slug},
+        )
+        occupied.add(slug)
+        if counter > 1:
+            _report_skill_slug_rename(dict(row), counter)
+
+    # Deleted rows do not participate in the live unique index, but they still
+    # need a value before the column can become NOT NULL.
+    bind.execute(
+        sa.text(
+            """
+            UPDATE skill
+            SET slug = name
+            WHERE slug IS NULL
+            """
+        )
+    )
+
+    missing_count = bind.execute(
+        sa.text("SELECT count(*) FROM skill WHERE slug IS NULL")
+    ).scalar_one()
+    if missing_count:
+        raise RuntimeError(
+            "Skill slug migration left NULL rows before SET NOT NULL: "
+            f"count={missing_count}"
+        )
+
+    op.alter_column(
+        "skill",
+        "slug",
+        existing_type=sa.String(length=64),
+        nullable=False,
     )
 
 
@@ -326,9 +468,17 @@ def upgrade() -> None:
     op.execute(enable_workspace_table_rls("agent_preset_version_subagent"))
     _create_agent_turn_provenance_table()
     op.execute(enable_workspace_table_rls("agent_turn_provenance"))
+    _contract_skill_slugs(op.get_bind())
 
 
 def downgrade() -> None:
+    op.alter_column(
+        "skill",
+        "slug",
+        existing_type=sa.String(length=64),
+        nullable=True,
+    )
+
     # Fail before changing any schema or data when the old representation cannot
     # be reconstructed. Operators must publish the referenced heads first.
     op.execute(
@@ -336,6 +486,9 @@ def downgrade() -> None:
             """
             DO $$
             BEGIN
+                -- The old schema requires every skill binding to pin a concrete
+                -- version. A NULL normalized edge can only be reconstructed if
+                -- its referenced ResourceHead currently publishes a version.
                 IF EXISTS (
                     SELECT 1
                     FROM agent_preset_skill AS binding
@@ -357,6 +510,9 @@ def downgrade() -> None:
                         'Cannot downgrade ResourceHead skill edges: publish every referenced skill before retrying';
                 END IF;
 
+                -- The old preset table requires model metadata on the head.
+                -- Permit restoring a missing legacy value only when the current
+                -- published version can supply it.
                 IF EXISTS (
                     SELECT 1
                     FROM agent_preset AS preset
@@ -386,6 +542,8 @@ def downgrade() -> None:
         sa.column("current_version_id", sa.UUID()),
     )
     for table in ("agent_preset_skill", "agent_preset_version_skill"):
+        # Re-pin normalized ResourceHead bindings to each head's current version
+        # before restoring the old NOT NULL constraint.
         binding = sa.table(
             table,
             sa.column("skill_id", sa.UUID()),
@@ -437,6 +595,8 @@ def downgrade() -> None:
     )
     op.drop_column("agent_preset_version", "subagents_enabled")
     for column in ("model_name", "model_provider"):
+        # Restore legacy head projections from the published immutable version
+        # before making the old columns required again.
         op.execute(
             sa.text(
                 f"""

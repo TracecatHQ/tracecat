@@ -25,7 +25,7 @@ class SkippedSkillRef:
 
     skill_id: uuid.UUID
     skill_name: str
-    skill_slug: str | None
+    skill_slug: str
     reason: SkippedSkillRefReason
 
 

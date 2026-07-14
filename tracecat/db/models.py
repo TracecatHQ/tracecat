@@ -3894,9 +3894,9 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         index=True,
         doc="User-facing skill display name; package identity lives on slug.",
     )
-    slug: Mapped[str | None] = mapped_column(
+    slug: Mapped[str] = mapped_column(
         String(64),
-        nullable=True,
+        nullable=False,
         index=True,
         doc="Current published package locator from root SKILL.md frontmatter.",
     )

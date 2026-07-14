@@ -2156,20 +2156,15 @@ class AgentPresetService(BaseWorkspaceService):
         self,
         *,
         skill_id: uuid.UUID,
-        slug: str | None,
+        slug: str,
     ) -> uuid.UUID | None:
         """Return the live owner of a deleted skill slug, without rebinding."""
 
-        if slug is None:
-            return None
         stmt = (
             select(Skill.id)
             .where(
                 Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == slug),
-                ),
+                Skill.slug == slug,
                 Skill.id != skill_id,
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
