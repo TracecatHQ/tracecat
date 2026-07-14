@@ -77,6 +77,20 @@ async def test_compute_effective_scopes_service_with_user_id_uses_allowlist() ->
 
 
 @pytest.mark.anyio
+async def test_compute_effective_scopes_uses_delegated_service_scope_ceiling() -> None:
+    delegated_scopes = frozenset({"action:core.script.run_python:execute"})
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        delegated_scopes=delegated_scopes,
+    )
+
+    scopes = await credentials.compute_effective_scopes(role)
+
+    assert scopes == delegated_scopes
+
+
+@pytest.mark.anyio
 async def test_compute_effective_scopes_unknown_service_principal_gets_empty_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -14,6 +14,7 @@ from temporalio.exceptions import ActivityError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
+    DELEGATE_MCP_SCOPES_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     FINALIZE_TURN_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
@@ -25,12 +26,14 @@ from tracecat_ee.agent.workflows.durable import (
     _build_approved_tool_run_input,
 )
 
+from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.tokens import verify_mcp_token
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
@@ -85,6 +88,52 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
     assert not hasattr(workflow_args, "use_workspace_credentials")
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
+@pytest.mark.parametrize(
+    ("patch_enabled", "expected_scopes"),
+    [
+        (False, None),
+        (True, frozenset({"agent:execute", "secret:read"})),
+    ],
+)
+def test_mcp_token_delegates_scopes_behind_replay_patch(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_enabled: bool,
+    expected_scopes: frozenset[str] | None,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={},
+        ),
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=patch_enabled,
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(workflow_id="agent/test", run_id="run-1"),
+        ),
+    ):
+        token = workflow_instance._mint_scope_mcp_token(build_result=build_result)
+
+    assert verify_mcp_token(token).delegated_scopes == expected_scopes
+    patched_mock.assert_called_once_with(DELEGATE_MCP_SCOPES_PATCH)
 
 
 @pytest.mark.anyio

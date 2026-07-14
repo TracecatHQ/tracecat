@@ -42,6 +42,10 @@ class Role(BaseModel):
     """Whether this role is currently executing platform-superuser privileges."""
     scopes: frozenset[str] | None = Field(default=None, frozen=True, repr=False)
     """Effective scopes for this role. None means unresolved/unset."""
+    delegated_scopes: frozenset[str] | None = Field(
+        default=None, frozen=True, repr=False
+    )
+    """Signed scope ceiling delegated across a service execution boundary."""
 
     @model_validator(mode="after")
     def validate_service_account_shape(self) -> Self:

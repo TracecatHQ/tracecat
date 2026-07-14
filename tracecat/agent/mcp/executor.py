@@ -55,15 +55,22 @@ def build_tracecat_mcp_role(
     workspace_id: UUID | None,
     organization_id: UUID | None,
     user_id: UUID | None,
+    delegated_scopes: frozenset[str] | None = None,
 ) -> Role:
     """Build the trusted MCP service role for action execution."""
+    scopes = (
+        delegated_scopes
+        if delegated_scopes is not None
+        else SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
+    )
     return Role(
         type="service",
         service_id="tracecat-mcp",
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
+        scopes=scopes,
+        delegated_scopes=delegated_scopes,
     )
 
 
@@ -73,6 +80,7 @@ def build_role_from_claims(claims: MCPTokenClaims) -> Role:
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
+        delegated_scopes=claims.delegated_scopes,
     )
 
 

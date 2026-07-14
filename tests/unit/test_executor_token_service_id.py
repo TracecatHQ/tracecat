@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import jwt
 import pytest
@@ -16,6 +17,8 @@ from tracecat.auth.executor_tokens import (
     mint_executor_token,
     verify_executor_token,
 )
+from tracecat.authz.controls import check_scopes
+from tracecat.exceptions import ScopeDeniedError
 
 
 def _make_request(token: str) -> Request:
@@ -143,3 +146,44 @@ async def test_authenticate_executor_uses_service_id_claim_when_present(
     )
 
     assert role.service_id == "tracecat-schedule-runner"
+
+
+@pytest.mark.anyio
+async def test_executor_token_preserves_delegated_scope_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service_key = "test-service-key"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    delegated_scopes = frozenset({"action:core.script.run_python:execute"})
+
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    token = mint_executor_token(
+        workspace_id=workspace_id,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-mcp",
+        delegated_scopes=delegated_scopes,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    role = await credentials._role_dependency(
+        request=_make_request(token),
+        session=AsyncMock(),
+        workspace_id=workspace_id,
+        user=None,
+        api_key=None,
+        allow_user=False,
+        allow_service=False,
+        allow_executor=True,
+        require_workspace="yes",
+    )
+
+    assert role.scopes == delegated_scopes
+    check_scopes(role, "action:core.script.run_python:execute")
+    with pytest.raises(ScopeDeniedError):
+        check_scopes(role, "case:read")

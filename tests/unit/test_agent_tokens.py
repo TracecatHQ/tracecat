@@ -32,12 +32,14 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
     organization_id = uuid.uuid4()
     session_id = uuid.uuid4()
     user_id = uuid.uuid4()
+    delegated_scopes = frozenset({"action:core.http_request:execute"})
 
     token = mint_mcp_token(
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user_id,
         allowed_actions=["core.http_request"],
+        delegated_scopes=delegated_scopes,
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
@@ -49,6 +51,7 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
     assert claims.organization_id == organization_id
     assert claims.session_id == session_id
     assert claims.user_id == user_id
+    assert claims.delegated_scopes == delegated_scopes
     assert claims.parent_agent_workflow_id == f"agent/{session_id}"
     assert claims.parent_agent_run_id == "run-123"
     assert claims.registry_lock == _registry_lock()

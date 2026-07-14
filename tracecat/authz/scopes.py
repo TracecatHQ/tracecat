@@ -440,6 +440,9 @@ def backfill_legacy_role_scopes(role: Role) -> Role:
 
     Returns the role unchanged if it already has scopes populated.
     """
+    if role.delegated_scopes is not None:
+        return role.model_copy(update={"scopes": role.delegated_scopes})
+
     if role.scopes:
         # Already has scopes — nothing to backfill
         return role

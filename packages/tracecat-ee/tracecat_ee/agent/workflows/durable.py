@@ -482,6 +482,7 @@ def _preserved_agents_binding(
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
+DELEGATE_MCP_SCOPES_PATCH = "durable-agent-delegate-mcp-scopes-v1"
 
 
 @workflow.defn
@@ -667,11 +668,15 @@ class DurableAgentWorkflow:
         internal_tool_context: InternalToolContext | None = None,
     ) -> str:
         info = workflow.info()
+        delegated_scopes = None
+        if workflow.patched(DELEGATE_MCP_SCOPES_PATCH):
+            delegated_scopes = self.role.scopes or frozenset()
         return mint_mcp_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
+            delegated_scopes=delegated_scopes,
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,

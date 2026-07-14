@@ -128,9 +128,9 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
 
     Scope computation follows this hierarchy:
     1. Roles explicitly executing with platform-superuser privileges get "*"
-    2. Service principals (non-user flows) use static allowlist scopes
-    3. Direct user role assignments (org-wide and workspace-specific)
-    4. Group role assignments (org-wide and workspace-specific)
+    2. Delegated service executions use their signed scope ceiling
+    3. Other service principals use static allowlist scopes
+    4. Direct and group user role assignments
     """
     if role.is_platform_superuser:
         return frozenset({"*"})
@@ -139,6 +139,14 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
         return role.scopes or frozenset()
 
     if role.type == "service":
+        if role.delegated_scopes is not None:
+            logger.debug(
+                "Resolved effective scopes from delegated executor token",
+                service_id=role.service_id,
+                scope_count=len(role.delegated_scopes),
+                source="delegated_executor_token",
+            )
+            return role.delegated_scopes
         service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
         if service_scopes is None:
             logger.warning(
@@ -823,6 +831,7 @@ async def _authenticate_executor(
         workspace_id=token_payload.workspace_id,
         organization_id=organization_id,
         user_id=token_payload.user_id,
+        delegated_scopes=token_payload.delegated_scopes,
     )
 
     # Validate workspace requirements for executor

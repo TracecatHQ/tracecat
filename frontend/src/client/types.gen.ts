@@ -6426,6 +6426,7 @@ export type Role = {
     | "tracecat-ui"
   is_platform_superuser?: boolean
   scopes?: Array<string> | null
+  delegated_scopes?: Array<string> | null
   [key: string]: unknown | string | boolean
 }
 

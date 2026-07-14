@@ -15,7 +15,11 @@ from tracecat.workflow.executions.correlation import build_agent_session_correla
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-def _build_claims() -> MCPTokenClaims:
+def _build_claims(
+    *,
+    allowed_actions: list[str] | None = None,
+    delegated_scopes: frozenset[str] | None = None,
+) -> MCPTokenClaims:
     session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
     return MCPTokenClaims(
         workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
@@ -23,14 +27,17 @@ def _build_claims() -> MCPTokenClaims:
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
-        allowed_actions=["core.http_request"],
+        allowed_actions=allowed_actions or ["core.http_request"],
+        delegated_scopes=delegated_scopes,
     )
 
 
-def _build_registry_lock() -> RegistryLock:
+def _build_registry_lock(
+    action_name: str = "core.http_request",
+) -> RegistryLock:
     return RegistryLock(
         origins={"tracecat_registry": "test-version"},
-        actions={"core.http_request": "tracecat_registry"},
+        actions={action_name: "tracecat_registry"},
     )
 
 
@@ -82,6 +89,36 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(claims.workspace_id)
     retrieve_stored_object.assert_awaited_once_with({"uri": "s3://stored"})
     assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_execute_action_preserves_delegated_scope_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delegated_scopes = frozenset({"action:core.script.run_python:execute"})
+    claims = _build_claims(
+        allowed_actions=["core.script.run_python"],
+        delegated_scopes=delegated_scopes,
+    )
+    execute_workflow = AsyncMock(return_value={"uri": "s3://stored"})
+    monkeypatch.setattr(executor, "_execute_action_workflow", execute_workflow)
+    monkeypatch.setattr(
+        executor,
+        "retrieve_stored_object",
+        AsyncMock(return_value={"ok": True}),
+    )
+
+    await executor.execute_action(
+        "core.script.run_python",
+        {"script": "def main():\n    return True"},
+        claims,
+        _build_registry_lock("core.script.run_python"),
+    )
+
+    assert execute_workflow.await_args is not None
+    workflow_input = execute_workflow.await_args.args[0]
+    assert workflow_input.role.scopes == delegated_scopes
+    assert "case:read" not in workflow_input.role.scopes
 
 
 @pytest.mark.anyio

@@ -405,6 +405,7 @@ async def _prepare_step_context(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
+        delegated_scopes=role.delegated_scopes,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
@@ -735,6 +736,7 @@ async def prepare_resolved_context(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
+        delegated_scopes=role.delegated_scopes,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )

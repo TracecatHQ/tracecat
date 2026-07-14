@@ -25,6 +25,7 @@ from tracecat.authz.scopes import (
     SERVICE_PRINCIPAL_SCOPES,
     VIEWER_SCOPES,
     WORKSPACE_OPERATIONAL_SCOPES,
+    backfill_legacy_role_scopes,
 )
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
@@ -528,3 +529,14 @@ class TestServicePrincipalScopes:
     def test_llm_gateway_has_secret_read(self):
         """LLM gateway needs secret:read for workspace credential lookup (case chat path)."""
         assert "secret:read" in SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"]
+
+    def test_backfill_preserves_empty_delegated_scope_ceiling(self):
+        role = Role(
+            type="service",
+            service_id="tracecat-mcp",
+            delegated_scopes=frozenset(),
+        )
+
+        backfilled_role = backfill_legacy_role_scopes(role)
+
+        assert backfilled_role.scopes == frozenset()

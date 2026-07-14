@@ -21213,6 +21213,21 @@ export const $Role = {
       ],
       title: "Scopes",
     },
+    delegated_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          uniqueItems: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Delegated Scopes",
+    },
   },
   additionalProperties: true,
   type: "object",

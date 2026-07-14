@@ -32,6 +32,7 @@ class ExecutorTokenPayload(BaseModel):
     workspace_id: WorkspaceID
     user_id: UserID | None
     service_id: InternalServiceID | None = None
+    delegated_scopes: frozenset[str] | None = None
     wf_id: str
     wf_exec_id: str
 
@@ -41,6 +42,7 @@ def mint_executor_token(
     workspace_id: WorkspaceID,
     user_id: UserID | None,
     service_id: InternalServiceID = "tracecat-executor",
+    delegated_scopes: frozenset[str] | None = None,
     wf_id: str,
     wf_exec_id: str,
     ttl_seconds: int | None = None,
@@ -60,6 +62,8 @@ def mint_executor_token(
         "wf_id": wf_id,
         "wf_exec_id": wf_exec_id,
     }
+    if delegated_scopes is not None:
+        payload["delegated_scopes"] = sorted(delegated_scopes)
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
@@ -68,7 +72,7 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
     """Verify executor JWT and return the token payload.
 
     Returns the ExecutorTokenPayload containing workspace_id, user_id, service_id,
-    wf_id, and wf_exec_id.
+    delegated_scopes, wf_id, and wf_exec_id.
     """
     try:
         payload = jwt.decode(
@@ -92,6 +96,7 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
             workspace_id=payload["workspace_id"],
             user_id=payload.get("user_id"),
             service_id=payload.get("service_id"),
+            delegated_scopes=payload.get("delegated_scopes"),
             wf_id=payload["wf_id"],
             wf_exec_id=payload["wf_exec_id"],
         )
