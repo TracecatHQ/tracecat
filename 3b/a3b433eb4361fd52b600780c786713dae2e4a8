@@ -1,0 +1,23 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/update_alert_incident_status.yml
+  s_7c8648a6174d57::t_9543fad222be55 1-37
+tests/registry/test_sentinel_one_templates.py
+  s_7c8648a6174d57::t_9543fad222be55 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/update_alert_analyst_verdict.yml
+  s_7c8648a6174d57::t_9543fad222be55 1-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "3ba3b433eb4361fd52b600780c786713dae2e4a8",
+  "prompts": {},
+  "sessions": {
+    "s_7c8648a6174d57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6167-58ea-78c2-bec0-2ab7720a08d9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
