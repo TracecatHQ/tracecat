@@ -635,7 +635,7 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     assert headers["X-Wiz-MCP-Mode"].default_value == "gateway"
 
 
-def test_catalog_state_marks_non_oauth_mcp_rows_connected() -> None:
+def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
     state = PlatformMCPCatalogService._catalog_state(
         mcp_integration=MCPIntegration(
             id=uuid.uuid4(),
@@ -643,6 +643,22 @@ def test_catalog_state_marks_non_oauth_mcp_rows_connected() -> None:
             name="No Auth MCP",
             slug="no-auth-mcp",
             auth_type=MCPAuthType.NONE,
+        ),
+        encrypted_access_token=None,
+    )
+
+    assert state == "configured"
+
+
+def test_catalog_state_marks_verified_non_oauth_mcp_rows_connected() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="No Auth MCP",
+            slug="no-auth-mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=[],
         ),
         encrypted_access_token=None,
     )

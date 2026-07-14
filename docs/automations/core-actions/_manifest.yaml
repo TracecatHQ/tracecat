@@ -38,6 +38,141 @@ pages:
     title: Python script
     actions:
       - id: core.script.run_python
+        info: |
+          Use this action to transform workflow data, import third-party
+          packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
+          Tracecat passes `inputs` as function arguments and returns the
+          function result as the action output.
+
+          ### Import Python packages
+
+          Add pinned package specifications to `dependencies`, then import them
+          in your script. Set `allow_network: true` so Tracecat can install the
+          packages from PyPI. Tracecat caches installed packages between runs.
+
+          ```yaml
+          - ref: parse_timestamp
+            action: core.script.run_python
+            args:
+              inputs:
+                timestamp: ${{ TRIGGER.created_at }}
+              dependencies:
+                - python-dateutil==2.9.0.post0
+              allow_network: true
+              script: |
+                from dateutil import parser
+
+                def main(timestamp):
+                    parsed = parser.isoparse(timestamp)
+                    return {
+                        "iso_timestamp": parsed.isoformat(),
+                        "timezone": str(parsed.tzinfo),
+                    }
+          ```
+
+          ### Import Tracecat SDK
+
+          The Tracecat SDK is already available in the Python sandbox. Import
+          `ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
+          Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
+          `ctx.workflows`. Each client also provides an async variant under
+          `.aio`, such as `ctx.cases.aio`.
+
+          SDK calls use the workflow's internal authenticated execution context
+          and do not require `allow_network: true`.
+
+          Use `ctx.tables.insert_rows` to write multiple rows in one request.
+          For large inputs, transform the records first and split them into
+          bounded batches. The destination table must already contain matching
+          columns.
+
+          <Tabs>
+            <Tab title="Synchronous">
+
+              ```yaml
+              - ref: load_findings
+                action: core.script.run_python
+                args:
+                  inputs:
+                    findings: ${{ TRIGGER.findings }}
+                  script: |
+                    from tracecat_registry import ctx
+
+                    BATCH_SIZE = 500
+
+                    def transform_finding(finding):
+                        return {
+                            "finding_id": str(finding["id"]),
+                            "title": str(finding.get("title", "")).strip(),
+                            "severity": str(
+                                finding.get("severity", "unknown")
+                            ).lower(),
+                            "observed_at": finding.get("observed_at")
+                            or finding.get("created_at"),
+                            "tags": sorted(set(finding.get("tags") or [])),
+                        }
+
+                    def main(findings):
+                        rows = [
+                            transform_finding(finding)
+                            for finding in findings
+                            if finding.get("id")
+                        ]
+
+                        rows_inserted = 0
+                        for start in range(0, len(rows), BATCH_SIZE):
+                            rows_inserted += ctx.tables.insert_rows(
+                                table="findings",
+                                rows_data=rows[start : start + BATCH_SIZE],
+                            )
+
+                        return {"rows_inserted": rows_inserted}
+              ```
+            </Tab>
+
+            <Tab title="Asynchronous">
+
+              ```yaml
+              - ref: load_findings_async
+                action: core.script.run_python
+                args:
+                  inputs:
+                    findings: ${{ TRIGGER.findings }}
+                  script: |
+                    from tracecat_registry import ctx
+
+                    BATCH_SIZE = 500
+
+                    def transform_finding(finding):
+                        return {
+                            "finding_id": str(finding["id"]),
+                            "title": str(finding.get("title", "")).strip(),
+                            "severity": str(
+                                finding.get("severity", "unknown")
+                            ).lower(),
+                            "observed_at": finding.get("observed_at")
+                            or finding.get("created_at"),
+                            "tags": sorted(set(finding.get("tags") or [])),
+                        }
+
+                    async def main(findings):
+                        rows = [
+                            transform_finding(finding)
+                            for finding in findings
+                            if finding.get("id")
+                        ]
+
+                        rows_inserted = 0
+                        for start in range(0, len(rows), BATCH_SIZE):
+                            rows_inserted += await ctx.tables.aio.insert_rows(
+                                table="findings",
+                                rows_data=rows[start : start + BATCH_SIZE],
+                            )
+
+                        return {"rows_inserted": rows_inserted}
+              ```
+            </Tab>
+          </Tabs>
         examples:
           - python-script-enrich
 
@@ -135,126 +270,112 @@ pages:
     actions:
       - id: core.cases.create_case
         examples:
-          - cases-create-case
+          - cases-create
       - id: core.cases.get_case
         examples:
-          - cases-create-case
+          - cases-get
       - id: core.cases.update_case
         examples:
-          - cases-update-case
+          - cases-update
       - id: core.cases.list_cases
         examples:
-          - cases-list-search
+          - cases-list
       - id: core.cases.search_cases
         examples:
-          - cases-list-search
+          - cases-search
       - id: core.cases.list_case_events
         examples:
-          - cases-list-search
+          - cases-list-events
       - id: core.cases.assign_user
         examples:
-          - cases-assignment
+          - cases-assign-user
       - id: core.cases.assign_user_by_email
         examples:
-          - cases-assignment
+          - cases-assign-user-by-email
       - id: core.cases.add_case_tag
         examples:
-          - cases-tags
+          - cases-add-tag
       - id: core.cases.remove_case_tag
         examples:
-          - cases-tags
+          - cases-remove-tag
       - id: core.cases.delete_case
         examples:
-          - cases-delete-case
-
-  - slug: case-actions/comments
-    title: Comments
-    actions:
+          - cases-delete
       - id: core.cases.create_comment
         examples:
-          - cases-comments
+          - cases-create-comment
       - id: core.cases.reply_to_comment
         examples:
-          - cases-comments
+          - cases-reply-to-comment
       - id: core.cases.update_comment
         examples:
-          - cases-comments
+          - cases-update-comment
       - id: core.cases.list_comments
         examples:
-          - cases-comments
+          - cases-list-comments
       - id: core.cases.list_comment_threads
         examples:
-          - cases-comments
+          - cases-list-comment-threads
       - id: core.cases.get_comment_thread
         examples:
-          - cases-comments
-
-  - slug: case-actions/attachments
-    title: Attachments
-    actions:
+          - cases-get-comment-thread
       - id: core.cases.upload_attachment
         examples:
-          - cases-attachments
+          - cases-upload-attachment
       - id: core.cases.upload_attachment_from_url
         examples:
-          - cases-attachments
+          - cases-upload-attachment-from-url
       - id: core.cases.list_attachments
         examples:
-          - cases-attachments
+          - cases-list-attachments
       - id: core.cases.get_attachment
         examples:
-          - cases-attachments
+          - cases-get-attachment
       - id: core.cases.get_attachment_download_url
         examples:
-          - cases-attachments
+          - cases-get-attachment-download-url
       - id: core.cases.download_attachment
         examples:
-          - cases-attachments
+          - cases-download-attachment
       - id: core.cases.delete_attachment
         examples:
-          - cases-attachments
-
-  - slug: case-actions/tasks
-    title: "🔒 Tasks"
-    actions:
+          - cases-delete-attachment
       - id: core.cases.create_task
         examples:
-          - cases-tasks
+          - cases-create-task
       - id: core.cases.get_task
         examples:
-          - cases-tasks
+          - cases-get-task
       - id: core.cases.list_tasks
         examples:
-          - cases-tasks
+          - cases-list-tasks
       - id: core.cases.update_task
         examples:
-          - cases-tasks
+          - cases-update-task
       - id: core.cases.delete_task
         examples:
-          - cases-tasks
-
-  - slug: case-actions/linked-rows
-    title: "🔒 Linked rows"
-    actions:
+          - cases-delete-task
       - id: core.cases.link_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
-          - cases-rows
+          - cases-link-row
       - id: core.cases.unlink_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
-          - cases-rows
+          - cases-unlink-row
       - id: core.cases.insert_row
         info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
           <Info>
             Linked rows use regular tables. Create the destination table with
             the same `columns` schema documented in
             [Tables](/automations/tables).
           </Info>
         examples:
-          - cases-rows
-
-  - slug: case-actions/metrics
-    title: "🔒 Metrics"
-    actions:
+          - cases-insert-row
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics

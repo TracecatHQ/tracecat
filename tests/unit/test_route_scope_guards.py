@@ -482,7 +482,6 @@ async def test_insert_case_row_requires_case_update_and_table_create() -> None:
         (integrations_router.create_custom_provider, "integration:create"),
         (integrations_router.list_providers, "integration:read"),
         (integrations_router.get_provider, "integration:read"),
-        (integrations_router.create_mcp_integration, "integration:create"),
         (integrations_router.list_mcp_integrations, "integration:read"),
         (integrations_router.get_mcp_integration, "integration:read"),
         (integrations_router.update_mcp_integration, "integration:update"),
@@ -493,6 +492,22 @@ async def test_integration_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        integrations_router.create_mcp_integration,
+        integrations_router.connect_platform_mcp_catalog,
+        integrations_router.connect_mcp_integration,
+    ],
+)
+async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
+    await _assert_endpoint_requires_all_scopes(
+        endpoint,
+        ("integration:create", "integration:read"),
+    )
 
 
 @pytest.mark.anyio

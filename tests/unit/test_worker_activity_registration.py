@@ -8,10 +8,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tracecat.agent.executor.activity import run_agent_activity
+from tracecat.agent.executor.activity import (
+    probe_stdio_mcp_connection_activity,
+    run_agent_activity,
+)
 from tracecat.agent.executor_worker import (
     get_activities as get_agent_executor_activities,
 )
+from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.preset.activities import (
     resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
@@ -47,11 +51,15 @@ def test_agent_worker_registers_preset_resolution_activities() -> None:
     names = _activity_names(get_agent_worker_activities())
     assert _activity_name(resolve_agent_preset_config_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
+    assert _activity_name(persist_stdio_mcp_connection_activity) in names
 
 
-def test_agent_executor_worker_registers_only_runtime_execution_activity() -> None:
+def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
     names = _activity_names(get_agent_executor_activities())
-    assert names == {_activity_name(run_agent_activity)}
+    assert names == {
+        _activity_name(run_agent_activity),
+        _activity_name(probe_stdio_mcp_connection_activity),
+    }
 
 
 @pytest.mark.anyio
@@ -226,7 +234,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
 ) -> None:
     from tracecat.agent import executor_worker
 
-    captured: dict[str, int | str | timedelta] = {}
+    captured: list[dict[str, int | str | timedelta]] = []
     shutdown_event = asyncio.Event()
 
     class _FakeWorker:
@@ -246,10 +254,14 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
         ) -> None:
             del client, activities, workflow_runner, disable_eager_activity_execution
             del max_heartbeat_throttle_interval, default_heartbeat_throttle_interval
-            captured["task_queue"] = task_queue
-            captured["max_concurrent_activities"] = max_concurrent_activities
-            captured["threadpool_max_workers"] = activity_executor._max_workers
-            captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
+            captured.append(
+                {
+                    "task_queue": task_queue,
+                    "max_concurrent_activities": max_concurrent_activities,
+                    "threadpool_max_workers": activity_executor._max_workers,
+                    "graceful_shutdown_timeout": graceful_shutdown_timeout,
+                }
+            )
 
         async def __aenter__(self) -> _FakeWorker:
             shutdown_event.set()
@@ -283,12 +295,14 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
     )
     await executor_worker.main(shutdown_event=shutdown_event)
 
-    assert captured == {
-        "task_queue": "test-agent-executor-queue",
-        "max_concurrent_activities": 1,
-        "threadpool_max_workers": 100,
-        "graceful_shutdown_timeout": timedelta(seconds=1860),
-    }
+    assert captured == [
+        {
+            "task_queue": "test-agent-executor-queue",
+            "max_concurrent_activities": 1,
+            "threadpool_max_workers": 100,
+            "graceful_shutdown_timeout": timedelta(seconds=1860),
+        },
+    ]
 
 
 @pytest.mark.anyio

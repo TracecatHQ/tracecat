@@ -370,6 +370,10 @@ import {
 } from "@/client"
 
 import { toast } from "@/components/ui/use-toast"
+import {
+  markStdioMcpVerificationStarted,
+  useStdioMcpVerificationStatus,
+} from "@/hooks/use-stdio-mcp-verification-status"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
@@ -386,6 +390,7 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import { getPendingStdioMcpVerificationIds } from "@/lib/integrations"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -4761,9 +4766,21 @@ export function useConnectMcpIntegration(workspaceId: string) {
         return
       }
       if (result.mcp_integration) {
+        const verifying = result.mcp_integration.state !== "connected"
+        if (verifying && result.mcp_integration.server_type === "stdio") {
+          markStdioMcpVerificationStarted(
+            queryClient,
+            workspaceId,
+            result.mcp_integration.id
+          )
+        }
         toast({
-          title: "MCP integration created",
-          description: `Added ${result.mcp_integration.name}`,
+          title: verifying
+            ? "MCP integration verification started"
+            : "MCP integration connected",
+          description: verifying
+            ? `Added ${result.mcp_integration.name}; tools will appear after verification succeeds.`
+            : `Added ${result.mcp_integration.name}`,
         })
       }
     },
@@ -4802,9 +4819,22 @@ export function useCreateMcpIntegration(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["mcp-integrations", workspaceId],
       })
+      const verifying =
+        integration.server_type === "stdio" && integration.state !== "connected"
+      if (verifying) {
+        markStdioMcpVerificationStarted(
+          queryClient,
+          workspaceId,
+          integration.id
+        )
+      }
       toast({
-        title: "MCP integration created",
-        description: `Added ${integration.name}`,
+        title: verifying
+          ? "MCP integration verification started"
+          : "MCP integration created",
+        description: verifying
+          ? `Added ${integration.name}; tools will appear after verification succeeds.`
+          : `Added ${integration.name}`,
       })
     },
     onError: (error: TracecatApiError) => {
@@ -4837,6 +4867,7 @@ export function useListMcpIntegrations(
   source?: McpIntegrationsListMcpIntegrationsData["source"],
   options?: { enabled?: boolean }
 ) {
+  const enabled = Boolean(workspaceId) && (options?.enabled ?? true)
   const {
     data: mcpIntegrations,
     isLoading: mcpIntegrationsIsLoading,
@@ -4845,9 +4876,19 @@ export function useListMcpIntegrations(
     queryKey: ["mcp-integrations", workspaceId, source],
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId, source }),
-    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    enabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  })
+
+  // When the list query is disabled, React Query still returns cached data, so
+  // gate verification polling on the same enabled flag to avoid polling and
+  // failure toasts on surfaces that opted out of MCP.
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: enabled
+      ? getPendingStdioMcpVerificationIds(mcpIntegrations)
+      : [],
   })
 
   return {
@@ -4875,6 +4916,13 @@ export function useGetMcpIntegration(
     enabled: Boolean(workspaceId && mcpIntegrationId),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  })
+
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: getPendingStdioMcpVerificationIds(
+      mcpIntegration ? [mcpIntegration] : undefined
+    ),
   })
 
   return {
@@ -5020,10 +5068,11 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
 }
 
 /**
- * Test connectivity against an unsaved (possibly edited) HTTP MCP
- * configuration. Fully ephemeral: nothing is persisted server-side and no
- * queries are invalidated — saving via connect/update runs its own
- * verification.
+ * Test connectivity to an HTTP MCP integration config.
+ *
+ * This hits the HTTP config-test endpoint and never persists discovered tools.
+ * Stdio tests use {@link useTestMcpIntegrationConnection} because they must run
+ * against saved integration rows.
  */
 export function useTestMcpConnectionConfig(workspaceId: string) {
   const {
@@ -5077,11 +5126,10 @@ export function useTestMcpConnectionConfig(workspaceId: string) {
 /**
  * Test connectivity to a saved MCP integration and persist its tool listing.
  *
- * Unlike {@link useTestMcpConnectionConfig} (which hits the ephemeral
- * config-test endpoint and never persists), this calls the integration-scoped
- * endpoint that refreshes and stores the discovered tools. On success it
- * invalidates the integration query so the Tools list reflects the new
- * verification result.
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the HTTP config-test
+ * endpoint and never persists), this calls the integration-scoped endpoint
+ * that refreshes and stores the discovered tools. On success it invalidates the
+ * integration query so the Tools list reflects the new verification result.
  */
 export function useTestMcpIntegrationConnection(workspaceId: string) {
   const queryClient = useQueryClient()

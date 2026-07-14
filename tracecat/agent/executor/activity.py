@@ -40,6 +40,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
     is_stdio_mcp_server,
+    requires_sandbox_internet_access,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -48,6 +49,14 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.mcp.stdio_probe import (
+    probe_stdio_mcp_tools_in_sandbox,
+)
+from tracecat.agent.mcp.stdio_probe_types import (
+    StdioMCPProbeInput,
+    StdioMCPProbeResult,
+    sanitize_stdio_probe_error,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -72,8 +81,10 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
@@ -386,10 +397,18 @@ class SandboxedAgentExecutor:
 
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
         """Build the runtime init payload for this execution."""
+        sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
+        if requires_sandbox_internet_access(
+            config=sandbox_config,
+            subagents=self.input.subagents,
+        ):
+            sandbox_config = sandbox_config.model_copy(
+                update={"enable_internet_access": True}
+            )
         return RuntimeInitPayload(
             session_id=self.input.session_id,
             mcp_auth_token=self.input.mcp_auth_token,
-            config=SandboxAgentConfig.from_agent_config(self.input.config),
+            config=sandbox_config,
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
@@ -1037,6 +1056,103 @@ async def _hydrate_stdio_env(
                     env = None
                 result.append({**cfg, "env": env} if env else cfg)
     return result
+
+
+async def _resolve_and_probe_stdio_config(
+    *,
+    preset_svc: AgentPresetService,
+    integrations_svc: IntegrationService,
+    command: str,
+    args: list[str] | None,
+    stdio_env: dict[str, str] | None,
+    timeout: int | None,
+    mcp_integration_id: uuid.UUID,
+    mcp_integration_slug: str,
+) -> StdioMCPProbeResult:
+    """Resolve env templates, validate, and probe an stdio config on the sandbox.
+
+    ``stdio_env`` carries template references and workspace-owned plaintext
+    config loaded from the saved integration row; secrets are resolved here
+    inside the executor, never across the workflow boundary.
+    """
+    if stdio_env:
+        try:
+            stdio_env = await preset_svc.resolve_stdio_env(
+                stdio_env=stdio_env,
+                mcp_integration_id=mcp_integration_id,
+                mcp_integration_slug=mcp_integration_slug,
+            )
+        except (TracecatException, ValueError) as exc:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration stdio environment could not be resolved",
+                error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+            )
+
+    try:
+        integrations_svc.validate_stdio_server_config(
+            command=command,
+            args=args,
+            env=stdio_env,
+        )
+    except ValueError as exc:
+        return StdioMCPProbeResult(
+            success=False,
+            message="MCP integration stdio command is not allowed",
+            error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+        )
+
+    return await probe_stdio_mcp_tools_in_sandbox(
+        command=command,
+        args=args,
+        env=stdio_env,
+        timeout=timeout,
+    )
+
+
+@activity.defn(name="probe_stdio_mcp_connection_activity")
+async def probe_stdio_mcp_connection_activity(
+    input: StdioMCPProbeInput,
+) -> StdioMCPProbeResult:
+    """Probe a saved stdio MCP integration inside the executor sandbox."""
+    activity.heartbeat(f"Starting stdio MCP probe: {input.mcp_integration_id}")
+
+    async with AgentPresetService.with_session(role=input.role) as preset_svc:
+        integrations_svc = IntegrationService(preset_svc.session, role=input.role)
+        integration = await integrations_svc.get_mcp_integration(
+            mcp_integration_id=input.mcp_integration_id
+        )
+        if integration is None:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration not found",
+                error="MCP integration not found",
+            )
+        if integration.server_type != "stdio":
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is not a stdio server",
+                error="MCP integration is not a stdio server",
+            )
+        if not integration.stdio_command:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is missing a stdio command",
+                error="stdio_command is required for stdio-type servers",
+            )
+
+        result = await _resolve_and_probe_stdio_config(
+            preset_svc=preset_svc,
+            integrations_svc=integrations_svc,
+            command=integration.stdio_command,
+            args=integration.stdio_args,
+            stdio_env=integrations_svc.decrypt_stdio_env(integration),
+            timeout=integration.timeout,
+            mcp_integration_id=integration.id,
+            mcp_integration_slug=integration.slug,
+        )
+        activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
+        return result
 
 
 @activity.defn

@@ -107,7 +107,7 @@ async def _resolve_mcp_integrations(
 ) -> list[MCPServerConfig]:
     try:
         async with AgentPresetService.with_session(role=role) as svc:
-            await svc.validate_mcp_integrations(mcp_integration_ids)
+            await svc.load_selected_mcp_integrations(mcp_integration_ids)
             servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
     except (MCPValidationError, TracecatValidationError) as e:
         raise ApplicationError(str(e), non_retryable=True) from e

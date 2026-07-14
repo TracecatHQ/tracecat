@@ -8,6 +8,141 @@ title: "Python script"
 
 Execute a Python script.
 
+Use this action to transform workflow data, import third-party
+packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
+Tracecat passes `inputs` as function arguments and returns the
+function result as the action output.
+
+### Import Python packages
+
+Add pinned package specifications to `dependencies`, then import them
+in your script. Set `allow_network: true` so Tracecat can install the
+packages from PyPI. Tracecat caches installed packages between runs.
+
+```yaml
+- ref: parse_timestamp
+  action: core.script.run_python
+  args:
+    inputs:
+      timestamp: ${{ TRIGGER.created_at }}
+    dependencies:
+      - python-dateutil==2.9.0.post0
+    allow_network: true
+    script: |
+      from dateutil import parser
+
+      def main(timestamp):
+          parsed = parser.isoparse(timestamp)
+          return {
+              "iso_timestamp": parsed.isoformat(),
+              "timezone": str(parsed.tzinfo),
+          }
+```
+
+### Import Tracecat SDK
+
+The Tracecat SDK is already available in the Python sandbox. Import
+`ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
+Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
+`ctx.workflows`. Each client also provides an async variant under
+`.aio`, such as `ctx.cases.aio`.
+
+SDK calls use the workflow's internal authenticated execution context
+and do not require `allow_network: true`.
+
+Use `ctx.tables.insert_rows` to write multiple rows in one request.
+For large inputs, transform the records first and split them into
+bounded batches. The destination table must already contain matching
+columns.
+
+<Tabs>
+  <Tab title="Synchronous">
+
+    ```yaml
+    - ref: load_findings
+      action: core.script.run_python
+      args:
+        inputs:
+          findings: ${{ TRIGGER.findings }}
+        script: |
+          from tracecat_registry import ctx
+
+          BATCH_SIZE = 500
+
+          def transform_finding(finding):
+              return {
+                  "finding_id": str(finding["id"]),
+                  "title": str(finding.get("title", "")).strip(),
+                  "severity": str(
+                      finding.get("severity", "unknown")
+                  ).lower(),
+                  "observed_at": finding.get("observed_at")
+                  or finding.get("created_at"),
+                  "tags": sorted(set(finding.get("tags") or [])),
+              }
+
+          def main(findings):
+              rows = [
+                  transform_finding(finding)
+                  for finding in findings
+                  if finding.get("id")
+              ]
+
+              rows_inserted = 0
+              for start in range(0, len(rows), BATCH_SIZE):
+                  rows_inserted += ctx.tables.insert_rows(
+                      table="findings",
+                      rows_data=rows[start : start + BATCH_SIZE],
+                  )
+
+              return {"rows_inserted": rows_inserted}
+    ```
+  </Tab>
+
+  <Tab title="Asynchronous">
+
+    ```yaml
+    - ref: load_findings_async
+      action: core.script.run_python
+      args:
+        inputs:
+          findings: ${{ TRIGGER.findings }}
+        script: |
+          from tracecat_registry import ctx
+
+          BATCH_SIZE = 500
+
+          def transform_finding(finding):
+              return {
+                  "finding_id": str(finding["id"]),
+                  "title": str(finding.get("title", "")).strip(),
+                  "severity": str(
+                      finding.get("severity", "unknown")
+                  ).lower(),
+                  "observed_at": finding.get("observed_at")
+                  or finding.get("created_at"),
+                  "tags": sorted(set(finding.get("tags") or [])),
+              }
+
+          async def main(findings):
+              rows = [
+                  transform_finding(finding)
+                  for finding in findings
+                  if finding.get("id")
+              ]
+
+              rows_inserted = 0
+              for start in range(0, len(rows), BATCH_SIZE):
+                  rows_inserted += await ctx.tables.aio.insert_rows(
+                      table="findings",
+                      rows_data=rows[start : start + BATCH_SIZE],
+                  )
+
+              return {"rows_inserted": rows_inserted}
+    ```
+  </Tab>
+</Tabs>
+
 ### Inputs
 
 <ParamField path="script" type="string" required>
@@ -18,7 +153,7 @@ Python script to execute. Must contain at least one function. If multiple functi
 
 <ParamField path="allow_network" type="boolean">
 
-Whether to allow network access during script execution. Default is False. Note: package installation always has network access.
+Whether to allow network access during script execution. Default is False. Set to True when installing PyPI dependencies or making external network requests.
 
 Default: `false`.
 

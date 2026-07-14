@@ -61,6 +61,7 @@ import type {
   AgentPresetUpdate,
   AgentPresetVersionReadMinimal,
   AttachedSubagentRef,
+  MCPIntegrationRead,
   SkillReadMinimal,
 } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
@@ -466,6 +467,7 @@ export function AgentPresetsBuilder({
         id: integration.id,
         name: integration.name,
         description: integration.description,
+        serverType: integration.server_type,
         providerId: getMcpProviderIconId(integration.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -739,6 +741,7 @@ export function AgentPresetArtifactView({
         id: integration.id,
         name: integration.name,
         description: integration.description,
+        serverType: integration.server_type,
         providerId: getMcpProviderIconId(integration.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -1178,6 +1181,7 @@ type McpIntegrationOption = {
   id: string
   name: string
   description?: string | null
+  serverType: MCPIntegrationRead["server_type"]
   providerId: string
 }
 
@@ -1349,6 +1353,21 @@ function syncFormModelSelection(
   form.setValue("base_url", option.baseUrl ?? "", { shouldDirty })
 }
 
+function hasSelectedStdioMcpIntegration(
+  selectedIds: string[] | undefined,
+  integrations: McpIntegrationOption[]
+): boolean {
+  if (!selectedIds?.length) {
+    return false
+  }
+
+  const selected = new Set(selectedIds)
+  return integrations.some(
+    (integration) =>
+      integration.serverType === "stdio" && selected.has(integration.id)
+  )
+}
+
 type AgentPresetFormProps = {
   preset: AgentPresetRead | null
   mode: AgentPresetFormMode
@@ -1412,6 +1431,13 @@ function AgentPresetForm({
     useWatch({ control: form.control, name: "agentsEnabled" }) ?? false
   const watchedSubagents =
     useWatch({ control: form.control, name: "subagents" }) ?? []
+  const watchedMcpIntegrations =
+    useWatch({ control: form.control, name: "mcpIntegrations" }) ?? []
+  const hasStdioMcp = useMemo(
+    () =>
+      hasSelectedStdioMcpIntegration(watchedMcpIntegrations, mcpIntegrations),
+    [mcpIntegrations, watchedMcpIntegrations]
+  )
   const agentPresetsBySlug = useMemo(
     () => new Map(agentPresets.map((preset) => [preset.slug, preset])),
     [agentPresets]
@@ -1494,6 +1520,12 @@ function AgentPresetForm({
     const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
     form.reset(defaults, { keepDirty: false })
   }, [form, mode, preset])
+
+  useEffect(() => {
+    if (hasStdioMcp && !form.getValues("enableInternetAccess")) {
+      form.setValue("enableInternetAccess", true, { shouldDirty: true })
+    }
+  }, [form, hasStdioMcp])
 
   const watchedName = form.watch("name")
   const catalogId = form.watch("catalog_id")
@@ -1585,10 +1617,21 @@ function AgentPresetForm({
         }
       }
 
-      const payload = formValuesToPayload(values, {
-        presetsBySlug: agentPresetsBySlug,
-        versionsByPresetId: subagentVersionsByPresetId,
-      })
+      const payload = formValuesToPayload(
+        values,
+        {
+          presetsBySlug: agentPresetsBySlug,
+          versionsByPresetId: subagentVersionsByPresetId,
+        },
+        {
+          forceInternetAccess:
+            hasStdioMcp ||
+            hasSelectedStdioMcpIntegration(
+              values.mcpIntegrations,
+              mcpIntegrations
+            ),
+        }
+      )
       if (mode === "edit" && preset) {
         const updatePayload = buildAgentPresetUpdatePayload(payload, {
           skillsChanged: Boolean(form.formState.dirtyFields.skills),
@@ -1710,6 +1753,7 @@ function AgentPresetForm({
       enabledModelsLoaded={enabledModelsLoaded}
       mcpIntegrations={mcpIntegrations}
       mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      hasStdioMcp={hasStdioMcp}
       skillFields={skillFields}
       onAddSkillBinding={handleAddSkillBinding}
       onRemoveSkillBinding={removeSkillBinding}
@@ -1967,6 +2011,7 @@ function AgentPresetRightPanel({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  hasStdioMcp,
   skillFields,
   onAddSkillBinding,
   onRemoveSkillBinding,
@@ -1994,6 +2039,7 @@ function AgentPresetRightPanel({
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  hasStdioMcp: boolean
   skillFields: Array<{ id: string }>
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
@@ -2105,6 +2151,7 @@ function AgentPresetRightPanel({
               enabledModelsLoaded={enabledModelsLoaded}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              hasStdioMcp={hasStdioMcp}
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={onAddToolApproval}
               onRemoveToolApproval={onRemoveToolApproval}
@@ -2167,6 +2214,7 @@ function AgentPresetConfigurationPanel({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  hasStdioMcp,
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
@@ -2179,6 +2227,7 @@ function AgentPresetConfigurationPanel({
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  hasStdioMcp: boolean
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
@@ -2439,16 +2488,39 @@ function AgentPresetConfigurationPanel({
                   need it.
                 </p>
               </div>
-              <Switch
-                id="enable-internet-access"
-                checked={internetAccessEnabled}
-                onCheckedChange={(checked) =>
-                  form.setValue("enableInternetAccess", checked, {
-                    shouldDirty: true,
-                  })
-                }
-                disabled={isSaving}
-              />
+              {hasStdioMcp ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Switch
+                        id="enable-internet-access"
+                        checked
+                        disabled
+                        onCheckedChange={(checked) =>
+                          form.setValue("enableInternetAccess", checked, {
+                            shouldDirty: true,
+                          })
+                        }
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Internet access is required when a stdio MCP server is
+                    connected
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Switch
+                  id="enable-internet-access"
+                  checked={internetAccessEnabled}
+                  onCheckedChange={(checked) =>
+                    form.setValue("enableInternetAccess", checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                  disabled={isSaving}
+                />
+              )}
             </div>
           </div>
         </section>
@@ -3757,7 +3829,8 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
 
 function formValuesToPayload(
   values: AgentPresetFormValues,
-  subagentContext: SubagentResolutionContext
+  subagentContext: SubagentResolutionContext,
+  options?: { forceInternetAccess?: boolean }
 ): AgentPresetCreate {
   const outputType =
     values.outputTypeKind === "none"
@@ -3792,7 +3865,8 @@ function formValuesToPayload(
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
     enable_thinking: values.enableThinking,
-    enable_internet_access: values.enableInternetAccess,
+    enable_internet_access:
+      values.enableInternetAccess || options?.forceInternetAccess === true,
   }
 }
 

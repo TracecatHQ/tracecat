@@ -12,7 +12,10 @@ import uvloop
 from temporalio.worker import Worker
 
 from tracecat import config
-from tracecat.agent.executor.activity import run_agent_activity
+from tracecat.agent.executor.activity import (
+    probe_stdio_mcp_connection_activity,
+    run_agent_activity,
+)
 from tracecat.agent.runtime_services import (
     start_claude_runtime_broker,
     start_mcp_server,
@@ -33,7 +36,10 @@ runtime_failure_reason: str | None = None
 
 def get_activities() -> list:
     """Load runtime activities registered by the agent-executor worker."""
-    return [run_agent_activity]
+    return [
+        run_agent_activity,
+        probe_stdio_mcp_connection_activity,
+    ]
 
 
 async def _start_runtime_services() -> Client:

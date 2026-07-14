@@ -459,6 +459,8 @@ import type {
   McpIntegrationsDisconnectMcpIntegrationResponse,
   McpIntegrationsGetMcpIntegrationData,
   McpIntegrationsGetMcpIntegrationResponse,
+  McpIntegrationsGetMcpIntegrationVerificationStatusData,
+  McpIntegrationsGetMcpIntegrationVerificationStatusResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsListPlatformMcpCatalogData,
@@ -11863,6 +11865,31 @@ export const mcpIntegrationsDeleteMcpIntegration = (
 }
 
 /**
+ * Get Mcp Integration Verification Status
+ * Get saved MCP integration verification status.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPVerificationStatusRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsGetMcpIntegrationVerificationStatus = (
+  data: McpIntegrationsGetMcpIntegrationVerificationStatusData
+): CancelablePromise<McpIntegrationsGetMcpIntegrationVerificationStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/verification-status",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Update Mcp Integration Tool Policies
  * Update MCP integration tool availability and approval policy.
  * @param data The data for the request.
@@ -11892,10 +11919,10 @@ export const mcpIntegrationsUpdateMcpIntegrationToolPolicies = (
 
 /**
  * Test Mcp Connection Config
- * Test connectivity against an unsaved HTTP MCP configuration.
+ * Test connectivity against an MCP configuration.
  *
- * Ephemeral: nothing is persisted and stored verification state is never
- * touched — use this for testing edited form values before saving.
+ * HTTP tests are ephemeral and never touch stored verification state. Stdio
+ * tests require a saved integration ID and use saved-row verification.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
@@ -11921,7 +11948,7 @@ export const mcpIntegrationsTestMcpConnectionConfig = (
 
 /**
  * Test Mcp Integration Connection
- * Test connectivity to an HTTP MCP server and refresh its tool listing.
+ * Test connectivity to an MCP server and refresh its tool listing.
  * @param data The data for the request.
  * @param data.mcpIntegrationId
  * @param data.workspaceId

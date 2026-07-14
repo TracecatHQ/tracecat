@@ -239,6 +239,14 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
+        # Serialize concurrent uploads for the same case: the limit checks below
+        # read aggregate state, so without a lock two in-flight uploads can both
+        # observe pre-insert counts/storage and exceed the case limits. The lock
+        # is released when this transaction commits or rolls back.
+        await self.session.execute(
+            select(Case.id).where(Case.id == case.id).with_for_update()
+        )
+
         # Validate case-level limits (count + storage) efficiently using actual size
         await self._assert_case_limits(case, actual_size)
 

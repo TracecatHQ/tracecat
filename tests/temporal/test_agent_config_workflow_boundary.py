@@ -292,6 +292,15 @@ def _mixed_mcp_agent_config() -> TracecatAgentConfig:
                 "command": "/usr/bin/echo",
                 "args": ["hello"],
                 "id": "33333333-3333-3333-3333-333333333333",
+                "tools": [
+                    {
+                        "name": "list_alerts",
+                        "description": "List alerts",
+                        "enabled": True,
+                        "requires_approval": False,
+                        "status": "available",
+                    }
+                ],
             },
         ],
         retries=3,
@@ -455,5 +464,14 @@ async def test_mixed_mcp_payload_decodes_intact(
             "command": "/usr/bin/echo",
             "args": ["hello"],
             "id": "33333333-3333-3333-3333-333333333333",
+            "tools": [
+                {
+                    "name": "list_alerts",
+                    "description": "List alerts",
+                    "enabled": True,
+                    "requires_approval": False,
+                    "status": "available",
+                }
+            ],
         },
     ]

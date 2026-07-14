@@ -16,7 +16,12 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
-from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
+from tracecat.agent.common.types import (
+    MCPHttpServerConfig,
+    MCPServerConfig,
+    MCPServerToolSummary,
+    MCPStdioServerConfig,
+)
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -53,6 +58,7 @@ from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillVersion,
 )
@@ -276,8 +282,9 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
-        if params.mcp_integrations:
-            await self.validate_mcp_integrations(params.mcp_integrations)
+        requires_internet_access = await self._has_stdio_mcp_integration(
+            params.mcp_integrations
+        )
         if params.skills:
             await self.skills.validate_binding_inputs(
                 params.skills,
@@ -311,7 +318,9 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
             enable_thinking=params.enable_thinking,
-            enable_internet_access=params.enable_internet_access,
+            enable_internet_access=(
+                params.enable_internet_access or requires_internet_access
+            ),
             retries=params.retries,
         )
         self.session.add(preset)
@@ -415,11 +424,26 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if "mcp_integrations" in set_fields:
-            if mcp_integrations := set_fields.pop("mcp_integrations"):
-                await self.validate_mcp_integrations(mcp_integrations)
+            mcp_integrations = set_fields.pop("mcp_integrations")
+            requires_internet_access = await self._has_stdio_mcp_integration(
+                mcp_integrations
+            )
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
+        else:
+            requires_internet_access = False
+            if (
+                set_fields.get("enable_internet_access") is False
+                or not preset.enable_internet_access
+            ):
+                requires_internet_access = await self._has_stdio_mcp_integration(
+                    preset.mcp_integrations,
+                    raise_on_missing=False,
+                )
+
+        if requires_internet_access:
+            set_fields["enable_internet_access"] = True
 
         if "agents" in set_fields:
             agents = await self._resolve_preset_subagent_configs(
@@ -625,10 +649,12 @@ class AgentPresetService(BaseWorkspaceService):
 
         return await self.get_current_version_for_preset(preset)
 
-    async def validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
-        """Validate MCP integration IDs for the workspace."""
+    async def load_selected_mcp_integrations(
+        self, mcp_integrations: list[str] | None, *, raise_on_missing: bool = True
+    ) -> list[MCPIntegration]:
+        """Load selected MCP integrations after validating workspace access."""
         if not mcp_integrations:
-            return
+            return []
 
         # Convert string IDs to UUIDs for validation
         mcp_integration_ids = set()
@@ -648,10 +674,38 @@ class AgentPresetService(BaseWorkspaceService):
 
         # Check if all requested IDs exist
         if missing_ids := mcp_integration_ids - available_mcp_integration_ids:
-            missing_str = sorted(str(id) for id in missing_ids)
-            raise TracecatValidationError(
-                f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
+            missing_str = sorted(str(mcp_id) for mcp_id in missing_ids)
+            if raise_on_missing:
+                raise TracecatValidationError(
+                    f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
+                )
+            logger.warning(
+                "Skipping missing MCP integrations while checking preset transport requirements",
+                workspace_id=str(self.workspace_id),
+                missing_mcp_integration_ids=missing_str,
             )
+
+        return [
+            mcp_integration
+            for mcp_integration in available_mcp_integrations
+            if mcp_integration.id in mcp_integration_ids
+        ]
+
+    async def _has_stdio_mcp_integration(
+        self,
+        mcp_integrations: list[str] | None,
+        *,
+        raise_on_missing: bool = True,
+    ) -> bool:
+        """Return whether any selected MCP integration uses stdio transport."""
+        selected_integrations = await self.load_selected_mcp_integrations(
+            mcp_integrations,
+            raise_on_missing=raise_on_missing,
+        )
+        return any(
+            mcp_integration.server_type == "stdio"
+            for mcp_integration in selected_integrations
+        )
 
     async def _resolve_preset_subagent_configs(
         self,
@@ -776,7 +830,7 @@ class AgentPresetService(BaseWorkspaceService):
                 stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
                 if stdio_env:
                     try:
-                        stdio_env = await self._resolve_stdio_env(
+                        stdio_env = await self.resolve_stdio_env(
                             stdio_env=stdio_env,
                             mcp_integration_id=mcp_integration.id,
                             mcp_integration_slug=mcp_integration.slug,
@@ -937,7 +991,7 @@ class AgentPresetService(BaseWorkspaceService):
                         },
                     )
                     continue
-                stdio_ref: MCPServerConfig = {
+                stdio_ref: MCPStdioServerConfig = {
                     "type": "stdio",
                     "name": mcp_integration.slug,
                     "command": mcp_integration.stdio_command,
@@ -947,6 +1001,20 @@ class AgentPresetService(BaseWorkspaceService):
                     stdio_ref["args"] = mcp_integration.stdio_args
                 if mcp_integration.timeout is not None:
                     stdio_ref["timeout"] = mcp_integration.timeout
+                stored_tools = MCPToolSummary.validate_stored(
+                    mcp_integration.tools,
+                    mcp_integration_id=mcp_integration.id,
+                )
+                if stored_tools is not None:
+                    active_tools = cast(
+                        list[MCPServerToolSummary],
+                        [
+                            tool.model_dump(exclude_none=True)
+                            for tool in stored_tools
+                            if tool.enabled and tool.status == "available"
+                        ],
+                    )
+                    stdio_ref["tools"] = active_tools
                 refs.append(stdio_ref)
                 continue
 
@@ -1039,7 +1107,7 @@ class AgentPresetService(BaseWorkspaceService):
             if not stdio_env:
                 return None
             try:
-                return await self._resolve_stdio_env(
+                return await self.resolve_stdio_env(
                     stdio_env=stdio_env,
                     mcp_integration_id=mcp_integration.id,
                     mcp_integration_slug=mcp_integration.slug,
@@ -1086,7 +1154,7 @@ class AgentPresetService(BaseWorkspaceService):
             return None
         return server_config.get("headers", {})
 
-    async def _resolve_stdio_env(
+    async def resolve_stdio_env(
         self,
         *,
         stdio_env: dict[str, str],
