@@ -501,7 +501,13 @@ class SkillResourceSpec(BaseModel):
     slug: SkillName = Field(
         description="Current package locator used for cross-references.",
     )
-    name: str = Field(min_length=1, description="User-facing display name.")
+    name: str = Field(
+        min_length=1,
+        # Mirror Skill.name String(64) so oversized manifest names fail as
+        # parse diagnostics instead of DB truncation errors mid-import.
+        max_length=64,
+        description="User-facing display name.",
+    )
     description: str | None = Field(
         default=None, description="Optional skill description."
     )

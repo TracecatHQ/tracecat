@@ -637,6 +637,32 @@ async def test_pull_rejects_invalid_skill_slugs_before_writes(
 
 
 @pytest.mark.anyio
+async def test_skill_display_name_over_column_limit_is_validation_diagnostic(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    """A manifest display name longer than Skill.name's 64-char column fails as
+    a parse diagnostic at the boundary, never as a DB truncation error."""
+    resource_path = f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
+    files = _expanded_selected_git_tree()
+    resource = yaml.safe_load(files[resource_path])
+    resource["name"] = "x" * 65
+    files[resource_path] = _yaml(resource)
+
+    snapshot, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.workflow_path == resource_path
+        and diagnostic.error_type == "validation"
+        and any(
+            error.get("loc", [])[-1:] == ["name"]
+            for error in diagnostic.details.get("validation_errors", [])
+        )
+        for diagnostic in diagnostics
+    )
+    assert "qa-enrichment-skill" not in snapshot.spec.skills
+
+
+@pytest.mark.anyio
 async def test_duplicate_variable_environment_name_is_validation_diagnostic(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
