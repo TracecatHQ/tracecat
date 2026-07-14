@@ -136,6 +136,42 @@ def test_mcp_token_delegates_scopes_behind_replay_patch(
     patched_mock.assert_called_once_with(DELEGATE_MCP_SCOPES_PATCH)
 
 
+def test_mcp_token_preserves_unresolved_legacy_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=None,
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={},
+        ),
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=True,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(workflow_id="agent/test", run_id="run-1"),
+        ),
+    ):
+        token = workflow_instance._mint_scope_mcp_token(build_result=build_result)
+
+    assert verify_mcp_token(token).delegated_scopes is None
+
+
 @pytest.mark.anyio
 async def test_upsert_tracecat_search_attributes_fills_missing_keys() -> None:
     role = Role(

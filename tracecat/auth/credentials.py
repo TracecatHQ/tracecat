@@ -194,9 +194,12 @@ async def compute_attributed_user_scopes(role: Role) -> frozenset[str] | None:
     """
     if role.type != "service" or role.user_id is None or role.organization_id is None:
         return None
-    return await _compute_effective_scopes_cached(
+    user_scopes = await _compute_effective_scopes_cached(
         role.user_id, role.organization_id, role.workspace_id
     )
+    if role.delegated_scopes is not None:
+        return user_scopes & role.delegated_scopes
+    return user_scopes
 
 
 @alru_cache(maxsize=10000, ttl=30)
@@ -354,6 +357,17 @@ async def _authenticate_service(
         scopes = frozenset(
             stripped for s in scopes_header.split(",") if (stripped := s.strip())
         )
+    delegated_scopes: frozenset[str] | None = None
+    if (
+        delegated_scopes_header := request.headers.get(
+            "x-tracecat-role-delegated-scopes"
+        )
+    ) is not None:
+        delegated_scopes = frozenset(
+            stripped
+            for scope in delegated_scopes_header.split(",")
+            if (stripped := scope.strip())
+        )
     service_account_id = (
         uuid.UUID(raw_service_account_id)
         if (
@@ -383,6 +397,7 @@ async def _authenticate_service(
         organization_id=organization_id,
         service_account_id=service_account_id,
         scopes=scopes,
+        delegated_scopes=delegated_scopes,
     )
 
 

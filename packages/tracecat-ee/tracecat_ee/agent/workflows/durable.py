@@ -685,7 +685,7 @@ class DurableAgentWorkflow:
 
     def _delegated_mcp_scopes(self) -> frozenset[str] | None:
         if workflow.patched(DELEGATE_MCP_SCOPES_PATCH):
-            return self.role.scopes or frozenset()
+            return self.role.scopes
         return None
 
     def _remint_scope_tokens(

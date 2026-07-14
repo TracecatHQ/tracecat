@@ -302,6 +302,37 @@ class TestComputeAttributedUserScopes:
         scopes = await credentials.compute_attributed_user_scopes(role)
         assert scopes == frozenset({"workflow:read"})
 
+    async def test_intersects_user_scopes_with_delegated_ceiling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tracecat.auth import credentials
+        from tracecat.auth.types import Role
+
+        user_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        ws_id = uuid.uuid4()
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            user_id=user_id,
+            organization_id=org_id,
+            workspace_id=ws_id,
+            delegated_scopes=frozenset({"workflow:read"}),
+        )
+
+        async def _fake_scopes(
+            uid: uuid.UUID, oid: uuid.UUID, wid: uuid.UUID | None
+        ) -> frozenset[str]:
+            assert (uid, oid, wid) == (user_id, org_id, ws_id)
+            return frozenset({"workflow:read", "secret:read"})
+
+        monkeypatch.setattr(
+            credentials, "_compute_effective_scopes_cached", _fake_scopes
+        )
+
+        scopes = await credentials.compute_attributed_user_scopes(role)
+        assert scopes == frozenset({"workflow:read"})
+
 
 class TestAuthoringContextRouteCallerScoping:
     """The internal authoring-context route gates inventory by the real caller.

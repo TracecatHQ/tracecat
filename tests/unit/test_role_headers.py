@@ -148,6 +148,7 @@ class TestAuthenticateServiceRoundtrip:
             organization_id=organization_id,
             user_id=user_id,
             scopes=frozenset({"workflow:read"}),
+            delegated_scopes=frozenset({"workflow:read"}),
         )
 
         headers = MockHeaders(original_role.to_headers())
@@ -163,6 +164,31 @@ class TestAuthenticateServiceRoundtrip:
         assert reconstructed.workspace_id == workspace_id
         assert reconstructed.organization_id == organization_id
         assert reconstructed.scopes == frozenset({"workflow:read"})
+        assert reconstructed.delegated_scopes == frozenset({"workflow:read"})
+
+    async def test_roundtrip_preserves_empty_delegated_scope_ceiling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-runner"],
+        )
+        original_role = Role(
+            type="service",
+            service_id="tracecat-runner",
+            delegated_scopes=frozenset(),
+        )
+
+        request = MagicMock()
+        request.headers = MockHeaders(original_role.to_headers())
+
+        reconstructed = await _authenticate_service(request, api_key="test-key")
+
+        assert reconstructed is not None
+        assert reconstructed.delegated_scopes == frozenset()
 
     async def test_authenticate_service_reads_scopes(
         self, monkeypatch: pytest.MonkeyPatch
