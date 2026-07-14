@@ -227,6 +227,53 @@ async def test_http_request_with_json_payload() -> None:
 
 @pytest.mark.anyio
 @respx.mock
+async def test_http_request_with_raw_content() -> None:
+    """Test sending a raw string as the complete request body."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200)
+    )
+
+    content = "name: Example detection\n"
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        headers={"Content-Type": "application/x-yaml"},
+        content=content,
+    )
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.content == content.encode()
+    assert request.headers["Content-Type"] == "application/x-yaml"
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "conflicting_body",
+    [
+        {"payload": {"data": "value"}},
+        {"form_data": {"field": "value"}},
+        {"files": {"file": "ZmlsZQ=="}},
+    ],
+)
+async def test_http_request_rejects_raw_content_with_other_body_modes(
+    conflicting_body: dict[str, object],
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Raw content cannot be combined with payload, form_data, or files",
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            content="raw body",
+            **conflicting_body,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.anyio
+@respx.mock
 async def test_http_request_failure() -> None:
     """Test HTTP request with server error response."""
     route = respx.get("https://api.example.com").mock(

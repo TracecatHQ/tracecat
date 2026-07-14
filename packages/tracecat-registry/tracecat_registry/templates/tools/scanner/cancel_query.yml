@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Cancel Scanner query
+  description: Cancel a previously started asynchronous Scanner query.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/ad-hoc-queries
+  namespace: tools.scanner
+  name: cancel_query
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    query_run_id:
+      type: str
+      description: Query run ID (`qr_id`) returned by `tools.scanner.start_query`.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: cancel_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/cancel_query/${{ FN.url_encode(inputs.query_run_id) }}
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+  returns: ${{ steps.cancel_query.result.data }}

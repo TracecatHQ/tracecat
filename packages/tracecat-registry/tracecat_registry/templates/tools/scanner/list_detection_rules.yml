@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: List Scanner detection rules
+  description: List detection rules for a Scanner tenant.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/detection-rules
+  namespace: tools.scanner
+  name: list_detection_rules
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    tenant_id:
+      type: str
+      description: Unique identifier for the Scanner tenant.
+    page_size:
+      type: int | None
+      description: Maximum detection rules to return in a page. Scanner defaults to 50.
+      default: null
+    page_token:
+      type: str | None
+      description: Pagination cursor returned as `next_page_token` by a previous request.
+      default: null
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: build_pagination_params
+      action: core.script.run_python
+      args:
+        inputs:
+          tenant_id: ${{ inputs.tenant_id }}
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+        script: |
+          def main(tenant_id, page_size, page_token):
+              params = {
+                  "tenant_id": tenant_id,
+                  "pagination[page_size]": page_size,
+                  "pagination[page_token]": page_token,
+              }
+              return {key: value for key, value in params.items() if value is not None}
+    - ref: list_detection_rules
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/detection_rule
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+        params: ${{ steps.build_pagination_params.result }}
+  returns: ${{ steps.list_detection_rules.result.data }}
