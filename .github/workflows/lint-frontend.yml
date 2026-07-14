@@ -88,6 +88,8 @@ jobs:
           pnpm -C frontend exec biome check --write src/client
           git diff --exit-code frontend/src/client/
 
-      - name: Run TypeScript type check
+      - name: Run TypeScript 7 type check
         working-directory: frontend
-        run: pnpm run typecheck
+        run: |
+          pnpm run typecheck:version
+          pnpm run typecheck

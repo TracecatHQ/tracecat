@@ -27,19 +27,26 @@ export type Tag = _Tag
 // Define the props we want to expose to consumers
 type CustomTagInputProps = Omit<
   TagInputProps,
-  "activeTagIndex" | "setActiveTagIndex" | "styleClasses"
->
+  "activeTagIndex" | "setActiveTagIndex" | "setTags" | "styleClasses" | "tags"
+> &
+  Pick<TagInputProps, "setTags" | "tags">
 
 /**
  * Wrapper component for Emblor's TagInput that internally manages activeTagIndex state
  * and applies consistent styling across the application
  */
-export function CustomTagInput(props: CustomTagInputProps) {
+export function CustomTagInput({
+  tags,
+  setTags,
+  ...props
+}: CustomTagInputProps) {
   const [activeTagIndex, setActiveTagIndex] = useState<number | null>(null)
 
   return (
     <EmblorTagInput
       {...props}
+      tags={tags}
+      setTags={setTags}
       activeTagIndex={activeTagIndex}
       setActiveTagIndex={setActiveTagIndex}
       styleClasses={{
