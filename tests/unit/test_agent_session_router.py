@@ -486,9 +486,9 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
 @pytest.mark.anyio
 async def test_send_message_noop_continue_returns_finished_stream() -> None:
-    """A no-op continuation (duplicate/already-resolved) never attaches Redis.
+    """An already-resolved continuation never attaches Redis.
 
-    run_turn returns None, so no stream was rotated. Attaching the stale
+    run_turn returns None because no pending approvals remain. Attaching the stale
     pre-approval buffer at 0-0 would replay the turn prefix on top of the
     now-DB-visible rows; instead the router returns an immediately-finished
     Vercel SSE response so the client refetches DB history.
@@ -582,7 +582,13 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
-        run_turn=AsyncMock(return_value=None),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream",
+                chat_id=session_id,
+                curr_run_id=uuid.uuid4(),
+            )
+        ),
         is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
     )
@@ -744,7 +750,13 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
-        run_turn=AsyncMock(return_value=None),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream",
+                chat_id=session_id,
+                curr_run_id=uuid.uuid4(),
+            )
+        ),
         is_first_prompt_for_session=AsyncMock(return_value=True),
         build_initial_artifact=AsyncMock(return_value=artifact),
         apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
@@ -842,7 +854,13 @@ async def test_send_message_new_turn_skips_initial_artifact_after_first_prompt()
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
-        run_turn=AsyncMock(return_value=None),
+        run_turn=AsyncMock(
+            return_value=ChatResponse(
+                stream_url="/stream",
+                chat_id=session_id,
+                curr_run_id=uuid.uuid4(),
+            )
+        ),
         is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=artifact),
         apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
@@ -1243,6 +1261,7 @@ async def test_stream_session_events_returns_204_when_no_turn() -> None:
             role=role,
             request=SimpleNamespace(headers={}),
             session_id=session_id,
+            format="vercel",
         )
 
     assert isinstance(response, Response)
@@ -1327,10 +1346,7 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
             )
         ),
     )
-    fake_stream = SimpleNamespace(
-        finished_sse=Mock(return_value=_empty_event_stream()),
-        sse=Mock(return_value=_empty_event_stream()),
-    )
+    finished_sse = Mock(return_value=_empty_event_stream())
 
     with (
         patch(
@@ -1338,8 +1354,8 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
             return_value=_AsyncContext(fake_svc),
         ),
         patch(
-            "tracecat.agent.session.router.AgentStream.new",
-            AsyncMock(return_value=fake_stream),
+            "tracecat.agent.session.router.AgentStream.finished_sse",
+            finished_sse,
         ),
     ):
         raw = cast(Any, stream_session_events).__wrapped__
@@ -1347,11 +1363,13 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
             role=role,
             request=SimpleNamespace(headers={}),
             session_id=session_id,
+            format="vercel",
         )
 
     assert isinstance(response, StreamingResponse)
-    fake_stream.finished_sse.assert_called_once()
-    fake_stream.sse.assert_not_called()
+    finished_sse.assert_called_once_with(
+        format="vercel", message_id=f"{session_id}:{run_id}"
+    )
 
 
 @pytest.mark.anyio

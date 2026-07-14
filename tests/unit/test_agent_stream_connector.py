@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
+import orjson
 import pytest
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -80,7 +81,16 @@ async def test_min_entry_id_returns_oldest_or_none() -> None:
 async def test_approval_continuation_marker_tracks_open_stream() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
-    marker = {tokens.DATA_KEY: b'{"kind":"approval-continuation-start"}'}
+    previous_stream_id = uuid.uuid4()
+    marker = {
+        tokens.DATA_KEY: orjson.dumps(
+            {
+                "kind": "approval-continuation-start",
+                "submission_key": "approval-key",
+                "previous_stream_id": str(previous_stream_id),
+            }
+        )
+    }
     client = SimpleNamespace(
         xadd=AsyncMock(return_value="1-0"),
         xrange=AsyncMock(return_value=[("1-0", marker)]),
@@ -92,10 +102,23 @@ async def test_approval_continuation_marker_tracks_open_stream() -> None:
         session_id=session_id,
     )
 
-    await stream.mark_approval_continuation()
+    await stream.mark_approval_continuation(
+        submission_key="approval-key",
+        previous_stream_id=previous_stream_id,
+    )
 
     assert await stream.is_open_approval_continuation() is True
+    parsed_marker = await stream.approval_continuation_marker()
+    assert parsed_marker is not None
+    assert parsed_marker.previous_stream_id == previous_stream_id
+    assert parsed_marker.submission_key == "approval-key"
     client.xadd.assert_awaited_once()
+    written_marker = orjson.loads(client.xadd.await_args.args[1][tokens.DATA_KEY])
+    assert written_marker == {
+        "kind": "approval-continuation-start",
+        "submission_key": "approval-key",
+        "previous_stream_id": str(previous_stream_id),
+    }
 
     client.xrevrange = AsyncMock(
         return_value=[("2-0", {tokens.DATA_KEY: b'{"[TURN_END]":1}'})]

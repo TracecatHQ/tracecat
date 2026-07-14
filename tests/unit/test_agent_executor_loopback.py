@@ -16,7 +16,6 @@ from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
-    ToolCallContent,
     UnifiedStreamEvent,
 )
 from tracecat.agent.executor.loopback import (
@@ -67,16 +66,6 @@ class _FakeArtifactPersistenceSession:
         self.scalar = AsyncMock(return_value=organization_id)
 
 
-def _role(workspace_id: uuid.UUID) -> Role:
-    return Role(
-        type="service",
-        service_id="tracecat-agent-executor",
-        workspace_id=workspace_id,
-        organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute"}),
-    )
-
-
 def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
     for envelope in envelopes:
@@ -97,7 +86,6 @@ def loopback_input(tmp_path: Path) -> LoopbackInput:
     return LoopbackInput(
         session_id=uuid.uuid4(),
         workspace_id=workspace_id,
-        role=_role(workspace_id),
     )
 
 
@@ -231,7 +219,6 @@ def _make_handler(*, defer_done_on_approval: bool = False) -> LoopbackHandler:
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
-            role=_role(UUID("00000000-0000-0000-0000-000000000002")),
             defer_done_on_approval=defer_done_on_approval,
         )
     )
@@ -489,36 +476,32 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
 
 @pytest.mark.anyio
-async def test_emit_stream_done_emits_on_approval_pause_when_not_deferred() -> None:
-    handler = _make_handler()
+@pytest.mark.parametrize(
+    ("defer_done", "approval_requested", "expect_done"),
+    [
+        (False, True, True),
+        (True, True, False),
+        (True, False, True),
+    ],
+    ids=["legacy-approval", "deferred-approval", "deferred-normal-turn"],
+)
+async def test_emit_stream_done_policy(
+    defer_done: bool,
+    approval_requested: bool,
+    expect_done: bool,
+) -> None:
+    handler = _make_handler(defer_done_on_approval=defer_done)
     stream = _FakeStream()
     handler._stream_sink = stream
-    handler._result.approval_requested = True
-    handler._result.approval_items = [
-        ToolCallContent(
-            id="tool_call_123",
-            name="core.cases.list_cases",
-            input={"limit": 10},
-            metadata={"scope": "case"},
-        )
-    ]
+    handler._result.approval_requested = approval_requested
 
     await handler._emit_stream_done()
 
-    stream.done.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_emit_stream_done_skips_deferred_approval_pause() -> None:
-    handler = _make_handler(defer_done_on_approval=True)
-    stream = _FakeStream()
-    handler._stream_sink = stream
-    handler._result.approval_requested = True
-
-    await handler._emit_stream_done()
-
-    stream.done.assert_not_awaited()
-    assert handler._stream_done_emitted is False
+    if expect_done:
+        stream.done.assert_awaited_once()
+    else:
+        stream.done.assert_not_awaited()
+    assert handler._stream_done_emitted is expect_done
 
 
 @pytest.mark.anyio
@@ -541,19 +524,6 @@ async def test_emit_stream_done_closes_external_sink_on_approval_pause() -> None
     external_stream.done.assert_awaited_once()
     assert handler._stream_done_emitted is False
     assert handler._external_stream_done_emitted is True
-
-
-@pytest.mark.anyio
-async def test_emit_stream_done_emits_non_approval_when_deferred() -> None:
-    handler = _make_handler(defer_done_on_approval=True)
-    stream = _FakeStream()
-    handler._stream_sink = stream
-    handler._result.approval_requested = False
-
-    await handler._emit_stream_done()
-
-    stream.done.assert_awaited_once()
-    assert handler._stream_done_emitted is True
 
 
 @pytest.mark.anyio

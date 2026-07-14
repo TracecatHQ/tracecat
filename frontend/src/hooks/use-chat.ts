@@ -8,10 +8,11 @@ import {
 } from "@tanstack/react-query"
 import {
   type ChatOnDataCallback,
+  type ChatStatus,
   DefaultChatTransport,
   type UIMessage,
 } from "ai"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentSessionCreate,
   type AgentSessionEntity,
@@ -673,12 +674,76 @@ export function useVercelChat({
   }
 }
 
-// --- Approvals helpers (CE handshake) ----------------------------------------
+/**
+ * Identity signature of a transcript: message ids plus the id, type, state, and
+ * text of each part. Two transcripts with the same signature carry the same
+ * rendered content, so an unchanged signature means there is nothing to adopt.
+ */
+function transcriptSignature(messages: UIMessage[]): string {
+  return JSON.stringify(
+    messages.map((m) => [
+      m.id,
+      m.parts.map((p) => [
+        p.type,
+        "state" in p ? p.state : undefined,
+        "text" in p ? p.text : undefined,
+      ]),
+    ])
+  )
+}
 
-export type ApprovalCard = {
-  tool_call_id: string
-  tool_name: string
-  args?: unknown
+/** A message whose parts are all approval-request cards (nothing else). */
+function isApprovalCardMessage(m: UIMessage): boolean {
+  return (
+    m.parts.length > 0 &&
+    m.parts.every((p) => p.type === "data-approval-request")
+  )
+}
+
+/**
+ * Adopt the server transcript wholesale at quiescent boundaries.
+ *
+ * While a turn streams, useChat owns the transcript; the moment it goes
+ * quiescent (`ready`) we adopt the server copy WHOLESALE once it has caught up.
+ * Message ids differ between the DB serialization and the live stream, so
+ * merging is impossible by design — we replace, never merge.
+ *
+ * The backend guarantees this is always safe: an approval pause returns 204 on
+ * resume, DB history already includes the paused partial turn, and any
+ * continuation stream carries only the suffix. A normal turn can still finish
+ * before curr_run_id is cleared, though, making the immediate onFinish refetch
+ * omit the just-finished rows. Keep the longer live transcript until a later
+ * server snapshot catches up. Never adopt while streaming/submitted either.
+ */
+export function useAdoptServerTranscript({
+  status,
+  serverMessages,
+  liveMessages,
+  setMessages,
+}: {
+  status: ChatStatus
+  serverMessages: UIMessage[]
+  liveMessages: UIMessage[]
+  setMessages: (messages: UIMessage[]) => void
+}) {
+  const adoptedSignatureRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (status !== "ready") return
+    const serverSignature = transcriptSignature(serverMessages)
+    if (adoptedSignatureRef.current === serverSignature) return
+    if (transcriptSignature(liveMessages) === serverSignature) {
+      adoptedSignatureRef.current = serverSignature
+      return
+    }
+    // A resolved approval drops its card from the server transcript, so exclude
+    // approval-card-only messages from the finalize-race length guard.
+    const liveComparableLength = liveMessages.filter(
+      (m) => !isApprovalCardMessage(m)
+    ).length
+    if (serverMessages.length < liveComparableLength) return
+    adoptedSignatureRef.current = serverSignature
+    setMessages(serverMessages)
+  }, [status, serverMessages, liveMessages, setMessages])
 }
 
 /**

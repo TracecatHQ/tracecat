@@ -95,7 +95,6 @@ class LoopbackInput:
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    role: Role
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
     defer_done_on_approval: bool = False

@@ -102,21 +102,23 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import {
-  type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useAdoptServerTranscript,
   useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
-import type { ModelInfo } from "@/lib/chat"
 import {
+  type ApprovalCard,
   CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
   getCancelledPartToolCallIds,
   getSessionLastError,
+  isApprovalCardArray,
   isInterruptArtifactError,
+  type ModelInfo,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -170,24 +172,6 @@ function isCancelAttributionContentPart(
     return typeof part.text === "string" && part.text.trim().length > 0
   }
   return true
-}
-
-/**
- * Identity signature of a transcript: message ids plus the id, type, state, and
- * text of each part. Two transcripts with the same signature carry the same
- * rendered content, so an unchanged signature means there is nothing to adopt.
- */
-function transcriptSignature(messages: UIMessage[]): string {
-  return JSON.stringify(
-    messages.map((m) => [
-      m.id,
-      m.parts.map((p) => [
-        p.type,
-        "state" in p ? p.state : undefined,
-        "text" in p ? p.text : undefined,
-      ]),
-    ])
-  )
 }
 
 function matchingUserTextPartKeys(
@@ -442,31 +426,12 @@ export function ChatSessionPane({
     hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
   const displayedError = lastError ?? persistedError
 
-  // Ownership swap at quiescent boundaries: while a turn streams, useChat owns
-  // the transcript; the moment it goes quiescent (`ready`) we adopt the server
-  // copy WHOLESALE once it has caught up. Message ids differ between the DB
-  // serialization and the live stream, so merging is impossible by design — we
-  // replace, never merge.
-  //
-  // The backend guarantees this is always safe: an approval pause returns 204 on
-  // resume, DB history already includes the paused partial turn, and any
-  // continuation stream carries only the suffix. A normal turn can still finish
-  // before curr_run_id is cleared, though, making the immediate onFinish refetch
-  // omit the just-finished rows. Keep the longer live transcript until a later
-  // server snapshot catches up. Never adopt while streaming/submitted either.
-  const adoptedSignatureRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (status !== "ready") return
-    const serverSignature = transcriptSignature(uiMessages)
-    if (adoptedSignatureRef.current === serverSignature) return
-    if (transcriptSignature(messages) === serverSignature) {
-      adoptedSignatureRef.current = serverSignature
-      return
-    }
-    if (uiMessages.length < messages.length) return
-    adoptedSignatureRef.current = serverSignature
-    setMessages(uiMessages)
-  }, [status, uiMessages, messages, setMessages])
+  useAdoptServerTranscript({
+    status,
+    serverMessages: uiMessages,
+    liveMessages: messages,
+    setMessages,
+  })
 
   useEffect(() => {
     onStatusChange?.(status)
@@ -1884,9 +1849,7 @@ export function MessagePart({
 
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
-    const approvals: ApprovalCard[] = Array.isArray(payload)
-      ? (payload.filter(Boolean) as ApprovalCard[])
-      : []
+    const approvals = isApprovalCardArray(payload) ? payload : []
     return (
       <ApprovalRequestPart
         key={`${id}-${partIdx}`}

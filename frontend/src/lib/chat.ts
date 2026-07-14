@@ -8,8 +8,13 @@ import type {
   ChatReadVercel,
   UIMessage,
 } from "@/client"
-import type { ApprovalCard } from "@/hooks/use-chat"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+
+export type ApprovalCard = {
+  tool_call_id: string
+  tool_name: string
+  args?: unknown
+}
 
 type ServerToolPart = Extract<UIMessage["parts"][number], { state: string }>
 type LegacyToolState =
@@ -350,20 +355,42 @@ type CompactionData = {
   phase?: "started" | "completed" | "failed"
 }
 
-type KeptToolPart = {
-  position: string
+/**
+ * Per-toolCallId lifecycle bookkeeping accumulated in the population pass of
+ * {@link transformMessages}. Positions are `"msgIndex-partIndex"` string keys.
+ */
+type ToolCallTrace = {
+  /** Position of the dedupe winner, and whether it carries output. */
+  keptPos?: string
   hasOutput: boolean
+  /** Position of the input-available part that opened the call. */
+  openPos?: string
+  /** Position of the approval-request part matched to this call. */
+  approvalPos?: string
+  /** Position of the output-* part that closed the call. */
+  closePos?: string
+  /** Position of the most recent approval-request part naming this call. */
+  lastApprovalPos?: string
 }
 
-function getApprovalToolCallId(approval: unknown): string | null {
-  if (!approval || typeof approval !== "object") {
-    return null
-  }
-
-  const toolCallId = (approval as { tool_call_id?: unknown }).tool_call_id
-  return typeof toolCallId === "string" && toolCallId.length > 0
-    ? toolCallId
-    : null
+/** Validate the custom approval data-part payload at the generated `unknown` boundary. */
+export function isApprovalCardArray(data: unknown): data is ApprovalCard[] {
+  return (
+    Array.isArray(data) &&
+    data.every((item: unknown) => {
+      if (!item || typeof item !== "object") {
+        return false
+      }
+      return (
+        "tool_call_id" in item &&
+        typeof item.tool_call_id === "string" &&
+        item.tool_call_id.length > 0 &&
+        "tool_name" in item &&
+        typeof item.tool_name === "string" &&
+        item.tool_name.length > 0
+      )
+    })
+  )
 }
 
 /**
@@ -410,18 +437,41 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
  * @returns Transformed messages with appropriate parts hidden/visible
  */
 export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
-  // Tool call id to array positions (using string keys for positions)
-  const states = new Map<
-    string,
-    { open?: string; approval?: string; close?: string } | undefined
-  >()
+  // One lifecycle record per toolCallId; positions are "msgIndex-partIndex".
+  const traces = new Map<string, ToolCallTrace>()
   // Array positions to ignore (using "msgIndex-partIndex" string format)
   const ignorePos = new Set<string>()
-  const keptToolParts = new Map<string, KeptToolPart>()
-  const resolvedToolCallIds = new Set<string>()
-  const lastApprovalPosition = new Map<string, string>()
-  let hasDuplicateApprovalRequests = false
   let pendingCompactionStartPos: string | null = null
+
+  const getTrace = (toolCallId: string): ToolCallTrace => {
+    let trace = traces.get(toolCallId)
+    if (!trace) {
+      trace = { hasOutput: false }
+      traces.set(toolCallId, trace)
+    }
+    return trace
+  }
+
+  // Dedupe DB/stream seam copies: an output-bearing copy supersedes any kept
+  // copy; a non-output copy is ignored when an output copy is kept; otherwise
+  // the latest occurrence wins. Ignored positions accumulate in `ignorePos`.
+  const recordDedupe = (
+    trace: ToolCallTrace,
+    posKey: string,
+    hasOutput: boolean
+  ) => {
+    if (hasOutput) {
+      if (trace.keptPos) ignorePos.add(trace.keptPos)
+      trace.keptPos = posKey
+      trace.hasOutput = true
+    } else if (trace.hasOutput) {
+      ignorePos.add(posKey)
+    } else {
+      if (trace.keptPos) ignorePos.add(trace.keptPos)
+      trace.keptPos = posKey
+      trace.hasOutput = false
+    }
+  }
 
   for (const [i, message] of messages.entries()) {
     for (const [j, part] of message.parts.entries()) {
@@ -431,75 +481,45 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         const { state, toolCallId } = part
         const hasOutput =
           state === "output-available" || state === "output-error"
-        const keptToolPart = keptToolParts.get(toolCallId)
-        if (hasOutput) {
-          resolvedToolCallIds.add(toolCallId)
-          if (keptToolPart) {
-            ignorePos.add(keptToolPart.position)
-          }
-          keptToolParts.set(toolCallId, { position: posKey, hasOutput: true })
-        } else if (keptToolPart?.hasOutput) {
-          ignorePos.add(posKey)
-        } else {
-          if (keptToolPart) {
-            ignorePos.add(keptToolPart.position)
-          }
-          keptToolParts.set(toolCallId, { position: posKey, hasOutput: false })
-        }
+        const trace = getTrace(toolCallId)
+        recordDedupe(trace, posKey, hasOutput)
 
         if (state === "input-available") {
           // OPEN STATE
-          // If we encounter an input-available part, we open a tool call state
-          states.set(toolCallId, { open: posKey })
-        } else if (state === "output-available" || state === "output-error") {
+          // If we encounter an input-available part, we open a tool call state.
+          // A fresh open supersedes any prior open/approval bookkeeping.
+          trace.openPos = posKey
+          trace.approvalPos = undefined
+          trace.closePos = undefined
+        } else if (hasOutput) {
           // CLOSE STATE
           // If we encounter an output-* part:
           // 1. Close the tool call state by hiding the input-* + approval parts
           // 2. Merge the input args into the output part
-          const currState = states.get(toolCallId)
-          if (currState) {
-            if (currState.open) {
-              ignorePos.add(currState.open) // Hide open state
-            }
-            if (currState.approval) {
-              ignorePos.add(currState.approval) // Hide approval state
-            }
-          } else {
-            states.set(toolCallId, { close: posKey })
-            continue
+          if (trace.openPos) {
+            ignorePos.add(trace.openPos) // Hide open state
           }
-          // add close state
-          states.set(toolCallId, { ...currState, close: posKey })
+          if (trace.approvalPos) {
+            ignorePos.add(trace.approvalPos) // Hide approval state
+          }
+          trace.closePos = posKey
         }
       } else if (part.type === "data-approval-request") {
         // Handle approval request parts
         // 1. If approval request we mark positions, only ignore if we hit a close state
         // 2. If we see approval requests after a close state, we should ignore the approval requests
-        const approvals: ApprovalCard[] = Array.isArray(part.data)
-          ? part.data
-          : []
+        const approvals = isApprovalCardArray(part.data) ? part.data : []
         for (const approval of approvals) {
-          const toolCallId = getApprovalToolCallId(approval)
-          if (toolCallId) {
-            const previousPosition = lastApprovalPosition.get(toolCallId)
-            if (previousPosition && previousPosition !== posKey) {
-              hasDuplicateApprovalRequests = true
-            }
-            lastApprovalPosition.set(toolCallId, posKey)
-          }
+          const toolCallId = approval.tool_call_id
+          const trace = getTrace(toolCallId)
+          trace.lastApprovalPos = posKey
           // For each approval find the matching open state and update the approval state
-          if (toolCallId) {
-            const currState = states.get(toolCallId)
-            if (currState) {
-              // If we already have a close state, ignore this approval request
-              if (currState.close) {
-                ignorePos.add(posKey)
-              }
-              states.set(toolCallId, {
-                ...currState,
-                approval: posKey,
-              })
+          if (trace.openPos || trace.approvalPos || trace.closePos) {
+            // If we already have a close state, ignore this approval request
+            if (trace.closePos) {
+              ignorePos.add(posKey)
             }
+            trace.approvalPos = posKey
           }
         }
       } else if (part.type === "data-compaction") {
@@ -526,28 +546,20 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
 
   // Finally walk through each message and filter out the ignored positions
   const finalMessages: ai.UIMessage[] = []
-  const shouldFilterApprovalParts =
-    resolvedToolCallIds.size > 0 || hasDuplicateApprovalRequests
   for (const [i, message] of messages.entries()) {
     const newParts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
     for (const [j, part] of message.parts.entries()) {
       const posKey = `${i}-${j}`
       if (ignorePos.has(posKey)) continue
       if (
-        shouldFilterApprovalParts &&
         part.type === "data-approval-request" &&
-        Array.isArray(part.data)
+        isApprovalCardArray(part.data)
       ) {
-        const remaining = part.data.filter((approval) => {
-          const toolCallId = getApprovalToolCallId(approval)
-          if (!toolCallId) {
-            return true
-          }
-          return (
-            !resolvedToolCallIds.has(toolCallId) &&
-            lastApprovalPosition.get(toolCallId) === posKey
-          )
-        })
+        const remaining = part.data.filter(
+          ({ tool_call_id: toolCallId }) =>
+            !traces.get(toolCallId)?.hasOutput &&
+            traces.get(toolCallId)?.lastApprovalPos === posKey
+        )
         if (remaining.length === 0) {
           continue
         }
@@ -563,18 +575,16 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
       ) {
         // Handle output parts
         const { toolCallId } = part
-        const currState = states.get(toolCallId)
+        const trace = traces.get(toolCallId)
         const newPart: Extract<
           ai.UIMessagePart<ai.UIDataTypes, ai.UITools>,
           { state: "output-available" | "output-error" }
         > = {
           ...part,
         }
-        if (currState?.open) {
+        if (trace?.openPos) {
           // Extract the open position from the string key
-          const [openMsgIdx, openPartIdx] = currState.open
-            .split("-")
-            .map(Number)
+          const [openMsgIdx, openPartIdx] = trace.openPos.split("-").map(Number)
           const openPart = messages[openMsgIdx].parts[openPartIdx]
           if (!ai.isToolUIPart(openPart)) {
             throw new Error(

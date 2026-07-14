@@ -450,7 +450,6 @@ class SandboxedAgentExecutor:
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                role=self.input.role,
                 active_stream_id=self.input.active_stream_id,
                 curr_run_id=self.input.curr_run_id,
                 defer_done_on_approval=self.input.defer_done_on_approval,

@@ -436,10 +436,10 @@ class WorkflowApprovalSubmission(BaseModel):
     new_stream_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Rotated per-turn Redis stream id. When set (and the rotation patch "
-            "is active), the workflow redirects every post-approval emission to "
-            "this fresh, suffix-only stream so events never collide with the "
-            "pre-approval buffer, which may already be TTL-evicted."
+            "Rotated per-turn Redis stream ID. When set, the workflow sends every "
+            "event emitted after approval resumes to this new stream instead of "
+            "the stream that ended at the approval pause, which may already have "
+            "expired."
         ),
     )
 
@@ -492,13 +492,9 @@ def _preserved_agents_binding(
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
-# Rotate the per-turn stream id on approval continuation so post-approval events
-# land in a fresh, suffix-only Redis stream (immune to the pre-approval buffer's
-# TTL eviction). Gated so replays of histories recorded before this change keep
-# emitting to the original stream id and stay deterministic.
-APPROVAL_STREAM_ROTATION_PATCH = "approval-stream-rotation-v1"
-WORKFLOW_OWNED_APPROVAL_DONE_PATCH = "workflow-owned-approval-done-v1"
-BEST_EFFORT_APPROVAL_DONE_PATCH = "best-effort-approval-done-v1"
+# Gates the approval-stream lifecycle as one capability: persist approvals before
+# closing the pause stream, rotate continuations, and best-effort stream closure.
+APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
 @workflow.defn
@@ -521,6 +517,7 @@ class DurableAgentWorkflow:
         self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
+        self._approval_stream_v2 = False
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
@@ -979,8 +976,8 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
                     message=message,
-                    # Chat turns pin a per-turn stream id; the client reads the
-                    # suffixed key, so the error/done markers must land there.
+                    # Chat turns pin a per-turn stream ID; the client reads that
+                    # stream, so the error/done markers must land there.
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
                     should_stream=should_stream,
@@ -1019,8 +1016,8 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
                     reason=self._cancel_reason or "user_cancel",
-                    # Chat turns pin a per-turn stream id; the client reads the
-                    # suffixed key, so the cancelled/done markers must land there.
+                    # Chat turns pin a per-turn stream ID; the client reads that
+                    # stream, so the cancelled/done markers must land there.
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
                     emit_stream=emit_stream,
@@ -1042,9 +1039,7 @@ class DurableAgentWorkflow:
                 error=str(emit_error),
             )
 
-    async def _emit_approval_pause_done(
-        self, active_stream_id: uuid.UUID | None
-    ) -> None:
+    async def _emit_approval_pause_done(self) -> None:
         """Close the approval-pause stream after approval rows are durable."""
         try:
             await workflow.execute_activity_method(
@@ -1053,7 +1048,7 @@ class DurableAgentWorkflow:
                     role=self.role,
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
-                    active_stream_id=active_stream_id,
+                    active_stream_id=self.active_stream_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1064,11 +1059,6 @@ class DurableAgentWorkflow:
                 session_id=self.session_id,
                 error=str(emit_error),
             )
-            # Preserve the old terminal failure on replay. New executions keep
-            # waiting for the already-persisted approval decisions even when
-            # the best-effort Redis close marker cannot be written.
-            if not workflow.patched(BEST_EFFORT_APPROVAL_DONE_PATCH):
-                raise
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -1080,19 +1070,17 @@ class DurableAgentWorkflow:
             if submission.new_stream_id
             else None,
         )
-        # Rotate the per-turn stream id so all post-approval emission sites
-        # (reconciled tool results + resumed model output) write to the fresh,
-        # suffix-only stream the client is now attached to. Gated for replay
-        # determinism: old histories keep emitting to the original stream id.
-        if submission.new_stream_id is not None and workflow.patched(
-            APPROVAL_STREAM_ROTATION_PATCH
-        ):
-            self.active_stream_id = submission.new_stream_id
         self.approvals.set(
             submission.approvals,
             approved_by=submission.approved_by,
             decision_metadata=submission.decision_metadata,
         )
+        # This synchronous handler cannot resume mid-update, and new_stream_id is
+        # the compatibility gate (pre-rotation updates omit it). Keep the pointer
+        # mutation last so a failed ApprovalManager.set cannot partially rotate to
+        # a definitively rejected continuation attempt.
+        if submission.new_stream_id is not None:
+            self.active_stream_id = submission.new_stream_id
 
     @set_approvals.validator
     def validate_set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -1258,9 +1246,7 @@ class DurableAgentWorkflow:
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
         )
-        workflow_owned_approval_done = workflow.patched(
-            WORKFLOW_OWNED_APPROVAL_DONE_PATCH
-        )
+        self._approval_stream_v2 = workflow.patched(APPROVAL_STREAM_V2_PATCH)
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1277,7 +1263,7 @@ class DurableAgentWorkflow:
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
-            defer_done_on_approval=workflow_owned_approval_done,
+            defer_done_on_approval=self._approval_stream_v2,
             is_fork=load_result.is_fork,
         )
 
@@ -1388,8 +1374,8 @@ class DurableAgentWorkflow:
                         tool_call_parts,
                         request_metadata=request_metadata,
                     )
-                if workflow_owned_approval_done:
-                    await self._emit_approval_pause_done(self.active_stream_id)
+                if self._approval_stream_v2:
+                    await self._emit_approval_pause_done()
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
@@ -1527,7 +1513,7 @@ class DurableAgentWorkflow:
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
                     sdk_session_data=reload_result.sdk_session_data,
-                    defer_done_on_approval=workflow_owned_approval_done,
+                    defer_done_on_approval=self._approval_stream_v2,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )

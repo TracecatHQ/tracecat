@@ -9,7 +9,7 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { InboxSessionItem } from "@/lib/agents"
+import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -57,9 +57,7 @@ export function InboxDetail({
   // User must make an approval decision before they can send messages
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
-  const resume =
-    session.derivedStatus === "RUNNING" ||
-    session.derivedStatus === "CONTINUED_AS_NEW"
+  const resume = isLiveAgentStatus(session.derivedStatus)
 
   /**
    * Fork the session and notify parent with the message to send.

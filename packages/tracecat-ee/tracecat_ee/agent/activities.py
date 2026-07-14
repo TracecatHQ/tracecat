@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import (
     UUID4,
@@ -171,6 +171,14 @@ class EmitSessionCancelledInputs(BaseModel):
     marker would race the client's stream teardown); the activity then only
     persists the timeline marker row.
     """
+
+
+class _SessionStreamInputs(Protocol):
+    """Terminal-emit input shape addressing one session stream."""
+
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    active_stream_id: uuid.UUID | None
 
 
 def _stored_user_mcp_tool_policy(
@@ -553,23 +561,24 @@ class AgentActivities:
         if not args.should_stream:
             return
 
-        stream = await AgentStream.new(
+        stream = await self._open_session_stream(args)
+        await stream.error(args.message)
+        await stream.done()
+
+    @staticmethod
+    async def _open_session_stream(args: _SessionStreamInputs) -> AgentStream:
+        """Open the active agent stream shared by terminal emit activities."""
+        return await AgentStream.new(
             session_id=args.session_id,
             workspace_id=args.workspace_id,
             stream_id=args.active_stream_id,
         )
-        await stream.error(args.message)
-        await stream.done()
 
     @activity.defn
     async def emit_session_done(self, args: EmitSessionDoneInputs) -> None:
         """Push a terminal done marker to the active agent stream."""
         ctx_role.set(args.role)
-        stream = await AgentStream.new(
-            session_id=args.session_id,
-            workspace_id=args.workspace_id,
-            stream_id=args.active_stream_id,
-        )
+        stream = await self._open_session_stream(args)
         await stream.done()
 
     @activity.defn
@@ -598,11 +607,7 @@ class AgentActivities:
         if not args.emit_stream:
             return
 
-        stream = await AgentStream.new(
-            session_id=args.session_id,
-            workspace_id=args.workspace_id,
-            stream_id=args.active_stream_id,
-        )
+        stream = await self._open_session_stream(args)
         await stream.append(
             UnifiedStreamEvent.cancelled_event(
                 reason=args.reason,

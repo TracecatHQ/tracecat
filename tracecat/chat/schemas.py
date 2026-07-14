@@ -79,10 +79,11 @@ class ChatResponse(BaseModel):
     active_stream_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Per-turn Redis stream id the caller should attach to. On approval "
-            "continuations this is the freshly rotated stream id (a suffix-only "
-            "stream), so callers must attach here rather than the pre-approval "
-            "stream, which may already be TTL-evicted."
+            "Per-turn Redis stream ID the caller should attach to. For approval "
+            "continuations, this is a newly rotated stream containing only events "
+            "emitted after approval resumes. Callers must attach to this stream "
+            "instead of the stream that ended at the approval pause, which may "
+            "already have expired."
         ),
     )
     curr_run_id: uuid.UUID | None = Field(

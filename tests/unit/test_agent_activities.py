@@ -1528,7 +1528,6 @@ class TestSandboxedAgentExecutorCancellation:
             input=LoopbackInput(
                 session_id=executor.input.session_id,
                 workspace_id=executor.input.workspace_id,
-                role=executor.input.role,
             )
         )
 
@@ -1659,7 +1658,6 @@ class TestSandboxedAgentExecutorCancellation:
             input=LoopbackInput(
                 session_id=executor.input.session_id,
                 workspace_id=executor.input.workspace_id,
-                role=executor.input.role,
             )
         )
 

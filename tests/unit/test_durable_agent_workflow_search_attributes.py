@@ -21,6 +21,7 @@ from tracecat_ee.agent.workflows.durable import (
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    WorkflowApprovalSubmission,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
 )
@@ -85,6 +86,65 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
     assert not hasattr(workflow_args, "use_workspace_credentials")
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
+def test_legacy_workflow_rotates_stream_from_new_approval_update() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    previous_stream_id = uuid.uuid4()
+    new_stream_id = uuid.uuid4()
+    workflow_instance.active_stream_id = previous_stream_id
+    workflow_instance._approval_stream_v2 = False
+
+    cast(Any, workflow_instance.set_approvals)(
+        WorkflowApprovalSubmission(
+            approvals={"tool_call_123": True},
+            approved_by=role.user_id,
+            new_stream_id=new_stream_id,
+        )
+    )
+
+    assert workflow_instance.active_stream_id == new_stream_id
+    assert workflow_instance.approvals.is_ready()
+
+
+def test_approval_update_does_not_rotate_stream_when_decision_set_fails() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    previous_stream_id = uuid.uuid4()
+    workflow_instance.active_stream_id = previous_stream_id
+
+    with (
+        patch.object(
+            workflow_instance.approvals,
+            "set",
+            side_effect=RuntimeError("approval manager rejected decisions"),
+        ),
+        pytest.raises(RuntimeError, match="approval manager rejected decisions"),
+    ):
+        cast(Any, workflow_instance.set_approvals)(
+            WorkflowApprovalSubmission(
+                approvals={"tool_call_123": True},
+                approved_by=role.user_id,
+                new_stream_id=uuid.uuid4(),
+            )
+        )
+
+    assert workflow_instance.active_stream_id == previous_stream_id
 
 
 @pytest.mark.anyio
@@ -400,12 +460,9 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
             AsyncMock(side_effect=activity_error),
         ),
-        patch(
-            "tracecat_ee.agent.workflows.durable.workflow.patched",
-            return_value=True,
-        ),
     ):
-        await workflow_instance._emit_approval_pause_done(uuid.uuid4())
+        workflow_instance.active_stream_id = uuid.uuid4()
+        await workflow_instance._emit_approval_pause_done()
 
 
 @pytest.mark.anyio

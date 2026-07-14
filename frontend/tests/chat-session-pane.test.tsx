@@ -13,6 +13,8 @@ import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
+  useAdoptServerTranscript:
+    jest.requireActual("@/hooks/use-chat").useAdoptServerTranscript,
   useGetChat: jest.fn(() => ({ chat: null })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
@@ -1575,6 +1577,56 @@ describe("ChatSessionPane", () => {
 
       const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
       rerender(renderSubject([userTurn("m1", "hello")]))
+
+      expect(setMessages).not.toHaveBeenCalled()
+    })
+
+    const approvalCardTurn = (id: string): UIMessage => ({
+      id,
+      role: "assistant" as const,
+      parts: [
+        {
+          type: "data-approval-request",
+          data: [
+            {
+              tool_call_id: `tc-${id}`,
+              tool_name: "core__cases__list_cases",
+              args: {},
+            },
+          ],
+        } as unknown as UIMessage["parts"][number],
+      ],
+    })
+
+    // Cross-surface resolution drops the approval card from the server copy, so
+    // the deficit is fully explained by a resolved approval-card-only message.
+    // The server copy is adopted and the stale card disappears.
+    it("adopts when a shorter server copy only dropped a resolved approval card", () => {
+      const setMessages = jest.fn()
+      const live = [userTurn("m1", "hello"), approvalCardTurn("a1")]
+      mockLiveMessages(live, setMessages)
+
+      const server = [userTurn("m1", "hello")]
+      render(renderSubject(server))
+
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(1)
+      expect(setMessages.mock.calls[0][0][0].id).toBe("m1")
+    })
+
+    // Regression: a shorter server copy missing a real (non-approval) turn is
+    // the finalize race, not a resolved card. It must NOT be adopted.
+    it("does not adopt when a shorter server copy is missing a real turn", () => {
+      const setMessages = jest.fn()
+      const live = [
+        userTurn("m1", "hello"),
+        approvalCardTurn("a1"),
+        userTurn("m2", "real reply"),
+      ]
+      mockLiveMessages(live, setMessages)
+
+      const server = [userTurn("m1", "hello")]
+      render(renderSubject(server))
 
       expect(setMessages).not.toHaveBeenCalled()
     })
