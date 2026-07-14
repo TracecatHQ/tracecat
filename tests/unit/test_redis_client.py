@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import tenacity
+from redis.exceptions import RedisError
 
 from tracecat.redis.client import RedisClient
 
@@ -246,3 +247,56 @@ def test_publish_audit_atomically_enqueues_and_registers_stream() -> None:
             {},
         ),
     ]
+
+
+def test_publish_audit_timeout_does_not_reset_shared_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RedisClient()
+
+    async def execute_slowly(pipeline: DummyPipeline) -> list[object]:
+        pipeline.execute_count += 1
+        await asyncio.sleep(1)
+        return ["1-0", True, 1]
+
+    monkeypatch.setattr(DummyPipeline, "execute", execute_slowly)
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            client.publish_audit(
+                "audit:delivery:organization:org-id",
+                {"event": "payload"},
+                discovery_key="audit:delivery:streams",
+                timeout_seconds=0.001,
+            )
+        )
+
+    assert len(DummyConnectionPool.instances) == 1
+    assert DummyConnectionPool.instances[0].disconnected is False
+    assert len(DummyRedis.instances) == 1
+    assert DummyRedis.instances[0].closed is False
+
+
+def test_publish_audit_transport_error_resets_shared_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RedisClient()
+
+    async def raise_transport_error(pipeline: DummyPipeline) -> list[object]:
+        pipeline.execute_count += 1
+        raise RedisError("transport failed")
+
+    monkeypatch.setattr(DummyPipeline, "execute", raise_transport_error)
+
+    with pytest.raises(RedisError, match="transport failed"):
+        asyncio.run(
+            client.publish_audit(
+                "audit:delivery:organization:org-id",
+                {"event": "payload"},
+                discovery_key="audit:delivery:streams",
+            )
+        )
+
+    assert len(DummyConnectionPool.instances) == 2
+    assert DummyConnectionPool.instances[0].disconnected is True
+    assert DummyRedis.instances[0].closed is True

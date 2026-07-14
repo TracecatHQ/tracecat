@@ -940,6 +940,30 @@ async def test_audit_delivery_consumer_acks_on_success(
 
 
 @pytest.mark.anyio
+async def test_audit_delivery_rejects_cross_organization_stream_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream_org_id = uuid.uuid4()
+    event = _sample_audit_event(organization_id=uuid.uuid4())
+    stream_key = audit_delivery_stream_key("organization", stream_org_id)
+    client = MagicMock()
+    client.xack = AsyncMock(return_value=1)
+    consumer = AuditDeliveryConsumer(client)
+    get_sink_config = AsyncMock()
+    deliver_event = AsyncMock()
+    monkeypatch.setattr(consumer, "_get_sink_config", get_sink_config)
+    monkeypatch.setattr(consumer, "_deliver_event", deliver_event)
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+
+    get_sink_config.assert_not_awaited()
+    deliver_event.assert_not_awaited()
+    client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])
+
+
+@pytest.mark.anyio
 async def test_audit_delivery_consumer_acks_on_attempt_exhaustion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1077,6 +1101,7 @@ async def test_audit_delivery_pending_sweep_runs_when_reads_return_messages(
     with pytest.raises(asyncio.CancelledError):
         await consumer.run()
 
+    assert client.xreadgroup.await_args_list[0].kwargs["count"] == 1
     handle_message.assert_awaited_once_with(
         stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
     )
@@ -1084,15 +1109,71 @@ async def test_audit_delivery_pending_sweep_runs_when_reads_return_messages(
 
 
 @pytest.mark.anyio
-async def test_audit_delivery_dispatches_streams_independently(
+async def test_audit_delivery_caches_stream_discovery() -> None:
+    stream_key = audit_delivery_stream_key("organization", uuid.uuid4())
+    client = MagicMock()
+    client.smembers = AsyncMock(return_value={stream_key})
+    client.exists = AsyncMock(return_value=True)
+    client.xgroup_create = AsyncMock(return_value=True)
+    consumer = AuditDeliveryConsumer(client)
+
+    first = await consumer._discover_streams()
+    second = await consumer._discover_streams()
+
+    assert first == [stream_key]
+    assert second == [stream_key]
+    client.smembers.assert_awaited_once_with(AUDIT_DELIVERY_STREAMS_KEY)
+    client.exists.assert_awaited_once_with(stream_key)
+    client.xgroup_create.assert_awaited_once_with(
+        stream_key,
+        consumer.group,
+        id="0",
+        ignore_busygroup=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_restores_stream_recreated_during_cleanup() -> None:
+    stream_key = audit_delivery_stream_key("organization", uuid.uuid4())
+    client = MagicMock()
+    client.smembers = AsyncMock(return_value={stream_key})
+    client.exists = AsyncMock(side_effect=[False, True])
+    client.srem = AsyncMock(return_value=1)
+    client.sadd = AsyncMock(return_value=1)
+    client.xgroup_create = AsyncMock(return_value=True)
+    consumer = AuditDeliveryConsumer(client)
+    consumer._known_streams.add(stream_key)
+
+    streams = await consumer._discover_streams()
+
+    assert streams == [stream_key]
+    assert [call.args for call in client.exists.await_args_list] == [
+        (stream_key,),
+        (stream_key,),
+    ]
+    client.srem.assert_awaited_once_with(AUDIT_DELIVERY_STREAMS_KEY, stream_key)
+    client.sadd.assert_awaited_once_with(AUDIT_DELIVERY_STREAMS_KEY, stream_key)
+    client.xgroup_create.assert_awaited_once_with(
+        stream_key,
+        consumer.group,
+        id="0",
+        ignore_busygroup=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_bounds_concurrent_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    slow_stream = audit_delivery_stream_key("organization", uuid.uuid4())
-    fast_stream = audit_delivery_stream_key("organization", uuid.uuid4())
-    slow_started = asyncio.Event()
-    release_slow = asyncio.Event()
-    fast_finished = asyncio.Event()
-    consumer = AuditDeliveryConsumer(MagicMock())
+    streams = [
+        audit_delivery_stream_key("organization", uuid.uuid4()) for _ in range(3)
+    ]
+    first_chunk_started = asyncio.Event()
+    release_first_chunk = asyncio.Event()
+    active = 0
+    max_active = 0
+    started: list[str] = []
+    consumer = AuditDeliveryConsumer(MagicMock(), max_concurrency=2)
 
     async def handle_message(
         stream_key: str,
@@ -1101,29 +1182,52 @@ async def test_audit_delivery_dispatches_streams_independently(
         *,
         attempts: int,
     ) -> None:
-        if stream_key == slow_stream:
-            slow_started.set()
-            await release_slow.wait()
-        else:
-            fast_finished.set()
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        started.append(stream_key)
+        if len(started) == 2:
+            first_chunk_started.set()
+        if stream_key in streams[:2]:
+            await release_first_chunk.wait()
+        active -= 1
 
     monkeypatch.setattr(consumer, "_handle_message", handle_message)
-    consumer._dispatch_streams(
-        [
-            (slow_stream, [("1-0", {"event": "slow"})]),
-            (fast_stream, [("2-0", {"event": "fast"})]),
-        ]
+    delivery = asyncio.create_task(
+        consumer._handle_delivery_round(
+            [
+                (streams[0], [("1-0", {"event": "one"})]),
+                (streams[1], [("2-0", {"event": "two"})]),
+                (streams[2], [("3-0", {"event": "three"})]),
+            ]
+        )
     )
-    tasks = list(consumer._stream_tasks.values())
 
-    await asyncio.wait_for(slow_started.wait(), timeout=1.0)
-    await asyncio.wait_for(fast_finished.wait(), timeout=1.0)
-    assert not consumer._stream_tasks[slow_stream].done()
+    await asyncio.wait_for(first_chunk_started.wait(), timeout=1.0)
+    assert started == streams[:2]
+    assert max_active == 2
 
-    release_slow.set()
-    await asyncio.gather(*tasks)
-    await asyncio.sleep(0)
-    assert consumer._stream_tasks == {}
+    release_first_chunk.set()
+    await delivery
+    assert started == streams
+    assert max_active == 2
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_reuses_http_client() -> None:
+    event = _sample_audit_event()
+    response = MagicMock()
+    http_client = MagicMock()
+    http_client.post = AsyncMock(return_value=response)
+    consumer = AuditDeliveryConsumer(MagicMock())
+    consumer._http_clients = {True: http_client}
+    sink_config = AuditWebhookConfig(webhook_url="https://example.com/audit")
+
+    await consumer._deliver_event(event, sink_config)
+    await consumer._deliver_event(event, sink_config)
+
+    assert http_client.post.await_count == 2
+    assert response.raise_for_status.call_count == 2
 
 
 @pytest.mark.anyio

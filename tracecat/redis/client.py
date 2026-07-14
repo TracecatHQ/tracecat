@@ -199,7 +199,9 @@ class RedisClient:
                 publish(),
                 timeout=timeout_seconds,
             )
-        except (TimeoutError, RedisError, RuntimeError):
+        except TimeoutError:
+            raise
+        except (RedisError, RuntimeError):
             await self._reset_connection()
             raise
 

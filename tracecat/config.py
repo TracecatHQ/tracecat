@@ -235,6 +235,16 @@ TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT") or 3
 TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 600)
 """The time to recycle the connection pool."""
 
+# This limit applies to every API process, so keep the default suitable for the
+# minimum API task size and never allow it to exceed the process DB pool.
+TRACECAT__AUDIT_DELIVERY_MAX_CONCURRENCY = bound_env(
+    "TRACECAT__AUDIT_DELIVERY_MAX_CONCURRENCY",
+    2,
+    lower=1,
+    upper=TRACECAT__DB_POOL_SIZE,
+)
+"""Maximum concurrent audit webhook deliveries per API process."""
+
 
 # === Auth config === #
 # Infrastructure config
