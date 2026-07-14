@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: List Scanner event sinks
+  description: List event sinks for a Scanner tenant.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/event-sinks
+  namespace: tools.scanner
+  name: list_event_sinks
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    tenant_id:
+      type: str
+      description: Unique identifier for the Scanner tenant.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: list_event_sinks
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/event_sink
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+        params:
+          tenant_id: ${{ inputs.tenant_id }}
+  returns: ${{ steps.list_event_sinks.result.data }}
