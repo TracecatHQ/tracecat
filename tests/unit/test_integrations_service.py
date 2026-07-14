@@ -7,6 +7,7 @@ import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -864,6 +865,71 @@ class TestIntegrationService:
                 assert refreshed.expires_at >= integration.expires_at, (
                     "New expiry should be greater than or equal to old expiry"
                 )
+
+    async def test_refresh_token_if_needed_skips_when_concurrently_refreshed(
+        self,
+        integration_service: IntegrationService,
+        mock_provider: MockOAuthProvider,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """A refresher that loses the row-lock race must not replay the refresh.
+
+        Simulates a concurrent process having already refreshed the row: the
+        in-memory instance still looks stale, but the locked re-read inside
+        refresh_token_if_needed sees the fresh row and must skip the provider
+        call, since replaying an already-rotated refresh token trips
+        server-side reuse detection and revokes the grant.
+        """
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
+
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockOAuthProvider
+
+            with patch.object(
+                MockOAuthProvider, "refresh_access_token", new_callable=AsyncMock
+            ) as mock_refresh:
+                await integration_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="mock_client_id",
+                    client_secret=SecretStr("mock_client_secret"),
+                )
+                integration = await integration_service.store_integration(
+                    provider_key=provider_key,
+                    access_token=mock_token_response.access_token,
+                    refresh_token=mock_token_response.refresh_token,
+                    expires_in=60,  # Within the refresh window
+                )
+                assert integration.needs_refresh
+
+                # Simulate the concurrent winner: update the row directly so
+                # the DB is fresh while this instance still looks stale.
+                await integration_service.session.execute(
+                    update(OAuthIntegration)
+                    .where(OAuthIntegration.id == integration.id)
+                    .values(
+                        encrypted_access_token=integration_service._encrypt_token(
+                            "concurrently_refreshed_token"
+                        ),
+                        expires_at=datetime.now(UTC) + timedelta(hours=2),
+                    )
+                )
+                await integration_service.session.commit()
+
+                refreshed = await integration_service.refresh_token_if_needed(
+                    integration
+                )
+
+                # The locked re-read saw the fresh row: no provider call, and
+                # the concurrent refresher's token is what callers get.
+                mock_refresh.assert_not_called()
+                assert not refreshed.needs_refresh
+                access_token, _ = integration_service.get_decrypted_tokens(refreshed)
+                assert access_token == "concurrently_refreshed_token"
 
     async def test_refresh_token_if_needed_no_refresh_token(
         self,

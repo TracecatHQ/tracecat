@@ -1651,6 +1651,12 @@ class IntegrationService(BaseWorkspaceService):
             return integration
 
         try:
+            # Lock the row and re-check staleness so concurrent refreshers
+            # never present the same (single-use) refresh token twice.
+            await self.session.refresh(integration, with_for_update=True)
+            if not integration.needs_refresh:
+                # Another process already refreshed; use its result.
+                return integration
             if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
                 integration = await self._refresh_ac_integration(integration)
             elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
@@ -1661,18 +1667,29 @@ class IntegrationService(BaseWorkspaceService):
                     grant_type=integration.grant_type,
                     provider=integration.provider_id,
                 )
-                return integration
         except Exception as e:
             self.logger.error(
                 "Failed to refresh token, continuing with current token",
                 error=str(e),
                 provider=integration.provider_id,
-                expires_at=integration.expires_at,
             )
-            # Return unchanged - let it fail naturally when token expires
-            return integration
-
-        await self.session.refresh(integration)
+            # Fall through - let it fail naturally when token expires
+        finally:
+            # Always end the transaction so the row lock is released even on
+            # bail-out paths. Commit, not rollback: rollback would expire
+            # every object in the caller's session (expire_on_commit=False).
+            try:
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                try:
+                    # Rollback expires ORM state; reload for the caller.
+                    await self.session.refresh(integration)
+                except Exception:
+                    self.logger.warning(
+                        "Could not reload integration after refresh attempt",
+                        provider=integration.provider_id,
+                    )
         return integration
 
     async def _provider_from_integration(
