@@ -26,7 +26,7 @@ from tracecat_ee.agent.activities import (
     BuildToolDefsArgs,
 )
 from tracecat_ee.agent.workflows.durable import (
-    _needs_empty_binding_provenance_activity,
+    _needs_empty_binding_resolution_activity,
     _preserved_agents_binding,
 )
 
@@ -1087,7 +1087,7 @@ class TestPreservedAgentsBinding:
             pytest.param(ResolvedAgentsConfig(), False, False, id="root-only"),
         ],
     )
-    def test_empty_binding_provenance_gate(
+    def test_empty_binding_resolution_activity_gate(
         self,
         binding: ResolvedAgentsConfig,
         has_subagents: bool,
@@ -1115,7 +1115,7 @@ class TestPreservedAgentsBinding:
             ),
         )
 
-        assert _needs_empty_binding_provenance_activity(cfg, binding) is expected
+        assert _needs_empty_binding_resolution_activity(cfg, binding) is expected
 
 
 class TestLoadSessionActivity:

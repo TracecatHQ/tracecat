@@ -752,7 +752,7 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         input: ResolveAgentsConfigActivityInput,
     ) -> ResolvedAgentsRuntimeConfig:
         resolve_inputs.append(input)
-        assert input.follow_latest_versions is False
+        assert input.preserve_resolved_versions is True
         assert len(input.agents.subagents) == 1
         resolved_ref = input.agents.subagents[0]
         assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
@@ -849,14 +849,14 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
     [None, ResolvedAgentsConfig(enabled=True)],
     ids=["legacy-disabled", "enabled-empty"],
 )
-async def test_agent_workflow_persists_refs_for_empty_binding_on_resume(
+async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
     stored_binding: ResolvedAgentsConfig | None,
 ) -> None:
-    """Empty preserved bindings still schedule the deferred provenance write."""
+    """Empty preserved bindings retain the activity command recorded in history."""
 
     queue = f"test-agent-queue-{mock_session_id}"
     expected_binding = stored_binding or ResolvedAgentsConfig()
@@ -1055,7 +1055,6 @@ async def test_agent_workflow_uses_dispatch_resolved_agents_without_legacy_activ
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
         entity_id=uuid.uuid4(),
-        resolved_agent_config=agent_config_to_payload(root_config),
     )
 
     activities = [

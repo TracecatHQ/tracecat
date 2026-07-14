@@ -185,14 +185,13 @@ def _insert_version_edge(
         text(
             """
             INSERT INTO agent_preset_version_subagent (
-                id, parent_preset_version_id, child_preset_id, alias,
+                parent_preset_version_id, child_preset_id, alias,
                 workspace_id
             )
-            VALUES (:id, :version_id, :child_id, :alias, :workspace_id)
+            VALUES (:version_id, :child_id, :alias, :workspace_id)
             """
         ),
         {
-            "id": uuid.uuid4(),
             "version_id": version_id,
             "child_id": child_id,
             "alias": alias,
@@ -328,7 +327,6 @@ def test_expand_backfills_version_edges_and_preserves_legacy_schema(
             assert rows[1]["max_turns"] == 4
             assert marker is True
             assert legacy_agents == agents
-            assert _table_exists(conn, "agent_turn_provenance")
             assert not _table_exists(conn, "agent_preset_subagent")
             assert _column(conn, "agent_preset", "subagents_enabled") is None
             assert _column(conn, "agent_preset", "model_name") == {
@@ -475,7 +473,6 @@ def test_expand_rejects_invalid_version_projection_atomically(
                 == PREVIOUS_REVISION
             )
             assert not _table_exists(conn, "agent_preset_version_subagent")
-            assert not _table_exists(conn, "agent_turn_provenance")
             assert _column(conn, "agent_preset_version", "subagents_enabled") is None
     finally:
         engine.dispose()
@@ -595,7 +592,6 @@ def test_expand_downgrade_roundtrip(migration_db_url: str) -> None:
         _run_alembic(migration_db_url, "downgrade", PREVIOUS_REVISION)
         with engine.begin() as conn:
             assert not _table_exists(conn, "agent_preset_version_subagent")
-            assert not _table_exists(conn, "agent_turn_provenance")
             assert _column(conn, "agent_preset_version", "subagents_enabled") is None
             agents = conn.execute(
                 text("SELECT agents FROM agent_preset_version WHERE id = :id"),

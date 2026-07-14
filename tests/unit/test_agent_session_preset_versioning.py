@@ -34,7 +34,6 @@ from tracecat.db.models import (
     AgentPreset,
     AgentSession,
     AgentSessionHistory,
-    AgentTurnProvenance,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.tiers.enums import Entitlement
@@ -671,7 +670,7 @@ async def test_workspace_chat_scope_filters_subagent_actions() -> None:
 
 @pytest.mark.anyio
 async def test_forked_preset_config_carries_resolved_refs() -> None:
-    """Preset-backed forked turns retain the parent's provenance snapshot."""
+    """Preset-backed forked turns retain the parent's resolution snapshot."""
     service, _session, role = _build_service()
     workspace_id = role.workspace_id
     assert workspace_id is not None
@@ -769,11 +768,11 @@ async def test_workspace_chat_preset_config_superuser_keeps_all_actions() -> Non
 
 
 @pytest.mark.anyio
-async def test_run_turn_dispatch_stages_one_full_tree_provenance(
+async def test_run_turn_dispatch_passes_one_full_resolved_tree(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invariant: dispatch-resolved turns stage one provenance row and args snapshot."""
-    service, session, role = _build_service()
+    """Dispatch-resolved turns pass one resolved tree in workflow arguments."""
+    service, _session, role = _build_service()
     workspace_id = role.workspace_id
     assert workspace_id is not None
     session_id = uuid.uuid4()
@@ -841,20 +840,10 @@ async def test_run_turn_dispatch_stages_one_full_tree_provenance(
         active_stream_id=uuid.uuid4(),
     )
 
-    provenance_rows = [
-        call.args[0]
-        for call in session.add.call_args_list
-        if isinstance(call.args[0], AgentTurnProvenance)
-    ]
     assert response is not None
-    assert len(provenance_rows) == 1
-    assert resolved_agents.resolved_refs is not None
-    assert provenance_rows[0].resolved_refs == resolved_agents.resolved_refs.model_dump(
-        mode="json"
-    )
     assert agent_session.agents_binding is None
     workflow_args = client.start_workflow.await_args.args[1]
-    assert workflow_args.resolved_agent_config is not None
+    assert workflow_args.agent_args.config == config
     assert workflow_args.agent_args.resolved_agents_config == resolved_agents
 
 

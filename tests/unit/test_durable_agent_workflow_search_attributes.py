@@ -431,7 +431,7 @@ async def test_build_config_prefers_resolved_preset_id(pin_version: bool) -> Non
     assert call_args[1].preset_version_id == resolved_version_id
     assert call_args[1].preset_slug == "triage-agent"
     assert call_args[1].preset_version is None
-    assert call_args[1].wf_exec_id == str(run_id)
+    assert not hasattr(call_args[1], "wf_exec_id")
     assert cfg.model_name == resolved_config.model_name
     assert cfg.model_provider == resolved_config.model_provider
     assert cfg.actions == ["core.http_request"]

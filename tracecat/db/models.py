@@ -3034,60 +3034,6 @@ class AgentSessionHistory(WorkspaceModel):
     )
 
 
-class AgentTurnProvenance(Base):
-    """Per-turn resource resolution snapshot for agent execution.
-
-    ``AgentSessionHistory`` stores per-message transcript rows. This table
-    stores append-only per-turn resolution snapshots and deliberately keeps
-    resource references as JSONB values so provenance outlives deleted skills,
-    presets, sessions, and versions. A turn may append more than one row:
-    root resolution always records root refs, and subagent resolution appends
-    a merged snapshot; the highest ``surrogate_id`` per ``wf_exec_id`` is the
-    final snapshot for that turn.
-    """
-
-    __tablename__ = "agent_turn_provenance"
-
-    surrogate_id: Mapped[int] = mapped_column(
-        Integer,
-        Identity(),
-        primary_key=True,
-        nullable=False,
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        nullable=False,
-        index=True,
-        doc="Plain agent session UUID; no FK so provenance survives session deletion.",
-    )
-    wf_exec_id: Mapped[str] = mapped_column(
-        String,
-        nullable=False,
-        doc=(
-            "Per-turn workflow/run identifier. Deliberately string-typed so "
-            "non-chat contexts (e.g. DSL workflow executions with string exec "
-            "ids) can write this table; chat turns store the stringified "
-            "AgentSession.curr_run_id UUID."
-        ),
-    )
-    resolved_refs: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
-        nullable=False,
-        doc="Serialized ResolvedRefs value snapshot for this turn.",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-
-
 class WatchtowerAgent(OrganizationModel):
     """Organization-scoped local agent identity for Watchtower monitoring."""
 
@@ -3837,13 +3783,6 @@ class AgentPresetVersionSubagent(WorkspaceModel):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
     parent_preset_version_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         nullable=False,

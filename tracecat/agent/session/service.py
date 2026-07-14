@@ -46,7 +46,7 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
-from tracecat.agent.preset.resolved_refs import ResolvedRefs, merge_resolved_refs
+from tracecat.agent.preset.resolved_refs import merge_resolved_refs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -75,7 +75,6 @@ from tracecat.agent.session.types import (
 )
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
-from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
@@ -103,7 +102,6 @@ from tracecat.chat.tools import (
 from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
-    AgentTurnProvenance,
     Approval,
     Case,
     Chat,
@@ -150,27 +148,6 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
-
-    def _stage_turn_provenance(
-        self,
-        *,
-        session_id: uuid.UUID,
-        run_id: uuid.UUID,
-        resolved_refs: ResolvedRefs | None,
-    ) -> None:
-        """Stage the dispatch-time whole-tree resolution snapshot for this turn."""
-
-        if resolved_refs is None:
-            return
-
-        self.session.add(
-            AgentTurnProvenance(
-                workspace_id=self.workspace_id,
-                session_id=session_id,
-                wf_exec_id=str(run_id),
-                resolved_refs=resolved_refs.model_dump(mode="json"),
-            )
-        )
 
     async def _resolve_dispatch_agents_config(
         self,
@@ -1530,11 +1507,6 @@ class AgentSessionService(BaseWorkspaceService):
                 agent_session=agent_session,
                 config=agent_config,
             )
-            self._stage_turn_provenance(
-                session_id=session_id,
-                run_id=run_id,
-                resolved_refs=resolved_agents_config.resolved_refs,
-            )
 
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
@@ -1557,7 +1529,6 @@ class AgentSessionService(BaseWorkspaceService):
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
-                resolved_agent_config=agent_config_to_payload(agent_config),
             )
 
             # Pin run_id (approval lookups) and the per-turn stream id before

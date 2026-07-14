@@ -106,7 +106,7 @@ async def _run_failing_preset_preflight(
     *,
     patched: bool,
     stream_id: StreamID,
-) -> tuple[AsyncMock, MagicMock, uuid.UUID]:
+) -> tuple[AsyncMock, MagicMock]:
     workflow = _build_workflow()
     workflow.dsl = _child_dsl()
     workflow.scheduler.streams[stream_id] = workflow.context
@@ -162,40 +162,36 @@ async def _run_failing_preset_preflight(
     finally:
         ctx_stream_id.reset(token)
 
-    return execute_activity_mock, uuid4_mock, session_id
+    return execute_activity_mock, uuid4_mock
 
 
 @pytest.mark.anyio
-async def test_preset_preflight_patch_mints_stream_scoped_provenance_before_failure() -> (
-    None
-):
+async def test_preset_preflight_patch_preserves_mint_before_failure() -> None:
     stream_id = StreamID.new("scatter", 2)
 
-    execute_activity, uuid4_mock, session_id = await _run_failing_preset_preflight(
+    execute_activity, uuid4_mock = await _run_failing_preset_preflight(
         patched=True,
         stream_id=stream_id,
     )
 
     preflight_input = execute_activity.await_args_list[1].args[1]
-    assert preflight_input.session_id == session_id
-    assert preflight_input.wf_exec_id == (
-        "wf-00000000000000000000000000000001:"
-        "exec-00000000000000000000000000000001:"
-        f"preset_agent:{stream_id}:{session_id}"
-    )
+    assert preflight_input.preset_slug == "missing-preset"
+    assert not hasattr(preflight_input, "session_id")
+    assert not hasattr(preflight_input, "wf_exec_id")
     uuid4_mock.assert_called_once_with()
 
 
 @pytest.mark.anyio
 async def test_preset_preflight_legacy_path_preserves_preflight_before_mint() -> None:
-    execute_activity, uuid4_mock, _ = await _run_failing_preset_preflight(
+    execute_activity, uuid4_mock = await _run_failing_preset_preflight(
         patched=False,
         stream_id=ROOT_STREAM,
     )
 
     preflight_input = execute_activity.await_args_list[1].args[1]
-    assert preflight_input.session_id is None
-    assert preflight_input.wf_exec_id is None
+    assert preflight_input.preset_slug == "missing-preset"
+    assert not hasattr(preflight_input, "session_id")
+    assert not hasattr(preflight_input, "wf_exec_id")
     uuid4_mock.assert_not_called()
 
 

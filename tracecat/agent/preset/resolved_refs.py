@@ -1,6 +1,6 @@
-"""Structured provenance for preset resource resolution.
+"""Structured snapshots of preset resource resolution.
 
-The invariant is value-only provenance: entries describe what resolution saw,
+The invariant is value-only data: entries describe what resolution saw,
 including skipped nodes, without providing a fallback binding path. Callers may
 opt out by leaving ``ResolvedRefs`` fields as ``None`` for pre-2.2 histories.
 """
@@ -41,7 +41,7 @@ class ResolvedRef(BaseModel):
 
     @model_validator(mode="after")
     def _validate_skip_code(self) -> Self:
-        """Enforce the persisted format: ``code`` iff ``status == "skipped"``."""
+        """Enforce the serialized format: ``code`` iff ``status == "skipped"``."""
 
         if self.status == "skipped" and self.code is None:
             raise ValueError("skipped refs must carry a skip code")
@@ -64,7 +64,7 @@ def without_subagent_refs(refs: ResolvedRefs | None) -> ResolvedRefs | None:
     Used when a preserved session binding overrides the preset's current
     topology: the runtime pass rebuilds the stored binding verbatim, so the
     root snapshot's subagent entries (the preset's *current* children) must
-    not be merged into the turn's provenance as if they ran.
+    not be merged into the turn's resolution snapshot as if they ran.
     """
 
     if refs is None:

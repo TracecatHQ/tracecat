@@ -1099,21 +1099,15 @@ class DSLWorkflow:
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
                     if workflow.patched("dsl-preset-preflight-provenance-v1"):
-                        # New histories mint first so failed preflights can record
-                        # session-scoped provenance. Include the deterministic
-                        # stream id so parallel instances of the same action do
-                        # not collapse when a caller supplies a static session id.
+                        # Preserve the RNG/activity order recorded after this
+                        # patch was introduced, even though the database write
+                        # it once enabled has been removed.
                         session_id = preset_action_args.session_id or workflow.uuid4()
                         preset_ref = await workflow.execute_activity(
                             resolve_agent_preset_version_ref_activity,
                             ResolveAgentPresetVersionRefActivityInput(
                                 role=self.role,
                                 preset_slug=preset_action_args.preset,
-                                session_id=session_id,
-                                wf_exec_id=(
-                                    f"{workflow.info().workflow_id}:{task.ref}:"
-                                    f"{stream_id or ROOT_STREAM}:{session_id}"
-                                ),
                             ),
                             start_to_close_timeout=timedelta(seconds=30),
                             retry_policy=RETRY_POLICIES["activity:fail_fast"],

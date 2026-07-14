@@ -1,4 +1,4 @@
-"""Expand ResourceHead ownership and per-turn provenance.
+"""Expand ResourceHead ownership.
 
 Revision ID: 44320bf05445
 Revises: c6a8d4f3b2e1
@@ -19,7 +19,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import Connection
 
 from alembic import op
@@ -50,7 +49,6 @@ def _create_version_subagent_table() -> None:
     )
     op.create_table(
         "agent_preset_version_subagent",
-        sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("parent_preset_version_id", sa.UUID(), nullable=False),
         sa.Column("child_preset_id", sa.UUID(), nullable=False),
         sa.Column("alias", sa.String(length=160), nullable=False),
@@ -109,70 +107,11 @@ def _create_version_subagent_table() -> None:
         unique=False,
     )
     op.create_index(
-        op.f("ix_agent_preset_version_subagent_id"),
-        "agent_preset_version_subagent",
-        ["id"],
-        unique=True,
-    )
-    op.create_index(
         op.f("ix_agent_preset_version_subagent_parent_preset_version_id"),
         "agent_preset_version_subagent",
         ["parent_preset_version_id"],
         unique=False,
     )
-
-
-def _create_agent_turn_provenance_table() -> None:
-    op.create_table(
-        "agent_turn_provenance",
-        sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
-        sa.Column("workspace_id", sa.UUID(), nullable=False),
-        sa.Column("session_id", sa.UUID(), nullable=False),
-        sa.Column("wf_exec_id", sa.String(), nullable=False),
-        sa.Column(
-            "resolved_refs",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-        ),
-        sa.Column(
-            "created_at",
-            sa.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["workspace_id"],
-            ["workspace.id"],
-            name=op.f("fk_agent_turn_provenance_workspace_id_workspace"),
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_agent_turn_provenance")),
-    )
-    op.create_index(
-        op.f("ix_agent_turn_provenance_workspace_id"),
-        "agent_turn_provenance",
-        ["workspace_id"],
-        unique=False,
-    )
-    op.create_index(
-        op.f("ix_agent_turn_provenance_session_id"),
-        "agent_turn_provenance",
-        ["session_id"],
-        unique=False,
-    )
-
-
-def _drop_agent_turn_provenance_table() -> None:
-    op.execute(disable_workspace_table_rls("agent_turn_provenance"))
-    op.drop_index(
-        op.f("ix_agent_turn_provenance_session_id"),
-        table_name="agent_turn_provenance",
-    )
-    op.drop_index(
-        op.f("ix_agent_turn_provenance_workspace_id"),
-        table_name="agent_turn_provenance",
-    )
-    op.drop_table("agent_turn_provenance")
 
 
 def _backfill_version_edges() -> None:
@@ -308,7 +247,6 @@ def _backfill_version_edges() -> None:
             -- Validation has succeeded for the whole dataset; copy the staged
             -- mappings into the durable normalized edge table.
             INSERT INTO agent_preset_version_subagent (
-                id,
                 parent_preset_version_id,
                 child_preset_id,
                 alias,
@@ -317,7 +255,6 @@ def _backfill_version_edges() -> None:
                 workspace_id
             )
             SELECT
-                gen_random_uuid(),
                 parent_version_id,
                 child_id,
                 alias,
@@ -466,8 +403,6 @@ def upgrade() -> None:
     _create_version_subagent_table()
     _backfill_version_edges()
     op.execute(enable_workspace_table_rls("agent_preset_version_subagent"))
-    _create_agent_turn_provenance_table()
-    op.execute(enable_workspace_table_rls("agent_turn_provenance"))
     _contract_skill_slugs(op.get_bind())
 
 
@@ -533,8 +468,6 @@ def downgrade() -> None:
         )
     )
 
-    _drop_agent_turn_provenance_table()
-
     skill = sa.table(
         "skill",
         sa.column("id", sa.UUID()),
@@ -572,10 +505,6 @@ def downgrade() -> None:
     op.execute(disable_workspace_table_rls("agent_preset_version_subagent"))
     op.drop_index(
         op.f("ix_agent_preset_version_subagent_parent_preset_version_id"),
-        table_name="agent_preset_version_subagent",
-    )
-    op.drop_index(
-        op.f("ix_agent_preset_version_subagent_id"),
         table_name="agent_preset_version_subagent",
     )
     op.drop_index(

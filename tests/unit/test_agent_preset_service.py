@@ -1,12 +1,10 @@
 """Tests for AgentPresetService."""
 
 import asyncio
-import copy
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import cast
-from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy as sa
@@ -22,12 +20,6 @@ from tracecat.agent.channels.schemas import (
     SlackChannelTokenConfig,
 )
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
-from tracecat.agent.preset.activities import (
-    ResolveAgentPresetConfigActivityInput,
-    ResolveAgentsConfigActivityInput,
-    resolve_agent_preset_config_activity,
-    resolve_agents_config_activity,
-)
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -36,7 +28,6 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.service import AgentManagementService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftPatch,
@@ -61,7 +52,6 @@ from tracecat.db.models import (
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
-    AgentTurnProvenance,
     MCPIntegration,
     Organization,
     RegistryAction,
@@ -3125,352 +3115,6 @@ class TestAgentPresetService:
         assert [ref.resource_id for ref in ok_refs] == [live_child.id]
         assert [ref.resource_id for ref in skipped_refs] == [deleted_child.id]
 
-    async def test_root_preset_deleted_and_not_found_fail_with_codes(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """Invariant: root preset failures fail the turn, not skip it."""
-
-        deleted = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Deleted Root", "slug": "deleted-root"}
-            )
-        )
-        await agent_preset_service.delete_preset(deleted)
-
-        with pytest.raises(TracecatNotFoundError):
-            await agent_preset_service.resolve_agent_preset_config(preset_id=deleted.id)
-        deleted_refs = await agent_preset_service.build_root_preset_failure_refs(
-            preset_id=deleted.id
-        )
-
-        missing_id = uuid.uuid4()
-        with pytest.raises(TracecatNotFoundError):
-            await agent_preset_service.resolve_agent_preset_config(preset_id=missing_id)
-        missing_refs = await agent_preset_service.build_root_preset_failure_refs(
-            preset_id=missing_id
-        )
-
-        assert deleted_refs.refs[0].resource_id == deleted.id
-        assert deleted_refs.refs[0].status == "skipped"
-        assert deleted_refs.refs[0].code == "deleted"
-        assert missing_refs.refs[0].resource_id == missing_id
-        assert missing_refs.refs[0].status == "skipped"
-        assert missing_refs.refs[0].code == "not_found"
-
-        preset = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Live Root", "slug": "live-root"}
-            )
-        )
-
-        missing_version_refs = (
-            await agent_preset_service.build_root_preset_failure_refs(
-                slug=preset.slug,
-                preset_version=999,
-            )
-        )
-
-        assert missing_version_refs.refs[0].resource_id == preset.id
-        assert missing_version_refs.refs[0].status == "skipped"
-        assert missing_version_refs.refs[0].code == "not_found"
-
-    async def test_root_preset_missing_version_id_classified_not_found(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A stale pinned version records anchored not-found provenance."""
-
-        preset = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Live Pinned Root", "slug": "live-pinned-root"}
-            )
-        )
-        assert preset.current_version_id is not None
-        stale_version_id = uuid.uuid4()
-        session_id = uuid.uuid4()
-
-        management_service = AgentManagementService(session, role=svc_role)
-        management_service.presets = agent_preset_service
-        monkeypatch.setattr(
-            "tracecat.agent.preset.activities.AgentManagementService.with_session",
-            lambda **_: _AsyncContext(management_service),
-        )
-
-        with pytest.raises(TracecatNotFoundError):
-            await resolve_agent_preset_config_activity(
-                ResolveAgentPresetConfigActivityInput(
-                    role=svc_role,
-                    preset_id=preset.id,
-                    preset_slug=preset.slug,
-                    preset_version_id=stale_version_id,
-                    session_id=session_id,
-                    wf_exec_id="turn-stale-pinned-root",
-                )
-            )
-
-        row = (
-            await session.execute(
-                select(AgentTurnProvenance).where(
-                    AgentTurnProvenance.session_id == session_id
-                )
-            )
-        ).scalar_one()
-        [failure_ref] = row.resolved_refs["refs"]
-
-        assert failure_ref["resource_id"] == str(preset.id)
-        assert failure_ref["slug"] == preset.slug
-        assert failure_ref["status"] == "skipped"
-        assert failure_ref["code"] == "not_found"
-
-    async def test_resolution_activity_writes_immutable_turn_provenance_snapshot(
-        self,
-        configure_minio_for_skills,
-        session: AsyncSession,
-        svc_role: Role,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Invariant: provenance is a value snapshot, not a mutable resource link."""
-
-        skill_service = SkillService(session=session, role=svc_role)
-        root_skill = await skill_service.create_skill(
-            SkillCreate(name="snapshot-root-skill")
-        )
-        root_skill_version = await skill_service.publish_skill(root_skill.id)
-        child = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Snapshot Child", "slug": "snapshot-child"}
-            )
-        )
-        parent = await agent_preset_service.create_preset(
-            AgentPresetCreate(
-                name="Snapshot Parent",
-                slug="snapshot-parent",
-                instructions="Use the selected skill and child.",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                skills=[AgentPresetSkillBindingBase(skill_id=root_skill.id)],
-                agents=AgentSubagentsConfig.model_validate(
-                    {
-                        "enabled": True,
-                        "subagents": [{"preset": child.slug}],
-                    }
-                ),
-            )
-        )
-        parent_config = await agent_preset_service.resolve_agent_preset_config(
-            preset_id=parent.id
-        )
-        session_id = uuid.uuid4()
-
-        monkeypatch.setattr(
-            "tracecat.agent.preset.activities.AgentPresetService.with_session",
-            lambda **_: _AsyncContext(agent_preset_service),
-        )
-
-        result = await resolve_agents_config_activity(
-            ResolveAgentsConfigActivityInput(
-                role=svc_role,
-                agents=parent_config.agents,
-                parent_preset_id=parent.id,
-                session_id=session_id,
-                wf_exec_id="turn-1",
-                parent_resolved_refs=parent_config.resolved_refs,
-            )
-        )
-
-        row = (
-            await session.execute(
-                select(AgentTurnProvenance).where(
-                    AgentTurnProvenance.session_id == session_id
-                )
-            )
-        ).scalar_one()
-        snapshot = copy.deepcopy(row.resolved_refs)
-        await agent_preset_service.update_preset(
-            parent,
-            AgentPresetUpdate(skills=None),
-        )
-        await skill_service.archive_skill(root_skill.id)
-        row_after = (
-            await session.execute(
-                select(AgentTurnProvenance).where(
-                    AgentTurnProvenance.session_id == session_id
-                )
-            )
-        ).scalar_one()
-
-        assert result.resolved_refs is not None
-        assert snapshot == result.resolved_refs.model_dump(mode="json")
-        assert any(
-            ref["resource_kind"] == "skill"
-            and ref["resource_id"] == str(root_skill.id)
-            and ref["resolved_version_id"] == str(root_skill_version.id)
-            for ref in snapshot["refs"]
-        )
-        assert row_after.resolved_refs == snapshot
-
-    async def test_preset_resolution_activity_records_root_refs_for_subagent_presets(
-        self,
-        configure_minio_for_skills,
-        session: AsyncSession,
-        svc_role: Role,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Invariant: root resolution always records root refs, even for
-        subagent presets whose merged refs are appended by a later activity.
-
-        A turn that fails between root resolution and subagent resolution
-        (custom-provider credentials, session load, subagent validation) must
-        still leave a provenance row carrying the resolved root refs. The
-        later subagent activity appends a second, merged snapshot; the row
-        with the highest ``surrogate_id`` is the final one.
-        """
-
-        skill_service = SkillService(session=session, role=svc_role)
-        root_skill = await skill_service.create_skill(
-            SkillCreate(name="root-refs-skill")
-        )
-        root_skill_version = await skill_service.publish_skill(root_skill.id)
-        child = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Root Refs Child", "slug": "root-refs-child"}
-            )
-        )
-        parent = await agent_preset_service.create_preset(
-            AgentPresetCreate(
-                name="Root Refs Parent",
-                slug="root-refs-parent",
-                instructions="Use the selected skill and child.",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                skills=[AgentPresetSkillBindingBase(skill_id=root_skill.id)],
-                agents=AgentSubagentsConfig.model_validate(
-                    {
-                        "enabled": True,
-                        "subagents": [{"preset": child.slug}],
-                    }
-                ),
-            )
-        )
-        session_id = uuid.uuid4()
-
-        management_service = AgentManagementService(session, role=svc_role)
-        management_service.presets = agent_preset_service
-        monkeypatch.setattr(
-            management_service,
-            "get_workspace_runtime_provider_credentials",
-            AsyncMock(return_value={"OPENAI_API_KEY": "test-key"}),
-        )
-        monkeypatch.setattr(
-            "tracecat.agent.preset.activities.AgentManagementService.with_session",
-            lambda **_: _AsyncContext(management_service),
-        )
-
-        payload = await resolve_agent_preset_config_activity(
-            ResolveAgentPresetConfigActivityInput(
-                role=svc_role,
-                preset_id=parent.id,
-                session_id=session_id,
-                wf_exec_id="turn-1",
-            )
-        )
-
-        rows = (
-            (
-                await session.execute(
-                    select(AgentTurnProvenance).where(
-                        AgentTurnProvenance.session_id == session_id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        assert payload.resolved_refs is not None
-        assert len(rows) == 1
-        assert rows[0].resolved_refs == payload.resolved_refs.model_dump(mode="json")
-        assert any(
-            ref["resource_kind"] == "skill"
-            and ref["resource_id"] == str(root_skill.id)
-            and ref["resolved_version_id"] == str(root_skill_version.id)
-            for ref in rows[0].resolved_refs["refs"]
-        )
-
-    async def test_preset_resolution_activity_records_root_refs_before_credentials(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Invariant: root refs are persisted at resolution-success time.
-
-        Credential loading happens inside ``with_preset_config`` before the
-        config is yielded; a preset that resolves but has no provider
-        credentials must still leave its root-refs provenance row behind.
-        """
-
-        preset = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "No Creds Preset", "slug": "no-creds-preset"}
-            )
-        )
-        session_id = uuid.uuid4()
-
-        management_service = AgentManagementService(session, role=svc_role)
-        management_service.presets = agent_preset_service
-        for method in (
-            "get_workspace_runtime_provider_credentials",
-            "get_runtime_provider_credentials",
-        ):
-            monkeypatch.setattr(
-                management_service, method, AsyncMock(return_value=None)
-            )
-        monkeypatch.setattr(
-            "tracecat.agent.preset.activities.AgentManagementService.with_session",
-            lambda **_: _AsyncContext(management_service),
-        )
-
-        with pytest.raises(TracecatNotFoundError, match="No credentials"):
-            await resolve_agent_preset_config_activity(
-                ResolveAgentPresetConfigActivityInput(
-                    role=svc_role,
-                    preset_id=preset.id,
-                    session_id=session_id,
-                    wf_exec_id="turn-1",
-                )
-            )
-
-        rows = (
-            (
-                await session.execute(
-                    select(AgentTurnProvenance).where(
-                        AgentTurnProvenance.session_id == session_id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        assert len(rows) == 1
-        assert any(
-            ref["resource_kind"] == "preset" and ref["resource_id"] == str(preset.id)
-            for ref in rows[0].resolved_refs["refs"]
-        )
-
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,
         agent_preset_service: AgentPresetService,
@@ -3845,7 +3489,6 @@ class TestAgentPresetService:
         session.add(child_version)
         await session.execute(
             sa.insert(AgentPresetVersionSubagent).values(
-                id=uuid.uuid4(),
                 workspace_id=agent_preset_service.workspace_id,
                 parent_preset_version_id=child_version.id,
                 child_preset_id=grandchild.id,
