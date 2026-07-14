@@ -5,6 +5,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from tracecat import config
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
 
@@ -65,6 +70,11 @@ class AgentActionArgs(BaseModel):
         description="The maximum number of model requests to make per agent run",
     )
     retries: int = 3
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None

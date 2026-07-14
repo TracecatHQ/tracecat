@@ -42,6 +42,10 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -125,6 +129,10 @@ class AgentExecutorInput(BaseModel):
     mcp_auth_token: str
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
+    )
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
@@ -577,6 +585,7 @@ class SandboxedAgentExecutor:
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
+            timeout_seconds=self.timeout_seconds,
             artifact_working_set=artifact_working_set,
             skills_dir=self._skills_dir(),
             hydrate_work_dir=self._hydrate_agent_filesystem
@@ -610,14 +619,18 @@ class SandboxedAgentExecutor:
                 elapsed = 0
 
                 while elapsed < self.timeout_seconds:
+                    wait_interval = min(
+                        heartbeat_interval,
+                        self.timeout_seconds - elapsed,
+                    )
                     done, _ = await asyncio.wait(
                         [broker_task, fatal_error_task],
-                        timeout=heartbeat_interval,
+                        timeout=wait_interval,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     if not done:
-                        elapsed += heartbeat_interval
+                        elapsed += wait_interval
                         activity.heartbeat(
                             f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
                         )
@@ -1196,7 +1209,10 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
-    executor = SandboxedAgentExecutor(input=input)
+    executor = SandboxedAgentExecutor(
+        input=input,
+        timeout_seconds=input.timeout_seconds,
+    )
     result = await executor.run()
 
     if result.success:

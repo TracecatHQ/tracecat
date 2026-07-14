@@ -9,6 +9,11 @@ from typing import Annotated, Any, cast
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -79,6 +84,11 @@ class PresetCreateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
@@ -117,6 +127,11 @@ class PresetUpdateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)

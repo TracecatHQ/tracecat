@@ -601,6 +601,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
+        timeout_seconds: int | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
@@ -622,6 +623,7 @@ class AgentsClient:
             base_url: Custom API endpoint URL for the model.
             output_type: Expected output format (type string or JSON schema).
             actions: List of action identifiers the agent can use as tools.
+            timeout_seconds: Maximum active runtime for each agent turn.
             skills: Skill bindings containing `skill_id`.
 
         Returns:
@@ -658,6 +660,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
+        if is_set(timeout_seconds):
+            data["timeout_seconds"] = timeout_seconds
         if is_set(enable_thinking):
             data["enable_thinking"] = enable_thinking
         if is_set(enable_internet_access):
@@ -699,6 +703,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
+        timeout_seconds: int | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
@@ -719,6 +724,7 @@ class AgentsClient:
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
+            timeout_seconds: Updated maximum active runtime per agent turn.
             skills: Skill bindings containing `skill_id`.
 
         Returns:
@@ -760,6 +766,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
+        if is_set(timeout_seconds):
+            data["timeout_seconds"] = timeout_seconds
         if is_set(enable_thinking):
             data["enable_thinking"] = enable_thinking
         if is_set(enable_internet_access):

@@ -21,6 +21,7 @@ from tracecat_ee.agent.workflows.durable import (
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    _agent_token_ttl_seconds,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
 )
@@ -85,6 +86,17 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
     assert not hasattr(workflow_args, "use_workspace_credentials")
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
+def test_agent_token_ttl_includes_executor_queue_and_setup_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat_ee.agent.workflows.durable.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT",
+        300,
+    )
+
+    assert _agent_token_ttl_seconds(65) == 365
 
 
 @pytest.mark.anyio
@@ -321,6 +333,7 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             cfg=cfg,
             subagents=[],
             internal_tool_context=None,
+            token_ttl_seconds=None,
         )
 
     patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
@@ -439,6 +452,79 @@ def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
         == "mcp__Jira__getIssue"
     )
     assert _approved_user_mcp_tool_name("core.http_request") is None
+
+
+@pytest.mark.anyio
+async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    approved_tools = [
+        ApprovedToolCall(
+            tool_call_id="call-1",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-1"},
+        ),
+        ApprovedToolCall(
+            tool_call_id="call-2",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-2"},
+        ),
+    ]
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.now",
+            return_value=datetime(2026, 7, 14, tzinfo=UTC),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable._start_remote_mcp_tool_call"
+        ) as start_remote_mock,
+        patch.object(
+            workflow_instance,
+            "_race_tool_activity_against_cancel",
+            AsyncMock(side_effect=['{"issue": 1}', '{"issue": 2}']),
+        ),
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            side_effect=["fresh-token-1", "fresh-token-2"],
+        ) as mint_token_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=SimpleNamespace(results=[])),
+        ),
+    ):
+        await workflow_instance._execute_and_reconcile_approved_tools(
+            approved_tools=approved_tools,
+            denied_tools=[],
+            registry_lock=build_result.registry_lock,
+            mcp_auth_token="stale-token",
+            mcp_build_result=build_result,
+            internal_tool_context=None,
+            token_ttl_seconds=365,
+            refresh_mcp_token_per_tool=True,
+            active_stream_id=None,
+        )
+
+    assert mint_token_mock.call_count == 2
+    assert [call.kwargs["ttl_seconds"] for call in mint_token_mock.call_args_list] == [
+        365,
+        365,
+    ]
+    assert [
+        call.kwargs["mcp_auth_token"] for call in start_remote_mock.call_args_list
+    ] == ["fresh-token-1", "fresh-token-2"]
 
 
 def test_build_approved_tool_run_input_is_deterministic() -> None:

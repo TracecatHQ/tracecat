@@ -59,7 +59,12 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
     )
 
 
-def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
+def _make_transport(
+    tmp_path: Path,
+    *,
+    use_jailed_paths: bool,
+    timeout_seconds: int = 1800,
+) -> SandboxedCLITransport:
     runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
     runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
     path_mapping = AgentSandboxPathMapping(
@@ -77,6 +82,7 @@ def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITr
         path_mapping=path_mapping,
         enable_internet_access=False,
         use_jailed_paths=use_jailed_paths,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -441,7 +447,11 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    transport = _make_transport(
+        tmp_path,
+        use_jailed_paths=False,
+        timeout_seconds=3600,
+    )
     options = ClaudeAgentOptions(
         mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
         agents={
@@ -489,6 +499,11 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     assert selected_port > 0
     assert init_payload["mcp_bridge_fd"] is not None
     assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
+    sandbox_config = cast(
+        transport_module.AgentSandboxConfig, captured_spawn_kwargs["config"]
+    )
+    assert sandbox_config.resources.cpu_seconds == 3660
+    assert sandbox_config.resources.timeout_seconds == 3660
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
     assert mcp_servers["tracecat-registry"]["url"] == (

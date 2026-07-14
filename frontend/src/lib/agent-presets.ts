@@ -74,6 +74,7 @@ export function buildDuplicateAgentPresetPayload(
     mcp_integrations: preset.mcp_integrations ?? null,
     agents: preset.agents,
     retries: preset.retries,
+    timeout_seconds: preset.timeout_seconds,
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
   }

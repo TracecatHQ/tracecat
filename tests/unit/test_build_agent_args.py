@@ -484,6 +484,26 @@ class TestBuildAgentArgsMcpResolution:
         assert result.mcp_servers is None
 
     @pytest.mark.anyio
+    async def test_preserves_configured_timeout(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "timeout_seconds": 3600,
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.timeout_seconds == 3600
+
+    @pytest.mark.anyio
     async def test_multiple_mcp_integration_ids_resolve(self, role: Role):
         """All IDs in the list are forwarded to the resolver as a batch."""
         id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())

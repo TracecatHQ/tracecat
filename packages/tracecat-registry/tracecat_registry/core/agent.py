@@ -15,6 +15,7 @@ from tracecat_registry.fields import (
     ActionType,
     AgentModel,
     AgentPreset,
+    Integer,
     MCPIntegration,
     ModelSelection,
     TextArea,
@@ -216,6 +217,10 @@ LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
     "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
 }
 
+AGENT_TIMEOUT_SECONDS_DEFAULT = 1800
+AGENT_TIMEOUT_SECONDS_MAX = 3600
+AGENT_TIMEOUT_SECONDS_MIN = 5
+
 
 @registry.register(
     default_title="AI agent",
@@ -285,6 +290,17 @@ async def agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    timeout_seconds: Annotated[
+        int,
+        Doc(
+            "Maximum active runtime in seconds for this agent turn. Waiting for manual approval does not count."
+        ),
+        Field(ge=AGENT_TIMEOUT_SECONDS_MIN, le=AGENT_TIMEOUT_SECONDS_MAX),
+        Integer(
+            min_val=AGENT_TIMEOUT_SECONDS_MIN,
+            max_val=AGENT_TIMEOUT_SECONDS_MAX,
+        ),
+    ] = AGENT_TIMEOUT_SECONDS_DEFAULT,
     enable_thinking: Annotated[
         bool,
         Doc("Whether to enable high thinking for agent runs."),
@@ -400,6 +416,15 @@ async def action(
     ] = None,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    timeout_seconds: Annotated[
+        int,
+        Doc("Maximum active runtime in seconds for this AI action."),
+        Field(ge=AGENT_TIMEOUT_SECONDS_MIN, le=AGENT_TIMEOUT_SECONDS_MAX),
+        Integer(
+            min_val=AGENT_TIMEOUT_SECONDS_MIN,
+            max_val=AGENT_TIMEOUT_SECONDS_MAX,
+        ),
+    ] = AGENT_TIMEOUT_SECONDS_DEFAULT,
     enable_thinking: Annotated[
         bool,
         Doc("Whether to enable high thinking for agent runs."),
