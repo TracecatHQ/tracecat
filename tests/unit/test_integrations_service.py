@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
@@ -8,13 +9,15 @@ import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
-from sqlalchemy import text
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
+import tracecat.integrations.service as integration_service_module
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
@@ -36,6 +39,7 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    OAuthRefreshBusyError,
 )
 from tracecat.integrations.types import TokenResponse
 
@@ -125,9 +129,27 @@ def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
 
 @pytest.fixture
 async def integration_service(
-    session: AsyncSession, svc_role: Role, encryption_key: str
+    session: AsyncSession,
+    svc_role: Role,
+    encryption_key: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> IntegrationService:
     """Create an integration service instance for testing."""
+
+    @contextlib.asynccontextmanager
+    async def get_refresh_session():
+        async with AsyncSession(
+            session.bind,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as refresh_session:
+            yield refresh_session
+
+    monkeypatch.setattr(
+        integration_service_module,
+        "get_async_session_context_manager",
+        get_refresh_session,
+    )
     return IntegrationService(session=session, role=svc_role)
 
 
@@ -787,10 +809,15 @@ class TestIntegrationService:
         # Integration should not need refresh
         assert not integration.needs_refresh
 
-        # Mock the provider registry (should not be called)
-        with patch(
-            "tracecat.integrations.service.get_provider_class"
-        ) as mock_get_provider:
+        # Neither the provider nor an isolated refresh session should be needed.
+        with (
+            patch(
+                "tracecat.integrations.service.get_provider_class"
+            ) as mock_get_provider,
+            patch(
+                "tracecat.integrations.service.get_async_session_context_manager"
+            ) as mock_refresh_session,
+        ):
             # This should not be called since refresh is not needed
             mock_get_provider.return_value = MockOAuthProvider
 
@@ -798,10 +825,11 @@ class TestIntegrationService:
             refreshed = await integration_service.refresh_token_if_needed(integration)
 
             # Should be the same instance, unchanged
-            assert refreshed.id == integration.id
+            assert refreshed is integration
             assert refreshed.expires_at == integration.expires_at
 
-            # Registry should not have been accessed
+            # Fast path should not consume another connection or load a provider.
+            mock_refresh_session.assert_not_called()
             mock_get_provider.assert_not_called()
 
     async def test_refresh_token_if_needed(
@@ -896,6 +924,8 @@ class TestIntegrationService:
         )
         first_refresh_started = asyncio.Event()
         release_first_refresh = asyncio.Event()
+        retry_sleep_started = asyncio.Event()
+        allow_retry = asyncio.Event()
         first_task: asyncio.Task[OAuthIntegration] | None = None
         second_task: asyncio.Task[OAuthIntegration] | None = None
         expected_refresh_token = mock_token_response.refresh_token
@@ -913,31 +943,14 @@ class TestIntegrationService:
                 token_type="Bearer",
             )
 
-        async def wait_until_second_refresh_is_blocked() -> None:
-            loop = asyncio.get_running_loop()
-            deadline = loop.time() + 5
-            async with concurrent_engine.connect() as observer:
-                while loop.time() < deadline:
-                    # PostgreSQL caches statistics within a transaction unless
-                    # the snapshot is explicitly cleared between polls.
-                    await observer.execute(text("SELECT pg_stat_clear_snapshot()"))
-                    is_blocked = await observer.scalar(
-                        text(
-                            """
-                            SELECT EXISTS (
-                                SELECT 1
-                                FROM pg_stat_activity
-                                WHERE datname = current_database()
-                                  AND cardinality(pg_blocking_pids(pid)) > 0
-                                  AND query ILIKE '%oauth_integration%'
-                            )
-                            """
-                        )
-                    )
-                    if is_blocked:
-                        return
-                    await asyncio.sleep(0.01)
-            raise AssertionError("Second refresh did not block on the row lock")
+        async def retry_sleep(_: float) -> None:
+            retry_sleep_started.set()
+            await allow_retry.wait()
+
+        @contextlib.asynccontextmanager
+        async def get_concurrent_session():
+            async with session_factory() as refresh_session:
+                yield refresh_session
 
         try:
             with (
@@ -951,6 +964,15 @@ class TestIntegrationService:
                     new_callable=AsyncMock,
                     side_effect=refresh_access_token,
                 ) as mock_refresh,
+                patch(
+                    "tracecat.integrations.service.asyncio.sleep",
+                    new_callable=AsyncMock,
+                    side_effect=retry_sleep,
+                ) as mock_sleep,
+                patch(
+                    "tracecat.integrations.service.get_async_session_context_manager",
+                    side_effect=get_concurrent_session,
+                ),
             ):
                 async with session_factory() as seed_session:
                     seed_session.add(
@@ -978,14 +1000,16 @@ class TestIntegrationService:
                     )
                     integration_id = integration.id
 
+                # Prove both independent readers can observe stale state before
+                # either refresh transaction starts.
                 async with (
-                    session_factory() as first_session,
-                    session_factory() as second_session,
+                    session_factory() as first_reader,
+                    session_factory() as second_reader,
                 ):
-                    first_integration = await first_session.get(
+                    first_integration = await first_reader.get(
                         OAuthIntegration, integration_id
                     )
-                    second_integration = await second_session.get(
+                    second_integration = await second_reader.get(
                         OAuthIntegration, integration_id
                     )
                     assert first_integration is not None
@@ -994,6 +1018,10 @@ class TestIntegrationService:
                     assert first_integration.needs_refresh
                     assert second_integration.needs_refresh
 
+                async with (
+                    session_factory() as first_session,
+                    session_factory() as second_session,
+                ):
                     first_service = IntegrationService(
                         session=first_session,
                         role=role.model_copy(deep=True),
@@ -1002,6 +1030,10 @@ class TestIntegrationService:
                         session=second_session,
                         role=role.model_copy(deep=True),
                     )
+                    refresh_pool = concurrent_engine.sync_engine.pool
+                    checkedout = getattr(refresh_pool, "checkedout", None)
+                    assert checkedout is not None
+                    baseline_checked_out = checkedout()
 
                     first_task = asyncio.create_task(
                         first_service.refresh_token_if_needed(first_integration)
@@ -1011,16 +1043,19 @@ class TestIntegrationService:
                     second_task = asyncio.create_task(
                         second_service.refresh_token_if_needed(second_integration)
                     )
-                    await wait_until_second_refresh_is_blocked()
+                    await asyncio.wait_for(retry_sleep_started.wait(), timeout=5)
 
                     assert mock_refresh.await_count == 1
                     assert not second_task.done()
+                    assert mock_sleep.await_count == 1
+                    # Winner owns one connection. Loser closed its failed
+                    # NOWAIT attempt before entering retry sleep.
+                    assert checkedout() == baseline_checked_out + 1
 
                     release_first_refresh.set()
-                    first_result, second_result = await asyncio.gather(
-                        first_task,
-                        second_task,
-                    )
+                    first_result = await first_task
+                    allow_retry.set()
+                    second_result = await second_task
 
                     mock_refresh.assert_awaited_once()
                     for service, refreshed in (
@@ -1042,6 +1077,44 @@ class TestIntegrationService:
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             await concurrent_engine.dispose()
+
+    async def test_refresh_token_if_needed_times_out_when_lock_stays_busy(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """A busy row raises after the bounded retry deadline."""
+
+        class LockNotAvailableError(Exception):
+            sqlstate = "55P03"
+
+        lock_error = OperationalError(
+            "SELECT ... FOR UPDATE NOWAIT",
+            {},
+            LockNotAvailableError(),
+        )
+        integration = OAuthIntegration(
+            id=uuid.uuid4(),
+            workspace_id=integration_service.workspace_id,
+            provider_id="busy_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            encrypted_access_token=b"",
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+
+        with (
+            patch.object(
+                AsyncSession,
+                "scalar",
+                new_callable=AsyncMock,
+                side_effect=lock_error,
+            ),
+            patch(
+                "tracecat.integrations.service.OAUTH_REFRESH_RETRY_TIMEOUT_SECONDS",
+                0.0,
+            ),
+        ):
+            with pytest.raises(OAuthRefreshBusyError):
+                await integration_service.refresh_token_if_needed(integration)
 
     async def test_successful_refresh_does_not_commit_caller_session(
         self,
@@ -1147,6 +1220,105 @@ class TestIntegrationService:
             assert access_token == mock_token_response.access_token.get_secret_value()
             assert svc_workspace.name == pending_workspace_name
             assert svc_workspace in integration_service.session.dirty
+
+    async def test_successful_refresh_does_not_commit_flushed_caller_change(
+        self,
+        mock_provider: MockOAuthProvider,
+        mock_token_response: TokenResponse,
+        svc_role: Role,
+        encryption_key: str,
+    ) -> None:
+        """Refresh isolation preserves already-flushed caller writes."""
+        del encryption_key
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        original_name = f"refresh-isolation-{role.workspace_id}"
+        pending_name = f"{original_name}-pending"
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_refresh_session():
+            async with session_factory() as refresh_session:
+                yield refresh_session
+
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name=original_name,
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+                seed_service = IntegrationService(session=seed_session, role=role)
+                await seed_service.store_provider_config(
+                    provider_key=provider_key,
+                    client_id="mock_client_id",
+                    client_secret=SecretStr("mock_client_secret"),
+                )
+                integration = await seed_service.store_integration(
+                    provider_key=provider_key,
+                    access_token=mock_token_response.access_token,
+                    refresh_token=mock_token_response.refresh_token,
+                    expires_in=60,
+                )
+
+            with (
+                patch(
+                    "tracecat.integrations.service.get_provider_class",
+                    return_value=MockOAuthProvider,
+                ),
+                patch.object(
+                    MockOAuthProvider,
+                    "refresh_access_token",
+                    new_callable=AsyncMock,
+                    return_value=TokenResponse(
+                        access_token=SecretStr("refreshed_token"),
+                        refresh_token=SecretStr("rotated_refresh_token"),
+                        expires_in=7200,
+                        scope="read write",
+                        token_type="Bearer",
+                    ),
+                ) as mock_refresh,
+                patch(
+                    "tracecat.integrations.service.get_async_session_context_manager",
+                    side_effect=get_refresh_session,
+                ),
+            ):
+                async with session_factory() as caller_session:
+                    workspace = await caller_session.scalar(
+                        select(Workspace).where(Workspace.id == role.workspace_id)
+                    )
+                    assert workspace is not None
+                    workspace.name = pending_name
+                    await caller_session.flush()
+                    assert workspace not in caller_session.dirty
+
+                    caller_service = IntegrationService(
+                        session=caller_session,
+                        role=role,
+                    )
+                    await caller_service.refresh_token_if_needed(integration)
+
+                    mock_refresh.assert_awaited_once()
+                    async with session_factory() as observer_session:
+                        observed = await observer_session.scalar(
+                            select(Workspace).where(Workspace.id == role.workspace_id)
+                        )
+                        assert observed is not None
+                        assert observed.name == original_name
+                    assert workspace.name == pending_name
+                    await caller_session.rollback()
+        finally:
+            await engine.dispose()
 
     async def test_refresh_token_if_needed_no_refresh_token(
         self,

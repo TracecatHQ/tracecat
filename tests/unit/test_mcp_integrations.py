@@ -8,6 +8,7 @@ This test suite covers MCP integration functionality including:
 - MCP provider OAuth discovery behavior
 """
 
+import contextlib
 import socket
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -181,9 +182,26 @@ def _install_catalog_entry(
 
 @pytest.fixture
 async def integration_service(
-    session: AsyncSession, svc_role: Role
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> IntegrationService:
     """Create an integration service instance for testing."""
+
+    @contextlib.asynccontextmanager
+    async def get_refresh_session():
+        async with AsyncSession(
+            session.bind,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as refresh_session:
+            yield refresh_session
+
+    monkeypatch.setattr(
+        integration_service_module,
+        "get_async_session_context_manager",
+        get_refresh_session,
+    )
     return IntegrationService(session=session, role=svc_role)
 
 

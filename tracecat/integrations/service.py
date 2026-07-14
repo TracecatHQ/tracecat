@@ -1,6 +1,7 @@
 """Service for managing user integrations with external services."""
 
 import asyncio
+import random
 import re
 import secrets
 import uuid
@@ -19,7 +20,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import DBAPIError
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
@@ -39,8 +40,8 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
-    _initialize_session_rls_context,
     get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
 )
 from tracecat.db.models import (
     AgentPreset,
@@ -116,6 +117,11 @@ from tracecat.tiers.enums import Entitlement
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
 """Maximum seconds an MCP connection verification may take."""
 
+OAUTH_REFRESH_LOCK_NOT_AVAILABLE = "55P03"
+OAUTH_REFRESH_RETRY_TIMEOUT_SECONDS = 10.0
+OAUTH_REFRESH_RETRY_MIN_SECONDS = 0.025
+OAUTH_REFRESH_RETRY_MAX_SECONDS = 0.1
+
 
 @dataclass(frozen=True)
 class PlatformMCPCatalogConnectResult:
@@ -143,6 +149,10 @@ class InsecureOAuthEndpointError(ValueError):
 
 class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
+
+
+class OAuthRefreshBusyError(RuntimeError):
+    """Raised when an OAuth integration stays locked past the retry deadline."""
 
 
 @dataclass(frozen=True)
@@ -1435,13 +1445,11 @@ class IntegrationService(BaseWorkspaceService):
                 token.refresh_token.get_secret_value()
             )
         if token.expires_in is not None:
-            integration.expires_at = datetime.now() + timedelta(
+            integration.expires_at = datetime.now(UTC) + timedelta(
                 seconds=token.expires_in
             )
         if token.scope:
             integration.scope = token.scope
-        await self.session.commit()
-        await self.session.refresh(integration)
         return integration
 
     @staticmethod
@@ -1649,9 +1657,18 @@ class IntegrationService(BaseWorkspaceService):
             await self.delete_custom_provider(provider_key=provider_key)
 
     async def refresh_token_if_needed(
-        self, integration: OAuthIntegration
+        self,
+        integration: OAuthIntegration,
     ) -> OAuthIntegration:
         """Refresh the access token if it's expired or about to expire.
+
+        Fresh caller state returns without opening another database session.
+        Stale caller state is reloaded under the refresh transaction's row lock
+        before deciding whether to call the OAuth provider.
+
+        Each attempt owns a separate transaction. A contending refresher uses
+        NOWAIT, rolls back and closes its session before sleeping, then retries
+        with jitter. The caller's session is never committed or rolled back.
 
         The row lock prevents concurrent database readers from presenting the
         same refresh token. It cannot make refresh-token rotation atomic with
@@ -1661,53 +1678,83 @@ class IntegrationService(BaseWorkspaceService):
         if not integration.needs_refresh:
             return integration
 
-        # Keep the lock and token update in a separate session so committing
-        # them never commits the caller's unit of work.
+        integration_id = integration.id
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + OAUTH_REFRESH_RETRY_TIMEOUT_SECONDS
         role_token = ctx_role.set(self.role)
         try:
-            async with AsyncSession(
-                self.session.bind,
-                expire_on_commit=False,
-                join_transaction_mode="create_savepoint",
-            ) as refresh_session:
-                await _initialize_session_rls_context(refresh_session)
-                # Lock the row and re-check staleness so concurrent refreshers
-                # never present the same (single-use) refresh token twice.
-                locked = await refresh_session.get(
-                    OAuthIntegration, integration.id, with_for_update=True
-                )
-                if locked is not None and locked.needs_refresh:
-                    svc = IntegrationService(session=refresh_session, role=self.role)
-                    if locked.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
-                        await svc._refresh_ac_integration(locked)
-                    elif locked.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
-                        await svc._refresh_cc_integration(locked)
-                    else:
-                        self.logger.warning(
-                            "Unsupported grant type for refresh",
-                            grant_type=locked.grant_type,
-                            provider=locked.provider_id,
+            while True:
+                try:
+                    async with get_async_session_context_manager() as refresh_session:
+                        refresh_service = IntegrationService(
+                            session=refresh_session,
+                            role=self.role,
                         )
-        except Exception as e:
-            self.logger.error(
-                "Failed to refresh token, continuing with current token",
-                error=str(e),
-                provider=integration.provider_id,
-            )
-            # Fall through - let it fail naturally when token expires
+                        locked = await refresh_session.scalar(
+                            select(OAuthIntegration)
+                            .where(
+                                OAuthIntegration.id == integration_id,
+                                OAuthIntegration.workspace_id == self.workspace_id,
+                            )
+                            .with_for_update(nowait=True)
+                        )
+                        if locked is None:
+                            raise ValueError("OAuth integration not found")
+
+                        if locked.needs_refresh:
+                            refresh_error: Exception | None = None
+                            try:
+                                async with refresh_session.begin_nested():
+                                    if (
+                                        locked.grant_type
+                                        == OAuthGrantType.AUTHORIZATION_CODE
+                                    ):
+                                        await refresh_service._refresh_ac_integration(
+                                            locked
+                                        )
+                                    elif (
+                                        locked.grant_type
+                                        == OAuthGrantType.CLIENT_CREDENTIALS
+                                    ):
+                                        await refresh_service._refresh_cc_integration(
+                                            locked
+                                        )
+                                    else:
+                                        refresh_service.logger.warning(
+                                            "Unsupported grant type for refresh",
+                                            grant_type=locked.grant_type,
+                                            provider=locked.provider_id,
+                                        )
+                            except Exception as e:
+                                refresh_error = e
+                                await refresh_session.refresh(locked)
+
+                            await refresh_session.commit()
+                            if refresh_error is not None:
+                                refresh_service.logger.error(
+                                    "Failed to refresh token, continuing with current token",
+                                    error=str(refresh_error),
+                                    provider=locked.provider_id,
+                                )
+                        else:
+                            await refresh_session.commit()
+                        return locked
+                except DBAPIError as e:
+                    sqlstate = getattr(e.orig, "sqlstate", None)
+                    if sqlstate != OAUTH_REFRESH_LOCK_NOT_AVAILABLE:
+                        raise
+                    if loop.time() >= deadline:
+                        raise OAuthRefreshBusyError(
+                            f"OAuth integration {integration_id} is busy refreshing"
+                        ) from e
+                    await asyncio.sleep(
+                        random.uniform(
+                            OAUTH_REFRESH_RETRY_MIN_SECONDS,
+                            OAUTH_REFRESH_RETRY_MAX_SECONDS,
+                        )
+                    )
         finally:
             ctx_role.reset(role_token)
-        try:
-            # refresh() normally flushes every pending change in the caller's
-            # session. Avoid writing that unrelated work just to reload this row.
-            with self.session.no_autoflush:
-                await self.session.refresh(integration)
-        except Exception:
-            self.logger.warning(
-                "Could not reload integration after refresh attempt",
-                provider=integration.provider_id,
-            )
-        return integration
 
     async def _provider_from_integration(
         self, integration: OAuthIntegration
@@ -1798,7 +1845,7 @@ class IntegrationService(BaseWorkspaceService):
 
         # Update expiry time
         integration.expires_at = (
-            datetime.now() + timedelta(seconds=token_response.expires_in)
+            datetime.now(UTC) + timedelta(seconds=token_response.expires_in)
             if token_response.expires_in is not None
             else None
         )
@@ -1806,29 +1853,17 @@ class IntegrationService(BaseWorkspaceService):
         # Update scope if changed
         integration.scope = token_response.scope
 
-        await self.session.commit()
-        await self.session.refresh(integration)
         return integration
 
     async def _refresh_ac_integration(
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
-        """Refresh an integration using the refresh token for authorization code grant type."""
-        # Check if refresh token exists by attempting to decrypt
-        try:
-            refresh_token = (
-                self._decrypt_token(integration.encrypted_refresh_token)
-                if integration.encrypted_refresh_token
-                else None
-            )
-        except Exception as e:
-            self.logger.error(
-                "Failed to decrypt refresh token",
-                user_id=integration.user_id,
-                provider=integration.provider_id,
-                error=str(e),
-            )
-            return integration
+        """Apply an authorization-code refresh without ending the transaction."""
+        refresh_token = (
+            self._decrypt_token(integration.encrypted_refresh_token)
+            if integration.encrypted_refresh_token
+            else None
+        )
 
         if not refresh_token:
             self.logger.warning(
@@ -1839,19 +1874,10 @@ class IntegrationService(BaseWorkspaceService):
             return integration
 
         if self._is_custom_mcp_oauth_provider(integration.provider_id):
-            try:
-                return await self._refresh_custom_mcp_integration(
-                    integration=integration,
-                    refresh_token=refresh_token,
-                )
-            except Exception as e:
-                self.logger.error(
-                    "Failed to refresh generic MCP OAuth token",
-                    user_id=integration.user_id,
-                    provider=integration.provider_id,
-                    error=str(e),
-                )
-                return integration
+            return await self._refresh_custom_mcp_integration(
+                integration=integration,
+                refresh_token=refresh_token,
+            )
 
         provider = await self._provider_from_integration(integration)
         if not provider:
@@ -1870,48 +1896,26 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
-        # Refresh the access token
-        try:
-            token_response = await provider.refresh_access_token(refresh_token)
+        token_response = await provider.refresh_access_token(refresh_token)
 
-            # Update integration with new tokens
-            integration.encrypted_access_token = self._encrypt_token(
-                token_response.access_token.get_secret_value()
+        integration.encrypted_access_token = self._encrypt_token(
+            token_response.access_token.get_secret_value()
+        )
+        if token_response.refresh_token:
+            integration.encrypted_refresh_token = self._encrypt_token(
+                token_response.refresh_token.get_secret_value()
             )
-
-            # Update refresh token if provider rotated it
-            if token_response.refresh_token:
-                integration.encrypted_refresh_token = self._encrypt_token(
-                    token_response.refresh_token.get_secret_value()
-                )
-
-            # Update expiry time
-            if token_response.expires_in is not None:
-                integration.expires_at = datetime.now() + timedelta(
-                    seconds=token_response.expires_in
-                )
-
-            # Update scope if changed
-            integration.scope = token_response.scope
-
-            await self.session.commit()
-            await self.session.refresh(integration)
-
-            self.logger.info(
-                "Successfully updated integration with refreshed tokens",
-                user_id=integration.user_id,
-                provider=integration.provider_id,
+        if token_response.expires_in is not None:
+            integration.expires_at = datetime.now(UTC) + timedelta(
+                seconds=token_response.expires_in
             )
+        integration.scope = token_response.scope
 
-        except Exception as e:
-            self.logger.error(
-                "Failed to refresh access token",
-                user_id=integration.user_id,
-                provider=integration.provider_id,
-                error=str(e),
-            )
-            # Return unchanged integration instead of raising
-            return integration
+        self.logger.info(
+            "Successfully updated integration with refreshed tokens",
+            user_id=integration.user_id,
+            provider=integration.provider_id,
+        )
 
         return integration
 
@@ -3733,7 +3737,7 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration = result.scalars().first()
             if not oauth_integration:
                 raise MCPConfigurationError("Linked OAuth integration not found")
-            await self.refresh_token_if_needed(oauth_integration)
+            oauth_integration = await self.refresh_token_if_needed(oauth_integration)
             access_token = await self.get_access_token(oauth_integration)
             if not access_token:
                 raise MCPConfigurationError(
