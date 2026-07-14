@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
@@ -7,13 +8,18 @@ import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.models import OAuthIntegration
+from tracecat.db.models import OAuthIntegration, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import (
@@ -866,70 +872,281 @@ class TestIntegrationService:
                     "New expiry should be greater than or equal to old expiry"
                 )
 
-    async def test_refresh_token_if_needed_skips_when_concurrently_refreshed(
+    async def test_refresh_token_if_needed_serializes_concurrent_refreshes(
+        self,
+        mock_provider: MockOAuthProvider,
+        mock_token_response: TokenResponse,
+        svc_role: Role,
+        encryption_key: str,
+    ) -> None:
+        """Concurrent stale readers must present the refresh token only once."""
+        del encryption_key
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
+        role = svc_role.model_copy(
+            update={"workspace_id": uuid.uuid4()},
+            deep=True,
+        )
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+        first_refresh_started = asyncio.Event()
+        release_first_refresh = asyncio.Event()
+        first_task: asyncio.Task[OAuthIntegration] | None = None
+        second_task: asyncio.Task[OAuthIntegration] | None = None
+        expected_refresh_token = mock_token_response.refresh_token
+        assert expected_refresh_token is not None
+
+        async def refresh_access_token(refresh_token: str) -> TokenResponse:
+            assert refresh_token == expected_refresh_token.get_secret_value()
+            first_refresh_started.set()
+            await release_first_refresh.wait()
+            return TokenResponse(
+                access_token=SecretStr("refreshed_token"),
+                refresh_token=SecretStr("rotated_refresh_token"),
+                expires_in=7200,
+                scope="read write",
+                token_type="Bearer",
+            )
+
+        async def wait_until_second_refresh_is_blocked() -> None:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 5
+            async with concurrent_engine.connect() as observer:
+                while loop.time() < deadline:
+                    # PostgreSQL caches statistics within a transaction unless
+                    # the snapshot is explicitly cleared between polls.
+                    await observer.execute(text("SELECT pg_stat_clear_snapshot()"))
+                    is_blocked = await observer.scalar(
+                        text(
+                            """
+                            SELECT EXISTS (
+                                SELECT 1
+                                FROM pg_stat_activity
+                                WHERE datname = current_database()
+                                  AND cardinality(pg_blocking_pids(pid)) > 0
+                                  AND query ILIKE '%oauth_integration%'
+                            )
+                            """
+                        )
+                    )
+                    if is_blocked:
+                        return
+                    await asyncio.sleep(0.01)
+            raise AssertionError("Second refresh did not block on the row lock")
+
+        try:
+            with (
+                patch(
+                    "tracecat.integrations.service.get_provider_class",
+                    return_value=MockOAuthProvider,
+                ),
+                patch.object(
+                    MockOAuthProvider,
+                    "refresh_access_token",
+                    new_callable=AsyncMock,
+                    side_effect=refresh_access_token,
+                ) as mock_refresh,
+            ):
+                async with session_factory() as seed_session:
+                    seed_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name=f"refresh-race-{role.workspace_id}",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await seed_session.commit()
+                    seed_service = IntegrationService(
+                        session=seed_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    await seed_service.store_provider_config(
+                        provider_key=provider_key,
+                        client_id="mock_client_id",
+                        client_secret=SecretStr("mock_client_secret"),
+                    )
+                    integration = await seed_service.store_integration(
+                        provider_key=provider_key,
+                        access_token=mock_token_response.access_token,
+                        refresh_token=mock_token_response.refresh_token,
+                        expires_in=60,
+                    )
+                    integration_id = integration.id
+
+                async with (
+                    session_factory() as first_session,
+                    session_factory() as second_session,
+                ):
+                    first_integration = await first_session.get(
+                        OAuthIntegration, integration_id
+                    )
+                    second_integration = await second_session.get(
+                        OAuthIntegration, integration_id
+                    )
+                    assert first_integration is not None
+                    assert second_integration is not None
+                    assert first_integration is not second_integration
+                    assert first_integration.needs_refresh
+                    assert second_integration.needs_refresh
+
+                    first_service = IntegrationService(
+                        session=first_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    second_service = IntegrationService(
+                        session=second_session,
+                        role=role.model_copy(deep=True),
+                    )
+
+                    first_task = asyncio.create_task(
+                        first_service.refresh_token_if_needed(first_integration)
+                    )
+                    await asyncio.wait_for(first_refresh_started.wait(), timeout=5)
+
+                    second_task = asyncio.create_task(
+                        second_service.refresh_token_if_needed(second_integration)
+                    )
+                    await wait_until_second_refresh_is_blocked()
+
+                    assert mock_refresh.await_count == 1
+                    assert not second_task.done()
+
+                    release_first_refresh.set()
+                    first_result, second_result = await asyncio.gather(
+                        first_task,
+                        second_task,
+                    )
+
+                    mock_refresh.assert_awaited_once()
+                    for service, refreshed in (
+                        (first_service, first_result),
+                        (second_service, second_result),
+                    ):
+                        access_token, refresh_token = service.get_decrypted_tokens(
+                            refreshed
+                        )
+                        assert access_token == "refreshed_token"
+                        assert refresh_token == "rotated_refresh_token"
+                        assert not refreshed.needs_refresh
+        finally:
+            release_first_refresh.set()
+            tasks = [task for task in (first_task, second_task) if task is not None]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            await concurrent_engine.dispose()
+
+    async def test_successful_refresh_does_not_commit_caller_session(
         self,
         integration_service: IntegrationService,
         mock_provider: MockOAuthProvider,
         mock_token_response: TokenResponse,
+        svc_workspace: Workspace,
     ) -> None:
-        """A refresher that loses the row-lock race must not replay the refresh.
-
-        Simulates a concurrent process having already refreshed the row: the
-        in-memory instance still looks stale, but the locked re-read inside
-        refresh_token_if_needed sees the fresh row and must skip the provider
-        call, since replaying an already-rotated refresh token trips
-        server-side reuse detection and revokes the grant.
-        """
+        """A successful refresh must leave unrelated caller changes uncommitted."""
         provider_key = ProviderKey(
             id=mock_provider.id,
             grant_type=mock_provider.grant_type,
         )
 
-        with patch(
-            "tracecat.integrations.service.get_provider_class"
-        ) as mock_get_provider:
-            mock_get_provider.return_value = MockOAuthProvider
+        with (
+            patch(
+                "tracecat.integrations.service.get_provider_class",
+                return_value=MockOAuthProvider,
+            ),
+            patch.object(
+                MockOAuthProvider,
+                "refresh_access_token",
+                new_callable=AsyncMock,
+                return_value=TokenResponse(
+                    access_token=SecretStr("refreshed_token"),
+                    refresh_token=SecretStr("new_refresh_token"),
+                    expires_in=7200,
+                    scope="read write",
+                    token_type="Bearer",
+                ),
+            ) as mock_refresh,
+        ):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="mock_client_id",
+                client_secret=SecretStr("mock_client_secret"),
+            )
+            integration = await integration_service.store_integration(
+                provider_key=provider_key,
+                access_token=mock_token_response.access_token,
+                refresh_token=mock_token_response.refresh_token,
+                expires_in=60,
+            )
+            pending_workspace_name = f"{svc_workspace.name}-pending"
+            svc_workspace.name = pending_workspace_name
+            assert svc_workspace in integration_service.session.dirty
 
-            with patch.object(
-                MockOAuthProvider, "refresh_access_token", new_callable=AsyncMock
-            ) as mock_refresh:
-                await integration_service.store_provider_config(
-                    provider_key=provider_key,
-                    client_id="mock_client_id",
-                    client_secret=SecretStr("mock_client_secret"),
-                )
-                integration = await integration_service.store_integration(
-                    provider_key=provider_key,
-                    access_token=mock_token_response.access_token,
-                    refresh_token=mock_token_response.refresh_token,
-                    expires_in=60,  # Within the refresh window
-                )
-                assert integration.needs_refresh
+            refreshed = await integration_service.refresh_token_if_needed(integration)
 
-                # Simulate the concurrent winner: update the row directly so
-                # the DB is fresh while this instance still looks stale.
-                await integration_service.session.execute(
-                    update(OAuthIntegration)
-                    .where(OAuthIntegration.id == integration.id)
-                    .values(
-                        encrypted_access_token=integration_service._encrypt_token(
-                            "concurrently_refreshed_token"
-                        ),
-                        expires_at=datetime.now(UTC) + timedelta(hours=2),
-                    )
-                )
-                await integration_service.session.commit()
+            mock_refresh.assert_awaited_once()
+            access_token, refresh_token = integration_service.get_decrypted_tokens(
+                refreshed
+            )
+            assert access_token == "refreshed_token"
+            assert refresh_token == "new_refresh_token"
+            assert svc_workspace.name == pending_workspace_name
+            assert svc_workspace in integration_service.session.dirty
 
-                refreshed = await integration_service.refresh_token_if_needed(
-                    integration
-                )
+    async def test_refresh_failure_does_not_commit_caller_session(
+        self,
+        integration_service: IntegrationService,
+        mock_provider: MockOAuthProvider,
+        mock_token_response: TokenResponse,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A failed refresh must leave unrelated caller changes uncommitted."""
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
 
-                # The locked re-read saw the fresh row: no provider call, and
-                # the concurrent refresher's token is what callers get.
-                mock_refresh.assert_not_called()
-                assert not refreshed.needs_refresh
-                access_token, _ = integration_service.get_decrypted_tokens(refreshed)
-                assert access_token == "concurrently_refreshed_token"
+        with (
+            patch(
+                "tracecat.integrations.service.get_provider_class",
+                return_value=MockOAuthProvider,
+            ),
+            patch.object(
+                MockOAuthProvider,
+                "refresh_access_token",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("refresh failed"),
+            ) as mock_refresh,
+        ):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="mock_client_id",
+                client_secret=SecretStr("mock_client_secret"),
+            )
+            integration = await integration_service.store_integration(
+                provider_key=provider_key,
+                access_token=mock_token_response.access_token,
+                refresh_token=mock_token_response.refresh_token,
+                expires_in=60,
+            )
+            pending_workspace_name = f"{svc_workspace.name}-pending"
+            svc_workspace.name = pending_workspace_name
+            assert svc_workspace in integration_service.session.dirty
+
+            refreshed = await integration_service.refresh_token_if_needed(integration)
+
+            mock_refresh.assert_awaited_once()
+            access_token, _ = integration_service.get_decrypted_tokens(refreshed)
+            assert access_token == mock_token_response.access_token.get_secret_value()
+            assert svc_workspace.name == pending_workspace_name
+            assert svc_workspace in integration_service.session.dirty
 
     async def test_refresh_token_if_needed_no_refresh_token(
         self,

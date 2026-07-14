@@ -19,6 +19,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
@@ -36,7 +37,11 @@ from tracecat.agent.mcp.stdio_probe_types import (
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import (
+    _initialize_session_rls_context,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     AgentPreset,
     AgentSession,
@@ -1646,27 +1651,43 @@ class IntegrationService(BaseWorkspaceService):
     async def refresh_token_if_needed(
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
-        """Refresh the access token if it's expired or about to expire."""
+        """Refresh the access token if it's expired or about to expire.
+
+        The row lock prevents concurrent database readers from presenting the
+        same refresh token. It cannot make refresh-token rotation atomic with
+        persisting the OAuth response, so a lost response or failed commit
+        after server-side rotation remains unrecoverable here.
+        """
         if not integration.needs_refresh:
             return integration
 
+        # Keep the lock and token update in a separate session so committing
+        # them never commits the caller's unit of work.
+        role_token = ctx_role.set(self.role)
         try:
-            # Lock the row and re-check staleness so concurrent refreshers
-            # never present the same (single-use) refresh token twice.
-            await self.session.refresh(integration, with_for_update=True)
-            if not integration.needs_refresh:
-                # Another process already refreshed; use its result.
-                return integration
-            if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
-                integration = await self._refresh_ac_integration(integration)
-            elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
-                integration = await self._refresh_cc_integration(integration)
-            else:
-                self.logger.warning(
-                    "Unsupported grant type for refresh",
-                    grant_type=integration.grant_type,
-                    provider=integration.provider_id,
+            async with AsyncSession(
+                self.session.bind,
+                expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
+            ) as refresh_session:
+                await _initialize_session_rls_context(refresh_session)
+                # Lock the row and re-check staleness so concurrent refreshers
+                # never present the same (single-use) refresh token twice.
+                locked = await refresh_session.get(
+                    OAuthIntegration, integration.id, with_for_update=True
                 )
+                if locked is not None and locked.needs_refresh:
+                    svc = IntegrationService(session=refresh_session, role=self.role)
+                    if locked.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
+                        await svc._refresh_ac_integration(locked)
+                    elif locked.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
+                        await svc._refresh_cc_integration(locked)
+                    else:
+                        self.logger.warning(
+                            "Unsupported grant type for refresh",
+                            grant_type=locked.grant_type,
+                            provider=locked.provider_id,
+                        )
         except Exception as e:
             self.logger.error(
                 "Failed to refresh token, continuing with current token",
@@ -1675,21 +1696,17 @@ class IntegrationService(BaseWorkspaceService):
             )
             # Fall through - let it fail naturally when token expires
         finally:
-            # Always end the transaction so the row lock is released even on
-            # bail-out paths. Commit, not rollback: rollback would expire
-            # every object in the caller's session (expire_on_commit=False).
-            try:
-                await self.session.commit()
-            except Exception:
-                await self.session.rollback()
-                try:
-                    # Rollback expires ORM state; reload for the caller.
-                    await self.session.refresh(integration)
-                except Exception:
-                    self.logger.warning(
-                        "Could not reload integration after refresh attempt",
-                        provider=integration.provider_id,
-                    )
+            ctx_role.reset(role_token)
+        try:
+            # refresh() normally flushes every pending change in the caller's
+            # session. Avoid writing that unrelated work just to reload this row.
+            with self.session.no_autoflush:
+                await self.session.refresh(integration)
+        except Exception:
+            self.logger.warning(
+                "Could not reload integration after refresh attempt",
+                provider=integration.provider_id,
+            )
         return integration
 
     async def _provider_from_integration(
