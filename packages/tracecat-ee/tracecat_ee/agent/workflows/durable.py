@@ -668,15 +668,12 @@ class DurableAgentWorkflow:
         internal_tool_context: InternalToolContext | None = None,
     ) -> str:
         info = workflow.info()
-        delegated_scopes = None
-        if workflow.patched(DELEGATE_MCP_SCOPES_PATCH):
-            delegated_scopes = self.role.scopes or frozenset()
         return mint_mcp_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
-            delegated_scopes=delegated_scopes,
+            delegated_scopes=self._delegated_mcp_scopes(),
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,
@@ -685,6 +682,11 @@ class DurableAgentWorkflow:
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
         )
+
+    def _delegated_mcp_scopes(self) -> frozenset[str] | None:
+        if workflow.patched(DELEGATE_MCP_SCOPES_PATCH):
+            return self.role.scopes or frozenset()
+        return None
 
     def _remint_scope_tokens(
         self,
@@ -1678,6 +1680,7 @@ class DurableAgentWorkflow:
             workspace_id=self.role.workspace_id,
             organization_id=self.role.organization_id,
             user_id=self.role.user_id,
+            delegated_scopes=self._delegated_mcp_scopes(),
         )
         pending_results: list[PendingToolResult] = []
         cancelled_tool_call_ids: list[str] = []

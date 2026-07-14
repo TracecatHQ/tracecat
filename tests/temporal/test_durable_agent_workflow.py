@@ -92,7 +92,6 @@ from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
@@ -1252,7 +1251,8 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     assert captured_executor_roles[0].workspace_id == svc_role.workspace_id
     assert captured_executor_roles[0].organization_id == svc_role.organization_id
     assert captured_executor_roles[0].user_id == svc_role.user_id
-    assert captured_executor_roles[0].scopes == SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
+    assert captured_executor_roles[0].scopes == svc_role.scopes
+    assert captured_executor_roles[0].delegated_scopes == svc_role.scopes
 
     async with AgentSessionService.with_session(role=svc_role) as service:
         history = await service.get_session_history(mock_session_id)
