@@ -500,7 +500,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             else:
                 preset.slug = spec.slug
-            self._apply_preset_metadata(preset, spec)
+            preset.name = spec.name
             folder = await self._ensure_agent_folder(
                 workspace_service, spec.folder_path
             )
@@ -516,22 +516,17 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         for source_id in import_order:
             spec = presets[source_id]
             preset = preset_by_source_id[source_id]
-            imported_versions: dict[int, AgentPresetVersion] = {}
-            compatibility_by_version: dict[
-                int, tuple[ResolvedAgentsConfig, list[Skill]]
-            ] = {}
+            current_import: (
+                tuple[AgentPresetVersion, ResolvedAgentsConfig, list[Skill]] | None
+            ) = None
             for version_number, version_spec in sorted(spec.versions.items()):
-                agents = await self._resolved_subagents_config(
+                agents, legacy_agents = await self._resolved_subagent_configs(
                     workspace_service,
                     version_spec,
                 )
                 skill_targets = await self._skill_binding_targets_for_spec(
                     workspace_service,
                     version_spec,
-                )
-                legacy_agents = await self._legacy_agents_projection(
-                    workspace_service,
-                    agents,
                 )
                 version = await self._upsert_agent_preset_version(
                     workspace_service,
@@ -541,25 +536,19 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     legacy_agents=legacy_agents,
                     skill_targets=skill_targets,
                 )
-                imported_versions[version_number] = version
-                compatibility_by_version[version_number] = (
-                    legacy_agents,
-                    skill_targets,
-                )
+                if version_number == spec.current_version:
+                    current_import = version, legacy_agents, skill_targets
 
             if spec.current_version is None:
                 preset.current_version_id = None
             else:
-                current_version = imported_versions.get(spec.current_version)
-                if current_version is None:
+                if current_import is None:
                     raise TracecatValidationError(
                         f"Agent preset {spec.slug!r} current version "
                         f"{spec.current_version} is missing from the version snapshots."
                     )
+                current_version, legacy_agents, skill_targets = current_import
                 preset.current_version_id = current_version.id
-                legacy_agents, skill_targets = compatibility_by_version[
-                    spec.current_version
-                ]
                 await self._sync_legacy_preset_head(
                     workspace_service,
                     preset=preset,
@@ -628,14 +617,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             visit(source_id)
         return ordered
 
-    def _apply_preset_metadata(
-        self,
-        preset: AgentPreset,
-        spec: AgentPresetResourceSpec,
-    ) -> None:
-        """Copy non-versioned metadata fields onto ``preset``."""
-        preset.name = spec.name
-
     async def _preset_for_import(
         self,
         workspace_service: SyncMappingService,
@@ -653,9 +634,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # Prefer the preset already mapped to this source id; the mapping is the
         # authoritative link even if the spec slug has since changed.
         preset = swap.mapped_by_source_id.get(source_id) or (
-            await self._preset_by_source_id(
+            await self._row_by_source_id(
                 workspace_service,
                 source_id=source_id,
+                model=AgentPreset,
+                options=(selectinload(AgentPreset.tags),),
+                row_predicates=(AgentPreset.deleted_at.is_(None),),
             )
         )
         if preset is not None:
@@ -677,21 +661,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 AgentPreset.deleted_at.is_(None),
             )
             .options(selectinload(AgentPreset.tags))
-        )
-
-    async def _preset_by_source_id(
-        self,
-        workspace_service: SyncMappingService,
-        *,
-        source_id: str,
-    ) -> AgentPreset | None:
-        """Load the preset mapped to ``source_id`` via the sync mapping, if any."""
-        return await self._row_by_source_id(
-            workspace_service,
-            source_id=source_id,
-            model=AgentPreset,
-            options=(selectinload(AgentPreset.tags),),
-            row_predicates=(AgentPreset.deleted_at.is_(None),),
         )
 
     async def _ensure_agent_folder(
@@ -782,102 +751,60 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         await workspace_service.session.flush()
 
-    async def _resolved_subagents_config(
+    async def _resolved_subagent_configs(
         self,
         workspace_service: SyncMappingService,
-        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
-    ) -> AgentSubagentsConfig:
-        """Resolve a manifest's subagent slugs to ResourceHead edges.
+        spec: AgentPresetVersionResourceSpec,
+    ) -> tuple[AgentSubagentsConfig, ResolvedAgentsConfig]:
+        """Resolve normalized and rollback subagent configs in one pass.
 
         Resolves each subagent reference to its ResourceHead, skipping any that
         are missing or unpublished. Version selectors in older manifests are
         compatibility-only input and do not create version-to-version edges.
         """
-        subagents: list[AnyAttachedSubagentRef] = []
+        head_refs: list[AnyAttachedSubagentRef] = []
+        resolved_refs: list[ResolvedAttachedSubagentRef] = []
         for subagent in spec.subagents:
-            child = await self._resolved_subagent_target(workspace_service, subagent)
-            if child is None:
-                continue
-            subagents.append(
-                HeadAttachedSubagentRef(
-                    preset=child.slug,
-                    preset_id=child.id,
-                    name=subagent.name,
-                    description=subagent.description,
-                    max_turns=subagent.max_turns,
+            result = await workspace_service.session.execute(
+                select(AgentPreset, AgentPresetVersion)
+                .join(
+                    AgentPresetVersion,
+                    sa.and_(
+                        AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
+                        AgentPresetVersion.id == AgentPreset.current_version_id,
+                        AgentPresetVersion.preset_id == AgentPreset.id,
+                    ),
                 )
-            )
-        return AgentSubagentsConfig(enabled=bool(subagents), subagents=subagents)
-
-    async def _resolved_subagent_target(
-        self,
-        workspace_service: SyncMappingService,
-        subagent: AgentPresetSubagentRef,
-    ) -> AgentPreset | None:
-        """Resolve a subagent ref to a published live child ResourceHead."""
-        # Look up the child preset by slug within the same workspace. Soft-deleted
-        # presets keep their slug, so exclude them to avoid binding a deleted
-        # child that runtime resolution would reject.
-        child = await workspace_service.session.scalar(
-            select(AgentPreset)
-            .join(
-                AgentPresetVersion,
-                sa.and_(
-                    AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
-                    AgentPresetVersion.id == AgentPreset.current_version_id,
-                    AgentPresetVersion.preset_id == AgentPreset.id,
-                ),
-            )
-            .where(
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.slug == subagent.slug,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        if child is None:
-            return None
-        return child
-
-    async def _legacy_agents_projection(
-        self,
-        workspace_service: SyncMappingService,
-        agents: AgentSubagentsConfig,
-    ) -> ResolvedAgentsConfig:
-        """Build the pinned JSON projection consumed by the old application."""
-
-        resolved: list[ResolvedAttachedSubagentRef] = []
-        for ref in agents.subagents:
-            if not isinstance(ref, HeadAttachedSubagentRef):
-                continue
-            child = await workspace_service.session.scalar(
-                select(AgentPreset).where(
+                .where(
                     AgentPreset.workspace_id == workspace_service.workspace_id,
-                    AgentPreset.id == ref.preset_id,
+                    AgentPreset.slug == subagent.slug,
+                    AgentPreset.deleted_at.is_(None),
                 )
             )
-            if child is None or child.current_version_id is None:
+            row = result.tuples().one_or_none()
+            if row is None:
                 continue
-            child_version = await workspace_service.session.scalar(
-                select(AgentPresetVersion).where(
-                    AgentPresetVersion.workspace_id == workspace_service.workspace_id,
-                    AgentPresetVersion.id == child.current_version_id,
-                    AgentPresetVersion.preset_id == child.id,
-                )
-            )
-            if child_version is None:
-                continue
-            resolved.append(
+            child, child_version = row
+            ref_fields = {
+                "preset": child.slug,
+                "preset_id": child.id,
+                "name": subagent.name,
+                "description": subagent.description,
+                "max_turns": subagent.max_turns,
+            }
+            head_refs.append(HeadAttachedSubagentRef(**ref_fields))
+            resolved_refs.append(
                 ResolvedAttachedSubagentRef(
-                    preset=ref.preset,
-                    preset_id=ref.preset_id,
+                    **ref_fields,
                     preset_version_id=child_version.id,
                     preset_version=child_version.version,
-                    name=ref.name,
-                    description=ref.description,
-                    max_turns=ref.max_turns,
                 )
             )
-        return ResolvedAgentsConfig(enabled=agents.enabled, subagents=resolved)
+        enabled = bool(head_refs)
+        return (
+            AgentSubagentsConfig(enabled=enabled, subagents=head_refs),
+            ResolvedAgentsConfig(enabled=enabled, subagents=resolved_refs),
+        )
 
     async def _version_matches_import(
         self,
@@ -1152,7 +1079,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     async def _skill_binding_targets_for_spec(
         self,
         workspace_service: SyncMappingService,
-        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
+        spec: AgentPresetVersionResourceSpec,
     ) -> list[Skill]:
         """Resolve ``spec``'s skill bindings to published Skill ResourceHeads.
 

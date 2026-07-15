@@ -1179,7 +1179,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_subagent_target_skips_invalid_heads(
+async def test_agent_preset_subagent_configs_skip_invalid_heads(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -1207,12 +1207,15 @@ async def test_agent_preset_subagent_target_skips_invalid_heads(
     await session.flush()
     importer = WorkspaceResourceImportService(session=session, role=svc_role)
 
-    target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+    configs = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_configs(
         importer,
-        AgentPresetSubagentRef(slug="qa-soft-deleted-only-child"),
+        AgentPresetVersionResourceSpec(
+            version_number=1,
+            subagents=[AgentPresetSubagentRef(slug="qa-soft-deleted-only-child")],
+        ),
     )
 
-    assert target is None
+    assert all(not config.enabled and not config.subagents for config in configs)
 
     foreign_owner = AgentPreset(
         workspace_id=workspace_id,
@@ -1225,12 +1228,15 @@ async def test_agent_preset_subagent_target_skips_invalid_heads(
     soft_deleted_version.preset_id = foreign_owner.id
     await session.flush()
 
-    target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+    configs = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_configs(
         importer,
-        AgentPresetSubagentRef(slug=soft_deleted_child.slug),
+        AgentPresetVersionResourceSpec(
+            version_number=1,
+            subagents=[AgentPresetSubagentRef(slug=soft_deleted_child.slug)],
+        ),
     )
 
-    assert target is None
+    assert all(not config.enabled and not config.subagents for config in configs)
 
 
 @pytest.mark.anyio
