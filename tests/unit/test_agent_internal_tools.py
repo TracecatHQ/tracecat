@@ -134,7 +134,7 @@ async def test_list_available_tools_includes_configuration_fields(monkeypatch):
         get_preset=lambda _preset_id: None,
     )
 
-    head = SimpleNamespace(id=preset_id)
+    head = SimpleNamespace(id=preset_id, current_version_id=uuid.uuid4())
     preset_read = _published_preset_read(
         preset_id=preset_id,
         workspace_id=claims.workspace_id,
@@ -218,6 +218,64 @@ async def test_list_available_tools_includes_configuration_fields(monkeypatch):
     assert alpha["already_in_preset"] is True
     assert beta["configured"] is False
     assert beta["missing_requirements"] == ["missing secret: beta"]
+
+
+@pytest.mark.anyio
+async def test_list_available_tools_handles_unpublished_preset(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    head = SimpleNamespace(id=preset_id, current_version_id=None)
+
+    async def _get_preset(_preset_id):
+        assert _preset_id == preset_id
+        return head
+
+    async def _search_actions(_query):
+        return [
+            (
+                SimpleNamespace(
+                    namespace="tools",
+                    name="alpha",
+                    description="Alpha tool",
+                ),
+                "origin",
+            )
+        ]
+
+    async def _config(*_args, **_kwargs):
+        return True, []
+
+    async def _secret_inventory(_role):
+        return {}, {}
+
+    async def _oauth_inventory(_role):
+        return set()
+
+    preset_service = SimpleNamespace(get_preset=_get_preset)
+    registry_service = SimpleNamespace(search_actions_from_index=_search_actions)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.AgentPresetService.with_session",
+        lambda role: _AsyncContext(preset_service),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.mcp.internal_tools.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(registry_service),
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_secret_inventory",
+        _secret_inventory,
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "_load_oauth_inventory",
+        _oauth_inventory,
+    )
+    monkeypatch.setattr(internal_tools, "_get_action_configuration", _config)
+
+    result = await internal_tools.list_available_tools({"query": "tool"}, claims)
+
+    assert result["tools"][0]["already_in_preset"] is False
 
 
 @pytest.mark.anyio

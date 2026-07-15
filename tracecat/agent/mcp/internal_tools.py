@@ -292,7 +292,7 @@ async def list_available_tools(
 
     async with AgentPresetService.with_session(role=role) as preset_service:
         preset = await preset_service.get_preset(preset_id)
-        if preset:
+        if preset and preset.current_version_id is not None:
             current = await preset_service.get_current_version_for_preset(preset)
             preset_action_set = set(current.actions or [])
 
