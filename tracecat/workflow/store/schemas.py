@@ -204,6 +204,8 @@ class RemoteWorkflowDefinition(BaseModel):
     @classmethod
     def normalize_id(cls, value: Any) -> Any:
         """Normalize supported workflow ID representations to the short form."""
+        if isinstance(value, str) and value.startswith(WorkflowUUID.prefix):
+            return value
         try:
             return WorkflowUUID.new(value).short()
         except ValueError:
