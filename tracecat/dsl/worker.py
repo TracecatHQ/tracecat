@@ -38,6 +38,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
     from tracecat.observability.sentry import initialize_sentry_from_environment
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
@@ -119,6 +123,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     _logger._is_worker_process = True
 
+    initialize_platform_tracing("tracecat-worker")
+
     client = await get_temporal_client()
 
     initialize_sentry_from_environment()
@@ -182,6 +188,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             logger.info("Temporal Worker context exited")
     finally:
         await close_storage_client_cache()
+        shutdown_platform_tracing()
 
 
 if __name__ == "__main__":
