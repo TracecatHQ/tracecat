@@ -26,6 +26,7 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
+from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
     SECRET_METADATA_RESOURCE_ADAPTER,
@@ -1705,6 +1706,48 @@ async def test_github_write_files_uses_tree_sha_for_stale_path_scan(
 
 
 @pytest.mark.anyio
+async def test_github_write_files_logs_rate_limit_response_headers(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    sync_logger = Mock()
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        contents_error=GithubException(
+            status=403,
+            data={"message": "Request blocked"},
+            headers={
+                "X-GitHub-Request-Id": "request-id",
+                "Retry-After": "60",
+                "X-RateLimit-Remaining": "4999",
+                "X-RateLimit-Resource": "core",
+            },
+        ),
+    )
+
+    with pytest.raises(GitHubAppError):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            logger=sync_logger,
+        )
+
+    error_log = sync_logger.error.call_args
+    assert error_log.args == ("GitHub workspace sync request failed",)
+    assert error_log.kwargs["stage"] == "compare_projected_files"
+    assert error_log.kwargs["github_endpoint"].endswith("/contents/{path}")
+    assert error_log.kwargs["github_status"] == 403
+    assert error_log.kwargs["github_request_id"] == "request-id"
+    assert error_log.kwargs["github_retry_after"] == "60"
+    assert error_log.kwargs["github_rate_limit_headers"] == {
+        "x-ratelimit-remaining": "4999",
+        "x-ratelimit-resource": "core",
+    }
+
+
+@pytest.mark.anyio
 async def test_github_read_files_uses_commit_tree_sha(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -1799,6 +1842,7 @@ async def _write_files_with_fake_repo(
     branch: str = "sync/agents-1",
     create_pr: bool = True,
     delete_missing_paths_under: tuple[str, ...] = (),
+    logger: Mock | None = None,
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -1810,6 +1854,8 @@ async def _write_files_with_fake_repo(
         session=service.session,
         role=service.role,
     )
+    if logger is not None:
+        transport.logger = logger
     with patch(
         "tracecat.workspace_sync.transport.GitHubAppService",
         return_value=gh_service,
@@ -1834,11 +1880,13 @@ class _FakeGitHubRepo:
         branch_exists: bool,
         ahead_by: int,
         existing_pr: object | None = None,
+        contents_error: GithubException | None = None,
     ) -> None:
         self._files = files
         self._branch_exists = branch_exists
         self._ahead_by = ahead_by
         self._existing_pr = existing_pr
+        self._contents_error = contents_error
         self.created_refs: list[tuple[str, str]] = []
         self.compare_calls: list[tuple[str, str]] = []
         self.create_pull = Mock(
@@ -1862,6 +1910,8 @@ class _FakeGitHubRepo:
         self._branch_exists = True
 
     def get_contents(self, path: str, *, ref: str):
+        if self._contents_error is not None:
+            raise self._contents_error
         if path not in self._files:
             raise GithubException(status=404, data={"message": "Not Found"})
         encoded = base64.b64encode(self._files[path].encode()).decode()
@@ -1887,7 +1937,11 @@ class _FakeGitHubRepo:
         return SimpleNamespace(sha=f"blob-{len(self.blobs)}")
 
     def create_git_tree(self, elements: list[object], *, base_tree: object):
-        tree = SimpleNamespace(elements=elements, base_tree=base_tree)
+        tree = SimpleNamespace(
+            sha=f"tree-{len(self.trees) + 1}",
+            elements=elements,
+            base_tree=base_tree,
+        )
         self.trees.append(tree)
         return tree
 
