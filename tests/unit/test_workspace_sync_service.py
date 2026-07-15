@@ -383,6 +383,27 @@ async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
 
 
 @pytest.mark.anyio
+async def test_parse_files_accepts_legacy_workflow_with_full_uuid(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    workflow_id = WorkflowUUID.new_uuid4()
+    source_id = workflow_id.short()
+
+    snapshot, diagnostics = await workspace_sync_service.parse_files(
+        {
+            workflow_source_path(source_id): _legacy_workflow_yaml(
+                str(workflow_id),
+                title="Legacy workflow with full UUID",
+            )
+        }
+    )
+
+    assert diagnostics == []
+    assert list(snapshot.spec.workflows) == [source_id]
+    assert snapshot.spec.workflows[source_id].alias == "legacy-workflow"
+
+
+@pytest.mark.anyio
 async def test_parse_files_accepts_legacy_string_version_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:

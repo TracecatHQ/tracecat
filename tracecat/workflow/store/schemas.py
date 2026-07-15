@@ -7,12 +7,13 @@ from pydantic import (
     ConfigDict,
     Field,
     field_serializer,
+    field_validator,
     model_validator,
 )
 
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
+from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.store import Source
 
 # TODO(deps): This is only supported starting pydantic 2.11+
@@ -198,6 +199,12 @@ class RemoteWorkflowDefinition(BaseModel):
 
     id: WorkflowIDShort
     """Stable short ID of the workflow in the remote store."""
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def normalize_id(cls, value: Any) -> str:
+        """Normalize supported workflow ID representations to the short form."""
+        return WorkflowUUID.new(value).short()
 
     # version: int // We don't really need version
     alias: str | None = None
