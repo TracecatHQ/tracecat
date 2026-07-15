@@ -83,7 +83,7 @@
             "stdio_command": "uvx",
             "stdio_args": [
               "--from",
-              "git+https://github.com/panther-labs/mcp-panther.git@7e6eca6f4f7f790057ed860bcfac669e13898d0c",
+              "mcp-panther==2.3.1",
               "mcp-panther"
             ],
             "stdio_env": [
@@ -96,10 +96,10 @@
                 "command": "uvx",
                 "args": [
                   "--from",
-                  "git+https://github.com/panther-labs/mcp-panther.git@7e6eca6f4f7f790057ed860bcfac669e13898d0c",
+                  "mcp-panther==2.3.1",
                   "mcp-panther"
                 ],
-                "package": "git+https://github.com/panther-labs/mcp-panther.git@7e6eca6f4f7f790057ed860bcfac669e13898d0c"
+                "package": "mcp-panther==2.3.1"
               }
             ],
             "credentials": [
@@ -213,7 +213,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/google/mcp-security.git@fde561ff33fb69a1565780bd5f141f4750cfc770#subdirectory=server/secops",
+          "google-secops-mcp==0.7.0",
           "secops_mcp"
         ],
         "stdio_env": [
@@ -228,10 +228,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/google/mcp-security.git@fde561ff33fb69a1565780bd5f141f4750cfc770#subdirectory=server/secops",
+              "google-secops-mcp==0.7.0",
               "secops_mcp"
             ],
-            "package": "git+https://github.com/google/mcp-security.git@fde561ff33fb69a1565780bd5f141f4750cfc770#subdirectory=server/secops"
+            "package": "google-secops-mcp==0.7.0"
           }
         ],
         "credentials": [
@@ -363,7 +363,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/ClickHouse/mcp-clickhouse.git@5645bc9c2931ccba3314c29927b10e6cfafc7323",
+          "mcp-clickhouse==0.4.0",
           "mcp-clickhouse"
         ],
         "stdio_env": [
@@ -382,10 +382,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/ClickHouse/mcp-clickhouse.git@5645bc9c2931ccba3314c29927b10e6cfafc7323",
+              "mcp-clickhouse==0.4.0",
               "mcp-clickhouse"
             ],
-            "package": "git+https://github.com/ClickHouse/mcp-clickhouse.git@5645bc9c2931ccba3314c29927b10e6cfafc7323"
+            "package": "mcp-clickhouse==0.4.0"
           }
         ],
         "credentials": [
@@ -466,7 +466,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/CrowdStrike/falcon-mcp.git@5f6c0581e8f941a3a05ad884c4ae667b85b8f6b7",
+          "falcon-mcp==0.13.0",
           "falcon-mcp"
         ],
         "stdio_env": [
@@ -480,10 +480,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/CrowdStrike/falcon-mcp.git@5f6c0581e8f941a3a05ad884c4ae667b85b8f6b7",
+              "falcon-mcp==0.13.0",
               "falcon-mcp"
             ],
-            "package": "git+https://github.com/CrowdStrike/falcon-mcp.git@5f6c0581e8f941a3a05ad884c4ae667b85b8f6b7"
+            "package": "falcon-mcp==0.13.0"
           }
         ],
         "credentials": [
@@ -959,7 +959,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/google/mcp-security.git@2552eeb5d0056317e352579a666c746a659e0b49#subdirectory=server/gti",
+          "gti-mcp==0.1.2",
           "gti_mcp"
         ],
         "stdio_env": [
@@ -972,10 +972,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/google/mcp-security.git@2552eeb5d0056317e352579a666c746a659e0b49#subdirectory=server/gti",
+              "gti-mcp==0.1.2",
               "gti_mcp"
             ],
-            "package": "git+https://github.com/google/mcp-security.git@2552eeb5d0056317e352579a666c746a659e0b49#subdirectory=server/gti"
+            "package": "gti-mcp==0.1.2"
           }
         ],
         "credentials": [
@@ -1058,7 +1058,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/okta/okta-mcp-server.git@f9f6157f62d3d436bfbfce84ac20f198fcb94dde",
+          "okta-mcp-server==1.1.3",
           "okta-mcp-server"
         ],
         "stdio_env": [
@@ -1074,10 +1074,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/okta/okta-mcp-server.git@f9f6157f62d3d436bfbfce84ac20f198fcb94dde",
+              "okta-mcp-server==1.1.3",
               "okta-mcp-server"
             ],
-            "package": "git+https://github.com/okta/okta-mcp-server.git@f9f6157f62d3d436bfbfce84ac20f198fcb94dde"
+            "package": "okta-mcp-server==1.1.3"
           }
         ],
         "credentials": [
@@ -1130,7 +1130,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "QA PIN (2026-07-15): direct uvx installation and CLI launch were verified for Okta release v1.1.3 at commit f9f6157f62d3d436bfbfce84ac20f198fcb94dde. The catalog installs okta-mcp-server reproducibly from that public Git commit. Only the browserless Private Key JWT flow is supported: OKTA_ORG_URL, OKTA_CLIENT_ID, OKTA_PRIVATE_KEY, OKTA_KEY_ID, and OKTA_SCOPES are required. Store the PEM private key as a workspace secret and reference it from stdio_env.",
+        "research_notes": "QA PIN (2026-07-15): direct uvx installation and CLI launch were verified for Okta release v1.1.3 at commit f9f6157f62d3d436bfbfce84ac20f198fcb94dde. The catalog installs the exact official PyPI package okta-mcp-server==1.1.3. Only the browserless Private Key JWT flow is supported: OKTA_ORG_URL, OKTA_CLIENT_ID, OKTA_PRIVATE_KEY, OKTA_KEY_ID, and OKTA_SCOPES are required. Store the PEM private key as a workspace secret and reference it from stdio_env.",
         "sources": [
         "https://github.com/okta/okta-mcp-server",
         "https://raw.githubusercontent.com/okta/okta-mcp-server/main/README.md",
@@ -1160,7 +1160,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/aws/mcp-proxy-for-aws.git@9a3022410f88cf6a6800bf411504615dad1adf12",
+          "mcp-proxy-for-aws==1.6.3",
           "mcp-proxy-for-aws",
           "https://aws-mcp.us-east-1.api.aws/mcp",
           "--metadata",
@@ -1179,13 +1179,13 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/aws/mcp-proxy-for-aws.git@9a3022410f88cf6a6800bf411504615dad1adf12",
+              "mcp-proxy-for-aws==1.6.3",
               "mcp-proxy-for-aws",
               "https://aws-mcp.us-east-1.api.aws/mcp",
               "--metadata",
               "AWS_REGION=us-east-1"
             ],
-            "package": "git+https://github.com/aws/mcp-proxy-for-aws.git@9a3022410f88cf6a6800bf411504615dad1adf12"
+            "package": "mcp-proxy-for-aws==1.6.3"
           }
         ],
         "credentials": [
@@ -1273,7 +1273,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/zscaler/zscaler-mcp-server.git@23912913f8588c650b104d3bd30c0c755d6962cd",
+          "zscaler-mcp==0.13.1",
           "zscaler-mcp"
         ],
         "stdio_env": [
@@ -1290,10 +1290,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/zscaler/zscaler-mcp-server.git@23912913f8588c650b104d3bd30c0c755d6962cd",
+              "zscaler-mcp==0.13.1",
               "zscaler-mcp"
             ],
-            "package": "git+https://github.com/zscaler/zscaler-mcp-server.git@23912913f8588c650b104d3bd30c0c755d6962cd"
+            "package": "zscaler-mcp==0.13.1"
           }
         ],
         "credentials": [
@@ -1348,7 +1348,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "Official server: github.com/zscaler/zscaler-mcp-server; PyPI package `zscaler-mcp` (v0.12.3, MIT, alpha), console script `zscaler-mcp`, Python 3.11+. Canonical/recommended install is `uvx zscaler-mcp`; the docs MCP client config uses `command: uvx, args: [\"--env-file\", \"/path/.env\", \"zscaler-mcp\"]`. STDIO is the default transport (matches intended); the server can ALSO run as a remote HTTP server via `--transport streamable-http`/`sse` (default host 127.0.0.1:8000, path /mcp), but that is a self-hosted deployment with no fixed public URL, so server_uri is null.\n\nAuth: classified CUSTOM because the user supplies OneAPI credentials (client_id + client_secret, or a PEM private key for JWT, plus vanity domain and ZPA customer_id) as env vars. Under the hood the server performs a OneAPI OAuth2 client-credentials grant against the Zscaler ZIdentity token endpoint, but there is no interactive authorization-code/DCR browser flow for the MCP connection itself, so this is not OAUTH2 from a connection-spec perspective. (Separately, the HTTP transport offers optional Layer-2 MCP client auth modes — api-key/JWT/zscaler/OAuth 2.1 via ZSCALER_MCP_AUTH_* — but those gate the HTTP listener, not the STDIO upstream auth.)\n\npip package import module is `zscaler_mcp` (underscore); pip run shown as `python -m zscaler_mcp` though the primary entry point is the `zscaler-mcp` console script. Either ZSCALER_CLIENT_SECRET or ZSCALER_PRIVATE_KEY is required (one of the two). Docker image `zscaler/zscaler-mcp-server:latest` also exists but is not the only distribution, so docker_only=false.",
+        "research_notes": "Official server: github.com/zscaler/zscaler-mcp-server; PyPI package `zscaler-mcp` (v0.13.1, MIT, alpha), console script `zscaler-mcp`, Python 3.11+. Canonical/recommended install is `uvx zscaler-mcp`; the docs MCP client config uses `command: uvx, args: [\"--env-file\", \"/path/.env\", \"zscaler-mcp\"]`. STDIO is the default transport (matches intended); the server can ALSO run as a remote HTTP server via `--transport streamable-http`/`sse` (default host 127.0.0.1:8000, path /mcp), but that is a self-hosted deployment with no fixed public URL, so server_uri is null.\n\nAuth: classified CUSTOM because the user supplies OneAPI credentials (client_id + client_secret, or a PEM private key for JWT, plus vanity domain and ZPA customer_id) as env vars. Under the hood the server performs a OneAPI OAuth2 client-credentials grant against the Zscaler ZIdentity token endpoint, but there is no interactive authorization-code/DCR browser flow for the MCP connection itself, so this is not OAUTH2 from a connection-spec perspective. (Separately, the HTTP transport offers optional Layer-2 MCP client auth modes — api-key/JWT/zscaler/OAuth 2.1 via ZSCALER_MCP_AUTH_* — but those gate the HTTP listener, not the STDIO upstream auth.)\n\npip package import module is `zscaler_mcp` (underscore); pip run shown as `python -m zscaler_mcp` though the primary entry point is the `zscaler-mcp` console script. Either ZSCALER_CLIENT_SECRET or ZSCALER_PRIVATE_KEY is required (one of the two). Docker image `zscaler/zscaler-mcp-server:latest` also exists but is not the only distribution, so docker_only=false.",
         "sources": [
           "https://github.com/zscaler/zscaler-mcp-server",
           "https://github.com/zscaler/zscaler-mcp-server/blob/master/README.md",
@@ -1515,7 +1515,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/osomai/servicenow-mcp.git@06250607bdfc814f9bb56551bba16c3a7fb5a8c9",
+          "servicenow-mcp==0.1.1",
           "servicenow-mcp"
         ],
         "stdio_env": [
@@ -1535,10 +1535,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/osomai/servicenow-mcp.git@06250607bdfc814f9bb56551bba16c3a7fb5a8c9",
+              "servicenow-mcp==0.1.1",
               "servicenow-mcp"
             ],
-            "package": "git+https://github.com/osomai/servicenow-mcp.git@06250607bdfc814f9bb56551bba16c3a7fb5a8c9"
+            "package": "servicenow-mcp==0.1.1"
           }
         ],
         "credentials": [
@@ -1668,7 +1668,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/PagerDuty/pagerduty-mcp-server.git@62c806c98c90ac13de92d8b1ad7b4aa3ecc366c4",
+          "pagerduty-mcp==1.1.0",
           "pagerduty-mcp"
         ],
         "stdio_env": [
@@ -1681,10 +1681,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/PagerDuty/pagerduty-mcp-server.git@62c806c98c90ac13de92d8b1ad7b4aa3ecc366c4",
+              "pagerduty-mcp==1.1.0",
               "pagerduty-mcp"
             ],
-            "package": "git+https://github.com/PagerDuty/pagerduty-mcp-server.git@62c806c98c90ac13de92d8b1ad7b4aa3ecc366c4"
+            "package": "pagerduty-mcp==1.1.0"
           }
         ],
         "credentials": [
@@ -1725,7 +1725,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/Rootly-AI-Labs/Rootly-MCP-server.git@f4f55a049dbee11c8321daf52e4d6d5e2ab4f806",
+          "rootly-mcp-server==2.3.9",
           "rootly-mcp-server"
         ],
         "stdio_env": [
@@ -1739,10 +1739,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/Rootly-AI-Labs/Rootly-MCP-server.git@f4f55a049dbee11c8321daf52e4d6d5e2ab4f806",
+              "rootly-mcp-server==2.3.9",
               "rootly-mcp-server"
             ],
-            "package": "git+https://github.com/Rootly-AI-Labs/Rootly-MCP-server.git@f4f55a049dbee11c8321daf52e4d6d5e2ab4f806"
+            "package": "rootly-mcp-server==2.3.9"
           }
         ],
         "credentials": [
@@ -1943,7 +1943,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "git+https://github.com/semgrep/mcp.git@6e340f843bf82a2f42de77125ae75cfd020abf9b",
+          "semgrep-mcp==0.9.0",
           "semgrep-mcp"
         ],
         "stdio_env": [
@@ -1955,10 +1955,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "git+https://github.com/semgrep/mcp.git@6e340f843bf82a2f42de77125ae75cfd020abf9b",
+              "semgrep-mcp==0.9.0",
               "semgrep-mcp"
             ],
-            "package": "git+https://github.com/semgrep/mcp.git@6e340f843bf82a2f42de77125ae75cfd020abf9b"
+            "package": "semgrep-mcp==0.9.0"
           }
         ],
         "credentials": [
