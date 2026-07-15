@@ -1706,6 +1706,51 @@ async def test_github_write_files_uses_tree_sha_for_stale_path_scan(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("unchanged_file_count", "expected_tree_entry_count"),
+    [
+        pytest.param(0, 807, id="all_files_changed"),
+        pytest.param(657, 150, id="only_150_files_changed"),
+    ],
+)
+async def test_github_write_files_builds_complete_tree_delta_for_large_projection(
+    workspace_sync_service: WorkspaceSyncService,
+    unchanged_file_count: int,
+    expected_tree_entry_count: int,
+) -> None:
+    files = {
+        f"workflows/generated-{index:04d}/definition.yml": (
+            f"version: 1\nid: generated-{index:04d}\n"
+        )
+        for index in range(806)
+    }
+    files[MANIFEST_FILENAME] = canonical_json_text(WorkspaceManifest())
+    unchanged_paths = set(sorted(files)[:unchanged_file_count])
+    repo = _FakeGitHubRepo(
+        files={path: files[path] for path in unchanged_paths},
+        branch_exists=True,
+        ahead_by=0,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+    )
+
+    expected_changed_paths = set(files) - unchanged_paths
+    assert result.status is PushStatus.COMMITTED
+    assert len(files) == 807
+    assert len(expected_changed_paths) == expected_tree_entry_count
+    assert len(repo.blobs) == expected_tree_entry_count
+    assert len(repo.trees) == 1
+    assert {
+        cast(Any, element)._identity["path"] for element in repo.trees[0].elements
+    } == expected_changed_paths
+
+
+@pytest.mark.anyio
 async def test_github_write_files_logs_rate_limit_response_headers(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -1896,7 +1941,7 @@ class _FakeGitHubRepo:
             )
         )
         self.blobs: list[tuple[str, str]] = []
-        self.trees: list[object] = []
+        self.trees: list[SimpleNamespace] = []
         self.commits: list[object] = []
         self.get_git_tree_calls: list[str] = []
 
