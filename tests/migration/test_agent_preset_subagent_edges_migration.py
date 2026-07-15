@@ -20,6 +20,7 @@ from tests.database import TEST_DB_CONFIG
 PREVIOUS_REVISION: Final = "c6a8d4f3b2e1"
 EXPAND_REVISION: Final = "44320bf05445"
 CUTOVER_REVISION: Final = "d2e4f6a8b0c1"
+CONTRACT_REVISION: Final = "c7d9e1f3a5b2"
 
 
 def _invoke_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -808,5 +809,215 @@ def test_cutover_rejects_invalid_late_expand_write_atomically(
                 == EXPAND_REVISION
             )
             assert _column(conn, "agent_preset_version", "subagents_enabled") is None
+    finally:
+        engine.dispose()
+
+
+def test_contract_drops_legacy_copies_and_preserves_resource_head_edges(
+    migration_db_url: str,
+) -> None:
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        parent_id = uuid.uuid4()
+        child_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        skill_id = uuid.uuid4()
+        skill_version_id = uuid.uuid4()
+        with engine.begin() as conn:
+            workspace_id = _setup_workspace(conn, label="contract")
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=child_id, slug="child"
+            )
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=parent_id, slug="parent"
+            )
+            _insert_version(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=parent_id,
+                version_id=version_id,
+                version=1,
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "child", "name": "helper"}],
+                },
+            )
+            conn.execute(
+                text(
+                    "UPDATE agent_preset SET current_version_id = :version_id "
+                    "WHERE id = :preset_id"
+                ),
+                {"version_id": version_id, "preset_id": parent_id},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO skill (
+                        id, workspace_id, name, slug, draft_revision,
+                        archived_at, deleted_at
+                    )
+                    VALUES (:id, :workspace_id, 'skill', 'skill', 0, NULL, NULL)
+                    """
+                ),
+                {"id": skill_id, "workspace_id": workspace_id},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO skill_version (
+                        id, skill_id, version, manifest_sha256, file_count,
+                        total_size_bytes, name, workspace_id
+                    )
+                    VALUES (
+                        :id, :skill_id, 1, :digest, 0, 0, 'skill', :workspace_id
+                    )
+                    """
+                ),
+                {
+                    "id": skill_version_id,
+                    "skill_id": skill_id,
+                    "digest": "a" * 64,
+                    "workspace_id": workspace_id,
+                },
+            )
+            conn.execute(
+                text(
+                    "UPDATE skill SET current_version_id = :version_id WHERE id = :id"
+                ),
+                {"version_id": skill_version_id, "id": skill_id},
+            )
+            for table, owner_column, owner_id in (
+                ("agent_preset_skill", "preset_id", parent_id),
+                ("agent_preset_version_skill", "preset_version_id", version_id),
+            ):
+                conn.execute(
+                    text(
+                        f"""
+                        INSERT INTO {table} (
+                            id, {owner_column}, skill_id, skill_version_id,
+                            workspace_id
+                        )
+                        VALUES (
+                            :id, :owner_id, :skill_id, :skill_version_id,
+                            :workspace_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "owner_id": owner_id,
+                        "skill_id": skill_id,
+                        "skill_version_id": skill_version_id,
+                        "workspace_id": workspace_id,
+                    },
+                )
+
+        _run_alembic(migration_db_url, "upgrade", CONTRACT_REVISION)
+
+        with engine.begin() as conn:
+            assert not _table_exists(conn, "agent_preset_skill")
+            for column_name in (
+                "instructions",
+                "model_name",
+                "model_provider",
+                "catalog_id",
+                "base_url",
+                "output_type",
+                "actions",
+                "namespaces",
+                "tool_approvals",
+                "mcp_integrations",
+                "agents",
+                "retries",
+                "enable_thinking",
+                "enable_internet_access",
+            ):
+                assert _column(conn, "agent_preset", column_name) is None
+            assert _column(conn, "agent_preset_version", "agents") is None
+            assert (
+                _column(conn, "agent_preset_version_skill", "skill_version_id") is None
+            )
+            assert _column(conn, "skill", "archived_at") is None
+            assert _column(conn, "skill", "slug") == {
+                "is_nullable": "NO",
+                "column_default": None,
+            }
+            assert _column(conn, "agent_preset_version", "subagents_enabled") == {
+                "is_nullable": "NO",
+                "column_default": None,
+            }
+            assert (
+                conn.execute(
+                    text(
+                        """
+                    SELECT count(*) FROM pg_constraint
+                    WHERE conname =
+                        'ck_agent_preset_version_subagents_enabled_not_null'
+                    """
+                    )
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                conn.execute(
+                    text(
+                        """
+                    SELECT count(*) FROM pg_trigger
+                    WHERE tgname =
+                        'trg_agent_preset_version_subagents_enabled'
+                    """
+                    )
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                conn.execute(
+                    text(
+                        """
+                        SELECT to_regprocedure(
+                            'sync_agent_preset_version_subagents_enabled()'
+                        )
+                        """
+                    )
+                ).scalar_one()
+                is None
+            )
+            assert conn.execute(
+                text(
+                    """
+                    SELECT child_preset_id, alias
+                    FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :version_id
+                    """
+                ),
+                {"version_id": version_id},
+            ).one() == (child_id, "helper")
+            assert (
+                conn.execute(
+                    text(
+                        """
+                    SELECT skill_id FROM agent_preset_version_skill
+                    WHERE preset_version_id = :version_id
+                    """
+                    ),
+                    {"version_id": version_id},
+                ).scalar_one()
+                == skill_id
+            )
+            assert conn.execute(
+                text(
+                    """
+                    SELECT name, slug, current_version_id FROM agent_preset
+                    WHERE id = :id
+                    """
+                ),
+                {"id": parent_id},
+            ).one() == ("parent", "parent", version_id)
+            assert conn.execute(
+                text(
+                    "SELECT subagents_enabled FROM agent_preset_version WHERE id = :id"
+                ),
+                {"id": version_id},
+            ).scalar_one()
     finally:
         engine.dispose()
