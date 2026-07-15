@@ -2108,7 +2108,6 @@ class AgentSessionService(BaseWorkspaceService):
                 raise TracecatNotFoundError(
                     f"Agent preset with ID '{entity_id}' not found"
                 )
-            await agent_preset_service.get_current_version_for_preset(preset)
             preset_read = await agent_preset_service.build_preset_read(preset)
             prompt = AgentPresetBuilderPrompt(preset=preset_read)
             return prompt.instructions

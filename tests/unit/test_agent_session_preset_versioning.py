@@ -35,7 +35,7 @@ from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.tiers.enums import Entitlement
 
 
@@ -949,7 +949,7 @@ async def test_preset_builder_prompt_reads_current_version(
 
 
 @pytest.mark.anyio
-async def test_preset_builder_prompt_rejects_unpublished_head(
+async def test_preset_builder_prompt_supports_unpublished_head(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -969,7 +969,10 @@ async def test_preset_builder_prompt_rejects_unpublished_head(
         entity_id=preset.id,
     )
 
-    with pytest.raises(TracecatNotFoundError, match="no current published version"):
-        await AgentSessionService(session=session, role=svc_role)._entity_to_prompt(
-            agent_session
-        )
+    prompt = await AgentSessionService(
+        session=session, role=svc_role
+    )._entity_to_prompt(agent_session)
+
+    assert "Unpublished prompt preset" in prompt
+    assert "Current System Prompt:\n(currently empty)" in prompt
+    assert "Allowed tools: (none selected)" in prompt
