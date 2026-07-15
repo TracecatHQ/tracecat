@@ -1118,36 +1118,18 @@ class DSLWorkflow:
                         agent_config = agent_config_from_payload(dispatch_config.config)
                         resolved_agents_config = dispatch_config.resolved_agents_config
                     else:
-                        if workflow.patched("dsl-preset-preflight-provenance-v1"):
-                            # Preserve the RNG/activity order recorded after this
-                            # patch was introduced.
-                            session_id = (
-                                preset_action_args.session_id or workflow.uuid4()
-                            )
-                            preset_ref = await workflow.execute_activity(
-                                resolve_agent_preset_version_ref_activity,
-                                ResolveAgentPresetVersionRefActivityInput(
-                                    role=self.role,
-                                    preset_slug=preset_action_args.preset,
-                                ),
-                                start_to_close_timeout=timedelta(seconds=30),
-                                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                            )
-                        else:
-                            # Preserve the pre-patch command and RNG order during
-                            # replay: preflight first, then mint the session id.
-                            preset_ref = await workflow.execute_activity(
-                                resolve_agent_preset_version_ref_activity,
-                                ResolveAgentPresetVersionRefActivityInput(
-                                    role=self.role,
-                                    preset_slug=preset_action_args.preset,
-                                ),
-                                start_to_close_timeout=timedelta(seconds=30),
-                                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                            )
-                            session_id = (
-                                preset_action_args.session_id or workflow.uuid4()
-                            )
+                        # Preserve the command and RNG order recorded by existing
+                        # mainline histories: preflight first, then mint the session.
+                        preset_ref = await workflow.execute_activity(
+                            resolve_agent_preset_version_ref_activity,
+                            ResolveAgentPresetVersionRefActivityInput(
+                                role=self.role,
+                                preset_slug=preset_action_args.preset,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                        session_id = preset_action_args.session_id or workflow.uuid4()
 
                         agent_config = None
                         if (

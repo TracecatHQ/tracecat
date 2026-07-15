@@ -106,9 +106,9 @@ def _child_dsl() -> DSLInput:
     )
 
 
-async def _run_failing_preset_preflight(
+async def _run_failing_preset_resolution(
     *,
-    patched: bool,
+    dispatch_resolution: bool,
     stream_id: StreamID,
 ) -> tuple[AsyncMock, MagicMock]:
     workflow = _build_workflow()
@@ -132,7 +132,7 @@ async def _run_failing_preset_preflight(
                 instructions=None,
             )
 
-        assert uuid4_mock.call_count == int(patched)
+        assert uuid4_mock.call_count == int(dispatch_resolution)
         raise RuntimeError("preset preflight failed")
 
     execute_activity_mock.side_effect = execute_activity
@@ -152,7 +152,11 @@ async def _run_failing_preset_preflight(
             ),
             patch(
                 "tracecat.dsl.workflow.workflow.patched",
-                return_value=patched,
+                side_effect=lambda patch_id: (
+                    dispatch_resolution
+                    if patch_id == "dsl-preset-dispatch-resolution-v1"
+                    else False
+                ),
             ),
             patch(
                 "tracecat.dsl.workflow.workflow.uuid4",
@@ -172,11 +176,11 @@ async def _run_failing_preset_preflight(
 
 
 @pytest.mark.anyio
-async def test_preset_preflight_patch_preserves_mint_before_failure() -> None:
+async def test_preset_dispatch_mints_session_before_resolution_failure() -> None:
     stream_id = StreamID.new("scatter", 2)
 
-    execute_activity, uuid4_mock = await _run_failing_preset_preflight(
-        patched=True,
+    execute_activity, uuid4_mock = await _run_failing_preset_resolution(
+        dispatch_resolution=True,
         stream_id=stream_id,
     )
 
@@ -189,8 +193,8 @@ async def test_preset_preflight_patch_preserves_mint_before_failure() -> None:
 
 @pytest.mark.anyio
 async def test_preset_preflight_legacy_path_preserves_preflight_before_mint() -> None:
-    execute_activity, uuid4_mock = await _run_failing_preset_preflight(
-        patched=False,
+    execute_activity, uuid4_mock = await _run_failing_preset_resolution(
+        dispatch_resolution=False,
         stream_id=ROOT_STREAM,
     )
 

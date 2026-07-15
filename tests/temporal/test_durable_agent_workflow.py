@@ -848,20 +848,17 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
     [None, ResolvedAgentsConfig(enabled=True)],
     ids=["legacy-disabled", "enabled-empty"],
 )
-async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
+async def test_agent_workflow_skips_resolution_for_empty_preserved_binding(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
     stored_binding: ResolvedAgentsConfig | None,
 ) -> None:
-    """Empty preserved bindings retain the activity command recorded in history."""
+    """An empty preserved binding does not re-resolve the preset's live children."""
 
     queue = f"test-agent-queue-{mock_session_id}"
     expected_binding = stored_binding or ResolvedAgentsConfig()
-    expected_agents = AgentSubagentsConfig.model_validate(
-        expected_binding.model_dump(mode="json")
-    )
     parent_preset_id = uuid.uuid4()
     preset_config = AgentConfig(
         model_name="claude-3-5-sonnet-20241022",
@@ -874,7 +871,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
             }
         ),
     )
-    resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
 
     @activity.defn(name="resolve_agent_preset_config_activity")
@@ -895,15 +891,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
             agents_binding=stored_binding,
             has_resume_state=True,
         )
-
-    @activity.defn(name="resolve_agents_config_activity")
-    async def mock_resolve_agents_config_activity(
-        input: ResolveAgentsConfigActivityInput,
-    ) -> ResolvedAgentsRuntimeConfig:
-        resolve_inputs.append(input)
-        assert input.agents == expected_agents
-        assert input.preserve_resolved_versions is True
-        return ResolvedAgentsRuntimeConfig(enabled=input.agents.enabled)
 
     @activity.defn(name="create_session_activity")
     async def mock_create_session_activity(
@@ -940,7 +927,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
     activities = [
         mock_resolve_agent_preset_config_activity,
         mock_load_session_activity,
-        mock_resolve_agents_config_activity,
         mock_create_session_activity,
         mock_finalize_turn_activity,
         create_mock_load_session_messages_activity(),
@@ -967,7 +953,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
         await replay_durable_agent_workflow_history(temporal_client, history)
 
     assert result.output == {"status": "ok"}
-    assert len(resolve_inputs) == 1
     assert len(create_inputs) == 1
     assert create_inputs[0].agents_binding == expected_binding
 

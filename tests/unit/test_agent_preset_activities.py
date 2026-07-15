@@ -253,25 +253,6 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     assert agents_binding.subagents == [binding]
 
 
-def test_resolution_outputs_ignore_removed_resolved_refs() -> None:
-    """Existing Temporal payloads deserialize after provenance removal."""
-
-    runtime_config = ResolvedAgentsRuntimeConfig.model_validate(
-        {"enabled": False, "subagents": [], "resolved_refs": {"refs": []}}
-    )
-    payload = AgentConfigPayload.model_validate(
-        {
-            "model_name": "gpt-4o-mini",
-            "model_provider": "openai",
-            "retries": 3,
-            "resolved_refs": {"refs": []},
-        }
-    )
-
-    assert runtime_config == ResolvedAgentsRuntimeConfig()
-    assert payload.model_name == "gpt-4o-mini"
-
-
 @pytest.mark.anyio
 async def test_resolve_agents_activity_returns_runtime_config(
     monkeypatch: pytest.MonkeyPatch,

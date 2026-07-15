@@ -169,11 +169,9 @@ async def resolve_agents_config(
     to each child preset's current version.
     """
 
-    # NOTE(ENG-1526): preserve_resolved_versions exists so resumed sessions can
-    # rebuild their preserved binding verbatim (the session activity fails the
-    # run on any binding mismatch). PR 2.3a moves resolution to dispatch time
-    # with per-turn session bindings, which may subsume or remove this flag —
-    # revisit when dispatch-time manifests fully own resume reconstruction.
+    # Mainline histories can resume from an exact binding stored on the session.
+    # New dispatch-resolved turns carry their complete runtime tree in workflow
+    # input and do not use this compatibility path.
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
     if not config.enabled:

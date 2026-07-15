@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validato
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
 
-_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools", "resolved_refs"})
+_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
 
 
 def _normalize_legacy_mcp_server_payload(value: Any) -> Any:

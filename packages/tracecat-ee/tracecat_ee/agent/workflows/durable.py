@@ -460,11 +460,6 @@ LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-histo
 PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
     "durable-agent-preserve-resumed-agent-bindings-v1"
 )
-EMPTY_BINDING_RESOLUTION_ACTIVITY_PATCH = (
-    # Keep the recorded patch ID stable for workflow histories that scheduled
-    # the resolution activity when this path also wrote a database record.
-    "durable-agent-persist-disabled-binding-provenance-v1"
-)
 
 
 def _agents_config_from_binding(
@@ -488,19 +483,6 @@ def _preserved_agents_binding(
     if load_result.agents_binding is not None:
         return load_result.agents_binding
     return ResolvedAgentsConfig()
-
-
-def _needs_empty_binding_resolution_activity(
-    cfg: AgentConfig,
-    preserved_binding: ResolvedAgentsConfig,
-) -> bool:
-    """Whether an old history may have recorded the compatibility activity."""
-
-    return (
-        not preserved_binding.subagents
-        and cfg.agents.enabled
-        and bool(cfg.agents.subagents)
-    )
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
@@ -658,7 +640,6 @@ class DurableAgentWorkflow:
         *,
         agents: AgentSubagentsConfig | None = None,
         preserve_resolved_versions: bool = False,
-        force_activity: bool = False,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
         if (
@@ -667,9 +648,9 @@ class DurableAgentWorkflow:
             and args.agent_args.resolved_agents_config is not None
         ):
             return args.agent_args.resolved_agents_config
-        if not agents_config.enabled and not force_activity:
+        if not agents_config.enabled:
             return ResolvedAgentsRuntimeConfig()
-        if not agents_config.subagents and not force_activity:
+        if not agents_config.subagents:
             return ResolvedAgentsRuntimeConfig(enabled=True)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
@@ -1134,9 +1115,6 @@ class DurableAgentWorkflow:
             )
             preserved_binding = _preserved_agents_binding(load_result)
             if preserved_binding is not None:
-                force_empty_binding_activity = _needs_empty_binding_resolution_activity(
-                    cfg, preserved_binding
-                ) and workflow.patched(EMPTY_BINDING_RESOLUTION_ACTIVITY_PATCH)
                 # preserve_resolved_versions rebuilds the stored binding
                 # verbatim (exact version IDs, with_deleted). The session
                 # activity fails the run on any binding mismatch, so this
@@ -1148,7 +1126,6 @@ class DurableAgentWorkflow:
                     cfg,
                     agents=_agents_config_from_binding(preserved_binding),
                     preserve_resolved_versions=True,
-                    force_activity=force_empty_binding_activity,
                 )
             else:
                 agents_result = await self._resolve_agents_config(args, cfg)

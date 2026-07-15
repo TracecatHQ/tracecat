@@ -73,9 +73,8 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
-    # NOTE(ENG-1526): optional-with-default so pre-existing workflow histories
-    # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
-    # resolution) may subsume or remove this flag.
+    # Optional-with-default so existing activity inputs deserialize. Only the
+    # legacy durable-resume path sets it to rebuild a stored exact binding.
     preserve_resolved_versions: bool = False
 
 

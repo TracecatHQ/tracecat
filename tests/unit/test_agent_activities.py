@@ -26,7 +26,6 @@ from tracecat_ee.agent.activities import (
     BuildToolDefsArgs,
 )
 from tracecat_ee.agent.workflows.durable import (
-    _needs_empty_binding_resolution_activity,
     _preserved_agents_binding,
 )
 
@@ -57,7 +56,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAgentsConfig
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool
 from tracecat.auth.types import Role
@@ -1054,57 +1053,6 @@ class TestPreservedAgentsBinding:
         expected: ResolvedAgentsConfig | None,
     ) -> None:
         assert _preserved_agents_binding(load_result) == expected
-
-    @pytest.mark.parametrize(
-        ("binding", "has_subagents", "expected"),
-        [
-            pytest.param(ResolvedAgentsConfig(), True, True, id="disabled-empty"),
-            pytest.param(
-                ResolvedAgentsConfig(enabled=True),
-                True,
-                True,
-                id="enabled-empty",
-            ),
-            pytest.param(
-                ResolvedAgentsConfig.model_validate(
-                    {
-                        "enabled": True,
-                        "subagents": [
-                            {
-                                "preset": "analyst",
-                                "preset_version": 1,
-                                "preset_id": uuid.uuid4(),
-                                "preset_version_id": uuid.uuid4(),
-                            }
-                        ],
-                    }
-                ),
-                True,
-                False,
-                id="nonempty",
-            ),
-            pytest.param(ResolvedAgentsConfig(), False, False, id="root-only"),
-        ],
-    )
-    def test_empty_binding_resolution_activity_gate(
-        self,
-        binding: ResolvedAgentsConfig,
-        has_subagents: bool,
-        expected: bool,
-    ) -> None:
-        cfg = AgentConfig(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            agents=(
-                AgentSubagentsConfig.model_validate(
-                    {"enabled": True, "subagents": [{"preset": "analyst"}]}
-                )
-                if has_subagents
-                else AgentSubagentsConfig()
-            ),
-        )
-
-        assert _needs_empty_binding_resolution_activity(cfg, binding) is expected
 
 
 class TestLoadSessionActivity:
