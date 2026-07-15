@@ -143,6 +143,12 @@ from tracecat.middleware import (
     RequestLoggingMiddleware,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
+from tracecat.observability.otel import (
+    TRACE_ID_HEADER,
+    TRACE_SAMPLED_HEADER,
+    instrument_fastapi_app,
+    shutdown_platform_tracing,
+)
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
@@ -322,6 +328,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Case trigger consumer stopped with error", error=e)
 
     await close_storage_client_cache()
+    shutdown_platform_tracing()
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
@@ -694,7 +701,9 @@ def create_app(**kwargs) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[TRACE_ID_HEADER, TRACE_SAMPLED_HEADER],
     )
+    instrument_fastapi_app(app, service_name="tracecat-api")
 
     logger.info(
         "App started",
