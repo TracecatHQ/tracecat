@@ -8,7 +8,6 @@ from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent.preset.resolved_refs import ResolvedRefs, merge_resolved_refs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -55,6 +54,20 @@ class AgentPresetVersionRef(BaseModel):
     preset_version_id: uuid.UUID
 
 
+class ResolveAgentPresetDispatchActivityInput(BaseModel):
+    role: Role
+    preset_slug: str
+    actions: list[str] | None = None
+    instructions: str | None = None
+
+
+class AgentPresetDispatchConfig(BaseModel):
+    preset_id: uuid.UUID
+    preset_version_id: uuid.UUID
+    config: AgentConfigPayload
+    resolved_agents_config: ResolvedAgentsRuntimeConfig
+
+
 class ResolveAgentsConfigActivityInput(BaseModel):
     role: Role
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
@@ -64,7 +77,6 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
     # resolution) may subsume or remove this flag.
     preserve_resolved_versions: bool = False
-    parent_resolved_refs: ResolvedRefs | None = None
 
 
 @activity.defn
@@ -101,6 +113,46 @@ async def resolve_agent_preset_version_ref_activity(
 
 
 @activity.defn
+async def resolve_agent_preset_dispatch_activity(
+    args: ResolveAgentPresetDispatchActivityInput,
+) -> AgentPresetDispatchConfig:
+    """Resolve the complete preset payload once before workflow dispatch."""
+
+    async with AgentManagementService.with_session(role=args.role) as service:
+        if service.presets is None:
+            raise ApplicationError("Agent presets require a workspace role")
+
+        version = await service.presets.resolve_agent_preset_version(
+            slug=args.preset_slug,
+        )
+        async with service.with_preset_config(
+            preset_version_id=version.id,
+        ) as config:
+            if args.actions:
+                config.actions = args.actions
+            if args.instructions:
+                config.instructions = (
+                    f"{config.instructions}\n{args.instructions}"
+                    if config.instructions
+                    else args.instructions
+                )
+
+            resolved_agents = await resolve_agents_config(
+                service.presets,
+                agents=config.agents,
+                parent_preset_id=version.preset_id,
+                parent_slug=args.preset_slug,
+                include_runtime_config=True,
+            )
+            return AgentPresetDispatchConfig(
+                preset_id=version.preset_id,
+                preset_version_id=version.id,
+                config=agent_config_to_payload(config),
+                resolved_agents_config=resolved_agents.to_runtime_config(),
+            )
+
+
+@activity.defn
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
@@ -113,12 +165,7 @@ async def resolve_agents_config_activity(
             include_runtime_config=True,
             preserve_resolved_versions=args.preserve_resolved_versions,
         )
-        runtime_config = resolved.to_runtime_config()
-        runtime_config.resolved_refs = merge_resolved_refs(
-            args.parent_resolved_refs,
-            runtime_config.resolved_refs,
-        )
-        return runtime_config
+        return resolved.to_runtime_config()
 
 
 class CustomModelProviderConfigResult(BaseModel):

@@ -263,15 +263,6 @@ def _backfill_version_edges() -> None:
                 workspace_id
             FROM _agent_preset_version_subagent_backfill
             ORDER BY parent_version_id, alias;
-
-            -- Split the enablement flag out of the legacy JSON. Missing or
-            -- non-boolean values preserve the application's disabled default.
-            UPDATE agent_preset_version
-            SET subagents_enabled = CASE
-                WHEN agents -> 'enabled' = 'true'::jsonb THEN true
-                WHEN agents -> 'enabled' = 'false'::jsonb THEN false
-                ELSE false
-            END;
             """
         )
     )
@@ -379,20 +370,6 @@ def _contract_skill_slugs(bind: Connection) -> None:
 
 
 def upgrade() -> None:
-    # Cutover application versions create metadata-only ResourceHead rows.
-    # Keep the legacy columns for rollback, but stop requiring new writers to
-    # populate execution data in both places.
-    for column in ("model_name", "model_provider"):
-        op.alter_column(
-            "agent_preset",
-            column,
-            existing_type=sa.String(length=120),
-            nullable=True,
-        )
-    op.add_column(
-        "agent_preset_version",
-        sa.Column("subagents_enabled", sa.Boolean(), nullable=True),
-    )
     for table in ("agent_preset_skill", "agent_preset_version_skill"):
         op.alter_column(
             table,
@@ -445,24 +422,6 @@ def downgrade() -> None:
                         'Cannot downgrade ResourceHead skill edges: publish every referenced skill before retrying';
                 END IF;
 
-                -- The old preset table requires model metadata on the head.
-                -- Permit restoring a missing legacy value only when the current
-                -- published version can supply it.
-                IF EXISTS (
-                    SELECT 1
-                    FROM agent_preset AS preset
-                    LEFT JOIN agent_preset_version AS version
-                        ON version.workspace_id = preset.workspace_id
-                        AND version.id = preset.current_version_id
-                    WHERE (preset.model_name IS NULL AND version.model_name IS NULL)
-                        OR (
-                            preset.model_provider IS NULL
-                            AND version.model_provider IS NULL
-                        )
-                ) THEN
-                    RAISE EXCEPTION
-                        'Cannot downgrade ResourceHead presets: publish every preset with model metadata before retrying';
-                END IF;
             END $$;
             """
         )
@@ -522,25 +481,3 @@ def downgrade() -> None:
         "agent_preset",
         type_="unique",
     )
-    op.drop_column("agent_preset_version", "subagents_enabled")
-    for column in ("model_name", "model_provider"):
-        # Restore legacy head projections from the published immutable version
-        # before making the old columns required again.
-        op.execute(
-            sa.text(
-                f"""
-                UPDATE agent_preset AS preset
-                SET {column} = version.{column}
-                FROM agent_preset_version AS version
-                WHERE preset.{column} IS NULL
-                  AND preset.current_version_id = version.id
-                  AND preset.workspace_id = version.workspace_id
-                """
-            )
-        )
-        op.alter_column(
-            "agent_preset",
-            column,
-            existing_type=sa.String(length=120),
-            nullable=False,
-        )

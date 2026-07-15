@@ -745,7 +745,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_version is not None
-    assert parent_version.subagents_enabled is True
+    assert parent_version.agents["enabled"] is True
     assert parent_version.base_url == "https://models.example.test/v1"
     assert parent_version.output_type == {
         "type": "json_schema",
@@ -1168,7 +1168,6 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_version is not None
-    assert parent_version.subagents_enabled is True
     child_ids = list(
         await session.scalars(
             select(AgentPresetVersionSubagent.child_preset_id).where(
@@ -3261,7 +3260,7 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
 
 
 @pytest.mark.anyio
-async def test_pull_unpublished_agent_preset_clears_rollback_projection(
+async def test_pull_unpublished_agent_preset_retains_rollback_projection(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -3312,27 +3311,27 @@ async def test_pull_unpublished_agent_preset_clears_rollback_projection(
             )
         )
         assert preset is not None
-        rollback_skill = Skill(
-            workspace_id=svc_role.workspace_id,
-            name="Rollback skill",
-            slug="rollback-skill",
-            draft_revision=0,
-        )
-        session.add(rollback_skill)
-        await session.flush()
-        session.add(
-            AgentPresetSkill(
-                workspace_id=svc_role.workspace_id,
-                preset_id=preset.id,
-                skill_id=rollback_skill.id,
-            )
-        )
-        preset.agents = {
-            "enabled": True,
-            "subagents": [{"preset": "legacy-child"}],
+        rollback_projection = {
+            "instructions": preset.instructions,
+            "model_name": preset.model_name,
+            "model_provider": preset.model_provider,
+            "catalog_id": preset.catalog_id,
+            "base_url": preset.base_url,
+            "output_type": preset.output_type,
+            "actions": preset.actions,
+            "namespaces": preset.namespaces,
+            "tool_approvals": preset.tool_approvals,
+            "mcp_integrations": preset.mcp_integrations,
+            "retries": preset.retries,
+            "enable_thinking": preset.enable_thinking,
+            "enable_internet_access": preset.enable_internet_access,
+            "agents": preset.agents,
         }
-        session.add(preset)
-        await session.flush()
+        rollback_skill_count = await session.scalar(
+            select(func.count())
+            .select_from(AgentPresetSkill)
+            .where(AgentPresetSkill.preset_id == preset.id)
+        )
 
         second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
 
@@ -3346,31 +3345,19 @@ async def test_pull_unpublished_agent_preset_clears_rollback_projection(
     )
     assert preset is not None
     assert preset.current_version_id is None
-    assert preset.instructions is None
-    assert preset.model_name is None
-    assert preset.model_provider is None
-    assert preset.catalog_id is None
-    assert preset.base_url is None
-    assert preset.output_type is None
-    assert preset.actions is None
-    assert preset.namespaces is None
-    assert preset.tool_approvals is None
-    assert preset.mcp_integrations is None
-    assert preset.retries == 3
-    assert preset.enable_thinking is True
-    assert preset.enable_internet_access is False
-    assert preset.agents == {"enabled": False, "subagents": []}
+    for field, expected in rollback_projection.items():
+        assert getattr(preset, field) == expected
     preset_read = await AgentPresetService(session, svc_role).build_preset_read(preset)
     assert preset_read.current_version_id is None
-    assert preset_read.model_name == ""
-    assert preset_read.agents.enabled is False
+    assert preset_read.model_name == preset.model_name
+    assert preset_read.model_provider == preset.model_provider
     assert (
         await session.scalar(
             select(func.count())
             .select_from(AgentPresetSkill)
             .where(AgentPresetSkill.preset_id == preset.id)
         )
-        == 0
+        == rollback_skill_count
     )
 
     preset_service = AgentPresetService(session, svc_role)
@@ -3415,7 +3402,7 @@ async def test_pull_unpublished_agent_preset_clears_rollback_projection(
         )
     )
     assert parent_version is not None
-    assert parent_version.subagents_enabled is False
+    assert parent_version.agents["enabled"] is False
     assert (
         await session.scalar(
             select(func.count())
@@ -4714,7 +4701,6 @@ async def test_agent_preset_sync_preserves_subagent_options(
         )
     )
     assert parent_version is not None
-    assert parent_version.subagents_enabled is True
     assert parent.agents["enabled"] is True
     assert parent.agents["subagents"][0]["preset_id"] == str(child.id)
     assert parent.agents["subagents"][0]["preset_version_id"] == str(
@@ -4748,22 +4734,13 @@ async def test_agent_preset_sync_preserves_subagent_options(
             AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
         )
     )
-    parent_version.subagents_enabled = None
     await session.flush()
     await WorkspaceResourceImportService(
         session=session,
         role=svc_role,
     ).import_non_workflow_resources(snapshot.spec)
     await session.refresh(parent_version)
-    assert parent_version.subagents_enabled is True
-    assert (
-        await session.scalar(
-            select(AgentPresetVersionSubagent.child_preset_id).where(
-                AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
-            )
-        )
-        == child.id
-    )
+    assert parent_version.agents["subagents"][0]["preset_id"] == str(child.id)
 
     # Version-owned ResourceHead edges follow the child after a slug change.
     child.slug = "z-child-renamed"
@@ -4818,7 +4795,6 @@ async def test_agent_preset_projection_tolerates_invalid_legacy_agents_json(
         )
     )
     assert version is not None
-    version.subagents_enabled = None
     version.agents = {
         "enabled": True,
         "subagents": [

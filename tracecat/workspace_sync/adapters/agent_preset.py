@@ -438,7 +438,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             )
         for version in versions:
-            if version.subagents_enabled is not None:
+            if bindings.get(version.id):
                 continue
             legacy_agents = _legacy_agents_config(version.agents)
             bindings[version.id] = [
@@ -549,12 +549,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
             if spec.current_version is None:
                 preset.current_version_id = None
-                self._clear_legacy_preset_head(preset)
-                await self._replace_legacy_preset_skill_bindings(
-                    workspace_service,
-                    preset=preset,
-                    skill_targets=[],
-                )
             else:
                 current_version = imported_versions.get(spec.current_version)
                 if current_version is None:
@@ -899,10 +893,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             # from the portable immutable resource representation.
             if key == "mcp_integrations":
                 continue
-            if key == "subagents_enabled" and version.subagents_enabled is None:
-                if _legacy_agents_config(version.agents).enabled != value:
-                    return False
-                continue
             existing_value = getattr(version, key)
             if key in {"actions", "namespaces"}:
                 existing_value = sorted(existing_value) if existing_value else None
@@ -932,23 +922,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             for subagent in agents.subagents
             if isinstance(subagent, HeadAttachedSubagentRef)
         }
-        if version.subagents_enabled is None:
-            legacy_agents = _legacy_agents_config(version.agents)
-            desired_by_slug = {
-                (
-                    subagent.preset,
-                    subagent.alias,
-                    subagent.description,
-                    subagent.max_turns,
-                )
-                for subagent in agents.subagents
-                if isinstance(subagent, HeadAttachedSubagentRef)
-            }
-            legacy_by_slug = {
-                (ref.preset, ref.alias, ref.description, ref.max_turns)
-                for ref in legacy_agents.subagents
-            }
-            return legacy_by_slug == desired_by_slug
         existing_subagents = set(
             (
                 await workspace_service.session.execute(
@@ -966,6 +939,25 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             ).tuples()
         )
+        if not existing_subagents:
+            legacy_agents = _legacy_agents_config(version.agents)
+            if legacy_agents.enabled != agents.enabled:
+                return False
+            desired_by_slug = {
+                (
+                    subagent.preset,
+                    subagent.alias,
+                    subagent.description,
+                    subagent.max_turns,
+                )
+                for subagent in agents.subagents
+                if isinstance(subagent, HeadAttachedSubagentRef)
+            }
+            legacy_by_slug = {
+                (ref.preset, ref.alias, ref.description, ref.max_turns)
+                for ref in legacy_agents.subagents
+            }
+            return legacy_by_slug == desired_by_slug
         return existing_subagents == desired_subagents
 
     async def _upsert_agent_preset_version(
@@ -987,7 +979,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         )
         attrs = self._version_attrs_from_spec(version)
-        attrs["subagents_enabled"] = agents.enabled
         if existing is None:
             # MCP selections are workspace-local rather than portable Git state.
             # Carry the destination preset's local selection into a newly imported
@@ -1090,7 +1081,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Heal rollback-only columns on an existing immutable version."""
 
         version.agents = legacy_agents.model_dump(mode="json")
-        version.subagents_enabled = agents.enabled
         workspace_service.session.add(version)
         await workspace_service.session.execute(
             sa.delete(AgentPresetVersionSubagent).where(
@@ -1137,21 +1127,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             preset=preset,
             skill_targets=skill_targets,
         )
-
-    def _clear_legacy_preset_head(self, preset: AgentPreset) -> None:
-        """Disable the mutable execution projection for rollback readers."""
-
-        for field in LEGACY_PRESET_EXECUTION_FIELDS:
-            if field not in {
-                "retries",
-                "enable_thinking",
-                "enable_internet_access",
-            }:
-                setattr(preset, field, None)
-        preset.retries = 3
-        preset.enable_thinking = True
-        preset.enable_internet_access = False
-        preset.agents = ResolvedAgentsConfig().model_dump(mode="json")
 
     async def _replace_legacy_preset_skill_bindings(
         self,

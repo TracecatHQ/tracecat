@@ -9,10 +9,14 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
 
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
+from tracecat.agent.preset.activities import AgentPresetDispatchConfig
+from tracecat.agent.preset.resolver import ResolvedAgentsRuntimeConfig
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
@@ -124,6 +128,8 @@ async def _run_failing_preset_preflight(
             return SimpleNamespace(
                 preset="missing-preset",
                 session_id=None,
+                actions=None,
+                instructions=None,
             )
 
         assert uuid4_mock.call_count == int(patched)
@@ -193,6 +199,95 @@ async def test_preset_preflight_legacy_path_preserves_preflight_before_mint() ->
     assert not hasattr(preflight_input, "session_id")
     assert not hasattr(preflight_input, "wf_exec_id")
     uuid4_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_preset_dispatch_passes_complete_snapshot_to_child() -> None:
+    workflow = _build_workflow()
+    workflow.dsl = _child_dsl()
+    task = ActionStatement(
+        ref="preset_agent",
+        action=PlatformAction.AI_PRESET_AGENT,
+        args={"preset": "triage-agent", "user_prompt": "Investigate"},
+    )
+    session_id = uuid.uuid4()
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    runtime_agents = ResolvedAgentsRuntimeConfig(enabled=True)
+    dispatch = AgentPresetDispatchConfig(
+        preset_id=preset_id,
+        preset_version_id=preset_version_id,
+        config=AgentConfigPayload(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="Root instructions\nExtra instructions",
+            actions=["core.http_request"],
+            retries=3,
+        ),
+        resolved_agents_config=runtime_agents,
+    )
+    execute_activity_mock = AsyncMock()
+
+    async def execute_activity(activity: object, arg: object, **_: object) -> object:
+        if activity is DSLActivities.build_preset_agent_args_activity:
+            return SimpleNamespace(
+                preset="triage-agent",
+                user_prompt="Investigate",
+                session_id=None,
+                actions=["core.http_request"],
+                instructions="Extra instructions",
+                max_requests=9,
+                max_tool_calls=4,
+            )
+        return dispatch
+
+    execute_activity_mock.side_effect = execute_activity
+    execute_child_workflow_mock = AsyncMock(return_value={"status": "ok"})
+    info = SimpleNamespace(
+        workflow_id=workflow.wf_exec_id,
+        typed_search_attributes=TypedSearchAttributes.empty,
+        execution_timeout=None,
+        task_timeout=None,
+    )
+
+    with (
+        patch.object(workflow, "_handle_timers", new=AsyncMock()),
+        patch.object(workflow, "_set_logical_time_context"),
+        patch.object(workflow, "_build_action_context", return_value=workflow.context),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity_mock,
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_child_workflow",
+            new=execute_child_workflow_mock,
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.patched",
+            side_effect=lambda patch_id: (
+                patch_id == "dsl-preset-dispatch-resolution-v1"
+            ),
+        ),
+        patch("tracecat.dsl.workflow.workflow.uuid4", return_value=session_id),
+        patch("tracecat.dsl.workflow.workflow.info", return_value=info),
+    ):
+        await workflow._execute_task(task)
+
+    dispatch_input = execute_activity_mock.await_args_list[1].args[1]
+    assert dispatch_input.preset_slug == "triage-agent"
+    assert dispatch_input.actions == ["core.http_request"]
+    assert dispatch_input.instructions == "Extra instructions"
+    child_call = execute_child_workflow_mock.await_args
+    assert child_call is not None
+    child_args = child_call.kwargs["arg"]
+    assert child_args.agent_preset_id == preset_id
+    assert child_args.agent_preset_version_id == preset_version_id
+    assert child_args.agent_args.preset_slug is None
+    assert child_args.agent_args.config is not None
+    assert child_args.agent_args.config.instructions == (
+        "Root instructions\nExtra instructions"
+    )
+    assert child_args.agent_args.resolved_agents_config == runtime_agents
 
 
 def _prepared_subflow_stub(

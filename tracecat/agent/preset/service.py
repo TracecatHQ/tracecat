@@ -22,11 +22,6 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
 )
-from tracecat.agent.preset.resolved_refs import (
-    ResolvedRef,
-    ResolvedRefs,
-    merge_resolved_refs,
-)
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsConfigResult,
     SkippedAgentPresetRef,
@@ -50,7 +45,6 @@ from tracecat.agent.preset.schemas import (
     build_subagent_eligibility,
 )
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.skill.types import ResolvedSkillRefsResult
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     HeadAttachedSubagentRef,
@@ -172,12 +166,6 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentSubagentsConfig:
         """Load snapshotted subagent ResourceHead edges for a preset version."""
 
-        # NULL is the old-writer epoch. During the rolling expand deployment,
-        # an older task can still create a JSON-only version after the schema
-        # migration has completed.
-        if version.subagents_enabled is None:
-            return AgentSubagentsConfig.model_validate(version.agents)
-
         stmt = (
             select(
                 AgentPreset.id,
@@ -201,8 +189,13 @@ class AgentPresetService(BaseWorkspaceService):
             .order_by(AgentPresetVersionSubagent.alias)
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
+        if not rows:
+            # Old writers create JSON-only versions. New writers dual-write the
+            # exact JSON shape, which also disambiguates disabled from
+            # enabled-with-no-children when no normalized rows exist.
+            return AgentSubagentsConfig.model_validate(version.agents)
         return AgentSubagentsConfig(
-            enabled=version.subagents_enabled,
+            enabled=True,
             subagents=[
                 HeadAttachedSubagentRef(
                     preset=child_slug,
@@ -252,8 +245,8 @@ class AgentPresetService(BaseWorkspaceService):
             return AgentPresetRead(
                 **metadata,
                 current_version_id=None,
-                model_name="",
-                model_provider="",
+                model_name=preset.model_name,
+                model_provider=preset.model_provider,
             )
         version = await self.get_current_version_for_preset(preset)
         agents = await self._get_version_agents_config(version)
@@ -334,14 +327,6 @@ class AgentPresetService(BaseWorkspaceService):
         catalog_entry: AgentCatalog | None = None
         if params.catalog_id is not None:
             catalog_entry = await self._get_enabled_catalog_entry(params.catalog_id)
-        preset = AgentPreset(
-            workspace_id=self.workspace_id,
-            slug=slug,
-            name=params.name,
-            description=params.description,
-        )
-        self.session.add(preset)
-        await self.session.flush()
         execution_data = params.model_dump(include=self.EXECUTION_FIELDS)
         if catalog_entry is not None:
             execution_data["model_name"] = catalog_entry.model_name
@@ -349,6 +334,16 @@ class AgentPresetService(BaseWorkspaceService):
         if requires_internet_access:
             execution_data["enable_internet_access"] = True
         execution = AgentPresetExecutionConfigWrite.model_validate(execution_data)
+        preset = AgentPreset(
+            workspace_id=self.workspace_id,
+            slug=slug,
+            name=params.name,
+            description=params.description,
+            model_name=execution.model_name,
+            model_provider=execution.model_provider,
+        )
+        self.session.add(preset)
+        await self.session.flush()
         agents = await self._resolve_preset_subagent_configs(
             params.agents,
             parent_preset_id=preset.id,
@@ -597,7 +592,6 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
                 AgentPreset.deleted_at.is_(None),
-                AgentPresetVersion.subagents_enabled.is_not(None),
                 AgentPresetVersionSubagent.child_preset_id == preset.id,
             )
         )
@@ -629,7 +623,16 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
                 AgentPreset.deleted_at.is_(None),
-                AgentPresetVersion.subagents_enabled.is_(None),
+                ~sa.exists(
+                    select(1)
+                    .select_from(AgentPresetVersionSubagent)
+                    .where(
+                        AgentPresetVersionSubagent.workspace_id
+                        == AgentPresetVersion.workspace_id,
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == AgentPresetVersion.id,
+                    )
+                ),
                 sa.exists(
                     select(1)
                     .select_from(legacy_refs)
@@ -827,35 +830,6 @@ class AgentPresetService(BaseWorkspaceService):
             .limit(1)
         )
         return (await self.session.execute(with_deleted(stmt))).scalar_one_or_none()
-
-    async def get_successor_id_for_deleted_preset_ref(
-        self,
-        *,
-        preset_id: uuid.UUID | None = None,
-        slug: str | None = None,
-    ) -> uuid.UUID | None:
-        """Return the live owner of a deleted preset slug, without rebinding."""
-
-        if slug is None and preset_id is not None:
-            tombstone = await self._get_preset_for_head_resolution(preset_id=preset_id)
-            slug = tombstone.slug if tombstone is not None else None
-        if slug is None:
-            return None
-
-        predicates = [
-            AgentPreset.workspace_id == self.workspace_id,
-            AgentPreset.slug == slug,
-            AgentPreset.deleted_at.is_(None),
-        ]
-        if preset_id is not None:
-            predicates.append(AgentPreset.id != preset_id)
-        stmt = (
-            select(AgentPreset.id)
-            .where(*predicates)
-            .order_by(AgentPreset.created_at.desc())
-            .limit(1)
-        )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def _log_skipped_agent_preset_ref(self, skipped_ref: SkippedAgentPresetRef) -> None:
         """Record a non-fatal child-head resolution skip."""
@@ -1546,7 +1520,6 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.preset_id,
             AgentPresetVersion.workspace_id,
             AgentPresetVersion.version,
-            AgentPresetVersion.subagents_enabled,
             AgentPresetVersion.agents,
             AgentPresetVersion.tool_approvals,
             AgentPresetVersion.enable_internet_access,
@@ -1606,26 +1579,14 @@ class AgentPresetService(BaseWorkspaceService):
                 version=version_number,
                 capabilities=_agent_preset_capabilities(
                     agents_config=AgentSubagentsConfig(
-                        enabled=(
-                            subagents_enabled
-                            if subagents_enabled is not None
-                            else AgentSubagentsConfig.model_validate(
-                                agents_json
-                            ).enabled
-                        )
+                        enabled=AgentSubagentsConfig.model_validate(agents_json).enabled
                     ),
                     tool_approvals=tool_approvals,
                     enable_internet_access=enable_internet_access,
                 ),
                 subagent_eligibility=build_subagent_eligibility(
                     agents_config=AgentSubagentsConfig(
-                        enabled=(
-                            subagents_enabled
-                            if subagents_enabled is not None
-                            else AgentSubagentsConfig.model_validate(
-                                agents_json
-                            ).enabled
-                        )
+                        enabled=AgentSubagentsConfig.model_validate(agents_json).enabled
                     ),
                     tool_approvals=tool_approvals,
                 ),
@@ -1637,7 +1598,6 @@ class AgentPresetService(BaseWorkspaceService):
                 row_preset_id,
                 workspace_id,
                 version_number,
-                subagents_enabled,
                 agents_json,
                 tool_approvals,
                 enable_internet_access,
@@ -1947,7 +1907,6 @@ class AgentPresetService(BaseWorkspaceService):
             "retries",
             "enable_thinking",
             "enable_internet_access",
-            "subagents_enabled",
         ):
             old_value = getattr(base_version, field)
             new_value = getattr(compare_version, field)
@@ -2058,69 +2017,6 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> list[dict[str, object]]:
         return self._subagent_diff_value(await self._get_version_agents_config(version))
 
-    async def _get_live_skill_successor_id(
-        self,
-        *,
-        skill_id: uuid.UUID,
-        slug: str,
-    ) -> uuid.UUID | None:
-        """Return the live owner of a deleted skill slug, without rebinding."""
-
-        stmt = (
-            select(Skill.id)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.slug == slug,
-                Skill.id != skill_id,
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.created_at.desc())
-            .limit(1)
-        )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
-
-    async def _build_skill_resolved_refs(
-        self,
-        resolved_skill_refs: ResolvedSkillRefsResult,
-    ) -> ResolvedRefs | None:
-        """Build value-only skill refs from the effective resolution result."""
-
-        if not resolved_skill_refs.refs and not resolved_skill_refs.skipped:
-            return None
-        refs: list[ResolvedRef] = []
-        for skill_ref in resolved_skill_refs.refs:
-            refs.append(
-                ResolvedRef(
-                    resource_kind="skill",
-                    slug=skill_ref.skill_name,
-                    resource_id=skill_ref.skill_id,
-                    resolved_version_id=skill_ref.skill_version_id,
-                    manifest_sha256=skill_ref.manifest_sha256,
-                    status="ok",
-                )
-            )
-        for skipped_ref in resolved_skill_refs.skipped:
-            successor_id = (
-                await self._get_live_skill_successor_id(
-                    skill_id=skipped_ref.skill_id,
-                    slug=skipped_ref.skill_slug,
-                )
-                if skipped_ref.reason == "deleted"
-                else None
-            )
-            refs.append(
-                ResolvedRef(
-                    resource_kind="skill",
-                    slug=skipped_ref.skill_slug,
-                    resource_id=skipped_ref.skill_id,
-                    status="skipped",
-                    code=skipped_ref.reason,
-                    successor_id=successor_id,
-                )
-            )
-        return ResolvedRefs(refs=refs)
-
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
@@ -2128,29 +2024,11 @@ class AgentPresetService(BaseWorkspaceService):
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
-        # Enrichment lookup, not a liveness check: callers decided liveness
-        # before handing us a version (the resumed-session restore path
-        # resolves soft-deleted child presets on purpose).
-        preset = await self.get_preset(version.preset_id, include_deleted=True)
-        if preset is None:
-            raise TracecatNotFoundError(f"Agent preset '{version.preset_id}' not found")
-        root_resolved_refs = ResolvedRefs(
-            refs=[
-                ResolvedRef(
-                    resource_kind="preset",
-                    slug=preset.slug,
-                    resource_id=preset.id,
-                    resolved_version_id=version.id,
-                    status="ok",
-                )
-            ]
-        )
         mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
         skill_resolution = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id
         )
-        skill_resolved_refs = await self._build_skill_resolved_refs(skill_resolution)
         resolved_skills = skill_resolution.refs
         duplicate_skill_names = sorted(
             name
@@ -2171,17 +2049,7 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
-        resolved_agents = await self._resolve_version_subagents(version)
-        resolved_refs = merge_resolved_refs(
-            root_resolved_refs,
-            skill_resolved_refs,
-            resolved_agents.resolved_refs,
-        )
-        binding = resolved_agents.to_agents_binding()
-        agents = AgentSubagentsConfig(
-            enabled=binding.enabled,
-            subagents=list(binding.subagents),
-        )
+        agents = await self._get_version_agents_config(version)
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,
@@ -2199,7 +2067,6 @@ class AgentPresetService(BaseWorkspaceService):
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
             resolved_skills=resolved_skills,
-            resolved_refs=resolved_refs,
         )
 
     async def create_version_from_current(
@@ -2282,7 +2149,6 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=config.tool_approvals,
             mcp_integrations=config.mcp_integrations,
             agents=legacy_agents.model_dump(mode="json"),
-            subagents_enabled=agents.enabled,
             retries=config.retries,
             enable_thinking=config.enable_thinking,
             enable_internet_access=config.enable_internet_access,

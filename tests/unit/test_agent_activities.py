@@ -42,7 +42,6 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
-from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -1102,16 +1101,6 @@ class TestPreservedAgentsBinding:
                 )
                 if has_subagents
                 else AgentSubagentsConfig()
-            ),
-            resolved_refs=ResolvedRefs(
-                refs=[
-                    ResolvedRef(
-                        resource_kind="preset",
-                        resource_id=uuid.uuid4(),
-                        resolved_version_id=uuid.uuid4(),
-                        status="ok",
-                    )
-                ]
             ),
         )
 

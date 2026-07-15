@@ -10,17 +10,13 @@ import pytest
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.agent.preset.activities import (
+    ResolveAgentPresetDispatchActivityInput,
     ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
+    resolve_agent_preset_dispatch_activity,
     resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
-)
-from tracecat.agent.preset.resolved_refs import (
-    ResolvedRef,
-    ResolvedRefs,
-    merge_resolved_refs,
-    without_subagent_refs,
 )
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -93,6 +89,85 @@ async def test_resolve_agent_preset_version_ref_activity_ignores_legacy_version(
     service.resolve_agent_preset_version.assert_awaited_once_with(slug="triage-agent")
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_dispatch_activity_returns_complete_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    root_id = uuid.uuid4()
+    root_version_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+    child_version_id = uuid.uuid4()
+    root_version = SimpleNamespace(id=root_version_id, preset_id=root_id)
+    child_version = SimpleNamespace(
+        id=child_version_id,
+        preset_id=child_id,
+        version=2,
+        tool_approvals={},
+    )
+    root_config = AgentConfig(
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        instructions="Root instructions",
+        actions=["core.workflow.get_workflow"],
+        agents=AgentSubagentsConfig.model_validate(
+            {"enabled": True, "subagents": [{"preset": "analyst"}]}
+        ),
+    )
+    child_config = AgentConfig(
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        instructions="Child instructions",
+    )
+    presets = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=root_version),
+        resolve_agent_preset_version_for_subagent_ref=AsyncMock(
+            return_value=child_version
+        ),
+        _get_version_agents_config=AsyncMock(return_value=AgentSubagentsConfig()),
+        get_preset=AsyncMock(
+            return_value=SimpleNamespace(description="Analyze the evidence")
+        ),
+        resolve_agent_preset_config=AsyncMock(return_value=child_config),
+    )
+    management_service = SimpleNamespace(
+        presets=presets,
+        with_preset_config=lambda **_: _AsyncContext(root_config),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(management_service),
+    )
+
+    result = await resolve_agent_preset_dispatch_activity(
+        ResolveAgentPresetDispatchActivityInput(
+            role=role,
+            preset_slug="root-agent",
+            actions=["core.http_request"],
+            instructions="Extra instructions",
+        )
+    )
+
+    assert result.preset_id == root_id
+    assert result.preset_version_id == root_version_id
+    assert result.config.actions == ["core.http_request"]
+    assert result.config.instructions == "Root instructions\nExtra instructions"
+    assert result.resolved_agents_config.enabled is True
+    assert len(result.resolved_agents_config.subagents) == 1
+    subagent = result.resolved_agents_config.subagents[0]
+    assert subagent.binding.preset_id == child_id
+    assert subagent.binding.preset_version_id == child_version_id
+    assert subagent.config.instructions == "Child instructions"
+    presets.resolve_agent_preset_version_for_subagent_ref.assert_awaited_once_with(
+        slug="analyst"
+    )
 
 
 def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> None:
@@ -178,234 +253,30 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     assert agents_binding.subagents == [binding]
 
 
-def test_without_subagent_refs_keeps_non_subagent_entries() -> None:
-    """Preserved-binding turns retain root refs but not fresh child refs."""
-
-    preset_id = uuid.uuid4()
-    refs = ResolvedRefs(
-        refs=[
-            ResolvedRef(resource_kind="preset", resource_id=preset_id, status="ok"),
-            ResolvedRef(resource_kind="skill", resource_id=uuid.uuid4(), status="ok"),
-            ResolvedRef(
-                resource_kind="subagent", resource_id=uuid.uuid4(), status="ok"
-            ),
-            ResolvedRef(
-                resource_kind="subagent",
-                slug="gone-child",
-                status="skipped",
-                code="deleted",
-            ),
-        ]
-    )
-
-    filtered = without_subagent_refs(refs)
-
-    assert filtered is not None
-    assert [ref.resource_kind for ref in filtered.refs] == ["preset", "skill"]
-    assert filtered.refs[0].resource_id == preset_id
-    assert without_subagent_refs(None) is None
-
-
-type _RefSpec = tuple[
-    str,
-    int | None,
-    str | None,
-    int | None,
-    str,
-    str | None,
-    int | None,
-]
-
-
-def _ref_spec(
-    kind: str,
-    resource_id: int | None = None,
-    slug: str | None = None,
-    version_id: int | None = None,
-    status: str = "ok",
-    code: str | None = None,
-    successor_id: int | None = None,
-) -> _RefSpec:
-    return kind, resource_id, slug, version_id, status, code, successor_id
-
-
-def _resolved_ref(spec: _RefSpec) -> ResolvedRef:
-    kind, resource_id, slug, version_id, status, code, successor_id = spec
-    return ResolvedRef.model_validate(
-        {
-            "resource_kind": kind,
-            "resource_id": uuid.UUID(int=resource_id) if resource_id else None,
-            "slug": slug,
-            "resolved_version_id": uuid.UUID(int=version_id) if version_id else None,
-            "status": status,
-            "code": code,
-            "successor_id": uuid.UUID(int=successor_id) if successor_id else None,
-        }
-    )
-
-
-def _resolved_ref_spec(ref: ResolvedRef) -> _RefSpec:
-    return _ref_spec(
-        ref.resource_kind,
-        ref.resource_id.int if ref.resource_id else None,
-        ref.slug,
-        ref.resolved_version_id.int if ref.resolved_version_id else None,
-        ref.status,
-        ref.code,
-        ref.successor_id.int if ref.successor_id else None,
-    )
-
-
-@pytest.mark.parametrize(
-    ("earlier", "later", "expected"),
-    [
-        pytest.param(
-            [_ref_spec("subagent", 1, version_id=2)],
-            [_ref_spec("subagent", 1, version_id=3)],
-            [_ref_spec("subagent", 1, version_id=3)],
-            id="later-pass-wins",
-        ),
-        pytest.param(
-            [
-                _ref_spec(
-                    "subagent", 4, status="skipped", code="deleted", successor_id=5
-                ),
-                _ref_spec(
-                    "subagent",
-                    slug="slug-only-skip",
-                    status="skipped",
-                    code="not_found",
-                ),
-            ],
-            [_ref_spec("subagent", 6, version_id=7)],
-            [
-                _ref_spec(
-                    "subagent", 4, status="skipped", code="deleted", successor_id=5
-                ),
-                _ref_spec(
-                    "subagent",
-                    slug="slug-only-skip",
-                    status="skipped",
-                    code="not_found",
-                ),
-                _ref_spec("subagent", 6, version_id=7),
-            ],
-            id="earlier-only-survives",
-        ),
-        pytest.param(
-            [
-                _ref_spec(
-                    "subagent",
-                    slug="shared-slug",
-                    status="skipped",
-                    code="not_found",
-                )
-            ],
-            [_ref_spec("subagent", 8, "shared-slug", 9)],
-            [_ref_spec("subagent", 8, "shared-slug", 9)],
-            id="id-supersedes-provisional-slug",
-        ),
-        pytest.param(
-            [
-                _ref_spec(
-                    "subagent",
-                    10,
-                    "reused-slug",
-                    status="skipped",
-                    code="deleted",
-                    successor_id=11,
-                )
-            ],
-            [_ref_spec("subagent", 11, "reused-slug", 12)],
-            [
-                _ref_spec(
-                    "subagent",
-                    10,
-                    "reused-slug",
-                    status="skipped",
-                    code="deleted",
-                    successor_id=11,
-                ),
-                _ref_spec("subagent", 11, "reused-slug", 12),
-            ],
-            id="distinct-ids-survive-slug-reuse",
-        ),
-        pytest.param(
-            [
-                _ref_spec("preset", 13, version_id=14),
-                _ref_spec("skill", 15, version_id=16),
-                _ref_spec("subagent", 17, version_id=18),
-            ],
-            [
-                _ref_spec("subagent", 17, version_id=19),
-                _ref_spec("skill", 15, version_id=20),
-            ],
-            [
-                _ref_spec("preset", 13, version_id=14),
-                _ref_spec("skill", 15, version_id=16),
-                _ref_spec("subagent", 17, version_id=19),
-                _ref_spec("skill", 15, version_id=20),
-            ],
-            id="tree-position-skills-survive",
-        ),
-        pytest.param(
-            [_ref_spec("skill", 21, version_id=22)],
-            [_ref_spec("skill", 21, version_id=22)],
-            [_ref_spec("skill", 21, version_id=22)],
-            id="identical-collapses",
-        ),
-    ],
-)
-def test_merge_resolved_refs_cases(
-    earlier: list[_RefSpec],
-    later: list[_RefSpec],
-    expected: list[_RefSpec],
-) -> None:
-    """Merge by stable node identity while preserving true observations."""
-
-    merged = merge_resolved_refs(
-        ResolvedRefs(refs=[_resolved_ref(spec) for spec in earlier]),
-        ResolvedRefs(refs=[_resolved_ref(spec) for spec in later]),
-    )
-
-    assert merged is not None
-    assert [_resolved_ref_spec(ref) for ref in merged.refs] == expected
-
-
-def test_resolution_outputs_parse_pre_2_2_payloads_without_resolved_refs() -> None:
-    """Invariant: pre-2.2 activity histories deserialize without new fields."""
+def test_resolution_outputs_ignore_removed_resolved_refs() -> None:
+    """Existing Temporal payloads deserialize after provenance removal."""
 
     runtime_config = ResolvedAgentsRuntimeConfig.model_validate(
-        {"enabled": False, "subagents": []}
+        {"enabled": False, "subagents": [], "resolved_refs": {"refs": []}}
     )
     payload = AgentConfigPayload.model_validate(
         {
             "model_name": "gpt-4o-mini",
             "model_provider": "openai",
             "retries": 3,
+            "resolved_refs": {"refs": []},
         }
     )
 
-    assert runtime_config.resolved_refs is None
-    assert payload.resolved_refs is None
+    assert runtime_config == ResolvedAgentsRuntimeConfig()
+    assert payload.model_name == "gpt-4o-mini"
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_activity_returns_merged_parent_refs(
+async def test_resolve_agents_activity_returns_runtime_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The activity result carries the complete resolution snapshot."""
-
-    root_refs = ResolvedRefs(
-        refs=[
-            ResolvedRef(
-                resource_kind="preset",
-                resource_id=uuid.uuid4(),
-                resolved_version_id=uuid.uuid4(),
-                status="ok",
-            )
-        ]
-    )
+    """The activity returns the resolved runtime subagent tree."""
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -422,12 +293,10 @@ async def test_resolve_agents_activity_returns_merged_parent_refs(
         ResolveAgentsConfigActivityInput(
             role=role,
             agents=AgentSubagentsConfig(),
-            parent_resolved_refs=root_refs,
         )
     )
 
-    assert result.resolved_refs == root_refs
-    assert result.enabled is False
+    assert result == ResolvedAgentsRuntimeConfig()
 
 
 @pytest.mark.anyio

@@ -39,7 +39,6 @@ from tracecat.agent.subagents import (
     AttachedSubagentRef,
     HeadAttachedSubagentRef,
     ResolvedAgentsConfig,
-    ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -1220,7 +1219,6 @@ class TestAgentPresetService:
             preset
         )
 
-        legacy_version.subagents_enabled = None
         legacy_version.agents = AgentSubagentsConfig(
             enabled=True,
             subagents=[
@@ -1397,7 +1395,7 @@ class TestAgentPresetService:
         assert created_preset.model_name == "gpt-4o-mini"
         assert created_preset.model_provider == "openai"
 
-    async def test_version_agents_epoch_reads_legacy_and_authoritative_empty_edges(
+    async def test_version_agents_falls_back_to_legacy_json_without_edges(
         self,
         session: AsyncSession,
         agent_preset_service: AgentPresetService,
@@ -1428,7 +1426,6 @@ class TestAgentPresetService:
                 AgentPresetVersionSubagent.parent_preset_version_id == version.id
             )
         )
-        version.subagents_enabled = None
         session.add(version)
         await session.commit()
 
@@ -1437,7 +1434,7 @@ class TestAgentPresetService:
         assert len(legacy.subagents) == 1
         assert legacy.subagents[0].preset == child.slug
 
-        version.subagents_enabled = False
+        version.agents = AgentSubagentsConfig().model_dump(mode="json")
         session.add(version)
         await session.commit()
         authoritative = await agent_preset_service._get_version_agents_config(version)
@@ -1583,13 +1580,6 @@ class TestAgentPresetService:
         resolved_skill = config.resolved_skills[0]
         assert resolved_skill.skill_version_id == skill_version_two.id
         assert resolved_skill.skill_name == "latest-skill-v2"
-        assert config.resolved_refs is not None
-        resolved_ref = next(
-            ref
-            for ref in config.resolved_refs.refs
-            if ref.resource_kind == "skill" and ref.status == "ok"
-        )
-        assert resolved_ref.slug == resolved_skill.skill_name
 
     async def test_resolve_config_skips_archived_skill_head(
         self,
@@ -1637,7 +1627,7 @@ class TestAgentPresetService:
     @pytest.mark.parametrize(
         "reclaim_slug", [False, True], ids=["unclaimed", "reclaimed"]
     )
-    async def test_historical_deleted_skill_records_successor_without_relinking(
+    async def test_historical_deleted_skill_skips_without_relinking(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -1645,7 +1635,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         reclaim_slug: bool,
     ) -> None:
-        """Deleted UUID bindings skip safely and only annotate a live successor."""
+        """Deleted UUID bindings skip safely without relinking by reused slug."""
 
         skill_service = SkillService(session=session, role=svc_role)
         deleted_skill = await skill_service.create_skill(
@@ -1669,34 +1659,17 @@ class TestAgentPresetService:
             AgentPresetUpdate(skills=None),
         )
         await skill_service.archive_skill(deleted_skill.id)
-        successor = (
+        if reclaim_slug:
             await skill_service.create_skill(
                 SkillCreate(name="historical-deleted-skill")
             )
-            if reclaim_slug
-            else None
-        )
 
         config = await agent_preset_service.resolve_agent_preset_config(
             preset_id=preset.id,
             preset_version_id=historical_version.id,
         )
 
-        assert config.resolved_refs is not None
-        deleted_ref = next(
-            ref
-            for ref in config.resolved_refs.refs
-            if ref.resource_kind == "skill" and ref.status == "skipped"
-        )
-        assert deleted_ref.resource_id == deleted_skill.id
-        assert deleted_ref.code == "deleted"
-        assert deleted_ref.successor_id == (successor.id if successor else None)
-        if successor is not None:
-            assert all(
-                ref.resource_id != successor.id
-                for ref in config.resolved_refs.refs
-                if ref.resource_kind == "skill"
-            )
+        assert config.resolved_skills == []
 
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
@@ -2913,7 +2886,6 @@ class TestAgentPresetService:
                 AgentPresetVersionSubagent.parent_preset_version_id == version.id
             )
         )
-        version.subagents_enabled = None
         version.agents = {
             "enabled": True,
             "subagents": (
@@ -2957,7 +2929,6 @@ class TestAgentPresetService:
                 AgentPresetVersionSubagent.parent_preset_version_id == current.id
             )
         )
-        current.subagents_enabled = None
         current.agents = {
             "enabled": True,
             "subagents": [{"preset": child.slug}],
@@ -3101,19 +3072,6 @@ class TestAgentPresetService:
         assert resolved.subagents[0].binding.preset_id == live_child.id
         assert len(resolved.skipped) == 1
         assert resolved.skipped[0].preset_id == deleted_child.id
-        assert resolved.resolved_refs is not None
-        skipped_refs = [
-            ref
-            for ref in resolved.resolved_refs.refs
-            if ref.resource_kind == "subagent" and ref.status == "skipped"
-        ]
-        ok_refs = [
-            ref
-            for ref in resolved.resolved_refs.refs
-            if ref.resource_kind == "subagent" and ref.status == "ok"
-        ]
-        assert [ref.resource_id for ref in ok_refs] == [live_child.id]
-        assert [ref.resource_id for ref in skipped_refs] == [deleted_child.id]
 
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,
@@ -3485,7 +3443,6 @@ class TestAgentPresetService:
             )
         )
         child_version = await agent_preset_service.get_current_version_for_preset(child)
-        child_version.subagents_enabled = True
         session.add(child_version)
         await session.execute(
             sa.insert(AgentPresetVersionSubagent).values(
@@ -3560,12 +3517,12 @@ class TestAgentPresetService:
         assert isinstance(agents.subagents[0], HeadAttachedSubagentRef)
         assert agents.subagents[0].preset_id == child.id
 
-    async def test_resolve_config_follows_subagent_current_version(
+    async def test_resolve_config_keeps_head_ref_until_dispatch(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Preset-backed subagent edges resolve through the child's current head."""
+        """Root config stays head-based; dispatch resolves the child once."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
@@ -3608,9 +3565,17 @@ class TestAgentPresetService:
         assert child_version_two.id != child_version_one.id
         assert config.agents.enabled is True
         assert len(config.agents.subagents) == 1
-        resolved_subagent = config.agents.subagents[0]
-        assert isinstance(resolved_subagent, ResolvedAttachedSubagentRef)
-        assert resolved_subagent.preset_id == child.id
+        head_subagent = config.agents.subagents[0]
+        assert isinstance(head_subagent, HeadAttachedSubagentRef)
+        assert head_subagent.preset_id == child.id
+
+        resolved = await resolve_agents_config(
+            agent_preset_service,
+            agents=config.agents,
+            parent_preset_id=parent.id,
+            parent_slug=parent.slug,
+        )
+        resolved_subagent = resolved.subagents[0].binding
         assert resolved_subagent.preset_version_id == child_version_two.id
         assert resolved_subagent.preset_version == child_version_two.version
 

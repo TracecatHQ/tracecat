@@ -4,16 +4,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from tracecat.agent.preset.resolved_refs import (
-    ResolvedRef,
-    ResolvedRefs,
-    SkippedAgentPresetRef,
-    merge_resolved_refs,
-)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AttachedSubagentRef,
@@ -30,6 +24,17 @@ from tracecat.exceptions import TracecatValidationError
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
     from tracecat.db.models import AgentPreset, AgentPresetVersion
+
+
+type SkippedAgentPresetRefReason = Literal["deleted", "unpublished", "not_found"]
+
+
+class SkippedAgentPresetRef(BaseModel):
+    """Preset-backed subagent ref intentionally omitted from resolution."""
+
+    preset_id: uuid.UUID | None = None
+    preset_slug: str | None = None
+    reason: SkippedAgentPresetRefReason
 
 
 class AgentPresetResolutionService(Protocol):
@@ -76,13 +81,6 @@ class AgentPresetResolutionService(Protocol):
         self, version: AgentPresetVersion
     ) -> Awaitable[AgentSubagentsConfig]: ...
 
-    def get_successor_id_for_deleted_preset_ref(
-        self,
-        *,
-        preset_id: uuid.UUID | None = None,
-        slug: str | None = None,
-    ) -> Awaitable[uuid.UUID | None]: ...
-
 
 class ResolvedSubagentConfig(BaseModel):
     """Runtime-ready resolved subagent configuration."""
@@ -126,7 +124,6 @@ class ResolvedAgentsConfigResult(BaseModel):
     enabled: bool = False
     subagents: list[ResolvedSubagentResolution] = Field(default_factory=list)
     skipped: list[SkippedAgentPresetRef] = Field(default_factory=list)
-    resolved_refs: ResolvedRefs | None = None
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
@@ -140,7 +137,6 @@ class ResolvedAgentsConfigResult(BaseModel):
             subagents=[
                 subagent.require_runtime_config() for subagent in self.subagents
             ],
-            resolved_refs=self.resolved_refs,
         )
 
 
@@ -149,7 +145,6 @@ class ResolvedAgentsRuntimeConfig(BaseModel):
 
     enabled: bool = False
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
-    resolved_refs: ResolvedRefs | None = None
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
@@ -187,7 +182,6 @@ async def resolve_agents_config(
     aliases: set[str] = set()
     resolved_subagents: list[ResolvedSubagentResolution] = []
     skipped: list[SkippedAgentPresetRef] = []
-    resolved_ref_entries: list[ResolvedRef] = []
     for ref in config.subagents:
         alias = ref.alias
         try:
@@ -243,24 +237,6 @@ async def resolve_agents_config(
                 )
         if isinstance(version_or_skip, SkippedAgentPresetRef):
             skipped.append(version_or_skip)
-            successor_id = (
-                await service.get_successor_id_for_deleted_preset_ref(
-                    preset_id=version_or_skip.preset_id,
-                    slug=version_or_skip.preset_slug,
-                )
-                if version_or_skip.reason == "deleted"
-                else None
-            )
-            resolved_ref_entries.append(
-                ResolvedRef(
-                    resource_kind="subagent",
-                    slug=version_or_skip.preset_slug,
-                    resource_id=version_or_skip.preset_id,
-                    status="skipped",
-                    code=version_or_skip.reason,
-                    successor_id=successor_id,
-                )
-            )
             continue
         version = version_or_skip
         references_parent_id = (
@@ -288,22 +264,11 @@ async def resolve_agents_config(
             )
 
         # Fetch mutable head metadata only when the runtime description needs it.
-        # Provenance already has stable identity from the resolved version/ref.
         preset = None
         if include_runtime_config:
             preset = await service.get_preset(
                 version.preset_id, include_deleted=preserve_resolved_versions
             )
-        resolved_ref_entries.append(
-            ResolvedRef(
-                resource_kind="subagent",
-                slug=preset.slug if preset is not None else ref.preset,
-                resource_id=version.preset_id,
-                resolved_version_id=version.id,
-                status="ok",
-            )
-        )
-
         binding = ResolvedAttachedSubagentRef(
             preset=ref.preset,
             preset_version=version.version,
@@ -331,12 +296,6 @@ async def resolve_agents_config(
                     config=agent_config_to_payload(child_config),
                 )
             )
-            if child_config.resolved_refs is not None:
-                resolved_ref_entries.extend(
-                    child_ref
-                    for child_ref in child_config.resolved_refs.refs
-                    if child_ref.resource_kind != "preset"
-                )
         else:
             resolved_subagents.append(ResolvedSubagentResolution(binding=binding))
 
@@ -344,7 +303,6 @@ async def resolve_agents_config(
         enabled=True,
         subagents=resolved_subagents,
         skipped=skipped,
-        resolved_refs=merge_resolved_refs(ResolvedRefs(refs=resolved_ref_entries)),
     )
 
 

@@ -41,7 +41,7 @@ def make_agent_preset(
         model_provider="openai",
         model_name="gpt-4o-mini",
         tool_approvals=tool_approvals,
-        subagents_enabled=bool((agents or {}).get("enabled", False)),
+        agents=agents or {},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,

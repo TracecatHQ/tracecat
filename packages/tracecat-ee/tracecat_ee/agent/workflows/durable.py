@@ -56,7 +56,6 @@ with workflow.unsafe.imports_passed_through():
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
     )
-    from tracecat.agent.preset.resolved_refs import without_subagent_refs
     from tracecat.agent.preset.resolver import (
         ResolvedAgentsRuntimeConfig,
         ResolvedSubagentConfig,
@@ -495,14 +494,12 @@ def _needs_empty_binding_resolution_activity(
     cfg: AgentConfig,
     preserved_binding: ResolvedAgentsConfig,
 ) -> bool:
-    """Whether replay compatibility requires the empty-binding activity."""
+    """Whether an old history may have recorded the compatibility activity."""
 
     return (
         not preserved_binding.subagents
         and cfg.agents.enabled
         and bool(cfg.agents.subagents)
-        and cfg.resolved_refs is not None
-        and bool(cfg.resolved_refs.refs)
     )
 
 
@@ -671,21 +668,9 @@ class DurableAgentWorkflow:
         ):
             return args.agent_args.resolved_agents_config
         if not agents_config.enabled and not force_activity:
-            return ResolvedAgentsRuntimeConfig(resolved_refs=cfg.resolved_refs)
+            return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents and not force_activity:
-            return ResolvedAgentsRuntimeConfig(
-                enabled=True,
-                resolved_refs=cfg.resolved_refs,
-            )
-        parent_resolved_refs = cfg.resolved_refs
-        if agents is not None:
-            # A preserved session binding overrides the preset's current
-            # topology, and the runtime pass rebuilds that stored binding
-            # verbatim. The root snapshot's subagent entries describe the
-            # preset's *current* children; merging them would record
-            # children that never ran this turn (an empty preserved binding
-            # would even persist the fresh snapshot wholesale).
-            parent_resolved_refs = without_subagent_refs(parent_resolved_refs)
+            return ResolvedAgentsRuntimeConfig(enabled=True)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -694,7 +679,6 @@ class DurableAgentWorkflow:
                 parent_preset_id=args.agent_preset_id,
                 parent_slug=args.agent_args.preset_slug,
                 preserve_resolved_versions=preserve_resolved_versions,
-                parent_resolved_refs=parent_resolved_refs,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

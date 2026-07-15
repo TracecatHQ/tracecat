@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
+    resolve_agents_config,
 )
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
@@ -669,8 +669,8 @@ async def test_workspace_chat_scope_filters_subagent_actions() -> None:
 
 
 @pytest.mark.anyio
-async def test_forked_preset_config_carries_resolved_refs() -> None:
-    """Preset-backed forked turns retain the parent's resolution snapshot."""
+async def test_forked_preset_config_strips_runtime_capabilities() -> None:
+    """Preset-backed forked turns retain instructions but cannot use tools."""
     service, _session, role = _build_service()
     workspace_id = role.workspace_id
     assert workspace_id is not None
@@ -687,23 +687,11 @@ async def test_forked_preset_config_carries_resolved_refs() -> None:
     )
     service.get_session = AsyncMock(return_value=parent_session)  # type: ignore[method-assign]
 
-    refs = ResolvedRefs(
-        refs=[
-            ResolvedRef(
-                resource_kind="preset",
-                slug="parent-preset",
-                resource_id=uuid.uuid4(),
-                resolved_version_id=uuid.uuid4(),
-                status="ok",
-            )
-        ]
-    )
     preset_config = AgentConfig(
         model_name="test-model",
         model_provider="test-provider",
         instructions="preset instructions",
         actions=["core.workflow.get_workflow"],
-        resolved_refs=refs,
     )
 
     @contextlib.asynccontextmanager
@@ -718,7 +706,8 @@ async def test_forked_preset_config_carries_resolved_refs() -> None:
         )
         async with service._build_agent_config(agent_session) as resolved:
             assert resolved.actions == []
-            assert resolved.resolved_refs == refs
+            assert resolved.instructions is not None
+            assert resolved.instructions.endswith("preset instructions")
 
 
 @pytest.mark.anyio
@@ -788,37 +777,8 @@ async def test_run_turn_dispatch_passes_one_full_resolved_tree(
     config = AgentConfig(
         model_name="gpt-4o-mini",
         model_provider="openai",
-        resolved_refs=ResolvedRefs(
-            refs=[
-                ResolvedRef(
-                    resource_kind="preset",
-                    resource_id=preset_id,
-                    resolved_version_id=uuid.uuid4(),
-                    status="ok",
-                )
-            ]
-        ),
     )
-    resolved_agents = ResolvedAgentsRuntimeConfig(
-        enabled=True,
-        resolved_refs=ResolvedRefs(
-            refs=[
-                ResolvedRef(
-                    resource_kind="preset",
-                    resource_id=preset_id,
-                    resolved_version_id=uuid.uuid4(),
-                    status="ok",
-                ),
-                ResolvedRef(
-                    resource_kind="skill",
-                    resource_id=uuid.uuid4(),
-                    resolved_version_id=uuid.uuid4(),
-                    manifest_sha256="0" * 64,
-                    status="ok",
-                ),
-            ]
-        ),
-    )
+    resolved_agents = ResolvedAgentsRuntimeConfig(enabled=True)
 
     @contextlib.asynccontextmanager
     async def _fake_build_agent_config(_agent_session: AgentSession):
@@ -879,9 +839,13 @@ async def test_new_dispatch_turn_follows_child_head_after_session_history(
     stored_config = await preset_service.resolve_agent_preset_config(
         preset_id=parent.id
     )
-    stored_binding = ResolvedAgentsConfig.model_validate(
-        stored_config.agents.model_dump()
+    stored_resolution = await resolve_agents_config(
+        preset_service,
+        agents=stored_config.agents,
+        parent_preset_id=parent.id,
+        parent_slug=parent.slug,
     )
+    stored_binding = stored_resolution.to_agents_binding()
     assert len(stored_binding.subagents) == 1
     stored_child_version_id = stored_binding.subagents[0].preset_version_id
 
@@ -912,13 +876,6 @@ async def test_new_dispatch_turn_follows_child_head_after_session_history(
     )
     child_v2 = await preset_service.get_current_version_for_preset(child)
     assert child_v2.id != stored_child_version_id
-    fresh_config = await preset_service.resolve_agent_preset_config(
-        preset_id=parent.id,
-    )
-    fresh_ref = fresh_config.agents.subagents[0]
-    assert isinstance(fresh_ref, ResolvedAttachedSubagentRef)
-    assert fresh_ref.preset_version_id == child_v2.id
-
     service = AgentSessionService(session=session, role=svc_role)
     fake_client = SimpleNamespace(start_workflow=AsyncMock(return_value=None))
     with (
@@ -1000,6 +957,8 @@ async def test_preset_builder_prompt_rejects_unpublished_head(
         workspace_id=svc_role.workspace_id,
         name="Unpublished prompt preset",
         slug="unpublished-prompt-preset",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
     )
     session.add(preset)
     await session.commit()

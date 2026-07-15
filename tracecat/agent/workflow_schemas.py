@@ -11,11 +11,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
-from tracecat.agent.preset.resolved_refs import ResolvedRefs
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
 
-_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
+_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools", "resolved_refs"})
 
 
 def _normalize_legacy_mcp_server_payload(value: Any) -> Any:
@@ -141,5 +140,4 @@ class AgentConfigPayload(BaseModel):
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
-    resolved_refs: ResolvedRefs | None = Field(default=None)
     builtin_skills: list[str] | None = Field(default=None)

@@ -309,15 +309,15 @@ def test_expand_backfills_version_edges_and_preserves_legacy_schema(
                 .mappings()
                 .all()
             )
-            marker, legacy_agents = conn.execute(
+            legacy_agents = conn.execute(
                 text(
                     """
-                    SELECT subagents_enabled, agents
+                    SELECT agents
                     FROM agent_preset_version WHERE id = :id
                     """
                 ),
                 {"id": parent_version_id},
-            ).one()
+            ).scalar_one()
             assert [row["child_preset_id"] for row in rows] == [
                 child_by_slug,
                 child_by_id,
@@ -325,28 +325,17 @@ def test_expand_backfills_version_edges_and_preserves_legacy_schema(
             assert [row["alias"] for row in rows] == [long_child_slug, "triage"]
             assert rows[1]["description"] == "Triage alerts"
             assert rows[1]["max_turns"] == 4
-            assert marker is True
             assert legacy_agents == agents
             assert not _table_exists(conn, "agent_preset_subagent")
             assert _column(conn, "agent_preset", "subagents_enabled") is None
             assert _column(conn, "agent_preset", "model_name") == {
-                "is_nullable": "YES",
+                "is_nullable": "NO",
                 "column_default": None,
             }
             assert _column(conn, "agent_preset", "model_provider") == {
-                "is_nullable": "YES",
+                "is_nullable": "NO",
                 "column_default": None,
             }
-            conn.execute(
-                text(
-                    """
-                    UPDATE agent_preset
-                    SET model_name = NULL, model_provider = NULL
-                    WHERE id = :id
-                    """
-                ),
-                {"id": parent_id},
-            )
             assert _column(conn, "agent_preset_skill", "skill_version_id") == {
                 "is_nullable": "YES",
                 "column_default": None,
@@ -365,15 +354,10 @@ def test_expand_backfills_version_edges_and_preserves_legacy_schema(
                 version=2,
                 agents={"enabled": False},
             )
-            assert (
-                conn.execute(
-                    text(
-                        "SELECT subagents_enabled FROM agent_preset_version WHERE id = :id"
-                    ),
-                    {"id": late_version_id},
-                ).scalar_one()
-                is None
-            )
+            assert conn.execute(
+                text("SELECT agents FROM agent_preset_version WHERE id = :id"),
+                {"id": late_version_id},
+            ).scalar_one() == {"enabled": False}
 
             foreign_workspace_id = _setup_workspace(conn, label="foreign")
             foreign_child_id = uuid.uuid4()
@@ -581,9 +565,7 @@ def test_expand_downgrade_roundtrip(migration_db_url: str) -> None:
                 text(
                     """
                     UPDATE agent_preset
-                    SET current_version_id = :version_id,
-                        model_name = NULL,
-                        model_provider = NULL
+                    SET current_version_id = :version_id
                     WHERE id = :preset_id
                     """
                 ),

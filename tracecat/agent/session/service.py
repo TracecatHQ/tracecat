@@ -46,7 +46,6 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
-from tracecat.agent.preset.resolved_refs import merge_resolved_refs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -159,12 +158,9 @@ class AgentSessionService(BaseWorkspaceService):
 
         agents_config = config.agents
         if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig(resolved_refs=config.resolved_refs)
+            return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(
-                enabled=True,
-                resolved_refs=config.resolved_refs,
-            )
+            return ResolvedAgentsRuntimeConfig(enabled=True)
 
         resolved = await resolve_agents_config(
             AgentPresetService(self.session, self.role),
@@ -200,10 +196,6 @@ class AgentSessionService(BaseWorkspaceService):
                     ]
                 }
             )
-        runtime_config.resolved_refs = merge_resolved_refs(
-            config.resolved_refs,
-            runtime_config.resolved_refs,
-        )
         return runtime_config
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
@@ -2071,10 +2063,6 @@ class AgentSessionService(BaseWorkspaceService):
                             catalog_id=preset_config.catalog_id,
                             actions=[],  # No tools for forked sessions
                             enable_thinking=preset_config.enable_thinking,
-                            # Value-only snapshot of what resolution saw; the
-                            # fork still strips tools/skills/subagents from
-                            # the runtime config itself.
-                            resolved_refs=preset_config.resolved_refs,
                         )
                 else:
                     # No preset - use org default model with fork context

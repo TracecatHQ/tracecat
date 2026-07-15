@@ -3551,8 +3551,18 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     # Cutover reads the immutable current version; these columns are dual-written
     # so the immediately previous application can still be rolled back safely.
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    model_provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    model_name: Mapped[str] = mapped_column(
+        String(120),
+        default="gpt-5.5",
+        nullable=False,
+        doc="Model name used for legacy execution",
+    )
+    model_provider: Mapped[str] = mapped_column(
+        String(120),
+        default="openai",
+        nullable=False,
+        doc="LLM provider used for legacy execution",
+    )
     catalog_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_catalog.id", ondelete="SET NULL"),
@@ -3710,14 +3720,6 @@ class AgentPresetVersion(WorkspaceModel):
         server_default=text("'{\"enabled\": false}'::jsonb"),
         nullable=False,
         doc="Legacy subagent projection for mixed-version rollback",
-    )
-    subagents_enabled: Mapped[bool | None] = mapped_column(
-        Boolean,
-        nullable=True,
-        doc=(
-            "Representation epoch: NULL uses legacy agents JSON; non-NULL uses "
-            "version-owned ResourceHead edges"
-        ),
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"

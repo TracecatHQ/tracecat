@@ -64,7 +64,6 @@ from tracecat.agent.preset.activities import (
     ResolveAgentPresetConfigActivityInput,
     ResolveAgentsConfigActivityInput,
 )
-from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
@@ -864,16 +863,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
         expected_binding.model_dump(mode="json")
     )
     parent_preset_id = uuid.uuid4()
-    root_refs = ResolvedRefs(
-        refs=[
-            ResolvedRef(
-                resource_kind="preset",
-                resource_id=parent_preset_id,
-                resolved_version_id=uuid.uuid4(),
-                status="ok",
-            )
-        ]
-    )
     preset_config = AgentConfig(
         model_name="claude-3-5-sonnet-20241022",
         model_provider="anthropic",
@@ -884,7 +873,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
                 "subagents": [{"preset": "analyst"}],
             }
         ),
-        resolved_refs=root_refs,
     )
     resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
     create_inputs: list[CreateSessionInput] = []
@@ -915,11 +903,7 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
         resolve_inputs.append(input)
         assert input.agents == expected_agents
         assert input.preserve_resolved_versions is True
-        assert input.parent_resolved_refs == root_refs
-        return ResolvedAgentsRuntimeConfig(
-            enabled=input.agents.enabled,
-            resolved_refs=input.parent_resolved_refs,
-        )
+        return ResolvedAgentsRuntimeConfig(enabled=input.agents.enabled)
 
     @activity.defn(name="create_session_activity")
     async def mock_create_session_activity(
@@ -984,7 +968,6 @@ async def test_agent_workflow_keeps_empty_binding_activity_for_replay(
 
     assert result.output == {"status": "ok"}
     assert len(resolve_inputs) == 1
-    assert resolve_inputs[0].parent_resolved_refs == root_refs
     assert len(create_inputs) == 1
     assert create_inputs[0].agents_binding == expected_binding
 
