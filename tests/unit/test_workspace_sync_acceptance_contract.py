@@ -25,9 +25,15 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
-from tracecat.agent.preset.schemas import AgentPresetUpdate
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetSkillBindingBase,
+    AgentPresetUpdate,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.skill.schemas import SkillCreate
+from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -3518,6 +3524,50 @@ async def test_pull_unversioned_skill_clears_current_version(
     assert skill is not None
     assert skill.current_version_id is None
     assert await draft_paths_for(skill.id) == []
+
+
+@pytest.mark.anyio
+async def test_import_rejects_unpublishing_skill_bound_to_live_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    skill_service = SkillService(session=session, role=svc_role)
+    created = await skill_service.create_skill(SkillCreate(name="bound-sync-skill"))
+    await skill_service.publish_skill(created.id)
+    await AgentPresetService(session=session, role=svc_role).create_preset(
+        AgentPresetCreate(
+            name="Bound sync preset",
+            instructions="Use the bound skill",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+        )
+    )
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await WorkspaceResourceImportService(
+            session=session,
+            role=svc_role,
+        ).import_non_workflow_resources(
+            WorkspaceSpec(
+                skills={
+                    "bound-sync-skill": SkillResourceSpec(
+                        id="bound-sync-skill",
+                        slug="bound-sync-skill",
+                        name="bound-sync-skill",
+                        current_version=None,
+                    )
+                }
+            )
+        )
+
+    assert exc_info.value.detail == {
+        "code": "skill_in_use",
+        "skill_id": str(created.id),
+    }
+    skill = await session.scalar(select(Skill).where(Skill.id == created.id))
+    assert skill is not None
+    assert skill.current_version_id is not None
 
 
 @pytest.mark.anyio

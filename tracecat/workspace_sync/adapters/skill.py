@@ -19,6 +19,8 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
 from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetVersionSkill,
     Skill,
     SkillBlob,
     SkillVersion,
@@ -554,6 +556,11 @@ class SkillAdapter(DirectoryManifestAdapter):
                     f"Skill {spec.slug!r} current version {spec.current_version} "
                     "is missing from the version snapshots."
                 )
+            if spec.current_version is None and skill.current_version_id is not None:
+                await self._validate_skill_can_be_unpublished(
+                    workspace_service,
+                    skill=skill,
+                )
 
             imported_versions: dict[int, SkillVersion] = {}
             imported_version_file_refs: dict[int, dict[str, SkillFileBlobRef]] = {}
@@ -588,6 +595,38 @@ class SkillAdapter(DirectoryManifestAdapter):
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))
         return imported
+
+    async def _validate_skill_can_be_unpublished(
+        self,
+        workspace_service: SyncMappingService,
+        *,
+        skill: Skill,
+    ) -> None:
+        """Reject removing a Skill head that a live preset still follows."""
+
+        bound_preset_id = await workspace_service.session.scalar(
+            select(AgentPreset.id)
+            .join(
+                AgentPresetVersionSkill,
+                sa.and_(
+                    AgentPresetVersionSkill.workspace_id == AgentPreset.workspace_id,
+                    AgentPresetVersionSkill.preset_version_id
+                    == AgentPreset.current_version_id,
+                ),
+            )
+            .where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+                AgentPresetVersionSkill.skill_id == skill.id,
+            )
+            .limit(1)
+        )
+        if bound_preset_id is not None:
+            raise TracecatValidationError(
+                f"Skill {skill.slug!r} cannot be unpublished while referenced "
+                "by a live preset",
+                detail={"code": "skill_in_use", "skill_id": str(skill.id)},
+            )
 
     async def _upsert_skill_version(
         self,
