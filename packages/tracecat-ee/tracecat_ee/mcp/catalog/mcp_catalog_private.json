@@ -2487,51 +2487,11 @@
     {
       "slug": "terraform-mcp",
       "docs": "https://github.com/hashicorp/terraform-mcp-server",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": null,
-        "stdio_args": [],
-        "stdio_env": [
-          "TFE_TOKEN",
-          "TFE_ADDRESS",
-          "TFE_SKIP_TLS_VERIFY",
-          "TRANSPORT_MODE",
-          "TRANSPORT_HOST",
-          "TRANSPORT_PORT",
-          "MCP_ENDPOINT",
-          "MCP_SESSION_MODE",
-          "ENABLE_TF_OPERATIONS"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "TFE_TOKEN",
-            "label": "HCP Terraform / Terraform Enterprise API Token",
-            "description": "API token used to authenticate against HCP Terraform or Terraform Enterprise for workspace, organization, and private registry operations. Optional for read-only public registry tools (provider docs, modules, policies) but required for any TFE/HCP workspace functionality and for approval-gated TF operations.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "TFE_ADDRESS",
-            "label": "Terraform Endpoint URL",
-            "description": "Base URL of the HCP Terraform / Terraform Enterprise instance. Defaults to https://app.terraform.io. Set this to your TFE host for self-managed/Enterprise deployments.",
-            "required": false,
-            "secret": false,
-            "type": "url",
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "high",
-        "docker_only": true,
-        "research_notes": "Official server: hashicorp/terraform-mcp-server. DOCKER_ONLY: the only official prebuilt distributions are a Docker image (hashicorp/terraform-mcp-server:0.5.2) and a Go binary (go install github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@latest). There is NO npm, PyPI, npx, uvx, python, or node entrypoint, so packages[] is empty and stdio_* are null per the constraint. The canonical stdio launch is `docker run -i --rm hashicorp/terraform-mcp-server:0.5.2`; HTTP/streamable mode is `docker run -p 8080:8080 -e TRANSPORT_MODE=streamable-http -e TRANSPORT_HOST=0.0.0.0 hashicorp/terraform-mcp-server:0.5.2`.\\n\\nTransport: supports both STDIO (default) and streamable-HTTP. Chosen server_type=stdio to match intended transport. The HTTP mode is LOCAL ONLY (binds to 127.0.0.1:8080, endpoint path /mcp, health /health) — HashiCorp does NOT offer a hosted/remote managed MCP URL, so server_uri is null.\\n\\nAuth = CUSTOM (TFE_TOKEN bearer-style API token passed via env var; no OAuth flow). TFE_TOKEN and TFE_ADDRESS are technically OPTIONAL — the public Terraform Registry tools (provider docs, module search, Sentinel/policy lookup) work with no auth, and the token is only required for HCP Terraform / Terraform Enterprise workspace operations. Marked both credentials required=false accordingly; if a deployment needs TFE workspace features, TFE_TOKEN becomes required. Feature is currently labeled beta by HashiCorp. ENABLE_TF_OPERATIONS=true gates approval-required mutating tools.",
-        "sources": [
-          "https://github.com/hashicorp/terraform-mcp-server",
-          "https://github.com/hashicorp/terraform-mcp-server/blob/main/README.md",
-          "https://developer.hashicorp.com/terraform/mcp-server"
-        ]
-      }
+      "research_notes": "Coming soon: the official HashiCorp server is distributed as a Docker image or Go binary, but Tracecat's stdio runner does not currently permit Docker or Go executables.",
+      "sources": [
+        "https://github.com/hashicorp/terraform-mcp-server",
+        "https://developer.hashicorp.com/terraform/mcp-server"
+      ]
     },
     {
       "slug": "ansible-mcp",

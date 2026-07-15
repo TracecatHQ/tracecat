@@ -356,6 +356,7 @@
       "name": "Terraform",
       "description": "Plan and apply infrastructure changes with Terraform",
       "category": "IaC",
+      "status": "coming_soon",
       "icon": "https://cdn.simpleicons.org/terraform"
     },
     {
