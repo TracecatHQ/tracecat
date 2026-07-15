@@ -20,6 +20,7 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetSkill,
     AgentPresetVersionSkill,
     Skill,
     SkillBlob,
@@ -604,24 +605,43 @@ class SkillAdapter(DirectoryManifestAdapter):
     ) -> None:
         """Reject removing a Skill head that a live preset still follows."""
 
-        bound_preset_id = await workspace_service.session.scalar(
-            select(AgentPreset.id)
+        current_version_binding = (
+            select(AgentPresetVersionSkill)
             .join(
-                AgentPresetVersionSkill,
+                AgentPreset,
+                AgentPreset.current_version_id
+                == AgentPresetVersionSkill.preset_version_id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersionSkill.skill_id == skill.id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+            .exists()
+        )
+        rollback_binding = (
+            select(AgentPresetSkill)
+            .join(
+                AgentPreset,
                 sa.and_(
-                    AgentPresetVersionSkill.workspace_id == AgentPreset.workspace_id,
-                    AgentPresetVersionSkill.preset_version_id
-                    == AgentPreset.current_version_id,
+                    AgentPreset.workspace_id == AgentPresetSkill.workspace_id,
+                    AgentPreset.id == AgentPresetSkill.preset_id,
                 ),
             )
             .where(
+                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetSkill.skill_id == skill.id,
                 AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.current_version_id.is_(None),
                 AgentPreset.deleted_at.is_(None),
-                AgentPresetVersionSkill.skill_id == skill.id,
             )
-            .limit(1)
+            .exists()
         )
-        if bound_preset_id is not None:
+        binding_exists = await workspace_service.session.scalar(
+            select(sa.or_(current_version_binding, rollback_binding))
+        )
+        if binding_exists:
             raise TracecatValidationError(
                 f"Skill {skill.slug!r} cannot be unpublished while referenced "
                 "by a live preset",

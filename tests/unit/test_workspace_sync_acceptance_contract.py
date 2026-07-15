@@ -3571,6 +3571,55 @@ async def test_import_rejects_unpublishing_skill_bound_to_live_preset(
 
 
 @pytest.mark.anyio
+async def test_import_rejects_unpublishing_skill_bound_to_unpublished_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    skill_service = SkillService(session=session, role=svc_role)
+    created = await skill_service.create_skill(
+        SkillCreate(name="legacy-bound-sync-skill")
+    )
+    await skill_service.publish_skill(created.id)
+    preset = await AgentPresetService(session=session, role=svc_role).create_preset(
+        AgentPresetCreate(
+            name="Legacy-bound sync preset",
+            instructions="Use the bound skill",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+        )
+    )
+    preset.current_version_id = None
+    session.add(preset)
+    await session.commit()
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await WorkspaceResourceImportService(
+            session=session,
+            role=svc_role,
+        ).import_non_workflow_resources(
+            WorkspaceSpec(
+                skills={
+                    "legacy-bound-sync-skill": SkillResourceSpec(
+                        id="legacy-bound-sync-skill",
+                        slug="legacy-bound-sync-skill",
+                        name="legacy-bound-sync-skill",
+                        current_version=None,
+                    )
+                }
+            )
+        )
+
+    assert exc_info.value.detail == {
+        "code": "skill_in_use",
+        "skill_id": str(created.id),
+    }
+    skill = await session.scalar(select(Skill).where(Skill.id == created.id))
+    assert skill is not None
+    assert skill.current_version_id is not None
+
+
+@pytest.mark.anyio
 async def test_pull_agent_preset_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
