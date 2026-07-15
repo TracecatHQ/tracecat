@@ -2465,6 +2465,39 @@ class TestSkillService:
         assert archived is not None
         assert archived.deleted_at is not None
 
+    async def test_archive_blocks_when_unpublished_preset_retains_legacy_binding(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Expand rollback bindings remain live while the preset is unpublished."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="unpublished-preset-binding")
+        )
+        await skill_service.publish_skill(created.id)
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Unpublished preset",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
+            )
+        )
+        preset.current_version_id = None
+        session.add(preset)
+        await session.commit()
+
+        with pytest.raises(
+            TracecatValidationError, match="still referenced by a preset"
+        ) as exc_info:
+            await skill_service.archive_skill(created.id)
+
+        assert exc_info.value.detail == {"code": "skill_in_use"}
+
     async def test_archive_allows_when_only_soft_deleted_preset_references_skill(
         self,
         session: AsyncSession,

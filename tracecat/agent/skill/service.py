@@ -19,7 +19,7 @@ import yaml
 from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -53,6 +53,7 @@ from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetSkill,
     AgentPresetVersionSkill,
     Skill,
     SkillBlob,
@@ -2332,9 +2333,8 @@ class SkillService(BaseWorkspaceService):
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetVersionSkill)
+        current_version_binding = (
+            select(AgentPresetVersionSkill)
             .join(
                 AgentPreset,
                 AgentPreset.current_version_id
@@ -2346,11 +2346,30 @@ class SkillService(BaseWorkspaceService):
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.deleted_at.is_(None),
             )
+            .exists()
         )
-        binding_count = int(
-            (await self.session.execute(binding_stmt)).scalar_one() or 0
+        rollback_binding = (
+            select(AgentPresetSkill)
+            .join(
+                AgentPreset,
+                sa.and_(
+                    AgentPreset.workspace_id == AgentPresetSkill.workspace_id,
+                    AgentPreset.id == AgentPresetSkill.preset_id,
+                ),
+            )
+            .where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.skill_id == skill.id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.current_version_id.is_(None),
+                AgentPreset.deleted_at.is_(None),
+            )
+            .exists()
         )
-        if binding_count > 0:
+        binding_exists = await self.session.scalar(
+            select(sa.or_(current_version_binding, rollback_binding))
+        )
+        if binding_exists:
             raise TracecatValidationError(
                 "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
