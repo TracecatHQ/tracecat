@@ -24,11 +24,37 @@ QA_VERIFIED_STDIO_PINS = {
     "semgrep-mcp": "6e340f843bf82a2f42de77125ae75cfd020abf9b",
 }
 
+QA_VERIFIED_STDIO_PACKAGE_PINS = {
+    "greynoise-mcp": {
+        "manager": "npx",
+        "package": "@greynoise/greynoise-mcp-server@0.4.0",
+        "source_sha": "017bc228439be1672da60b3f49ef902d6311ea51",
+    },
+    "snyk-mcp": {
+        "manager": "npx",
+        "package": "snyk@1.1306.0",
+        "source_sha": "d4e9a98123a364a47b91770df8d86e2d31dcbc45",
+    },
+    "grafana-mcp": {
+        "manager": "uvx",
+        "package": "mcp-grafana==0.17.2",
+        "source_sha": "fac7c8a312c6f6aee8330de72182dcf45bf4ae26",
+    },
+}
+
 
 def _catalog_servers() -> dict[str, dict[str, Any]]:
     catalog_path = (
         Path(__file__).parents[2]
         / "packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json"
+    )
+    payload = orjson.loads(catalog_path.read_bytes())
+    return {server["slug"]: server for server in payload["servers"]}
+
+
+def _public_catalog_servers() -> dict[str, dict[str, Any]]:
+    catalog_path = (
+        Path(__file__).parents[2] / "tracecat/integrations/catalog/mcp_catalog.json"
     )
     payload = orjson.loads(catalog_path.read_bytes())
     return {server["slug"]: server for server in payload["servers"]}
@@ -58,3 +84,30 @@ def test_qa_verified_stdio_mcp_recipes_are_pinned_to_source_shas() -> None:
         assert all(package["manager"] == "uvx" for package in packages)
         assert all(sha in " ".join(package["args"]) for package in packages)
         assert all(sha in package["package"] for package in packages)
+
+
+def test_qa_verified_registry_mcp_recipes_are_pinned_to_exact_versions() -> None:
+    servers = _catalog_servers()
+
+    for slug, expected in QA_VERIFIED_STDIO_PACKAGE_PINS.items():
+        spec = _stdio_spec(servers[slug])
+        packages = spec["packages"]
+
+        assert len(packages) == 1
+        assert spec["stdio_command"] == expected["manager"]
+        assert expected["package"] in spec["stdio_args"]
+        assert packages[0]["manager"] == expected["manager"]
+        assert packages[0]["command"] == expected["manager"]
+        assert packages[0]["args"] == spec["stdio_args"]
+        assert packages[0]["package"] == expected["package"]
+        assert expected["source_sha"] in spec["research_notes"]
+
+
+def test_unavailable_qa_integrations_are_coming_soon_without_specs() -> None:
+    private_servers = _catalog_servers()
+    public_servers = _public_catalog_servers()
+
+    for slug in ("splunk-mcp", "hashicorp-vault-mcp", "palo-alto-mcp"):
+        assert public_servers[slug]["status"] == "coming_soon"
+        assert "connection_spec" not in private_servers[slug]
+        assert private_servers[slug]["research_notes"].startswith("Coming soon.")

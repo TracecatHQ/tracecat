@@ -136,88 +136,12 @@
     {
       "slug": "splunk-mcp",
       "docs": "https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/1.1/about-mcp-server-for-splunk-platform",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": "python",
-        "stdio_args": [
-          "server.py"
-        ],
-        "stdio_env": [
-          "TRANSPORT",
-          "SPLUNK_HOST",
-          "SPLUNK_PORT",
-          "SPLUNK_USERNAME",
-          "SPLUNK_PASSWORD",
-          "SPLUNK_TOKEN",
-          "VERIFY_SSL",
-          "SPL_MAX_EVENTS_COUNT",
-          "SPL_RISK_TOLERANCE",
-          "SPL_SAFE_TIMERANGE",
-          "SPL_SANITIZE_OUTPUT"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "SPLUNK_HOST",
-            "label": "Splunk Host",
-            "description": "Hostname of the Splunk Enterprise/Cloud management instance (e.g. splunk.example.com). Used for the Splunk REST API.",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SPLUNK_PORT",
-            "label": "Splunk Management Port",
-            "description": "Splunk management REST API port. Defaults to 8089.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SPLUNK_TOKEN",
-            "label": "Splunk Auth Token",
-            "description": "Splunk authentication (bearer) token. Preferred over username/password. Provide this OR username+password.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SPLUNK_USERNAME",
-            "label": "Splunk Username",
-            "description": "Splunk account username. Used with SPLUNK_PASSWORD if a token is not supplied.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "SPLUNK_PASSWORD",
-            "label": "Splunk Password",
-            "description": "Splunk account password. Used with SPLUNK_USERNAME if a token is not supplied.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "VERIFY_SSL",
-            "label": "Verify SSL",
-            "description": "Whether to verify the Splunk server's TLS certificate. Optional.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "medium",
-        "docker_only": false,
-        "research_notes": "Two distinct Splunk MCP offerings exist, and neither cleanly matches our install constraints.\n\n1) OFFICIAL hosted server: Splunk markets a GA \"MCP Server for Splunk platform\" distributed as a Splunkbase app (app/7931) that you install INTO your own Splunk Enterprise/Cloud instance. It speaks streamable HTTP and uses Splunk token-based auth + RBAC (NOT OAuth2 sign-in). However it is self-hosted, so there is no canonical/public server_uri — the endpoint is your own Splunk host path, which the public docs do not pin down. So I did not set server_type=http with a URL.\n\n2) splunk/splunk-mcp-server2 (in the Splunk GitHub org) is EXPLICITLY self-described as \"Unofficial.\" It supports stdio/SSE and is what matches our intended STDIO transport. It runs via `python server.py` with TRANSPORT=stdio. Auth is CUSTOM: Splunk REST API on port 8089 using either SPLUNK_TOKEN (bearer) or SPLUNK_USERNAME+SPLUNK_PASSWORD.\n\nPACKAGE GAP (why packages[] is empty and stdio_package is null): there is NO published npx/uvx/pip package for any Splunk-org MCP server. Confirmed PyPI 404 for splunk-mcp-server2 and splunk-mcp-server, and npm 404 for splunk-mcp-server2. The repo only documents `pip install -e .` from a git clone (local editable install) plus a Docker option — neither is a package-manager install we support. The `python server.py` command also requires running from the cloned repo directory, so it is not runnable standalone via our allowlist. A third-party PyPI package `mcp-server-splunk` (200 on PyPI) exists but it is jkosik's Go implementation, not first-party Splunk.\n\nRecommendation: this catalog entry cannot be fulfilled with a supported npx/uvx/pip STDIO package today. Either (a) wait for Splunk to publish a packaged server, or (b) reclassify as HTTP and require the user to supply their self-hosted Splunk MCP endpoint URL + token. Confidence set to medium because env vars/auth/transport are sourced from first-party (Splunk-org) docs, but the canonical install path and official-vs-unofficial story are unresolved.",
-        "sources": [
-          "https://github.com/splunk/splunk-mcp-server2",
-          "https://github.com/splunk/splunk-mcp-server2/blob/main/python/README.md",
-          "https://raw.githubusercontent.com/splunk/splunk-mcp-server2/main/python/README.md",
-          "https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/1.1/about-mcp-server-for-splunk-platform",
-          "https://splunkbase.splunk.com/app/7931"
-        ]
-      }
+      "research_notes": "Coming soon. QA (2026-07-15): the public splunk/splunk-mcp-server2 source at commit fac6cbb37be057a68607642d8d60d9c19ba5a060 is not runnable through Tracecat. The catalog's former `python server.py` recipe had no cloned source file at runtime. Direct uvx installation from that Git commit builds, but startup fails because server.py imports guardrails.py while pyproject.toml omits guardrails from setuptools py-modules. Splunk's official GA server is instead installed into a customer's Splunk deployment and exposes a self-hosted HTTP endpoint; there is no canonical vendor-hosted URL or supported public npx/uvx package for this stdio catalog entry.",
+      "sources": [
+        "https://github.com/splunk/splunk-mcp-server2",
+        "https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/1.1/about-mcp-server-for-splunk-platform",
+        "https://splunkbase.splunk.com/app/7931"
+      ]
     },
     {
       "slug": "scanner-mcp",
@@ -970,7 +894,7 @@
         "auth_type": "CUSTOM",
         "stdio_command": "npx",
         "stdio_args": [
-          "@greynoise/greynoise-mcp-server"
+          "@greynoise/greynoise-mcp-server@0.4.0"
         ],
         "stdio_env": [
           "GREYNOISE_API_KEY"
@@ -980,9 +904,9 @@
             "manager": "npx",
             "command": "npx",
             "args": [
-              "@greynoise/greynoise-mcp-server"
+              "@greynoise/greynoise-mcp-server@0.4.0"
             ],
-            "package": "@greynoise/greynoise-mcp-server"
+            "package": "@greynoise/greynoise-mcp-server@0.4.0"
           }
         ],
         "credentials": [
@@ -997,7 +921,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "Official first-party MCP server published by GreyNoise (GitHub org GreyNoise-Intelligence). Verified package on npm: @greynoise/greynoise-mcp-server v0.4.0, bin name \"gnapi\", build/index.js entrypoint. Default transport is stdio (matches intended STDIO); the server also supports an optional HTTP transport via --transport http but that requires installing Express separately and is not the canonical/default mode and exposes no hosted endpoint — there is NO vendor-hosted remote MCP URL. Auth is a single Enterprise API key passed via the GREYNOISE_API_KEY env var (the underlying API at api.greynoise.io uses key/header auth, not OAuth). Claude Desktop config uses command=npx, args=[\"@greynoise/greynoise-mcp-server\"], env GREYNOISE_API_KEY. Also distributed as an MCPB/DXT bundle for Claude Desktop (key stored in OS keychain), but npx is the canonical cross-client install. Not docker-only.",
+        "research_notes": "QA PIN (2026-07-15): npm package @greynoise/greynoise-mcp-server@0.4.0 is associated through npm gitHead with public release commit 017bc228439be1672da60b3f49ef902d6311ea51. Its registry integrity hash was verified, the packaged build/index.js entrypoint launched, and an MCP initialize/list-tools probe returned 18 tools. Version 0.4.1 was not selected because its advertised gitHead is not publicly reachable. Default transport is stdio and authentication uses GREYNOISE_API_KEY.",
         "sources": [
           "https://github.com/GreyNoise-Intelligence/greynoise-mcp-server",
           "https://docs.greynoise.io/docs/mcp-server",
@@ -1219,54 +1143,13 @@
     {
       "slug": "hashicorp-vault-mcp",
       "docs": "https://github.com/hashicorp/vault-mcp-server",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": null,
-        "stdio_args": [],
-        "stdio_env": [
-          "VAULT_ADDR",
-          "VAULT_TOKEN",
-          "VAULT_NAMESPACE"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "VAULT_ADDR",
-            "label": "Vault Server Address",
-            "description": "Base URL of the HashiCorp Vault server, e.g. http://127.0.0.1:8200. Defaults to http://127.0.0.1:8200 if unset.",
-            "required": true,
-            "secret": false,
-            "type": "url",
-            "target": "stdio_env"
-          },
-          {
-            "key": "VAULT_TOKEN",
-            "label": "Vault Token",
-            "description": "Vault authentication token used to access mounts, KV secrets, and PKI. Passed via VAULT_TOKEN env var (or X-Vault-Token header in HTTP mode).",
-            "required": true,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "VAULT_NAMESPACE",
-            "label": "Vault Namespace",
-            "description": "Optional Vault Enterprise/HCP namespace to scope operations.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "high",
-        "docker_only": true,
-        "research_notes": "Official server is hashicorp/vault-mcp-server (HashiCorp GitHub org), written in Go and currently in beta. It supports BOTH stdio (default) and streamable-HTTP transports. However, the ONLY official distributions are a Docker image (hashicorp/vault-mcp-server), a precompiled Go binary from releases.hashicorp.com/vault-mcp-server, and `go install github.com/hashicorp/vault-mcp-server/cmd/vault-mcp-server@latest`. There is NO npm/npx, PyPI/pip, uvx, or Node package, so packages[] is empty and docker_only=true per the constraint (command must be npx/uvx/python/python3/node).\n\nAlthough the intended catalog transport is HTTP, the HTTP (\"streamable-http\") mode is NOT a vendor-hosted remote MCP endpoint — it is a self-hosted local process. Default HTTP bind is 127.0.0.1:8080 with MCP path /mcp (full URL http://127.0.0.1:8080/mcp), and HashiCorp explicitly recommends running it locally only and not exposing it to the network. Because there is no fixed public/remote URL to publish, server_uri is left null and server_type is set to stdio (local process) with docker_only=true.\n\nAuth is CUSTOM (Vault native token), not OAuth. In stdio/Docker mode credentials come from env vars: VAULT_ADDR (default http://127.0.0.1:8200), VAULT_TOKEN (required), VAULT_NAMESPACE (optional). In HTTP mode the token can alternatively be passed per-request via the X-Vault-Token header (and X-Vault-Namespace). HTTP-mode-only config env vars (TRANSPORT_MODE/host/port, MCP_ENDPOINT, MCP_ALLOWED_ORIGINS, MCP_CORS_MODE, MCP_TLS_*, MCP_RATE_LIMIT_*) are server tuning, not user secrets, so they are excluded from credentials.",
-        "sources": [
-          "https://github.com/hashicorp/vault-mcp-server",
-          "https://raw.githubusercontent.com/hashicorp/vault-mcp-server/main/README.md",
-          "https://developer.hashicorp.com/vault/docs/mcp-server/deploy",
-          "https://developer.hashicorp.com/vault/docs/mcp-server/overview"
-        ]
-      }
+      "research_notes": "Coming soon. QA (2026-07-15): HashiCorp Vault MCP Server v0.2.0 at commit c67575dc4f98db37f187d62400bd70fe0211a60c was verified using HashiCorp's checksum-published Darwin arm64 binary. It completed MCP initialization and exposed 16 tools. The server works, but its official distributions are precompiled binaries, Docker, and `go install`; Tracecat's stdio catalog only permits npx, uvx, python, python3, or node launchers. HashiCorp also supports self-hosted streamable HTTP, but explicitly recommends local/internal deployment and provides no vendor-hosted endpoint.",
+      "sources": [
+        "https://github.com/hashicorp/vault-mcp-server",
+        "https://releases.hashicorp.com/vault-mcp-server/0.2.0/",
+        "https://developer.hashicorp.com/vault/docs/mcp-server/deploy",
+        "https://developer.hashicorp.com/vault/docs/mcp-server/overview"
+      ]
     },
     {
       "slug": "aws-mcp",
@@ -1477,55 +1360,12 @@
     {
       "slug": "palo-alto-mcp",
       "docs": "https://docs-cortex.paloaltonetworks.com/r/Cortex-XSIAM/Cortex-XSIAM-Enterprise-Documentation/Cortex-MCP-server",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": null,
-        "stdio_args": [],
-        "stdio_env": [
-          "CORTEX_MCP_PAPI_URL",
-          "CORTEX_MCP_PAPI_AUTH_HEADER",
-          "CORTEX_MCP_PAPI_AUTH_ID"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "CORTEX_MCP_PAPI_URL",
-            "label": "Cortex Tenant API URL",
-            "description": "The Cortex (XSIAM/XDR) tenant API base URL for your tenant, e.g. https://api-<tenant>.xdr.<region>.paloaltonetworks.com. Used as CORTEX_MCP_PAPI_URL.",
-            "required": true,
-            "secret": false,
-            "type": "url",
-            "target": "stdio_env"
-          },
-          {
-            "key": "CORTEX_MCP_PAPI_AUTH_HEADER",
-            "label": "Cortex API Key",
-            "description": "The Cortex API key secret generated under Settings > Configurations > API Keys. Passed as the Authorization header value via CORTEX_MCP_PAPI_AUTH_HEADER.",
-            "required": true,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "CORTEX_MCP_PAPI_AUTH_ID",
-            "label": "Cortex API Key ID",
-            "description": "The numeric ID associated with the Cortex API key (the x-xdr-auth-id). Passed via CORTEX_MCP_PAPI_AUTH_ID.",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "medium",
-        "docker_only": true,
-        "research_notes": "The official Palo Alto Networks \"Cortex MCP server\" (open beta as of late 2025) covers Cortex XSIAM and Cortex XDR. It is distributed ONLY as a Docker image and runs locally, so the real transport is stdio, NOT the HTTP transport intended in our catalog. Our environment does not support docker/bunx/deno launchers, hence docker_only=true and stdio_command/args/package left null; there is no official npx/uvx/pip package from Palo Alto Networks.\n\nOfficial install per Palo Alto docs/LIVEcommunity runs: `docker run --env-file ./cortex-xdr.env -it cortex-mcp` (image built/pulled per Palo Alto's docs at docs-cortex.paloaltonetworks.com under \"Install the Cortex MCP server\" / \"Configure the MCP client\"). Auth is CUSTOM (Cortex API key + key ID), not OAuth. The three env vars are CORTEX_MCP_PAPI_URL (tenant API URL), CORTEX_MCP_PAPI_AUTH_HEADER (API key secret), and CORTEX_MCP_PAPI_AUTH_ID (numeric API key ID / x-xdr-auth-id).\n\nConfidence is medium, not high: the docs-cortex.paloaltonetworks.com pages are JavaScript-rendered and returned truncated content to the fetcher, so exact image registry path/tag and the precise env var semantics were corroborated from the official PANW blog + LIVEcommunity thread + search snippets of the official docs rather than a fully-read install page. The exact tenant-URL format for CORTEX_MCP_PAPI_URL should be verified against the user's tenant.\n\nCAUTION on confusable sources: search engines heavily conflate this with unrelated \"Cortex\" projects that are NOT Palo Alto — cortexapps/cortex-mcp and mcp.cortex.io (Cortex.io internal developer portal), Snowflake Cortex Agents MCP, and gbrigandi/mcp-server-cortex (TheHive Cortex analyzer). Those use CORTEX_API_TOKEN / mcp.cortex.io and must NOT be used for Palo Alto Networks. Values above are sourced only from paloaltonetworks.com / docs-cortex.paloaltonetworks.com.",
-        "sources": [
-          "https://www.paloaltonetworks.com/blog/security-operations/introducing-the-cortex-mcp-server/",
-          "https://docs-cortex.paloaltonetworks.com/r/Cortex-XDR/Cortex-XDR-5.x-Documentation/Cortex-MCP-server-overview",
-          "https://docs-cortex.paloaltonetworks.com/r/Cortex-XSIAM/Cortex-XSIAM-Enterprise-Documentation/Install-the-Cortex-MCP-server",
-          "https://docs-cortex.paloaltonetworks.com/r/Cortex-CLOUD/Cortex-Cloud-Runtime-Security-Documentation/Cortex-MCP-server",
-          "https://live.paloaltonetworks.com/t5/cortex-xdr-discussions/try-to-install-the-cortex-mcp-server/td-p/1250623"
-        ]
-      }
+      "research_notes": "Coming soon. QA (2026-07-15): Palo Alto's official Cortex MCP server is obtainable only by downloading a tenant-specific archive from the Cortex console. The archive supports local Poetry/Python or Docker execution and stdio or streamable HTTP, but Palo Alto does not publish the Cortex server as public source, an npx package, or a PyPI package that Tracecat can install. The public PaloAltoNetworks/pan-mcp-relay project is a Prisma AIRS security proxy and is not the Cortex XSIAM/XDR operations server represented by this catalog entry.",
+      "sources": [
+        "https://docs-cortex.paloaltonetworks.com/r/Cortex/Cortex-MCP-server/Install-the-Cortex-MCP-server",
+        "https://docs-cortex.paloaltonetworks.com/r/Cortex/Cortex-MCP-server/Configure-the-MCP-client",
+        "https://github.com/PaloAltoNetworks/pan-mcp-relay"
+      ]
     },
     {
       "slug": "sixtyfour-mcp",
@@ -2152,7 +1992,7 @@
         "stdio_command": "npx",
         "stdio_args": [
           "-y",
-          "snyk@latest",
+          "snyk@1.1306.0",
           "mcp",
           "-t",
           "stdio"
@@ -2167,12 +2007,12 @@
             "command": "npx",
             "args": [
               "-y",
-              "snyk@latest",
+              "snyk@1.1306.0",
               "mcp",
               "-t",
               "stdio"
             ],
-            "package": "snyk"
+            "package": "snyk@1.1306.0"
           }
         ],
         "credentials": [
@@ -2195,7 +2035,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "The official Snyk MCP server is built into the Snyk CLI (the `snyk` npm package), invoked as `snyk mcp -t stdio`. Official recommended config uses `npx -y snyk@latest mcp -t stdio`, confirmed in Snyk's own blog and docs. Requires Snyk CLI >= 1.1296.2. Feature was launched as experimental (`--experimental` flag in earliest docs) and has since moved to early-access/GA-style docs where the flag is no longer required in the recommended config; the canonical command is `mcp -t stdio`.\n\nTransport: STDIO is the primary/intended transport. The CLI also supports `-t sse` (SSE) as a local-process transport, but that still runs the same local `snyk` binary, not a hosted remote endpoint, so there is no remote MCP server_uri.\n\nAuth (CUSTOM): The server uses two mechanisms. (1) Default interactive browser login via the `snyk_auth` tool (OAuth-style sign-in handled by the CLI, opens a browser). (2) For headless/automated/restricted environments, set the `SNYK_TOKEN` env var (Snyk API token). Because our use case is non-interactive, the practical required credential is the API token, hence auth_type=CUSTOM rather than OAUTH2. `SNYK_CFG_ORG` is an optional org selector. Other standard Snyk CLI env vars (proxy settings, SNYK_API for self-hosted/region endpoints) are also honored but not required for the default SaaS case.\n\nSeparately, Snyk also offers a newer hosted \"Snyk API & Web MCP Server\" (Snyk Studio) which is a remote/HTTP MCP. That is a distinct product from this CLI-based `snyk mcp` STDIO server; this spec covers the STDIO CLI server matching the intended transport.\n\nThe `pip`/`uvx` install path does not apply — the CLI is distributed via npm (and standalone binaries / Homebrew / Docker), not PyPI.",
+        "research_notes": "QA PIN (2026-07-15): npm package snyk@1.1306.0 corresponds by release version to public tag commit d4e9a98123a364a47b91770df8d86e2d31dcbc45. Its registry integrity hash was verified, the tarball contains bin/snyk and dist/cli/index.js, and an MCP initialize/list-tools probe returned 13 tools. Direct installation from the Git commit is not usable because the repository omits the built dist/cli/index.js artifact. The stdio server uses SNYK_TOKEN for headless authentication and optionally SNYK_CFG_ORG.",
         "sources": [
           "https://snyk.io/articles/secure-ai-coding-with-snyk-now-supporting-model-context-protocol-mcp/",
           "https://snyk.io/articles/snyk-mcp-cheat-sheet/",
@@ -2299,7 +2139,7 @@
         "auth_type": "CUSTOM",
         "stdio_command": "uvx",
         "stdio_args": [
-          "mcp-grafana",
+          "mcp-grafana==0.17.2",
           "-t",
           "stdio"
         ],
@@ -2312,11 +2152,11 @@
             "manager": "uvx",
             "command": "uvx",
             "args": [
-              "mcp-grafana",
+              "mcp-grafana==0.17.2",
               "-t",
               "stdio"
             ],
-            "package": "mcp-grafana"
+            "package": "mcp-grafana==0.17.2"
           }
         ],
         "credentials": [
@@ -2340,7 +2180,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "Official server is grafana/mcp-grafana (Go binary, Apache-2.0). It is also published to PyPI as `mcp-grafana` (publisher: grafana-machine-learning, latest v0.14.0, May 2026), which is the recommended way to run it via `uvx mcp-grafana`. The PyPI wrapper downloads/runs the Go binary, so no npm package exists (npx not supported). STDIO is fully supported and is the intended transport; pass `-t stdio` (the binary defaults to stdio for local use, but the Docker entrypoint defaults to SSE, so the explicit flag is safest). Auth is CUSTOM via a Grafana service account token (GRAFANA_SERVICE_ACCOUNT_TOKEN). Legacy/optional alternatives the binary also reads: GRAFANA_API_KEY (deprecated), GRAFANA_USERNAME/GRAFANA_PASSWORD (basic auth), GRAFANA_ORG_ID — not included as required credentials. The server can alternatively run as a remote HTTP/SSE/streamable-http server, and Grafana Cloud offers a hosted MCP endpoint, but the catalog intent is STDIO so the local uvx process is specified here.",
+        "research_notes": "QA PIN (2026-07-15): PyPI package mcp-grafana==0.17.2 is the official uvx wrapper for Grafana release v0.17.2 at public tag commit fac7c8a312c6f6aee8330de72182dcf45bf4ae26. The platform wheel SHA-256 was verified, the bundled Go binary reported v0.17.2, and an MCP initialize/list-tools probe returned 65 tools. The PyPI binary is built separately from the GitHub release archive, so the reproducible catalog control is the exact PyPI version rather than a direct Git SHA install. Authentication uses GRAFANA_URL and GRAFANA_SERVICE_ACCOUNT_TOKEN.",
         "sources": [
           "https://github.com/grafana/mcp-grafana",
           "https://grafana.com/docs/grafana/latest/developer-resources/mcp/set-up/install-with-uvx/",

@@ -19,6 +19,7 @@
       "name": "Splunk",
       "description": "Search indexes and triage events on Splunk (Cloud or on-prem)",
       "category": "SIEM / Datalake",
+      "status": "coming_soon",
       "icon": "https://www.google.com/s2/favicons?domain=help.splunk.com&sz=128"
     },
     {
@@ -167,6 +168,7 @@
       "name": "HashiCorp Vault",
       "description": "Read mounts, KV secrets, and PKI from HashiCorp Vault",
       "category": "Identity",
+      "status": "coming_soon",
       "icon": "https://cdn.simpleicons.org/vault"
     },
     {
@@ -195,6 +197,7 @@
       "name": "Palo Alto Networks",
       "description": "Investigate incidents and assets on Cortex XSIAM and XDR",
       "category": "Network",
+      "status": "coming_soon",
       "icon": "https://cdn.simpleicons.org/paloaltonetworks"
     },
     {
