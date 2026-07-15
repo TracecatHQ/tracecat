@@ -6,10 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tracecat.agent.preset.internal_router import (
-    PresetCreateRequest,
-    PresetUpdateRequest,
-)
+from tracecat.agent.preset.internal_router import PresetCreateRequest
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -173,12 +170,6 @@ def test_agent_preset_skill_binding_read_contains_only_head_metadata() -> None:
                 "model_provider": "openai",
             },
         ),
-        (
-            PresetUpdateRequest,
-            {
-                "name": "   ",
-            },
-        ),
     ],
 )
 def test_agent_preset_request_schemas_reject_blank_trimmed_values(
@@ -189,7 +180,25 @@ def test_agent_preset_request_schemas_reject_blank_trimmed_values(
         schema_cls.model_validate(kwargs)
 
 
-@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, PresetUpdateRequest])
+@pytest.mark.parametrize(
+    "field",
+    (
+        "name",
+        "model_name",
+        "model_provider",
+        "retries",
+        "enable_thinking",
+        "enable_internet_access",
+    ),
+)
+def test_agent_preset_update_rejects_explicit_null_for_required_fields(
+    field: str,
+) -> None:
+    with pytest.raises(ValidationError, match=f"{field} cannot be null"):
+        AgentPresetUpdate.model_validate({field: None})
+
+
+@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, AgentPresetUpdate])
 def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
     schema_cls: type[BaseModel],
 ) -> None:

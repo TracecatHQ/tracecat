@@ -13,6 +13,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.preset.schemas import AGENT_PRESET_EXECUTION_FIELDS
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -61,21 +62,6 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
-LEGACY_PRESET_EXECUTION_FIELDS = (
-    "instructions",
-    "model_name",
-    "model_provider",
-    "catalog_id",
-    "base_url",
-    "output_type",
-    "actions",
-    "namespaces",
-    "tool_approvals",
-    "mcp_integrations",
-    "retries",
-    "enable_thinking",
-    "enable_internet_access",
-)
 
 
 def _legacy_agents_config(agents: Mapping[str, object] | None) -> AgentSubagentsConfig:
@@ -1033,8 +1019,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> None:
         """Dual-write the mutable preset projection consumed by the old app."""
 
-        for field in LEGACY_PRESET_EXECUTION_FIELDS:
-            setattr(preset, field, getattr(version, field))
+        for field in AGENT_PRESET_EXECUTION_FIELDS:
+            if field != "agents":
+                setattr(preset, field, getattr(version, field))
         preset.agents = agents.model_dump(mode="json")
         await workspace_service.session.execute(
             sa.delete(AgentPresetSkill).where(

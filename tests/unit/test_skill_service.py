@@ -2426,51 +2426,6 @@ class TestSkillService:
             await skill_service.archive_skill(created.id)
         assert exc_info.value.detail == {"code": "skill_in_use"}
 
-    async def test_reclaimed_skill_slug_does_not_relink_version_binding(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        skill_service: SkillService,
-    ) -> None:
-        """Invariant: old UUID bindings do not resolve to reclaimed slugs."""
-
-        deleted = await skill_service.create_skill(
-            SkillCreate(name="skill-reclaimed-no-relink")
-        )
-        await skill_service.publish_skill(deleted.id)
-        preset_service = AgentPresetService(session=session, role=svc_role)
-        preset = await preset_service.create_preset(
-            AgentPresetCreate(
-                name="Skill reclaimed no relink preset",
-                description="Preset with a skill whose slug is reclaimed",
-                instructions="Use the skill",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                skills=[AgentPresetSkillBindingBase(skill_id=deleted.id)],
-            )
-        )
-        assert preset.current_version_id is not None
-        historical_version_id = preset.current_version_id
-
-        preset = await preset_service.update_preset(
-            preset, AgentPresetUpdate(skills=[])
-        )
-        assert preset.current_version_id != historical_version_id
-        await skill_service.archive_skill(deleted.id)
-
-        successor = await skill_service.create_skill(
-            SkillCreate(name="skill-reclaimed-no-relink")
-        )
-        resolved = await skill_service.get_resolved_skill_refs_for_preset_version(
-            historical_version_id
-        )
-
-        assert resolved.refs == []
-        assert len(resolved.skipped) == 1
-        assert resolved.skipped[0].skill_id == deleted.id
-        assert resolved.skipped[0].skill_id != successor.id
-        assert resolved.skipped[0].reason == "deleted"
-
     async def test_archive_allows_when_only_preset_history_references_skill(
         self,
         session: AsyncSession,

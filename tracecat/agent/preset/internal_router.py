@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Self
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -18,7 +18,6 @@ from tracecat.agent.preset.schemas import (
     PresetName,
     PresetSlug,
     build_agent_preset_read_minimal,
-    reject_explicit_null_for_required_version_fields,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
@@ -72,49 +71,6 @@ class PresetCreateRequest(BaseModel):
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
-
-
-class PresetUpdateRequest(BaseModel):
-    """Request body for updating an agent preset."""
-
-    name: PresetName | None = None
-    slug: PresetSlug | None = None
-    description: str | None = Field(default=None, max_length=1000)
-    instructions: str | None = Field(default=None)
-    model_name: PresetModelWriteField | None = Field(
-        default=None,
-        description=(
-            "Deprecated legacy model name field retained for backward "
-            "compatibility. Prefer catalog_id, which is the canonical model selector."
-        ),
-    )
-    model_provider: PresetModelWriteField | None = Field(
-        default=None,
-        description=(
-            "Deprecated legacy model provider field retained for backward "
-            "compatibility. Prefer catalog_id, which is the canonical model selector."
-        ),
-    )
-    catalog_id: uuid.UUID | None = Field(
-        default=None,
-        description="Canonical model catalog row ID backing this preset.",
-    )
-    base_url: str | None = Field(default=None, max_length=500)
-    output_type: OutputType | None = Field(default=None)
-    actions: list[str] | None = Field(default=None)
-    namespaces: list[str] | None = Field(default=None)
-    tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
-    retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = Field(default=None)
-    enable_internet_access: bool | None = Field(default=None)
-    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def reject_explicit_null_for_required_version_fields(self) -> Self:
-        reject_explicit_null_for_required_version_fields(self)
-        return self
 
 
 async def _create_payload_with_default_model(
@@ -228,7 +184,7 @@ async def update_preset_by_slug(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     slug: str,
-    params: PresetUpdateRequest,
+    params: AgentPresetUpdate,
 ) -> AgentPresetRead:
     """Update an agent preset by slug."""
     service = AgentPresetService(session, role=role)
@@ -239,9 +195,7 @@ async def update_preset_by_slug(
             detail=f"Agent preset with slug '{slug}' not found",
         )
     try:
-        updated_preset = await service.update_preset(
-            preset, AgentPresetUpdate(**params.model_dump(exclude_unset=True))
-        )
+        updated_preset = await service.update_preset(preset, params)
         return await service.build_preset_read(updated_preset)
     except TracecatValidationError as exc:
         raise HTTPException(

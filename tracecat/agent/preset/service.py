@@ -6,7 +6,7 @@ import uuid
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 import sqlalchemy as sa
 from slugify import slugify
@@ -28,6 +28,7 @@ from tracecat.agent.preset.resolver import (
     resolve_agents_config,
 )
 from tracecat.agent.preset.schemas import (
+    AGENT_PRESET_EXECUTION_FIELDS,
     AgentPresetCreate,
     AgentPresetExecutionConfigWrite,
     AgentPresetRead,
@@ -99,26 +100,21 @@ if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
 
+class _SubagentDiffValue(TypedDict):
+    """Stable serialized subagent value used in preset version diffs."""
+
+    preset_id: str | None
+    preset: str
+    alias: str
+    description: str | None
+    max_turns: int | None
+
+
 class AgentPresetService(BaseWorkspaceService):
     """CRUD operations and helpers for agent presets."""
 
     service_name = "agent_preset"
-    EXECUTION_FIELDS = {
-        "instructions",
-        "model_name",
-        "model_provider",
-        "catalog_id",
-        "base_url",
-        "output_type",
-        "actions",
-        "namespaces",
-        "tool_approvals",
-        "mcp_integrations",
-        "agents",
-        "retries",
-        "enable_thinking",
-        "enable_internet_access",
-    }
+    EXECUTION_FIELDS = AGENT_PRESET_EXECUTION_FIELDS
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
@@ -1899,8 +1895,12 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                 )
 
-        base_subagents = await self._version_subagent_diff_value(base_version)
-        compare_subagents = await self._version_subagent_diff_value(compare_version)
+        base_subagents = self._subagent_diff_value(
+            await self._get_version_agents_config(base_version)
+        )
+        compare_subagents = self._subagent_diff_value(
+            await self._get_version_agents_config(compare_version)
+        )
         if base_subagents != compare_subagents:
             scalar_changes.append(
                 ScalarFieldChange(
@@ -1971,31 +1971,26 @@ class AgentPresetService(BaseWorkspaceService):
     @staticmethod
     def _subagent_diff_value(
         agents: AgentSubagentsConfig | ResolvedAgentsConfig,
-    ) -> list[dict[str, object]]:
+    ) -> list[_SubagentDiffValue]:
         """Return a stable value representation of subagent head bindings."""
 
         return sorted(
             [
-                {
-                    "preset_id": (
+                _SubagentDiffValue(
+                    preset_id=(
                         str(subagent.preset_id)
                         if isinstance(subagent, HeadAttachedSubagentRef)
                         else None
                     ),
-                    "preset": subagent.preset,
-                    "alias": subagent.alias,
-                    "description": subagent.description,
-                    "max_turns": subagent.max_turns,
-                }
+                    preset=subagent.preset,
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                )
                 for subagent in agents.subagents
             ],
-            key=lambda value: str(value["alias"]),
+            key=lambda value: value["alias"],
         )
-
-    async def _version_subagent_diff_value(
-        self, version: AgentPresetVersion
-    ) -> list[dict[str, object]]:
-        return self._subagent_diff_value(await self._get_version_agents_config(version))
 
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
@@ -2006,10 +2001,9 @@ class AgentPresetService(BaseWorkspaceService):
         # per use via resolve_mcp_integration_secrets.
         mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
-        skill_resolution = await self.skills.get_resolved_skill_refs_for_preset_version(
+        resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id
         )
-        resolved_skills = skill_resolution.refs
         duplicate_skill_names = sorted(
             name
             for name, count in Counter(

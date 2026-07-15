@@ -770,9 +770,14 @@ class SkillAdapter(DirectoryManifestAdapter):
         # Prefer the skill already mapped to this source id, but only after
         # confirming its incoming slug does not clash with another skill.
         skill = swap.mapped_by_source_id.get(source_id) or (
-            await self._skill_by_source_id(
+            await self._row_by_source_id(
                 workspace_service,
                 source_id=source_id,
+                model=Skill,
+                row_predicates=(
+                    Skill.deleted_at.is_(None),
+                    Skill.archived_at.is_(None),
+                ),
             )
         )
         if skill is not None:
@@ -796,23 +801,6 @@ class SkillAdapter(DirectoryManifestAdapter):
             session=workspace_service.session,
             role=workspace_service.role,
         ).get_skill_by_slug(spec.slug)
-
-    async def _skill_by_source_id(
-        self,
-        workspace_service: SyncMappingService,
-        *,
-        source_id: str,
-    ) -> Skill | None:
-        """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
-        return await self._row_by_source_id(
-            workspace_service,
-            source_id=source_id,
-            model=Skill,
-            row_predicates=(
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            ),
-        )
 
 
 def _parse_skill_version_relpath(relpath: str) -> tuple[int, str, str | None] | None:

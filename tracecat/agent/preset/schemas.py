@@ -66,23 +66,6 @@ PresetModelWriteField = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
 ]
 
-_REQUIRED_PRESET_UPDATE_FIELDS = (
-    "name",
-    "model_name",
-    "model_provider",
-    "retries",
-    "enable_thinking",
-    "enable_internet_access",
-)
-
-
-def reject_explicit_null_for_required_version_fields(model: BaseModel) -> None:
-    """Reject explicit nulls for fields required by published versions."""
-
-    for field in _REQUIRED_PRESET_UPDATE_FIELDS:
-        if field in model.model_fields_set and getattr(model, field) is None:
-            raise ValueError(f"{field} cannot be null")
-
 
 class AgentPresetExecutionConfig(Schema):
     """Execution fields that define a preset version."""
@@ -101,6 +84,9 @@ class AgentPresetExecutionConfig(Schema):
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
+
+
+AGENT_PRESET_EXECUTION_FIELDS = set(AgentPresetExecutionConfig.model_fields)
 
 
 class AgentPresetExecutionConfigWrite(AgentPresetExecutionConfig):
@@ -154,7 +140,16 @@ class AgentPresetUpdate(BaseModel):
 
     @model_validator(mode="after")
     def reject_explicit_null_for_required_version_fields(self) -> Self:
-        reject_explicit_null_for_required_version_fields(self)
+        for field in (
+            "name",
+            "model_name",
+            "model_provider",
+            "retries",
+            "enable_thinking",
+            "enable_internet_access",
+        ):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
         return self
 
 
