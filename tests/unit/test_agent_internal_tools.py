@@ -293,6 +293,52 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_update_preset_publishes_unpublished_preset(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    unpublished = SimpleNamespace(
+        id=preset_id,
+        current_version_id=None,
+        model_name="gpt-5.4",
+        model_provider="openai",
+    )
+    updated = SimpleNamespace(id=preset_id)
+    updated_read = _published_preset_read(
+        preset_id=preset_id,
+        workspace_id=claims.workspace_id,
+        actions=[],
+    )
+
+    async def _get_preset(_preset_id):
+        return unpublished
+
+    async def _update_preset(_preset, params):
+        assert _preset is unpublished
+        assert params.actions == []
+        assert params.model_name == "gpt-5.4"
+        assert params.model_provider == "openai"
+        return updated
+
+    async def _build_preset(_preset):
+        assert _preset is updated
+        return updated_read
+
+    preset_service = SimpleNamespace(
+        get_preset=_get_preset,
+        update_preset=_update_preset,
+        build_preset_read=_build_preset,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.AgentPresetService.with_session",
+        lambda role: _AsyncContext(preset_service),
+    )
+
+    result = await internal_tools.update_preset({"actions": []}, claims)
+
+    assert result["current_version_id"] == str(updated_read.current_version_id)
+
+
+@pytest.mark.anyio
 async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)

@@ -356,9 +356,21 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
 
+        if preset.current_version_id is None:
+            initial_model = {
+                field: value
+                for field in ("model_name", "model_provider")
+                if (value := getattr(preset, field)) is not None
+            }
+            params = AgentPresetUpdate.model_validate(
+                initial_model | params.model_dump(exclude_unset=True)
+            )
+
         if params.actions is not None:
-            current = await service.get_current_version_for_preset(preset)
-            current_actions = set(current.actions or [])
+            current_actions: set[str] = set()
+            if preset.current_version_id is not None:
+                current = await service.get_current_version_for_preset(preset)
+                current_actions = set(current.actions or [])
             proposed_actions = set(params.actions)
             added_actions = sorted(proposed_actions - current_actions)
             if added_actions:
