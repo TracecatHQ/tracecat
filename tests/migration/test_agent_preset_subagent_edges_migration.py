@@ -19,6 +19,7 @@ from tests.database import TEST_DB_CONFIG
 
 PREVIOUS_REVISION: Final = "c6a8d4f3b2e1"
 EXPAND_REVISION: Final = "44320bf05445"
+CUTOVER_REVISION: Final = "d2e4f6a8b0c1"
 
 
 def _invoke_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -609,5 +610,203 @@ def test_expand_downgrade_roundtrip(migration_db_url: str) -> None:
                 ).scalar_one()
                 == child_id
             )
+    finally:
+        engine.dispose()
+
+
+def test_cutover_reconciles_expand_writes_and_bridges_old_writers(
+    migration_db_url: str,
+) -> None:
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        parent_id = uuid.uuid4()
+        child_id = uuid.uuid4()
+        stale_child_id = uuid.uuid4()
+        parent_version_id = uuid.uuid4()
+        empty_enabled_version_id = uuid.uuid4()
+        archived_skill_id = uuid.uuid4()
+        with engine.begin() as conn:
+            workspace_id = _setup_workspace(conn, label="cutover")
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=child_id, slug="child"
+            )
+            _insert_preset(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=stale_child_id,
+                slug="stale-child",
+            )
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=parent_id, slug="parent"
+            )
+            _insert_version(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=parent_id,
+                version_id=parent_version_id,
+                version=1,
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "child", "name": "helper"}],
+                },
+            )
+
+        _run_alembic(migration_db_url, "upgrade", EXPAND_REVISION)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM agent_preset_version_subagent "
+                    "WHERE parent_preset_version_id = :version_id"
+                ),
+                {"version_id": parent_version_id},
+            )
+            _insert_version_edge(
+                conn,
+                workspace_id=workspace_id,
+                version_id=parent_version_id,
+                child_id=stale_child_id,
+                alias="stale",
+            )
+            _insert_version(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=parent_id,
+                version_id=empty_enabled_version_id,
+                version=2,
+                agents={"enabled": True, "subagents": []},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO skill (
+                        id, workspace_id, name, slug, draft_revision,
+                        archived_at, deleted_at
+                    )
+                    VALUES (
+                        :id, :workspace_id, 'archived', 'archived', 0,
+                        now(), NULL
+                    )
+                    """
+                ),
+                {"id": archived_skill_id, "workspace_id": workspace_id},
+            )
+
+        _run_alembic(migration_db_url, "upgrade", CUTOVER_REVISION)
+        with engine.begin() as conn:
+            assert conn.execute(
+                text(
+                    """
+                    SELECT child_preset_id, alias
+                    FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :version_id
+                    """
+                ),
+                {"version_id": parent_version_id},
+            ).one() == (child_id, "helper")
+            assert dict(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id, subagents_enabled
+                        FROM agent_preset_version
+                        WHERE id IN (:parent_version_id, :empty_version_id)
+                        """
+                    ),
+                    {
+                        "parent_version_id": parent_version_id,
+                        "empty_version_id": empty_enabled_version_id,
+                    },
+                )
+                .tuples()
+                .all()
+            ) == {
+                parent_version_id: True,
+                empty_enabled_version_id: True,
+            }
+            archived_at, deleted_at = conn.execute(
+                text("SELECT archived_at, deleted_at FROM skill WHERE id = :id"),
+                {"id": archived_skill_id},
+            ).one()
+            assert deleted_at == archived_at
+            index_definition = conn.execute(
+                text(
+                    """
+                    SELECT pg_get_indexdef(indexrelid)
+                    FROM pg_index
+                    WHERE indexrelid = 'uq_skill_workspace_slug_active'::regclass
+                    """
+                )
+            ).scalar_one()
+            assert "deleted_at IS NULL" in index_definition
+            assert "archived_at IS NULL" not in index_definition
+            assert _column(conn, "agent_preset_version", "subagents_enabled") == {
+                "is_nullable": "YES",
+                "column_default": None,
+            }
+            assert _column(conn, "agent_preset_version", "agents") is not None
+            assert _table_exists(conn, "agent_preset_skill")
+
+            late_version_id = uuid.uuid4()
+            _insert_version(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=parent_id,
+                version_id=late_version_id,
+                version=3,
+                agents={"enabled": False},
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT subagents_enabled FROM agent_preset_version "
+                        "WHERE id = :id"
+                    ),
+                    {"id": late_version_id},
+                ).scalar_one()
+                is False
+            )
+    finally:
+        engine.dispose()
+
+
+def test_cutover_rejects_invalid_late_expand_write_atomically(
+    migration_db_url: str,
+) -> None:
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            workspace_id = _setup_workspace(conn, label="invalid-cutover")
+            child_id = uuid.uuid4()
+            parent_id = uuid.uuid4()
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=child_id, slug="child"
+            )
+            _insert_preset(
+                conn, workspace_id=workspace_id, preset_id=parent_id, slug="parent"
+            )
+
+        _run_alembic(migration_db_url, "upgrade", EXPAND_REVISION)
+        with engine.begin() as conn:
+            _insert_version(
+                conn,
+                workspace_id=workspace_id,
+                preset_id=parent_id,
+                version_id=uuid.uuid4(),
+                version=1,
+                agents={"enabled": False, "subagents": [{"preset": "child"}]},
+            )
+
+        result = _invoke_alembic(migration_db_url, "upgrade", CUTOVER_REVISION)
+
+        assert result.returncode != 0
+        assert "disabled config has children" in result.stdout + result.stderr
+        with engine.begin() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == EXPAND_REVISION
+            )
+            assert _column(conn, "agent_preset_version", "subagents_enabled") is None
     finally:
         engine.dispose()

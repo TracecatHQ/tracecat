@@ -860,22 +860,6 @@ class TestSkillService:
         assert by_slug is not None
         assert by_slug.id == created.id
 
-    async def test_legacy_archived_at_alone_is_not_live(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Old writers that only set archived_at hide the row during Expand."""
-
-        created = await skill_service.create_skill(SkillCreate(name="legacy-archived"))
-        legacy = await skill_service.get_skill(created.id)
-        assert legacy is not None
-        legacy.archived_at = datetime.now(UTC)
-        skill_service.session.add(legacy)
-        await skill_service.session.commit()
-
-        assert await skill_service.get_skill(created.id) is None
-        assert await skill_service.get_skill_by_slug(created.slug) is None
-
     async def test_get_skill_by_identifier_falls_back_to_uuid_like_slug(
         self,
         skill_service: SkillService,
@@ -2465,13 +2449,13 @@ class TestSkillService:
         assert archived is not None
         assert archived.deleted_at is not None
 
-    async def test_archive_blocks_when_unpublished_preset_retains_legacy_binding(
+    async def test_archive_blocks_when_unpublished_preset_retains_latest_binding(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Expand rollback bindings remain live while the preset is unpublished."""
+        """The unpublished builder baseline keeps its bound skills protected."""
 
         created = await skill_service.create_skill(
             SkillCreate(name="unpublished-preset-binding")
