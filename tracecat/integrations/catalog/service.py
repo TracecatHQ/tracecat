@@ -247,6 +247,8 @@ class PlatformMCPCatalogService(BaseService):
             return "configured"
         if mcp_integration.tools is None:
             return "configured"
+        if mcp_integration.last_verification_error is not None:
+            return "error"
         return "connected"
 
     @staticmethod

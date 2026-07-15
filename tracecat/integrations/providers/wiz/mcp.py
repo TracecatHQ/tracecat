@@ -22,8 +22,9 @@ class WizMCPProvider(MCPAuthProvider):
     # MCP server endpoint - OAuth endpoints discovered automatically
     mcp_server_uri: ClassVar[str] = "https://mcp.app.wiz.io/"
 
-    # No default scopes - authorization server determines based on user permissions
-    scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
+    # Request a refresh token for durable MCP connections. Resource permissions
+    # remain determined by the user's Wiz authorization.
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(default=["offline_access"])
 
     # Provider metadata
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(

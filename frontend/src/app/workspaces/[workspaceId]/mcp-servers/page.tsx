@@ -782,6 +782,7 @@ function McpCatalogCard({
   // A row with no tool listing hasn't been successfully verified yet; treat it
   // as "configured" so the unverified badge branch is reachable.
   const connected = entry.state === "connected" && entry.tools != null
+  const failed = entry.state === "error"
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
@@ -842,6 +843,9 @@ function McpCatalogCard({
     statusLabel = "Verifying"
     statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
   } else if (verificationStatus === "failed") {
+    statusLabel = "Verification failed"
+    statusClassName = "border-red-200 bg-red-50 text-red-700"
+  } else if (failed) {
     statusLabel = "Verification failed"
     statusClassName = "border-red-200 bg-red-50 text-red-700"
   } else if (locked) {

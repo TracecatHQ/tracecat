@@ -140,6 +140,10 @@ class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
 
 
+class OAuthTokenRefreshError(RuntimeError):
+    """Raised when an expired OAuth token cannot be refreshed."""
+
+
 @dataclass(frozen=True)
 class MCPOAuthDiscoveryEndpoints:
     """Discovered OAuth metadata for a generic MCP resource server."""
@@ -982,11 +986,15 @@ class IntegrationService(BaseWorkspaceService):
         registration_endpoint: str,
         client_name: str,
         token_auth_method: str | None,
+        request_refresh_token: bool = False,
     ) -> MCPOAuthRegistrationResult:
+        grant_types = ["authorization_code"]
+        if request_refresh_token:
+            grant_types.append("refresh_token")
         payload: dict[str, object] = {
             "client_name": client_name,
             "redirect_uris": [self._mcp_oauth_redirect_uri()],
-            "grant_types": ["authorization_code"],
+            "grant_types": grant_types,
             "response_types": ["code"],
         }
         if token_auth_method:
@@ -1107,12 +1115,17 @@ class IntegrationService(BaseWorkspaceService):
             token_auth_method=token_auth_method,
             with_response_type=True,
         )
+        authorization_params: dict[str, object] = {
+            "state": str(state_id),
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "resource": endpoints.resource,
+        }
+        if requested_scopes := self.parse_scopes(integration.requested_scopes):
+            authorization_params["scope"] = " ".join(requested_scopes)
         auth_url, _ = client.create_authorization_url(
             endpoints.authorization_endpoint,
-            state=str(state_id),
-            code_challenge=code_challenge,
-            code_challenge_method="S256",
-            resource=endpoints.resource,
+            **authorization_params,
         )
         return IntegrationOAuthConnect(
             auth_url=auth_url,
@@ -1181,6 +1194,7 @@ class IntegrationService(BaseWorkspaceService):
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
+                request_refresh_token=bool(scopes and "offline_access" in scopes),
             )
         oauth_integration = await self._create_custom_mcp_oauth_provider(
             name=params.name,
@@ -1646,7 +1660,12 @@ class IntegrationService(BaseWorkspaceService):
     async def refresh_token_if_needed(
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
-        """Refresh the access token if it's expired or about to expire."""
+        """Refresh an access token that is expired or about to expire.
+
+        A failed proactive refresh may continue using a token that remains valid.
+        Once the token is expired, refresh failures are hard failures: callers must
+        never send the known-expired credential to the provider.
+        """
         if not integration.needs_refresh:
             return integration
 
@@ -1661,16 +1680,36 @@ class IntegrationService(BaseWorkspaceService):
                     grant_type=integration.grant_type,
                     provider=integration.provider_id,
                 )
+                if integration.is_expired:
+                    raise OAuthTokenRefreshError(
+                        f"Expired OAuth token uses unsupported grant type {integration.grant_type}"
+                    )
                 return integration
         except Exception as e:
             self.logger.error(
-                "Failed to refresh token, continuing with current token",
+                "Failed to refresh OAuth token",
                 error=str(e),
                 provider=integration.provider_id,
                 expires_at=integration.expires_at,
+                token_expired=integration.is_expired,
             )
-            # Return unchanged - let it fail naturally when token expires
+            if integration.is_expired:
+                if isinstance(e, OAuthTokenRefreshError):
+                    raise
+                raise OAuthTokenRefreshError(
+                    f"Expired OAuth token could not be refreshed for {integration.provider_id}"
+                ) from e
+            self.logger.warning(
+                "Continuing with current OAuth token after proactive refresh failure",
+                provider=integration.provider_id,
+                expires_at=integration.expires_at,
+            )
             return integration
+
+        if integration.is_expired:
+            raise OAuthTokenRefreshError(
+                f"Expired OAuth token could not be refreshed for {integration.provider_id}"
+            )
 
         await self.session.refresh(integration)
         return integration
@@ -3123,6 +3162,8 @@ class IntegrationService(BaseWorkspaceService):
             return "configured"
         if mcp_integration.tools is None:
             return "configured"
+        if mcp_integration.last_verification_error is not None:
+            return "error"
         return "connected"
 
     async def _mcp_oauth_access_tokens_by_id(
@@ -3351,6 +3392,8 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration_id=mcp_integration.id,
         )
         mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
+        mcp_integration.last_verified_at = datetime.now(UTC)
+        mcp_integration.last_verification_error = None
         self.session.add(mcp_integration)
         await self.session.commit()
         await self.session.refresh(mcp_integration)
@@ -3517,7 +3560,16 @@ class IntegrationService(BaseWorkspaceService):
         message: str,
         error: str,
     ) -> MCPIntegrationTestConnectionResponse:
-        """Record a failed verification response without mutating stored policy."""
+        """Record a failed verification while preserving cached tool policy."""
+        saved_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            for_update=True,
+        )
+        if saved_integration is not None:
+            saved_integration.last_verified_at = datetime.now(UTC)
+            saved_integration.last_verification_error = error[:4000]
+            self.session.add(saved_integration)
+            await self.session.commit()
         self.logger.warning(
             "MCP integration verification failed",
             mcp_integration_id=str(mcp_integration.id),
@@ -4035,6 +4087,8 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration_id=mcp_integration.id,
             )
             mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
+            mcp_integration.last_verified_at = datetime.now(UTC)
+            mcp_integration.last_verification_error = None
 
         self.session.add(mcp_integration)
         await self.session.commit()

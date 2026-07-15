@@ -3795,6 +3795,7 @@ class TestMCPProviderOAuth:
             authorization_endpoint="https://auth.example.test/oauth/authorize",
             token_endpoint="https://auth.example.test/oauth/token",
         )
+        oauth_integration.requested_scopes = "offline_access"
         session.add(
             MCPIntegration(
                 workspace_id=integration_service.workspace_id,
@@ -3812,6 +3813,7 @@ class TestMCPProviderOAuth:
 
         class FakeOAuthClient:
             init_calls: list[dict[str, object]] = []
+            authorize_calls: list[dict[str, object]] = []
 
             def __init__(self, **kwargs: object) -> None:
                 self.init_calls.append(kwargs)
@@ -3819,6 +3821,7 @@ class TestMCPProviderOAuth:
             def create_authorization_url(
                 self, authorization_endpoint: str, **kwargs: object
             ) -> tuple[str, str]:
+                self.authorize_calls.append(kwargs)
                 state = kwargs["state"]
                 return f"{authorization_endpoint}?state={state}", str(state)
 
@@ -3885,6 +3888,7 @@ class TestMCPProviderOAuth:
         assert FakeOAuthClient.init_calls[0]["token_endpoint_auth_method"] == (
             "client_secret_post"
         )
+        assert FakeOAuthClient.authorize_calls[0]["scope"] == "offline_access"
         assert FakeOAuthClient.init_calls[1]["token_endpoint_auth_method"] == (
             "client_secret_post"
         )
@@ -4182,6 +4186,64 @@ class TestMCPProviderOAuth:
 
         assert captured_hosts == [frozenset({"app.example.com"})]
 
+    async def test_generic_mcp_registration_advertises_refresh_grant(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Dynamic MCP clients declare that they will use refresh tokens."""
+        captured_payload: dict[str, object] = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "client_id": "registered-client",
+                    "token_endpoint_auth_method": "none",
+                }
+
+        class FakeAsyncClient:
+            async def __aenter__(self) -> "FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                _ = args
+
+            async def post(self, *args: object, **kwargs: object) -> FakeResponse:
+                _ = args
+                payload = kwargs["json"]
+                assert isinstance(payload, dict)
+                captured_payload.update(payload)
+                return FakeResponse()
+
+        async def fake_validate_oauth_endpoint(endpoint: str) -> None:
+            _ = endpoint
+
+        monkeypatch.setattr(
+            integration_service_module.httpx,
+            "AsyncClient",
+            FakeAsyncClient,
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "validate_oauth_endpoint_resolves_public_async",
+            fake_validate_oauth_endpoint,
+        )
+
+        await integration_service._perform_mcp_dynamic_registration(
+            registration_endpoint="https://mcp.example.com/oauth/register",
+            client_name="Example MCP",
+            token_auth_method="none",
+            request_refresh_token=True,
+        )
+
+        assert captured_payload["grant_types"] == [
+            "authorization_code",
+            "refresh_token",
+        ]
+
     async def test_generic_mcp_discovery_uses_protected_resource_identifier(
         self,
         integration_service: IntegrationService,
@@ -4267,6 +4329,9 @@ class TestMCPProviderOAuth:
         assert provider._get_additional_token_params()["resource"] == (
             "https://mcp.app.wiz.io/"
         )
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+        auth_query = parse_qs(urlparse(auth_url).query)
+        assert auth_query["scope"] == ["offline_access"]
 
     async def test_mcp_provider_preserves_token_methods(
         self,
@@ -4640,6 +4705,57 @@ class TestMCPConnectionVerification:
         assert result.tools is not None
         assert [tool.name for tool in result.tools] == ["new_tool", "old_tool"]
         assert result.tools[1].status == "missing"
+        assert stdio_integration.last_verified_at is not None
+        assert stdio_integration.last_verification_error is None
+
+    async def test_failed_saved_verification_marks_cached_tools_disconnected(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed saved test preserves policy but cannot leave a green state."""
+        integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Cached MCP",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        cached_tools = [MCPToolSummary(name="cached_tool").model_dump()]
+        integration.tools = cached_tools
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        async def _failed_probe(
+            _mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            raise MCPConnectionVerificationError("Unauthorized", "HTTP 401")
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_http_server",
+            _failed_probe,
+        )
+
+        result = await integration_service.verify_mcp_integration(
+            mcp_integration=integration
+        )
+        await integration_service.session.refresh(integration)
+
+        assert result.success is False
+        assert integration.tools == cached_tools
+        assert integration.last_verified_at is not None
+        assert integration.last_verification_error == "HTTP 401"
+        assert (
+            await integration_service.mcp_integration_state(mcp_integration=integration)
+            == "error"
+        )
+
+        catalog_state = PlatformMCPCatalogService._catalog_state(
+            mcp_integration=integration,
+            encrypted_access_token=None,
+        )
+        assert catalog_state == "error"
 
     async def test_connect_gate_starts_stdio_verification_in_background(
         self,

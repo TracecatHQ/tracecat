@@ -4703,6 +4703,16 @@ class MCPIntegration(TimestampMixin, Base):
         "([{name, description, enabled, requires_approval, status}]); null means "
         "the server is unverified",
     )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp of the latest saved connection verification attempt",
+    )
+    last_verification_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Sanitized error from the latest saved connection verification; null after success",
+    )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(
         "OAuthIntegration",

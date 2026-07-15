@@ -609,6 +609,7 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     wiz = private_by_slug["wiz-mcp"]
     assert wiz.connection_spec is not None
     assert wiz.connection_spec.kind == "http_oauth2"
+    assert wiz.connection_spec.scopes == ["offline_access"]
     assert wiz.connection_options is not None
     assert [option.id for option in wiz.connection_options] == [
         "remote-oauth",

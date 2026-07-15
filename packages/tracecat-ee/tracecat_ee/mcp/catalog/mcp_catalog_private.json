@@ -913,7 +913,9 @@
             "server_type": "http",
             "auth_type": "OAUTH2",
             "server_uri": "https://mcp.app.wiz.io/",
-            "scopes": [],
+            "scopes": [
+              "offline_access"
+            ],
             "oauth_authorization_endpoint": null,
             "oauth_token_endpoint": null,
             "credentials": []

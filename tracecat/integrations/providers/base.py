@@ -1110,10 +1110,13 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
     ) -> DynamicRegistrationResult:
         """Execute dynamic registration without blocking the event loop."""
 
+        grant_types = ["authorization_code"]
+        if "offline_access" in cls.scopes.default:
+            grant_types.append("refresh_token")
         registration_payload = {
             "client_name": cls.metadata.name,
             "redirect_uris": [cls.redirect_uri()],
-            "grant_types": ["authorization_code"],
+            "grant_types": grant_types,
             "response_types": ["code"],
         }
         if registration_auth_method:

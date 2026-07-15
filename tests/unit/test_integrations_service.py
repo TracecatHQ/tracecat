@@ -29,6 +29,7 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    OAuthTokenRefreshError,
 )
 from tracecat.integrations.types import TokenResponse
 
@@ -890,12 +891,8 @@ class TestIntegrationService:
         await integration_service.session.commit()
         await integration_service.session.refresh(integration)
 
-        # Attempt refresh - should return unchanged
-        refreshed = await integration_service.refresh_token_if_needed(integration)
-
-        # Should be the same instance, unchanged
-        assert refreshed.id == integration.id
-        assert refreshed.expires_at == integration.expires_at
+        with pytest.raises(OAuthTokenRefreshError):
+            await integration_service.refresh_token_if_needed(integration)
 
     async def test_refresh_token_if_needed_provider_not_found(
         self,
@@ -936,15 +933,36 @@ class TestIntegrationService:
             # Make get_provider_class return None to simulate provider not found
             mock_get_provider.return_value = None
 
-            # Attempt refresh - should return unchanged integration gracefully
+            with pytest.raises(OAuthTokenRefreshError):
+                await integration_service.refresh_token_if_needed(integration)
+
+            # The failed refresh must not mutate the stored credential.
+            access_token, _ = integration_service.get_decrypted_tokens(integration)
+            assert access_token == mock_token_response.access_token.get_secret_value()
+
+    async def test_refresh_failure_keeps_still_valid_token(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """A proactive refresh failure may use a token that has not expired."""
+        integration = await integration_service.store_integration(
+            provider_key=ProviderKey(
+                id="unknown_provider",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=60,
+        )
+
+        with patch(
+            "tracecat.integrations.service.get_provider_class", return_value=None
+        ):
             refreshed = await integration_service.refresh_token_if_needed(integration)
 
-            # Should be the same instance, unchanged
-            assert refreshed.id == integration.id
-            assert refreshed.expires_at == integration.expires_at
-            # Token should remain unchanged
-            access_token, _ = integration_service.get_decrypted_tokens(refreshed)
-            assert access_token == mock_token_response.access_token.get_secret_value()
+        assert refreshed.id == integration.id
+        assert refreshed.is_expired is False
 
     async def test_refresh_token_if_needed_no_rotation(
         self,
