@@ -94,6 +94,10 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
+    "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
+)
+"""Enable Tracecat-operated platform tracing, separate from agent OTel export."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
