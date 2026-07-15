@@ -36,6 +36,40 @@ function createWrapper(queryClient: QueryClient) {
 }
 
 describe("useStdioMcpVerificationStatus", () => {
+  beforeEach(() => {
+    jest.mocked(toast).mockClear()
+  })
+
+  it("does not toast a saved failure loaded after a refresh", async () => {
+    const refreshedIntegrationId = "mcp-integration-refreshed"
+    const refreshedQueryKey = [
+      "mcp-verification-status",
+      workspaceId,
+      refreshedIntegrationId,
+    ] as const
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    queryClient.setQueryData<MCPVerificationStatusRead>(refreshedQueryKey, {
+      status: "failed",
+      error: "Invalid credentials",
+    })
+
+    const { result } = renderHook(
+      () =>
+        useStdioMcpVerificationStatus({
+          workspaceId,
+          pendingIntegrationIds: [refreshedIntegrationId],
+        }),
+      { wrapper: createWrapper(queryClient) }
+    )
+
+    await waitFor(() =>
+      expect(result.current.get(refreshedIntegrationId)?.status).toBe("failed")
+    )
+    expect(toast).not.toHaveBeenCalled()
+  })
+
   it("exposes live status and re-arms a failed verification on reconnect", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

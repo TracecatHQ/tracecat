@@ -85,7 +85,10 @@ export function useStdioMcpVerificationStatus({
         continue
       }
 
-      if (statusRead.status === "failed" && previousStatus !== "failed") {
+      // A saved failure is also loaded when the page mounts. Only announce a
+      // failure that this client observed completing; the persistent failure
+      // badge remains responsible for failures loaded after a refresh.
+      if (statusRead.status === "failed" && previousStatus === "verifying") {
         toast({
           title: "MCP server verification failed",
           description: verificationFailureToastDescription(statusRead.error),
