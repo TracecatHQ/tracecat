@@ -97,6 +97,9 @@ def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
         "org:read",
         "org:secret:read",
         "org:secret:create",
+        "org:settings:read",
+        "org:settings:update",
+        "org:settings:delete",
         "org:workspace:read",
         "workspace:create",
         "workflow:update",
@@ -121,8 +124,6 @@ def test_org_service_account_assignable_scope_allows_supported_api_key_scopes(
 @pytest.mark.parametrize(
     "scope_name",
     [
-        "org:settings:read",
-        "org:settings:update",
         "org:registry:read",
         "org:member:invite",
         "variable:read",

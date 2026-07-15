@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
@@ -109,7 +109,7 @@ async def check_saml_domain_prerequisites(
 @require_scope("org:settings:read")
 async def get_git_settings(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> GitSettingsRead:
     await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
@@ -124,7 +124,7 @@ async def get_git_settings(
 @require_scope("org:settings:update")
 async def update_git_settings(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
