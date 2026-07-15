@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any, Self
+from typing import Any, Self
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -14,6 +14,9 @@ from tracecat.agent.preset.schemas import (
     AgentPresetReadMinimal,
     AgentPresetSkillBindingBase,
     AgentPresetUpdate,
+    PresetModelWriteField,
+    PresetName,
+    PresetSlug,
     build_agent_preset_read_minimal,
     reject_explicit_null_for_required_version_fields,
 )
@@ -32,32 +35,19 @@ router = APIRouter(
     include_in_schema=False,
 )
 
-PresetName = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
-]
-PresetSlug = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
-]
-PresetModelField = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
-]
-
 
 class PresetCreateRequest(BaseModel):
     """Request body for creating an agent preset."""
 
     name: PresetName
-    model_name: PresetModelField | None = Field(
+    model_name: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model name field retained for backward "
             "compatibility. Prefer catalog_id, which is the canonical model selector."
         ),
     )
-    model_provider: PresetModelField | None = Field(
+    model_provider: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model provider field retained for backward "
@@ -91,14 +81,14 @@ class PresetUpdateRequest(BaseModel):
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
-    model_name: PresetModelField | None = Field(
+    model_name: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model name field retained for backward "
             "compatibility. Prefer catalog_id, which is the canonical model selector."
         ),
     )
-    model_provider: PresetModelField | None = Field(
+    model_provider: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model provider field retained for backward "

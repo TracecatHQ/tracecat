@@ -1018,11 +1018,16 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return existing
         workspace_service.session.add(existing)
         await workspace_service.session.flush()
-        await self._add_version_skill_bindings(
-            workspace_service,
-            existing,
-            skill_targets,
-        )
+        for skill in skill_targets:
+            workspace_service.session.add(
+                AgentPresetVersionSkill(
+                    workspace_id=workspace_service.workspace_id,
+                    preset_version_id=existing.id,
+                    skill_id=skill.id,
+                    skill_version_id=skill.current_version_id,
+                )
+            )
+        await workspace_service.session.flush()
         await self._add_version_subagent_bindings(
             workspace_service,
             existing,
@@ -1050,24 +1055,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,
         }
-
-    async def _add_version_skill_bindings(
-        self,
-        workspace_service: SyncMappingService,
-        version: AgentPresetVersion,
-        skill_targets: list[Skill],
-    ) -> None:
-        """Add Skill ResourceHead edges to a newly created version."""
-        for skill in skill_targets:
-            workspace_service.session.add(
-                AgentPresetVersionSkill(
-                    workspace_id=workspace_service.workspace_id,
-                    preset_version_id=version.id,
-                    skill_id=skill.id,
-                    skill_version_id=skill.current_version_id,
-                )
-            )
-        await workspace_service.session.flush()
 
     async def _sync_legacy_version_projection(
         self,
@@ -1122,21 +1109,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         for field in LEGACY_PRESET_EXECUTION_FIELDS:
             setattr(preset, field, getattr(version, field))
         preset.agents = agents.model_dump(mode="json")
-        await self._replace_legacy_preset_skill_bindings(
-            workspace_service,
-            preset=preset,
-            skill_targets=skill_targets,
-        )
-
-    async def _replace_legacy_preset_skill_bindings(
-        self,
-        workspace_service: SyncMappingService,
-        *,
-        preset: AgentPreset,
-        skill_targets: list[Skill],
-    ) -> None:
-        """Replace the rollback-only mutable Skill projection."""
-
         await workspace_service.session.execute(
             sa.delete(AgentPresetSkill).where(
                 AgentPresetSkill.workspace_id == workspace_service.workspace_id,
@@ -1187,37 +1159,24 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         Skips bindings whose live skill or current published version is missing.
         """
         targets: list[Skill] = []
-        for binding in spec.skills:
-            skill = await self._skill_binding_target(workspace_service, binding)
-            if skill is None:
-                continue
-            targets.append(skill)
-        return targets
-
-    async def _skill_binding_target(
-        self,
-        workspace_service: SyncMappingService,
-        binding: AgentPresetSkillBinding,
-    ) -> Skill | None:
-        """Resolve one slug binding to a published Skill ResourceHead.
-
-        Raises when a live referenced skill has no published version.
-        """
-        skill = await SkillService(
+        skill_service = SkillService(
             session=workspace_service.session,
             role=workspace_service.role,
-        ).get_skill_by_slug(binding.slug)
-        if skill is None:
-            return None
-        if skill.current_version_id is None:
-            raise TracecatValidationError(
-                f"Skill {binding.slug!r} has no published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skill_slug": binding.slug,
-                },
-            )
-        return skill
+        )
+        for binding in spec.skills:
+            skill = await skill_service.get_skill_by_slug(binding.slug)
+            if skill is None:
+                continue
+            if skill.current_version_id is None:
+                raise TracecatValidationError(
+                    f"Skill {binding.slug!r} has no published version",
+                    detail={
+                        "code": "skill_not_published",
+                        "skill_slug": binding.slug,
+                    },
+                )
+            targets.append(skill)
+        return targets
 
 
 def _parse_preset_version_relpath(relpath: str) -> int | None:

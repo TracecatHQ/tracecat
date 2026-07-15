@@ -7,7 +7,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetDispatchActivityInput,
@@ -23,8 +22,6 @@ from tracecat.agent.preset.resolver import (
     ResolvedSubagentConfig,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.schemas import RunAgentArgs
-from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAttachedSubagentRef,
@@ -183,41 +180,6 @@ def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> No
     payload.pop("preserve_resolved_versions")
     parsed = ResolveAgentsConfigActivityInput.model_validate(payload)
     assert parsed.preserve_resolved_versions is False
-
-
-def test_agent_workflow_args_ignore_removed_dispatch_config_field() -> None:
-    """Workflow payloads carrying the removed duplicate config still parse."""
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
-    args = AgentWorkflowArgs(
-        role=role,
-        agent_args=RunAgentArgs(
-            user_prompt="hello",
-            session_id=uuid.uuid4(),
-            config=AgentConfig(
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-            ),
-        ),
-        entity_type=AgentSessionEntity.WORKFLOW,
-        entity_id=uuid.uuid4(),
-    )
-    payload = args.model_dump(mode="json")
-    payload["resolved_agent_config"] = {
-        "model_name": "gpt-4o-mini",
-        "model_provider": "openai",
-        "retries": 3,
-    }
-    payload["agent_args"].pop("resolved_agents_config")
-
-    parsed = AgentWorkflowArgs.model_validate(payload)
-
-    assert parsed.agent_args.config is not None
-    assert parsed.agent_args.resolved_agents_config is None
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:

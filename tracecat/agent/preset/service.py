@@ -213,19 +213,38 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> ResolvedAgentsConfig:
         """Resolve a preset version's snapshotted ResourceHead edges."""
 
-        resolved = await self._resolve_version_subagents(version)
-        return resolved.to_agents_binding()
-
-    async def _resolve_version_subagents(
-        self, version: AgentPresetVersion
-    ) -> ResolvedAgentsConfigResult:
-        """Resolve a preset version's snapshotted ResourceHead edges and refs."""
-
-        return await resolve_agents_config(
+        resolved = await resolve_agents_config(
             self,
             agents=await self._get_version_agents_config(version),
             parent_preset_id=version.preset_id,
             include_runtime_config=False,
+        )
+        return resolved.to_agents_binding()
+
+    def _execution_fields_from_version(
+        self,
+        version: AgentPresetVersion,
+        *,
+        agents: AgentSubagentsConfig | ResolvedAgentsConfig,
+    ) -> dict[str, Any]:
+        """Return execution fields from an immutable version."""
+
+        return {
+            field: getattr(version, field)
+            for field in self.EXECUTION_FIELDS
+            if field != "agents"
+        } | {"agents": agents}
+
+    def _execution_config_from_version(
+        self,
+        version: AgentPresetVersion,
+        *,
+        agents: AgentSubagentsConfig | ResolvedAgentsConfig,
+    ) -> AgentPresetExecutionConfigWrite:
+        """Build writable execution config from an immutable version."""
+
+        return AgentPresetExecutionConfigWrite.model_validate(
+            self._execution_fields_from_version(version, agents=agents)
         )
 
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
@@ -253,20 +272,7 @@ class AgentPresetService(BaseWorkspaceService):
         return AgentPresetRead(
             **metadata,
             current_version_id=version.id,
-            instructions=version.instructions,
-            model_name=version.model_name,
-            model_provider=version.model_provider,
-            catalog_id=version.catalog_id,
-            base_url=version.base_url,
-            output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
-            namespaces=version.namespaces,
-            tool_approvals=version.tool_approvals,
-            mcp_integrations=version.mcp_integrations,
-            agents=agents,
-            retries=version.retries,
-            enable_thinking=version.enable_thinking,
-            enable_internet_access=version.enable_internet_access,
+            **self._execution_fields_from_version(version, agents=agents),
             skills=await self._list_version_skill_bindings(version.id),
         )
 
@@ -281,20 +287,7 @@ class AgentPresetService(BaseWorkspaceService):
             preset_id=version.preset_id,
             workspace_id=version.workspace_id,
             version=version.version,
-            instructions=version.instructions,
-            model_name=version.model_name,
-            model_provider=version.model_provider,
-            catalog_id=version.catalog_id,
-            base_url=version.base_url,
-            output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
-            namespaces=version.namespaces,
-            tool_approvals=version.tool_approvals,
-            mcp_integrations=version.mcp_integrations,
-            agents=agents,
-            retries=version.retries,
-            enable_thinking=version.enable_thinking,
-            enable_internet_access=version.enable_internet_access,
+            **self._execution_fields_from_version(version, agents=agents),
             capabilities=_agent_preset_capabilities(
                 agents_config=agents,
                 tool_approvals=version.tool_approvals,
@@ -480,13 +473,9 @@ class AgentPresetService(BaseWorkspaceService):
             execution_updates["model_provider"] = catalog_entry.model_provider
 
         current_execution = (
-            AgentPresetExecutionConfigWrite.model_validate(
-                {
-                    field: getattr(current_version, field)
-                    for field in self.EXECUTION_FIELDS
-                    if field != "agents"
-                }
-                | {"agents": current_agents}
+            self._execution_config_from_version(
+                current_version,
+                agents=current_agents,
             )
             if current_version is not None
             else None
@@ -802,7 +791,12 @@ class AgentPresetService(BaseWorkspaceService):
             preset_slug=preset_slug,
             reason=reason,
         )
-        self._log_skipped_agent_preset_ref(skipped)
+        self.logger.warning(
+            "Skipping subagent preset ref during current-head resolution",
+            preset_id=str(skipped.preset_id) if skipped.preset_id else None,
+            preset_slug=skipped.preset_slug,
+            reason=skipped.reason,
+        )
         return skipped
 
     async def _get_preset_for_head_resolution(
@@ -830,16 +824,6 @@ class AgentPresetService(BaseWorkspaceService):
             .limit(1)
         )
         return (await self.session.execute(with_deleted(stmt))).scalar_one_or_none()
-
-    def _log_skipped_agent_preset_ref(self, skipped_ref: SkippedAgentPresetRef) -> None:
-        """Record a non-fatal child-head resolution skip."""
-
-        self.logger.warning(
-            "Skipping subagent preset ref during current-head resolution",
-            preset_id=str(skipped_ref.preset_id) if skipped_ref.preset_id else None,
-            preset_slug=skipped_ref.preset_slug,
-            reason=skipped_ref.reason,
-        )
 
     async def load_selected_mcp_integrations(
         self,
@@ -1862,13 +1846,9 @@ class AgentPresetService(BaseWorkspaceService):
             parent_slug=preset.slug,
             allow_skipped=True,
         )
-        config = AgentPresetExecutionConfigWrite.model_validate(
-            {
-                field: getattr(version, field)
-                for field in self.EXECUTION_FIELDS
-                if field != "agents"
-            }
-            | {"agents": historical_agents}
+        config = self._execution_config_from_version(
+            version,
+            agents=historical_agents,
         )
         skill_ids = await self._validated_skill_binding_ids(
             await self._get_version_skill_binding_ids(version.id),
@@ -2082,13 +2062,9 @@ class AgentPresetService(BaseWorkspaceService):
         if current is None:
             current = await self.get_current_version_for_preset(preset)
         agents = await self._get_version_agents_config(current)
-        config = AgentPresetExecutionConfigWrite.model_validate(
-            {
-                field: getattr(current, field)
-                for field in self.EXECUTION_FIELDS
-                if field != "agents"
-            }
-            | {"agents": agents}
+        config = self._execution_config_from_version(
+            current,
+            agents=agents,
         )
         if config_updates:
             config = AgentPresetExecutionConfigWrite.model_validate(
@@ -2138,20 +2114,8 @@ class AgentPresetService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
             preset_id=preset.id,
             version=next_version,
-            instructions=config.instructions,
-            model_name=config.model_name,
-            model_provider=config.model_provider,
-            catalog_id=config.catalog_id,
-            base_url=config.base_url,
-            output_type=config.output_type,
-            actions=config.actions,
-            namespaces=config.namespaces,
-            tool_approvals=config.tool_approvals,
-            mcp_integrations=config.mcp_integrations,
+            **config.model_dump(exclude={"agents"}),
             agents=legacy_agents.model_dump(mode="json"),
-            retries=config.retries,
-            enable_thinking=config.enable_thinking,
-            enable_internet_access=config.enable_internet_access,
         )
         self.session.add(version)
         await self.session.flush()

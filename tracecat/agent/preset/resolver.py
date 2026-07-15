@@ -38,16 +38,6 @@ class SkippedAgentPresetRef(BaseModel):
 
 
 class AgentPresetResolutionService(Protocol):
-    def resolve_agent_preset_version(
-        self,
-        *,
-        preset_id: uuid.UUID | None = None,
-        slug: str | None = None,
-        preset_version_id: uuid.UUID | None = None,
-        preset_version: int | None = None,
-        include_deleted_preset: bool = False,
-    ) -> Awaitable[AgentPresetVersion]: ...
-
     def get_preset(
         self, preset_id: uuid.UUID, *, include_deleted: bool = False
     ) -> Awaitable[AgentPreset | None]: ...

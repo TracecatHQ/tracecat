@@ -37,18 +37,15 @@ class AgentPresetSkillBindingBase(Schema):
     skill_id: uuid.UUID
 
 
-class AgentPresetSkillBindingRead(Schema):
+class AgentPresetSkillBindingRead(AgentPresetSkillBindingBase):
     """Preset-to-Skill ResourceHead edge with display metadata."""
 
-    skill_id: uuid.UUID
     skill_name: str
 
 
-class AgentPresetSkillBindingChange(BaseModel):
+class AgentPresetSkillBindingChange(AgentPresetSkillBindingRead):
     """Attachment change between two preset versions."""
 
-    skill_id: uuid.UUID
-    skill_name: str
     change_type: Literal["attached", "detached"]
 
 
@@ -106,23 +103,11 @@ class AgentPresetExecutionConfig(Schema):
     enable_internet_access: bool = Field(default=False)
 
 
-class AgentPresetExecutionConfigWrite(Schema):
+class AgentPresetExecutionConfigWrite(AgentPresetExecutionConfig):
     """Write-time execution validation for mutable preset fields."""
 
-    instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField
     model_provider: PresetModelWriteField
-    catalog_id: uuid.UUID | None = Field(default=None)
-    base_url: str | None = Field(default=None, max_length=500)
-    output_type: OutputType | None = Field(default=None)
-    actions: list[str] | None = Field(default=None)
-    namespaces: list[str] | None = Field(default=None)
-    tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
-    retries: int = Field(default=3, ge=0)
-    enable_thinking: bool = Field(default=True)
-    enable_internet_access: bool = Field(default=False)
 
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):

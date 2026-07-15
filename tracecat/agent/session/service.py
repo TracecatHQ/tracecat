@@ -156,15 +156,9 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> ResolvedAgentsRuntimeConfig:
         """Resolve the runtime agents tree before Temporal dispatch."""
 
-        agents_config = config.agents
-        if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig()
-        if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(enabled=True)
-
         resolved = await resolve_agents_config(
             AgentPresetService(self.session, self.role),
-            agents=agents_config,
+            agents=config.agents,
             parent_preset_id=agent_session.agent_preset_id,
             include_runtime_config=True,
         )

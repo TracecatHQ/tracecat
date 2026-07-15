@@ -61,9 +61,7 @@ class ResolveAgentPresetDispatchActivityInput(BaseModel):
     instructions: str | None = None
 
 
-class AgentPresetDispatchConfig(BaseModel):
-    preset_id: uuid.UUID
-    preset_version_id: uuid.UUID
+class AgentPresetDispatchConfig(AgentPresetVersionRef):
     config: AgentConfigPayload
     resolved_agents_config: ResolvedAgentsRuntimeConfig
 

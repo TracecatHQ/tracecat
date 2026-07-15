@@ -2454,13 +2454,6 @@ class SkillService(BaseWorkspaceService):
     ) -> ResolvedSkillRefsResult:
         """Resolve a preset version's Skill edges through current heads."""
 
-        return await self._get_current_skill_refs_for_preset_version(preset_version_id)
-
-    async def _get_current_skill_refs_for_preset_version(
-        self, preset_version_id: uuid.UUID
-    ) -> ResolvedSkillRefsResult:
-        """Return current Skill versions for a preset version's ResourceHeads."""
-
         stmt = (
             select(
                 AgentPresetVersionSkill.skill_id,
