@@ -225,7 +225,7 @@ async def test_update_preset_blocks_unconfigured_tool_add(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)
 
-    head = SimpleNamespace(id=preset_id)
+    head = SimpleNamespace(id=preset_id, current_version_id=uuid.uuid4())
     preset_read = _published_preset_read(
         preset_id=preset_id,
         workspace_id=claims.workspace_id,
@@ -343,7 +343,7 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)
 
-    existing_preset = SimpleNamespace(id=preset_id)
+    existing_preset = SimpleNamespace(id=preset_id, current_version_id=uuid.uuid4())
     updated_preset = SimpleNamespace(id=preset_id)
     existing_read = _published_preset_read(
         preset_id=preset_id,
