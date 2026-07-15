@@ -202,9 +202,12 @@ class RemoteWorkflowDefinition(BaseModel):
 
     @field_validator("id", mode="before")
     @classmethod
-    def normalize_id(cls, value: Any) -> str:
+    def normalize_id(cls, value: Any) -> Any:
         """Normalize supported workflow ID representations to the short form."""
-        return WorkflowUUID.new(value).short()
+        try:
+            return WorkflowUUID.new(value).short()
+        except ValueError:
+            return value
 
     # version: int // We don't really need version
     alias: str | None = None
