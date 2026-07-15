@@ -358,9 +358,8 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 
         if preset.current_version_id is None:
             initial_model = {
-                field: value
-                for field in ("model_name", "model_provider")
-                if (value := getattr(preset, field)) is not None
+                "model_name": preset.model_name,
+                "model_provider": preset.model_provider,
             }
             params = AgentPresetUpdate.model_validate(
                 initial_model | params.model_dump(exclude_unset=True)
