@@ -809,6 +809,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             existing_value = getattr(version, key)
             if key in {"actions", "namespaces"}:
                 existing_value = sorted(existing_value) if existing_value else None
+            elif key == "tool_approvals" and not existing_value:
+                existing_value = None
             if existing_value != value:
                 return False
         desired_skill_targets = {skill.id for skill in skill_targets}

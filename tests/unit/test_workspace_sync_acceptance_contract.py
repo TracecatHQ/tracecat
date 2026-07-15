@@ -5078,9 +5078,10 @@ async def test_agent_preset_import_rejects_immutable_version_rewrite(
     # difference without treating the immutable version as rewritten.
     version.mcp_integrations = [str(uuid.uuid4())]
     # Simulate a row imported by the previous writer before portable set-like
-    # fields were normalized for deterministic storage.
+    # fields and empty approval maps were normalized for deterministic storage.
     version.actions = ["tools.zeta", "tools.alpha"]
     version.namespaces = ["zeta", "alpha"]
+    version.tool_approvals = {}
     session.add(version)
     await session.commit()
     await importer.import_non_workflow_resources(snapshot.spec)
