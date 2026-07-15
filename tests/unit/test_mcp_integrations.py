@@ -55,6 +55,7 @@ from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
     MCPConnectionVerificationError,
+    MCPSecretResolutionError,
 )
 from tracecat.integrations.providers.base import (
     DynamicRegistrationResult,
@@ -84,7 +85,10 @@ from tracecat.integrations.schemas import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.service import (
+    IntegrationService,
+    OAuthRefreshBusyError,
+)
 from tracecat.integrations.types import OAuthServerMetadata
 from tracecat.tiers import defaults as tier_defaults
 
@@ -4560,6 +4564,65 @@ class TestMCPConnectionVerification:
         assert headers["Authorization"] == "Bearer test_access_token"
         assert "authorization" not in headers
         assert headers["X-Tenant"] == "t1"
+
+    async def test_resolve_http_config_translates_busy_oauth_refresh(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A contended OAuth refresh remains an MCP configuration error."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Busy OAuth MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        busy_error = OAuthRefreshBusyError("OAuth integration is busy refreshing")
+        monkeypatch.setattr(
+            IntegrationService,
+            "refresh_token_if_needed",
+            AsyncMock(side_effect=busy_error),
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+        assert exc_info.value.__cause__ is busy_error
+
+    async def test_resolve_mcp_secrets_translates_busy_oauth_refresh(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Secret resolution exposes its documented credential error."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Busy OAuth Secrets MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        busy_error = OAuthRefreshBusyError("OAuth integration is busy refreshing")
+        monkeypatch.setattr(
+            IntegrationService,
+            "refresh_token_if_needed",
+            AsyncMock(side_effect=busy_error),
+        )
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+
+        with pytest.raises(MCPSecretResolutionError) as exc_info:
+            await preset_service.resolve_mcp_integration_secrets(mcp_integration.id)
+
+        assert isinstance(exc_info.value.__cause__, MCPConfigurationError)
+        assert exc_info.value.__cause__.__cause__ is busy_error
 
     async def test_resolve_http_config_errors(
         self,

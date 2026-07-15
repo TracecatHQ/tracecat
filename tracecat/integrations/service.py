@@ -3737,7 +3737,14 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration = result.scalars().first()
             if not oauth_integration:
                 raise MCPConfigurationError("Linked OAuth integration not found")
-            oauth_integration = await self.refresh_token_if_needed(oauth_integration)
+            try:
+                oauth_integration = await self.refresh_token_if_needed(
+                    oauth_integration
+                )
+            except OAuthRefreshBusyError as e:
+                raise MCPConfigurationError(
+                    "OAuth integration is busy refreshing"
+                ) from e
             access_token = await self.get_access_token(oauth_integration)
             if not access_token:
                 raise MCPConfigurationError(
