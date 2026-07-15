@@ -21,7 +21,7 @@ import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -39,7 +39,6 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
-    AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
@@ -91,7 +90,6 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
-    AgentPresetResourceSpec,
     AgentPresetSubagentRef,
     AgentPresetVersionResourceSpec,
     ResourceRef,
@@ -751,7 +749,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_version is not None
-    assert parent_version.agents["enabled"] is True
+    assert parent_version.subagents_enabled is True
     assert parent_version.base_url == "https://models.example.test/v1"
     assert parent_version.output_type == {
         "type": "json_schema",
@@ -1185,7 +1183,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_subagent_configs_skip_invalid_heads(
+async def test_agent_preset_subagent_config_skips_invalid_heads(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -1213,7 +1211,7 @@ async def test_agent_preset_subagent_configs_skip_invalid_heads(
     await session.flush()
     importer = WorkspaceResourceImportService(session=session, role=svc_role)
 
-    configs = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_configs(
+    config = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagents_config(
         importer,
         AgentPresetVersionResourceSpec(
             version_number=1,
@@ -1221,7 +1219,7 @@ async def test_agent_preset_subagent_configs_skip_invalid_heads(
         ),
     )
 
-    assert all(not config.enabled and not config.subagents for config in configs)
+    assert not config.enabled and not config.subagents
 
     foreign_owner = AgentPreset(
         workspace_id=workspace_id,
@@ -1234,7 +1232,7 @@ async def test_agent_preset_subagent_configs_skip_invalid_heads(
     soft_deleted_version.preset_id = foreign_owner.id
     await session.flush()
 
-    configs = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_configs(
+    config = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagents_config(
         importer,
         AgentPresetVersionResourceSpec(
             version_number=1,
@@ -1242,7 +1240,7 @@ async def test_agent_preset_subagent_configs_skip_invalid_heads(
         ),
     )
 
-    assert all(not config.enabled and not config.subagents for config in configs)
+    assert not config.enabled and not config.subagents
 
 
 @pytest.mark.anyio
@@ -1796,7 +1794,6 @@ async def test_round_trip_preserves_preset_version_skill_edges(
         select(
             AgentPreset.slug,
             AgentPresetVersionSkill.skill_id,
-            AgentPresetVersionSkill.skill_version_id,
         )
         .select_from(AgentPreset)
         .join(
@@ -1808,20 +1805,9 @@ async def test_round_trip_preserves_preset_version_skill_edges(
     )
     version_bindings = version_binding_rows.tuples().all()
     assert version_bindings == [
-        ("agent-x", skill.id, skill.current_version_id),
-        ("agent-y", skill.id, skill.current_version_id),
+        ("agent-x", skill.id),
+        ("agent-y", skill.id),
     ]
-    head_binding_rows = await session.execute(
-        select(
-            AgentPreset.slug,
-            AgentPresetSkill.skill_id,
-            AgentPresetSkill.skill_version_id,
-        )
-        .join(AgentPresetSkill, AgentPresetSkill.preset_id == AgentPreset.id)
-        .where(AgentPreset.workspace_id == target_workspace_id)
-        .order_by(AgentPreset.slug.asc())
-    )
-    assert head_binding_rows.tuples().all() == version_bindings
 
 
 @pytest.mark.anyio
@@ -3272,7 +3258,7 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
 
 
 @pytest.mark.anyio
-async def test_pull_unpublished_agent_preset_retains_rollback_projection(
+async def test_pull_unpublished_agent_preset_retains_latest_builder_baseline(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -3299,6 +3285,7 @@ async def test_pull_unpublished_agent_preset_retains_rollback_projection(
                 source_id="qa-draft",
                 slug="qa-draft",
                 name="QA draft",
+                instructions="Retained builder instructions",
             ),
         ),
         VcsTreeSnapshot(
@@ -3316,35 +3303,6 @@ async def test_pull_unpublished_agent_preset_retains_rollback_projection(
         return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
-        preset = await session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "qa-draft",
-            )
-        )
-        assert preset is not None
-        rollback_projection = {
-            "instructions": preset.instructions,
-            "model_name": preset.model_name,
-            "model_provider": preset.model_provider,
-            "catalog_id": preset.catalog_id,
-            "base_url": preset.base_url,
-            "output_type": preset.output_type,
-            "actions": preset.actions,
-            "namespaces": preset.namespaces,
-            "tool_approvals": preset.tool_approvals,
-            "mcp_integrations": preset.mcp_integrations,
-            "retries": preset.retries,
-            "enable_thinking": preset.enable_thinking,
-            "enable_internet_access": preset.enable_internet_access,
-            "agents": preset.agents,
-        }
-        rollback_skill_count = await session.scalar(
-            select(func.count())
-            .select_from(AgentPresetSkill)
-            .where(AgentPresetSkill.preset_id == preset.id)
-        )
-
         second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
 
     assert first_result.success is True
@@ -3357,89 +3315,25 @@ async def test_pull_unpublished_agent_preset_retains_rollback_projection(
     )
     assert preset is not None
     assert preset.current_version_id is None
-    for field, expected in rollback_projection.items():
-        assert getattr(preset, field) == expected
-    preset_read = await AgentPresetService(session, svc_role).build_preset_read(preset)
-    assert preset_read.current_version_id is None
-    assert preset_read.model_name == preset.model_name
-    assert preset_read.model_provider == preset.model_provider
-    assert (
-        await session.scalar(
-            select(func.count())
-            .select_from(AgentPresetSkill)
-            .where(AgentPresetSkill.preset_id == preset.id)
-        )
-        == rollback_skill_count
-    )
-
     preset_service = AgentPresetService(session, svc_role)
+    preset_read = await preset_service.build_preset_read(preset)
+    assert preset_read.current_version_id is None
+    assert preset_read.instructions == "Retained builder instructions"
+
     metadata_only = await preset_service.update_preset(
         preset,
         AgentPresetUpdate(description="Imported draft metadata"),
     )
     assert metadata_only.current_version_id is None
-    assert metadata_only.description == "Imported draft metadata"
-
-    # Historical parent snapshots may still name the now-unpublished child.
-    # Import the usable parent and omit only that edge.
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(
-        WorkspaceSpec(
-            agent_presets={
-                "parent": AgentPresetResourceSpec(
-                    id="parent",
-                    slug="parent",
-                    name="Parent",
-                    current_version=1,
-                    versions={
-                        1: AgentPresetVersionResourceSpec(
-                            version_number=1,
-                            subagents=[AgentPresetSubagentRef(slug="qa-draft")],
-                        )
-                    },
-                ),
-            }
-        )
-    )
-
-    parent_version = await session.scalar(
-        select(AgentPresetVersion)
-        .join(AgentPreset, AgentPresetVersion.preset_id == AgentPreset.id)
-        .where(
-            AgentPreset.workspace_id == svc_role.workspace_id,
-            AgentPreset.slug == "parent",
-            AgentPresetVersion.version == 1,
-        )
-    )
-    assert parent_version is not None
-    assert parent_version.agents["enabled"] is False
-    assert (
-        await session.scalar(
-            select(func.count())
-            .select_from(AgentPresetVersionSubagent)
-            .where(
-                AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
-            )
-        )
-        == 0
-    )
 
     published = await preset_service.update_preset(
         preset,
-        AgentPresetUpdate(
-            instructions="Publish the imported draft",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-        ),
+        AgentPresetUpdate(instructions="Republished builder instructions"),
     )
     assert published.current_version_id is not None
     current = await preset_service.get_current_version_for_preset(published)
     assert current.version == 2
-    assert published.instructions == "Publish the imported draft"
-    assert published.model_name == "gpt-4o-mini"
-    assert published.model_provider == "openai"
+    assert current.instructions == "Republished builder instructions"
 
 
 @pytest.mark.anyio
@@ -4757,14 +4651,7 @@ async def test_agent_preset_sync_preserves_subagent_options(
         )
     )
     assert parent_version is not None
-    assert parent.agents["enabled"] is True
-    assert parent.agents["subagents"][0]["preset_id"] == str(child.id)
-    assert parent.agents["subagents"][0]["preset_version_id"] == str(
-        child.current_version_id
-    )
-    assert parent_version.agents == parent.agents
-    assert parent.model_name == parent_version.model_name
-    assert parent.model_provider == parent_version.model_provider
+    assert parent_version.subagents_enabled is True
     version_subagent = await session.scalar(
         select(AgentPresetVersionSubagent).where(
             AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
@@ -4784,19 +4671,6 @@ async def test_agent_preset_sync_preserves_subagent_options(
     assert resolved_binding["subagents"][0]["preset_version_id"] == str(
         child.current_version_id
     )
-
-    await session.execute(
-        delete(AgentPresetVersionSubagent).where(
-            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
-        )
-    )
-    await session.flush()
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-    await session.refresh(parent_version)
-    assert parent_version.agents["subagents"][0]["preset_id"] == str(child.id)
 
     # Version-owned ResourceHead edges follow the child after a slug change.
     child.slug = "z-child-renamed"
@@ -4819,55 +4693,6 @@ async def test_agent_preset_sync_preserves_subagent_options(
             "max_turns": 3,
         }
     ]
-
-
-@pytest.mark.anyio
-async def test_agent_preset_projection_tolerates_invalid_legacy_agents_json(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """An old-writer payload must not block projection of the whole workspace."""
-
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    files = _agent_preset_git_tree(
-        source_id="legacy-parent",
-        slug="legacy-parent",
-        name="Legacy parent",
-    )
-    snapshot, diagnostics = await service.parse_files(files, commit_sha="l" * 40)
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    version = await session.scalar(
-        select(AgentPresetVersion)
-        .join(AgentPreset, AgentPreset.id == AgentPresetVersion.preset_id)
-        .where(
-            AgentPresetVersion.workspace_id == svc_role.workspace_id,
-            AgentPreset.slug == "legacy-parent",
-            AgentPresetVersion.version == 1,
-        )
-    )
-    assert version is not None
-    version.agents = {
-        "enabled": True,
-        "subagents": [
-            {
-                "preset": "legacy-child",
-                "unsupported_legacy_field": True,
-            }
-        ],
-    }
-    await session.flush()
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-
-    version_spec = yaml.safe_load(
-        projection.files[f"{AGENT_PRESET_ROOT}/legacy-parent/versions/1.yml"]
-    )
-    assert version_spec["subagents"] == []
 
 
 @pytest.mark.anyio
@@ -5046,9 +4871,8 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
         )
         assert first_version is not None
         local_mcp_integrations = [str(uuid.uuid4())]
-        first_preset.mcp_integrations = local_mcp_integrations
         first_version.mcp_integrations = local_mcp_integrations
-        session.add_all([first_preset, first_version])
+        session.add(first_version)
         await session.commit()
         second_result = await service.pull(options=PullOptions(commit_sha="j" * 40))
 
@@ -5078,7 +4902,6 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
         "Updated instructions",
     ]
     assert preset.current_version_id == versions[-1].id
-    assert preset.mcp_integrations == local_mcp_integrations
     assert [version.mcp_integrations for version in versions] == [
         local_mcp_integrations,
         local_mcp_integrations,

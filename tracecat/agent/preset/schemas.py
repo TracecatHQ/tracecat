@@ -179,12 +179,9 @@ def build_agent_preset_read_minimal(
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
     version = preset.current_version
-    subagents_enabled = (
-        AgentSubagentsConfig.model_validate(version.agents).enabled
-        if version is not None
-        else False
+    agents_config = AgentSubagentsConfig(
+        enabled=version.subagents_enabled if version is not None else False
     )
-    agents_config = AgentSubagentsConfig(enabled=subagents_enabled)
     tool_approvals = version.tool_approvals if version is not None else None
     enable_internet_access = (
         version.enable_internet_access if version is not None else False

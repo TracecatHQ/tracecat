@@ -3547,90 +3547,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Current immutable version for this preset.",
     )
-    # Legacy execution projection retained only by the expand application.
-    # Cutover reads the immutable current version; these columns are dual-written
-    # so the immediately previous application can still be rolled back safely.
-    instructions: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        doc="System instructions used for legacy execution",
-    )
-    model_name: Mapped[str] = mapped_column(
-        String(120),
-        default="gpt-5.5",
-        nullable=False,
-        doc="Model name used for legacy execution",
-    )
-    model_provider: Mapped[str] = mapped_column(
-        String(120),
-        default="openai",
-        nullable=False,
-        doc="LLM provider used for legacy execution",
-    )
-    catalog_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("agent_catalog.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-        doc="Canonical catalog row backing the legacy model selection",
-    )
-    base_url: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
-        doc="Optional model base URL override for legacy execution",
-    )
-    output_type: Mapped[dict[str, Any] | str | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Optional structured output type definition for legacy execution",
-    )
-    actions: Mapped[list[str] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Tool identifiers available to legacy execution",
-    )
-    namespaces: Mapped[list[str] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Tool namespaces available to legacy execution",
-    )
-    tool_approvals: Mapped[dict[str, bool] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Tool approval requirements by tool name for legacy execution",
-    )
-    mcp_integrations: Mapped[list[str] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="MCP integrations used for legacy execution",
-    )
-    agents: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
-        nullable=False,
-        doc="Subagent configuration used for legacy execution",
-    )
-    retries: Mapped[int] = mapped_column(
-        Integer,
-        default=3,
-        nullable=False,
-        doc="Maximum retry attempts per legacy run",
-    )
-    enable_thinking: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True,
-        server_default=text("true"),
-        nullable=False,
-        doc="Whether to enable high thinking for legacy agent runs",
-    )
-    enable_internet_access: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        server_default=text("false"),
-        nullable=False,
-        doc="Whether legacy agent runs have direct internet access",
-    )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_folder.id", ondelete="SET NULL"),
@@ -3649,11 +3565,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         back_populates="preset",
         cascade="all, delete",
         foreign_keys="[AgentPresetVersion.preset_id]",
-    )
-    skill_bindings: Mapped[list[AgentPresetSkill]] = relationship(
-        "AgentPresetSkill",
-        back_populates="preset",
-        cascade="all, delete-orphan",
     )
     current_version: Mapped[AgentPresetVersion | None] = relationship(
         "AgentPresetVersion",
@@ -3749,12 +3660,11 @@ class AgentPresetVersion(WorkspaceModel):
         nullable=True,
         doc="MCP integrations to use",
     )
-    agents: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
-        default=lambda: {"enabled": False},
-        server_default=text("'{\"enabled\": false}'::jsonb"),
+    subagents_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
         nullable=False,
-        doc="Legacy subagent projection for mixed-version rollback",
+        doc="Whether the Agent tool was enabled for this preset version",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
@@ -3852,7 +3762,7 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
             "workspace_id",
             "slug",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 
@@ -3894,11 +3804,6 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Cached description parsed from root SKILL.md frontmatter",
     )
-    archived_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=True,
-        doc="Legacy archive timestamp dual-written until contract",
-    )
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",
@@ -3921,11 +3826,6 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         "SkillUpload",
         back_populates="skill",
         cascade="all, delete-orphan",
-    )
-    preset_bindings: Mapped[list[AgentPresetSkill]] = relationship(
-        "AgentPresetSkill",
-        back_populates="skill",
-        cascade="save-update",
     )
 
 
@@ -4174,16 +4074,6 @@ class SkillVersion(WorkspaceModel):
         back_populates="skill_version",
         cascade="all, delete-orphan",
     )
-    preset_bindings: Mapped[list[AgentPresetSkill]] = relationship(
-        "AgentPresetSkill",
-        back_populates="skill_version",
-        cascade="save-update",
-    )
-    preset_version_refs: Mapped[list[AgentPresetVersionSkill]] = relationship(
-        "AgentPresetVersionSkill",
-        back_populates="skill_version",
-        cascade="save-update",
-    )
 
 
 class SkillVersionFile(WorkspaceModel):
@@ -4233,49 +4123,6 @@ class SkillVersionFile(WorkspaceModel):
     blob: Mapped[SkillBlob] = relationship(back_populates="version_files")
 
 
-class AgentPresetSkill(WorkspaceModel):
-    """Legacy mutable skill projection retained for application rollback."""
-
-    __tablename__ = "agent_preset_skill"
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id",
-            "preset_id",
-            "skill_id",
-            name="uq_agent_preset_skill_workspace_preset_skill",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    preset_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("agent_preset.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("skill.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    skill_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("skill_version.id", ondelete="RESTRICT"),
-        nullable=True,
-        index=True,
-    )
-
-    preset: Mapped[AgentPreset] = relationship(back_populates="skill_bindings")
-    skill: Mapped[Skill] = relationship(back_populates="preset_bindings")
-    skill_version: Mapped[SkillVersion | None] = relationship(
-        back_populates="preset_bindings",
-        foreign_keys=[skill_version_id],
-    )
-
-
 class AgentPresetVersionSkill(WorkspaceModel):
     """Skill ResourceHead edge recorded by an immutable preset version."""
 
@@ -4308,20 +4155,10 @@ class AgentPresetVersionSkill(WorkspaceModel):
         nullable=False,
         index=True,
     )
-    skill_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("skill_version.id", ondelete="RESTRICT"),
-        nullable=True,
-        index=True,
-    )
     preset_version: Mapped[AgentPresetVersion] = relationship(
         back_populates="skill_refs"
     )
     skill: Mapped[Skill] = relationship()
-    skill_version: Mapped[SkillVersion | None] = relationship(
-        back_populates="preset_version_refs",
-        foreign_keys=[skill_version_id],
-    )
 
 
 class AgentTag(WorkspaceModel):

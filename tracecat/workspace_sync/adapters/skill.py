@@ -370,7 +370,6 @@ class SkillAdapter(DirectoryManifestAdapter):
             .where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
             .order_by(Skill.slug.asc(), Skill.id.asc())
@@ -508,14 +507,8 @@ class SkillAdapter(DirectoryManifestAdapter):
             owner_label="skill",
             error_cls=TracecatValidationError,
             temp_prefix="__tc_sync_tmp_",
-            row_predicates=(
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            ),
-            availability_predicates=(
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            ),
+            row_predicates=(Skill.deleted_at.is_(None),),
+            availability_predicates=(Skill.deleted_at.is_(None),),
         )
         imported: list[ImportedResource] = []
         skill_service = SkillService(
@@ -813,10 +806,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 workspace_service,
                 source_id=source_id,
                 model=Skill,
-                row_predicates=(
-                    Skill.deleted_at.is_(None),
-                    Skill.archived_at.is_(None),
-                ),
+                row_predicates=(Skill.deleted_at.is_(None),),
             )
         )
         if skill is not None:
