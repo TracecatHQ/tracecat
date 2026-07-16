@@ -2037,16 +2037,23 @@ async def test_github_write_files_uploads_oversized_entries_as_blobs(
 
 
 @pytest.mark.anyio
-async def test_github_write_files_logs_pygithub_serialized_payload_size(
+async def test_github_write_files_logs_pygithub_payload_size_per_chunk(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     sync_logger = Mock()
     repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        **{
+            f"workflows/generated-{index:04d}/definition.yml": "version: 1\n"
+            for index in range(_GITHUB_TREE_CHUNK_SIZE)
+        },
+    }
 
     await _write_files_with_fake_repo(
         repo,
         service=workspace_sync_service,
-        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        files=files,
         create_pr=False,
         logger=sync_logger,
     )
@@ -2058,7 +2065,7 @@ async def test_github_write_files_logs_pygithub_serialized_payload_size(
     )
     # PyGithub's Requester serializes with json.dumps default separators; the
     # logged size must match that framing, not a compact serialization.
-    expected_payload_size = sum(
+    expected_payload_sizes = [
         len(
             json.dumps(
                 {
@@ -2068,8 +2075,16 @@ async def test_github_write_files_logs_pygithub_serialized_payload_size(
             ).encode("utf-8")
         )
         for tree in repo.trees
+    ]
+    assert tree_log.kwargs["max_tree_payload_size_bytes"] == max(expected_payload_sizes)
+    chunk_logs = [
+        call
+        for call in sync_logger.info.call_args_list
+        if call.args and call.args[0] == "Created GitHub workspace sync tree chunk"
+    ]
+    assert [call.kwargs["tree_payload_size_bytes"] for call in chunk_logs] == (
+        expected_payload_sizes
     )
-    assert tree_log.kwargs["tree_payload_size_bytes"] == expected_payload_size
 
 
 @pytest.mark.anyio
@@ -2366,7 +2381,7 @@ class _FakeGitHubRepo:
                 SimpleNamespace(path=path, sha=_git_blob_sha(content), type="blob")
                 for path, content in sorted(tree_files.items())
             ],
-            raw_data={"truncated": self._tree_truncated},
+            truncated=self._tree_truncated,
         )
 
     def create_git_blob(self, content: str, encoding: str):

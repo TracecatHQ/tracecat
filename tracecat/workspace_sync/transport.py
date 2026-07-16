@@ -10,11 +10,13 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
 import httpx
 from github.GithubException import GithubException
+from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
@@ -174,13 +176,6 @@ Tree entries embed file content inline, so entry count alone does not bound
 request size. A file whose inline entry alone exceeds the cap is uploaded
 through the blob endpoint and referenced by SHA instead."""
 
-_GITHUB_TREE_ENVELOPE_BYTES = 128
-"""Bytes reserved for the create-tree JSON envelope.
-
-Covers the ``{"base_tree": "<sha>", "tree": [...]}`` framing so a chunk
-measured element-by-element cannot exceed the cap once fully serialized;
-per-element ``", "`` separators are charged to each element instead."""
-
 _GITHUB_RETRY_BUDGET_SECONDS = 45.0
 """Maximum shared Retry-After delay budget for one GitHub export."""
 
@@ -207,11 +202,90 @@ class _GitHubRetryBudget:
     remaining_seconds: float
 
 
+@dataclass(frozen=True)
+class _SizedGitTreeElement:
+    """GitHub tree element with its serialized size cached."""
+
+    element: InputGitTreeElement
+    serialized_size_bytes: int
+
+
+@dataclass(frozen=True)
+class _GitHubTreeChunk:
+    """Bounded create-tree request payload."""
+
+    elements: tuple[InputGitTreeElement, ...]
+    payload_size_bytes: int
+
+
 def _git_blob_sha(content: str) -> str:
     """Return the Git blob object SHA for UTF-8 ``content``."""
     content_bytes = content.encode("utf-8")
     framed_content = b"blob " + str(len(content_bytes)).encode() + b"\0" + content_bytes
     return hashlib.sha1(framed_content, usedforsecurity=False).hexdigest()
+
+
+def _sized_git_tree_element(element: InputGitTreeElement) -> _SizedGitTreeElement:
+    """Cache the element size used to enforce create-tree payload limits."""
+    # PyGithub serializes this private identity with json.dumps. Keep that
+    # dependency isolated here so preflight sizing serializes each entry once.
+    serialized_size_bytes = len(json.dumps(element._identity).encode("utf-8"))
+    return _SizedGitTreeElement(
+        element=element,
+        serialized_size_bytes=serialized_size_bytes,
+    )
+
+
+def _git_tree_envelope_size_bytes(base_tree_sha: str) -> int:
+    """Return the create-tree payload size before elements are added."""
+    return len(
+        json.dumps(
+            {
+                "base_tree": base_tree_sha,
+                "tree": [],
+            }
+        ).encode("utf-8")
+    )
+
+
+def _chunk_git_tree_elements(
+    elements: Sequence[_SizedGitTreeElement],
+    *,
+    base_tree_sha: str,
+) -> list[_GitHubTreeChunk]:
+    """Pack tree elements under both entry-count and payload-size limits."""
+    chunks: list[_GitHubTreeChunk] = []
+    current_chunk: list[_SizedGitTreeElement] = []
+    envelope_size_bytes = _git_tree_envelope_size_bytes(base_tree_sha)
+    current_chunk_bytes = envelope_size_bytes
+
+    for element in elements:
+        separator_bytes = 2 if current_chunk else 0
+        if current_chunk and (
+            len(current_chunk) >= _GITHUB_TREE_CHUNK_SIZE
+            or current_chunk_bytes + separator_bytes + element.serialized_size_bytes
+            > _GITHUB_TREE_CHUNK_MAX_BYTES
+        ):
+            chunks.append(
+                _GitHubTreeChunk(
+                    elements=tuple(item.element for item in current_chunk),
+                    payload_size_bytes=current_chunk_bytes,
+                )
+            )
+            current_chunk = []
+            current_chunk_bytes = envelope_size_bytes
+            separator_bytes = 0
+        current_chunk.append(element)
+        current_chunk_bytes += separator_bytes + element.serialized_size_bytes
+
+    if current_chunk:
+        chunks.append(
+            _GitHubTreeChunk(
+                elements=tuple(item.element for item in current_chunk),
+                payload_size_bytes=current_chunk_bytes,
+            )
+        )
+    return chunks
 
 
 async def _github_write_with_retry[T](
@@ -463,13 +537,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 sha=target_commit.tree.sha,
                 recursive=True,
             )
-            target_tree_truncated = target_tree.raw_data.get("truncated") is True
-            target_blob_shas = {
-                item.path: item.sha
-                for item in target_tree.tree
-                if item.type == "blob" and item.path
-            }
-            if target_tree_truncated:
+            if target_tree.truncated:
                 changed_files = dict(files)
                 stale_paths: set[str] = set()
                 self.logger.warning(
@@ -478,6 +546,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     tree_sha=target_commit.tree.sha,
                 )
             else:
+                target_blob_shas = {
+                    item.path: item.sha
+                    for item in target_tree.tree
+                    if item.type == "blob" and item.path
+                }
                 changed_files = {
                     path: content
                     for path, content in files.items()
@@ -524,24 +597,22 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     message="No changes detected; nothing to commit.",
                 )
 
-            elements: list[InputGitTreeElement] = []
+            sized_elements: list[_SizedGitTreeElement] = []
+            max_inline_element_bytes = (
+                _GITHUB_TREE_CHUNK_MAX_BYTES
+                - _git_tree_envelope_size_bytes(target_commit.tree.sha)
+            )
             for path, content in sorted(changed_files.items()):
-                inline_element = InputGitTreeElement(
-                    path=path,
-                    mode="100644",
-                    type="blob",
-                    content=content,
+                inline_element = _sized_git_tree_element(
+                    InputGitTreeElement(
+                        path=path,
+                        mode="100644",
+                        type="blob",
+                        content=content,
+                    )
                 )
-                # Charge the ", " separator to the element so element-by-element
-                # accounting matches the fully serialized request.
-                inline_bytes = (
-                    len(json.dumps(inline_element._identity).encode("utf-8")) + 2
-                )
-                if (
-                    inline_bytes
-                    <= _GITHUB_TREE_CHUNK_MAX_BYTES - _GITHUB_TREE_ENVELOPE_BYTES
-                ):
-                    elements.append(inline_element)
+                if inline_element.serialized_size_bytes <= max_inline_element_bytes:
+                    sized_elements.append(inline_element)
                     continue
                 # Inline content above the chunk cap would recreate the
                 # oversized-request failure the cap prevents; upload the blob
@@ -552,63 +623,50 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     lambda content=content: repo.create_git_blob(content, "utf-8"),
                     budget=retry_budget,
                 )
-                elements.append(
+                sized_elements.append(
+                    _sized_git_tree_element(
+                        InputGitTreeElement(
+                            path=path,
+                            mode="100644",
+                            type="blob",
+                            sha=blob.sha,
+                        )
+                    )
+                )
+            sized_elements.extend(
+                _sized_git_tree_element(
                     InputGitTreeElement(
                         path=path,
                         mode="100644",
                         type="blob",
-                        sha=blob.sha,
+                        sha=None,
                     )
                 )
-            elements.extend(
-                InputGitTreeElement(path=path, mode="100644", type="blob", sha=None)
                 for path in sorted(stale_paths)
             )
-            element_chunks: list[list[InputGitTreeElement]] = []
-            current_chunk: list[InputGitTreeElement] = []
-            current_chunk_bytes = 0
-            for element in elements:
-                element_bytes = len(json.dumps(element._identity).encode("utf-8")) + 2
-                if current_chunk and (
-                    len(current_chunk) >= _GITHUB_TREE_CHUNK_SIZE
-                    or current_chunk_bytes + element_bytes
-                    > _GITHUB_TREE_CHUNK_MAX_BYTES - _GITHUB_TREE_ENVELOPE_BYTES
-                ):
-                    element_chunks.append(current_chunk)
-                    current_chunk = []
-                    current_chunk_bytes = 0
-                current_chunk.append(element)
-                current_chunk_bytes += element_bytes
-            if current_chunk:
-                element_chunks.append(current_chunk)
-            # Mirror PyGithub's Requester serialization (json.dumps with default
-            # separators) so the logged size matches the transmitted payload.
-            tree_payload_size_bytes = sum(
-                len(
-                    json.dumps(
-                        {
-                            "base_tree": target_commit.tree.sha,
-                            "tree": [element._identity for element in chunk],
-                        }
-                    ).encode("utf-8")
-                )
-                for chunk in element_chunks
+            element_chunks = _chunk_git_tree_elements(
+                sized_elements,
+                base_tree_sha=target_commit.tree.sha,
             )
 
             self.logger.info(
                 "Creating GitHub workspace sync tree",
-                tree_entry_count=len(elements),
+                tree_entry_count=len(sized_elements),
                 tree_chunk_count=len(element_chunks),
-                tree_payload_size_bytes=tree_payload_size_bytes,
+                max_tree_payload_size_bytes=max(
+                    chunk.payload_size_bytes for chunk in element_chunks
+                ),
             )
             tree = target_commit.tree
             for chunk_index, chunk in enumerate(element_chunks, start=1):
                 github_stage = "create_tree_chunk"
                 github_endpoint = "POST /repos/{owner}/{repo}/git/trees"
                 base_tree = tree
+                chunk_elements = list(chunk.elements)
                 tree = await _github_write_with_retry(
-                    lambda chunk=chunk, base_tree=base_tree: repo.create_git_tree(
-                        chunk,
+                    partial(
+                        repo.create_git_tree,
+                        chunk_elements,
                         base_tree=base_tree,
                     ),
                     budget=retry_budget,
@@ -617,7 +675,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     "Created GitHub workspace sync tree chunk",
                     tree_chunk_index=chunk_index,
                     tree_chunk_count=len(element_chunks),
-                    tree_entry_count=len(chunk),
+                    tree_entry_count=len(chunk.elements),
+                    tree_payload_size_bytes=chunk.payload_size_bytes,
                     tree_sha=tree.sha,
                 )
 
@@ -690,7 +749,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     def _stale_paths_under_roots(
         self,
         *,
-        tree_entries: Sequence[Any],
+        tree_entries: Sequence[GitTreeElement],
         files: dict[str, str],
         roots: Sequence[str],
     ) -> set[str]:
