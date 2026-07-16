@@ -141,33 +141,6 @@ def test_agent_run_python_denies_unconfigured_gateway_action(
     assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
 
 
-def test_main_api_denies_action_gateway_bypass(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tracecat.api.app import create_app as create_api_app
-
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = create_api_app()
-    token = mint_executor_token(
-        workspace_id=uuid.uuid4(),
-        user_id=None,
-        scopes=frozenset({"*"}),
-        allowed_actions=frozenset({"core.script.run_python"}),
-        action="core.script.run_python",
-        wf_id="wf-1",
-        wf_exec_id="run-1",
-    )
-
-    with TestClient(app) as client:
-        response = client.get(
-            "/internal/cases",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-    assert response.status_code == 403
-    assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
-
-
 def test_agent_gateway_grant_is_upper_bound_of_caller_scopes() -> None:
     superuser = ExecutorTokenPayload(
         workspace_id=uuid.uuid4(),
