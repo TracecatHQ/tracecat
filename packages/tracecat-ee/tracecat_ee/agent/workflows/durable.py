@@ -532,6 +532,8 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
+        self._execution_scopes: frozenset[str] | None = None
+        self._root_execution_allowed_actions: frozenset[str] | None = None
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -694,9 +696,7 @@ class DurableAgentWorkflow:
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
-            scopes=self.role.scopes
-            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
-            else None,
+            scopes=self._execution_scopes,
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,
@@ -1212,6 +1212,9 @@ class DurableAgentWorkflow:
 
         # Resolve root and subagent tool definitions in one activity, while
         # preserving partitioned outputs for scope-specific tokens and tools.
+        execution_grant_enabled = workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
+        if execution_grant_enabled:
+            self._execution_scopes = self.role.scopes
         compiled_run = await self._compile_agent_run(
             cfg=cfg,
             subagents=agents_result.subagents,
@@ -1219,6 +1222,8 @@ class DurableAgentWorkflow:
         )
         root_registry_lock = compiled_run.registry_lock
         allowed_actions = compiled_run.root.tool_definitions
+        if execution_grant_enabled:
+            self._root_execution_allowed_actions = frozenset(allowed_actions)
 
         logger.debug(
             "Resolved tool definitions",
@@ -1467,9 +1472,6 @@ class DurableAgentWorkflow:
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
-                        agent_allowed_actions=frozenset(
-                            compiled_run.root.tool_definitions
-                        ),
                         mcp_auth_token=compiled_run.root.mcp_auth_token,
                         # Post-approval: emit to the (possibly rotated) stream.
                         # set_approvals rotated self.active_stream_id when the
@@ -1731,7 +1733,6 @@ class DurableAgentWorkflow:
         approved_tools: list[ApprovedToolCall],
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
-        agent_allowed_actions: frozenset[str],
         mcp_auth_token: str,
         active_stream_id: uuid.UUID | None,
     ) -> tuple[list, list[str]]:
@@ -1743,9 +1744,7 @@ class DurableAgentWorkflow:
             workspace_id=self.role.workspace_id,
             organization_id=self.role.organization_id,
             user_id=self.role.user_id,
-            scopes=self.role.scopes
-            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
-            else None,
+            scopes=self._execution_scopes,
         )
         pending_results: list[PendingToolResult] = []
         cancelled_tool_call_ids: list[str] = []
@@ -1788,9 +1787,7 @@ class DurableAgentWorkflow:
                             # The lock includes recursive template steps that are
                             # executable only as part of the approved template.
                             # The Agent grant contains only exposed tool names.
-                            allowed_actions=agent_allowed_actions
-                            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
-                            else None,
+                            allowed_actions=self._root_execution_allowed_actions,
                         )
                     )
                     result = PendingToolResult(
