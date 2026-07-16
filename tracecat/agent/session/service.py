@@ -30,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import Priority, TypedSearchAttributes
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_ee.workspace_chat.skills import (
     BUILTIN_WORKSPACE_CHAT_SKILLS,
@@ -1489,6 +1489,7 @@ class AgentSessionService(BaseWorkspaceService):
                 id=str(workflow_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                priority=Priority(priority_key=1),
                 search_attributes=self._build_direct_agent_search_attributes(
                     session_id
                 ),
