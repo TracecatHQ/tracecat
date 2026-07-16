@@ -344,6 +344,55 @@ class TestExecuteActionActivity:
             mock_ctx_role.set.assert_called_once_with(mock_role)
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("allowed_actions", "expected_scopes"),
+        [
+            pytest.param(
+                frozenset({"core.http_request"}),
+                frozenset(),
+                id="signed-grant-preserves-empty-authority",
+            ),
+            pytest.param(
+                None,
+                SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
+                id="legacy-input-backfills-empty-scopes",
+            ),
+        ],
+    )
+    async def test_scope_backfill_respects_agent_execution_grant(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        allowed_actions: frozenset[str] | None,
+        expected_scopes: frozenset[str],
+    ) -> None:
+        """Treat empty scopes as authoritative only for signed Agent grants."""
+        run_input = mock_run_action_input.model_copy(
+            update={"allowed_actions": allowed_actions}
+        )
+        empty_scope_role = mock_role.model_copy(update={"scopes": frozenset()})
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+            patch("tracecat.executor.activities.ctx_role") as mock_ctx_role,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = {"result": "ok"}
+
+            await ExecutorActivities.execute_action_activity(
+                run_input, empty_scope_role
+            )
+
+            resolved_role = mock_ctx_role.set.call_args.args[0]
+            assert resolved_role.scopes == expected_scopes
+
+    @pytest.mark.anyio
     async def test_error_info_includes_stream_id(
         self, mock_run_action_input, mock_role
     ):

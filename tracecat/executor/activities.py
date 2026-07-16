@@ -89,9 +89,11 @@ class ExecutorActivities:
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).
         """
         ctx_run.set(input.run_context)
-        # Backfill scopes for roles serialized before the RBAC migration.
-        # Temporal history may contain Role objects with empty/None scopes.
-        role = backfill_legacy_role_scopes(role)
+        # A signed Agent execution grant marks new inputs whose role scopes are
+        # authoritative, including an explicitly empty snapshot. Only legacy
+        # inputs without that marker may treat empty/None scopes as pre-RBAC.
+        if input.allowed_actions is None:
+            role = backfill_legacy_role_scopes(role)
         ctx_role.set(role)
 
         task = input.task
