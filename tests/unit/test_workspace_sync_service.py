@@ -1902,6 +1902,39 @@ async def test_github_write_files_retries_429_with_retry_after(
 
 
 @pytest.mark.anyio
+async def test_github_write_files_retries_branch_creation_with_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=403,
+        data={"message": "Request blocked"},
+        headers={"Retry-After": "0.25"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=False,
+        ahead_by=0,
+        create_git_ref_errors=[retry_error],
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    sleep.assert_awaited_once_with(0.25)
+    assert repo.call_counts["create_git_ref"] == 2
+    assert len(repo.created_refs) == 1
+    assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
 async def test_github_write_files_reraises_nonpositive_retry_after(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -2188,6 +2221,7 @@ class _FakeGitHubRepo:
         existing_pr: object | None = None,
         get_git_tree_error: GithubException | None = None,
         create_git_tree_errors: list[GithubException] | None = None,
+        create_git_ref_errors: list[GithubException] | None = None,
         tree_truncated: bool = False,
     ) -> None:
         self._files = dict(files)
@@ -2196,6 +2230,7 @@ class _FakeGitHubRepo:
         self._existing_pr = existing_pr
         self._get_git_tree_error = get_git_tree_error
         self._create_git_tree_errors = list(create_git_tree_errors or ())
+        self._create_git_ref_errors = list(create_git_ref_errors or ())
         self._tree_truncated = tree_truncated
         self.created_refs: list[tuple[str, str]] = []
         self.compare_calls: list[tuple[str, str]] = []
@@ -2226,6 +2261,8 @@ class _FakeGitHubRepo:
 
     def create_git_ref(self, *, ref: str, sha: str) -> None:
         self.call_counts["create_git_ref"] += 1
+        if self._create_git_ref_errors:
+            raise self._create_git_ref_errors.pop(0)
         self.created_refs.append((ref, sha))
         self._branch_exists = True
 

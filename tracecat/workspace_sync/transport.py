@@ -409,6 +409,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         gh = await gh_svc.get_github_client_for_repo(url)
         github_stage = "resolve_repository"
         github_endpoint = "GET /repos/{owner}/{repo}"
+        retry_budget = _GitHubRetryBudget(_GITHUB_RETRY_BUDGET_SECONDS)
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             github_stage = "prepare_branch"
@@ -425,10 +426,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             except GithubException as e:
                 if e.status != 404:
                     raise
-                await asyncio.to_thread(
-                    repo.create_git_ref,
-                    ref=f"refs/heads/{branch}",
-                    sha=base_branch.commit.sha,
+                await _github_write_with_retry(
+                    lambda: repo.create_git_ref(
+                        ref=f"refs/heads/{branch}",
+                        sha=base_branch.commit.sha,
+                    ),
+                    budget=retry_budget,
                 )
                 target_branch = await asyncio.to_thread(repo.get_branch, branch)
 
@@ -543,7 +546,6 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 tree_chunk_count=len(element_chunks),
                 tree_payload_size_bytes=tree_payload_size_bytes,
             )
-            retry_budget = _GitHubRetryBudget(_GITHUB_RETRY_BUDGET_SECONDS)
             tree = target_commit.tree
             for chunk_index, chunk in enumerate(element_chunks, start=1):
                 github_stage = "create_tree_chunk"
