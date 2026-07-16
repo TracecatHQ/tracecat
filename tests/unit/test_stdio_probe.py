@@ -15,6 +15,7 @@ from tracecat.agent.mcp.stdio_probe import (
     sanitize_stdio_probe_error,
 )
 from tracecat.sandbox.exceptions import SandboxTimeoutError
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 FAKE_MCP_SERVER = '''
 from fastmcp import FastMCP
@@ -248,9 +249,9 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
     """A graceful in-sandbox timeout produces an actionable user error."""
     executor = MagicMock(
         execute=AsyncMock(
-            return_value=MagicMock(
+            return_value=SandboxResult(
                 success=False,
-                output={"error_code": "timeout"},
+                error_code=SandboxErrorCode.TIMEOUT,
                 error=None,
                 stderr="",
             )

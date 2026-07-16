@@ -33,7 +33,12 @@ from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxErrorCode,
+    SandboxResult,
+)
 from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 
 __all__ = [
@@ -178,10 +183,11 @@ async def main() -> None:
         write_result(
             {
                 "success": False,
-                "output": {"error_code": "timeout"},
+                "output": None,
                 "stdout": "",
                 "stderr": "",
                 "error": None,
+                "error_code": "timeout",
             }
         )
     except BaseException as exc:
@@ -328,6 +334,11 @@ async def _execute_probe_without_nsjail(
                 stdout=result_data.get("stdout", stdout),
                 stderr=result_data.get("stderr", stderr),
                 error=result_data.get("error"),
+                error_code=(
+                    SandboxErrorCode(error_code)
+                    if (error_code := result_data.get("error_code"))
+                    else None
+                ),
                 exit_code=process.returncode,
             )
 
@@ -410,9 +421,8 @@ async def probe_stdio_mcp_tools_in_sandbox(
         )
 
     if not result.success:
-        match result.output:
-            case {"error_code": "timeout"}:
-                return _timeout_probe_result(timeout_seconds)
+        if result.error_code is SandboxErrorCode.TIMEOUT:
+            return _timeout_probe_result(timeout_seconds)
         error = sanitize_stdio_probe_error(result.error or result.stderr, env=env)
         return StdioMCPProbeResult(
             success=False,
