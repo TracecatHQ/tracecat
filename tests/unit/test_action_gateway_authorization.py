@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -15,6 +16,10 @@ from tracecat.executor.action_gateway.capabilities import (
     resolve_gateway_actions,
 )
 from tracecat.tables.internal_router import lookup_rows
+from tracecat.variables.internal_router import (
+    get_variable_by_name,
+    get_variable_value,
+)
 
 
 def _claims(*allowed_actions: str) -> ExecutorTokenPayload:
@@ -166,3 +171,41 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "path"),
+    [
+        pytest.param(
+            get_variable_by_name,
+            "/internal/variables/config",
+            id="variable-metadata",
+        ),
+        pytest.param(
+            get_variable_value,
+            "/internal/variables/config/value",
+            id="variable-value",
+        ),
+    ],
+)
+async def test_run_python_grant_does_not_imply_unmapped_variable_access(
+    endpoint: Callable[..., Any],
+    path: str,
+) -> None:
+    """Keep script execution separate from non-registry SDK capabilities."""
+    claims = _claims()
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    required_actions = await resolve_gateway_actions(request, endpoint)
+
+    assert required_actions is None
+    assert not _agent_gateway_action_allowed(claims, required_actions)

@@ -13,6 +13,10 @@ registry action, so the server-matched FastAPI endpoint is mapped back to the
 registry action(s) that legitimately use it. The lookup is O(1), happens after
 routing, and denies unmapped endpoints by default for Agent ``run_python``.
 
+Lower-level SDK surfaces without a registry action are intentionally unmapped.
+In particular, granting ``run_python`` authorizes script execution; it is not a
+wildcard for workspace variables or every internal API available to the caller.
+
 Most endpoints represent one concrete operation. A few are shared by registry
 actions that intentionally use the same primitive (for example an update action
 that reads back its result). When request parameters select a stronger operation,
@@ -36,6 +40,9 @@ from tracecat.dsl.enums import PlatformAction
 # Values identify registry actions whose implementation legitimately reaches the
 # endpoint. Multiple values are allowed only for a shared underlying primitive;
 # parameter-dependent privilege differences belong in the resolver table below.
+# Do not map non-registry SDK surfaces (for example workspace variables) to
+# ``run_python``: doing so would let script execution bypass the Agent toolset
+# upper bound. Their existing resource-scope checks constrain only the caller.
 GATEWAY_ACTIONS_BY_ENDPOINT: dict[str, frozenset[str]] = {
     # Agent execution and ranking
     "tracecat.agent.internal_router.run_agent_endpoint": frozenset(
