@@ -47,7 +47,7 @@ from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.priority import INTERACTIVE_AGENT_WORKFLOW_PRIORITY
+from tracecat.agent.priority import resolve_interactive_agent_workflow_priority
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
@@ -1490,7 +1490,9 @@ class AgentSessionService(BaseWorkspaceService):
                 id=str(workflow_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                priority=INTERACTIVE_AGENT_WORKFLOW_PRIORITY,
+                priority=resolve_interactive_agent_workflow_priority(
+                    enabled=config.TEMPORAL__TASK_QUEUE_PRIORITY_ENABLED
+                ),
                 search_attributes=self._build_direct_agent_search_attributes(
                     session_id
                 ),

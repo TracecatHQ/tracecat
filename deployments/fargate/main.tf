@@ -62,11 +62,12 @@ module "ecs" {
   force_new_deployment          = var.force_new_deployment
 
   # Temporal configuration
-  disable_temporal_ui        = var.disable_temporal_ui
-  disable_temporal_autosetup = var.disable_temporal_autosetup
-  temporal_cluster_url       = var.temporal_cluster_url
-  temporal_cluster_queue     = var.temporal_cluster_queue
-  temporal_namespace         = var.temporal_namespace
+  disable_temporal_ui                  = var.disable_temporal_ui
+  disable_temporal_autosetup           = var.disable_temporal_autosetup
+  temporal_cluster_url                 = var.temporal_cluster_url
+  temporal_cluster_queue               = var.temporal_cluster_queue
+  temporal_namespace                   = var.temporal_namespace
+  temporal_task_queue_priority_enabled = var.temporal_task_queue_priority_enabled
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
