@@ -167,6 +167,13 @@ _GITHUB_BLOB_CONCURRENCY = 8
 _GITHUB_TREE_CHUNK_SIZE = 128
 """Balance request count against GitHub create-tree timeouts (observed as 422)."""
 
+_GITHUB_TREE_CHUNK_MAX_BYTES = 2 * 1024 * 1024
+"""Cap the serialized payload per create-tree call.
+
+Tree entries embed file content inline, so entry count alone does not bound
+request size. A single entry larger than the cap still ships alone because an
+entry cannot be split."""
+
 _GITHUB_RETRY_BUDGET_SECONDS = 45.0
 """Maximum shared Retry-After delay budget for one GitHub export."""
 
@@ -522,10 +529,23 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 InputGitTreeElement(path=path, mode="100644", type="blob", sha=None)
                 for path in sorted(stale_paths)
             )
-            element_chunks = [
-                elements[index : index + _GITHUB_TREE_CHUNK_SIZE]
-                for index in range(0, len(elements), _GITHUB_TREE_CHUNK_SIZE)
-            ]
+            element_chunks: list[list[InputGitTreeElement]] = []
+            current_chunk: list[InputGitTreeElement] = []
+            current_chunk_bytes = 0
+            for element in elements:
+                element_bytes = len(json.dumps(element._identity).encode("utf-8"))
+                if current_chunk and (
+                    len(current_chunk) >= _GITHUB_TREE_CHUNK_SIZE
+                    or current_chunk_bytes + element_bytes
+                    > _GITHUB_TREE_CHUNK_MAX_BYTES
+                ):
+                    element_chunks.append(current_chunk)
+                    current_chunk = []
+                    current_chunk_bytes = 0
+                current_chunk.append(element)
+                current_chunk_bytes += element_bytes
+            if current_chunk:
+                element_chunks.append(current_chunk)
             # Mirror PyGithub's Requester serialization (json.dumps with default
             # separators) so the logged size matches the transmitted payload.
             tree_payload_size_bytes = sum(

@@ -1969,6 +1969,34 @@ async def test_github_write_files_reraises_nonpositive_retry_after(
 
 
 @pytest.mark.anyio
+async def test_github_write_files_splits_tree_chunks_by_payload_size(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        "workflows/a/definition.yml": "a" * 300,
+        "workflows/b/definition.yml": "b" * 300,
+        "workflows/c/definition.yml": "c" * 300,
+    }
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    # Each large element serializes past half the patched cap, so no two of
+    # them may share a chunk despite the 128-entry count limit.
+    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 500):
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["create_git_tree"] == 4
+    assert all(len(tree.elements) == 1 for tree in repo.trees)
+    assert repo.final_files == files
+
+
+@pytest.mark.anyio
 async def test_github_write_files_logs_pygithub_serialized_payload_size(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
