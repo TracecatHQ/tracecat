@@ -620,12 +620,24 @@ async def _run_current_builtin_smoke_case(
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
+    action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(
         config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
     )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+    # EphemeralBackend executes in a child process, so export the socket path in
+    # addition to patching this process's config module.
+    monkeypatch.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
 
     action_name = "core.transform.reshape"
     role = _make_role()
@@ -637,12 +649,17 @@ async def _run_current_builtin_smoke_case(
     )
 
     backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
-    result = await backend.execute(
-        input=action_input,
-        role=role,
-        resolved_context=resolved_context,
-        timeout=30,
-    )
+    action_gateway = ActionGateway()
+    try:
+        await action_gateway.start()
+        result = await backend.execute(
+            input=action_input,
+            role=role,
+            resolved_context=resolved_context,
+            timeout=30,
+        )
+    finally:
+        await action_gateway.stop()
 
     assert result.type == "success"
     assert result.result == {"source": "current-builtin"}
