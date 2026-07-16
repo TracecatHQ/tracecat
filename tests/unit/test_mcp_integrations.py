@@ -2025,6 +2025,139 @@ class TestMCPIntegrationCRUD:
         query = parse_qs(parsed.query)
         assert query["resource"] == ["https://mcp.example.test/mcp"]
 
+    async def _run_reconnect_scope_case(
+        self,
+        *,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        provider_id: str,
+        stored_scopes: list[str] | None,
+        advertised_scopes: list[str],
+    ) -> dict[str, object]:
+        """Reconnect an existing custom MCP row and return authorize kwargs.
+
+        Only the authorization endpoint is stored so endpoint resolution falls
+        through to discovery, letting ``advertised_scopes`` drive the flow.
+        """
+        await _seed_service_user(session, integration_service)
+
+        provider_key = ProviderKey(
+            id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        oauth_integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="reconnect-client",
+            authorization_endpoint="https://auth.example.test/oauth/authorize",
+            requested_scopes=stored_scopes,
+        )
+        mcp_integration = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Reconnect Scope MCP",
+            slug=f"reconnect-scope-mcp-{uuid.uuid4().hex[:8]}",
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+        )
+        session.add(mcp_integration)
+        await session.commit()
+
+        async def fake_discover(
+            *,
+            server_uri: str,
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            assert server_uri == "https://mcp.example.test/mcp"
+            return integration_service_module.MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint="https://auth.example.test/oauth/authorize",
+                token_endpoint="https://auth.example.test/oauth/token",
+                token_methods=["none"],
+                scopes_supported=advertised_scopes,
+                registration_endpoint=None,
+                resource="https://mcp.example.test/mcp",
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fake_discover
+        )
+        captured: dict[str, object] = {}
+        _patch_mcp_oauth_client(monkeypatch, authorize_captured=captured)
+
+        result = await integration_service._start_existing_custom_mcp_oauth(
+            mcp_integration=mcp_integration
+        )
+        assert result is not None
+        assert result.oauth_connect is not None
+        return captured
+
+    async def test_reconnect_narrowed_scopes_not_re_expanded(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A DCR-narrowed stored set is sent verbatim, without re-adding offline_access."""
+        captured = await self._run_reconnect_scope_case(
+            integration_service=integration_service,
+            session=session,
+            monkeypatch=monkeypatch,
+            provider_id="custom_mcp_reconnect_narrowed",
+            stored_scopes=["mcp:read"],
+            advertised_scopes=["mcp:read", "offline_access"],
+        )
+        assert captured["scope"] == "mcp:read"
+
+    async def test_reconnect_legacy_null_scopes_expand_with_offline_access(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Legacy rows with NULL requested_scopes still expand on reconnect."""
+        captured = await self._run_reconnect_scope_case(
+            integration_service=integration_service,
+            session=session,
+            monkeypatch=monkeypatch,
+            provider_id="custom_mcp_reconnect_legacy",
+            stored_scopes=None,
+            advertised_scopes=["offline_access"],
+        )
+        assert captured["scope"] == "offline_access"
+
+    async def test_reconnect_stored_offline_access_sent_unchanged(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A stored set already carrying offline_access is not duplicated."""
+        captured = await self._run_reconnect_scope_case(
+            integration_service=integration_service,
+            session=session,
+            monkeypatch=monkeypatch,
+            provider_id="custom_mcp_reconnect_stored_offline",
+            stored_scopes=["mcp:read", "offline_access"],
+            advertised_scopes=["mcp:read", "offline_access"],
+        )
+        assert captured["scope"] == "mcp:read offline_access"
+
+    async def test_reconnect_empty_stored_scopes_stay_empty(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An explicit-empty stored set stays empty and omits the scope param."""
+        captured = await self._run_reconnect_scope_case(
+            integration_service=integration_service,
+            session=session,
+            monkeypatch=monkeypatch,
+            provider_id="custom_mcp_reconnect_empty",
+            stored_scopes=[],
+            advertised_scopes=["offline_access"],
+        )
+        assert "scope" not in captured
+
     async def test_get_mcp_integration(
         self,
         integration_service: IntegrationService,
@@ -3961,7 +4094,7 @@ class TestMCPProviderOAuth:
                 "token_endpoint": "https://mcp.example.com/oauth/token",
                 "registration_endpoint": "https://mcp.example.com/oauth/register",
                 "token_endpoint_auth_methods_supported": ["none"],
-                "scopes_supported": ["read", "offline_access", 42],
+                "scopes_supported": ["read", "offline_access"],
             },
         }
 
@@ -3974,8 +4107,25 @@ class TestMCPProviderOAuth:
             server_uri="https://mcp.example.com/mcp",
         )
 
-        # Malformed non-string entries are dropped by the metadata validator.
         assert endpoints.scopes_supported == ["read", "offline_access"]
+
+    def test_oauth_server_metadata_rejects_malformed_string_lists(self) -> None:
+        """Known metadata fields must retain their declared wire types."""
+        with pytest.raises(ValidationError):
+            OAuthServerMetadata.from_json({"scopes_supported": ["read", 42]})
+
+    @pytest.mark.parametrize(
+        "grant_types",
+        ["authorization_code", ["authorization_code", 42]],
+    )
+    def test_dcr_response_rejects_malformed_grant_types(
+        self, grant_types: object
+    ) -> None:
+        """Malformed DCR grants cannot masquerade as omitted or narrowed grants."""
+        with pytest.raises(ValidationError):
+            DCRResponse.model_validate(
+                {"client_id": "dcr-client", "grant_types": grant_types}
+            )
 
     async def test_resolve_mcp_static_endpoints_have_empty_scopes_supported(
         self,
@@ -5359,7 +5509,7 @@ class TestMCPProviderOAuth:
             metadata: ProviderMetadata = ProviderMetadata(  # type: ignore[assignment]
                 id="narrowed_mcp",
                 name="Narrowed MCP",
-                description="MCP provider with narrowed registered scopes",
+                description="MCP provider with echoed registered scopes",
                 requires_config=False,
                 enabled=True,
             )
@@ -5398,7 +5548,7 @@ class TestMCPProviderOAuth:
             return DCRResponse(
                 client_id="narrowed-client",
                 token_endpoint_auth_method="none",
-                scope="read",
+                scope="read admin",
             )
 
         monkeypatch.setattr(
@@ -5416,8 +5566,8 @@ class TestMCPProviderOAuth:
         auth_url, _ = await provider.get_authorization_url(state="test-state")
 
         assert registration_payload["scope"] == "read offline_access"
-        assert provider.requested_scopes == ["read"]
-        assert parse_qs(urlparse(auth_url).query)["scope"] == ["read"]
+        assert provider.requested_scopes == ["read", "admin"]
+        assert parse_qs(urlparse(auth_url).query)["scope"] == ["read admin"]
 
     async def test_mcp_provider_sync_constructor_honors_dcr_scope_echo(
         self,
@@ -5468,6 +5618,120 @@ class TestMCPProviderOAuth:
 
         assert provider.requested_scopes == ["read"]
         assert parse_qs(urlparse(auth_url).query)["scope"] == ["read"]
+
+    async def test_mcp_provider_instantiate_existing_client_keeps_stored_scopes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Reusing a client_id with stored scopes must not re-add offline_access."""
+
+        class DummyMCPProvider(MCPAuthProvider):
+            id: str = "existing_client_mcp"  # type: ignore[assignment]
+            mcp_server_uri: str = "https://existing.example/mcp"  # type: ignore[assignment]
+            scopes: ProviderScopes = ProviderScopes(default=[])  # type: ignore[assignment]
+            metadata: ProviderMetadata = ProviderMetadata(  # type: ignore[assignment]
+                id="existing_client_mcp",
+                name="Existing Client MCP",
+                description="MCP provider reusing a stored client",
+                requires_config=False,
+                enabled=True,
+            )
+
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "https://app.test")
+        discovery = OAuthDiscoveryResult(
+            authorization_endpoint="https://existing.example/oauth/authorize",
+            token_endpoint="https://existing.example/oauth/token",
+            token_methods=["none"],
+            scopes_supported=["mcp:read", "offline_access"],
+            registration_endpoint="https://existing.example/oauth/register",
+        )
+
+        async def fake_discover(
+            cls,
+            logger_instance,
+            *,
+            discovered_auth_endpoint=None,
+            discovered_token_endpoint=None,
+        ) -> OAuthDiscoveryResult:
+            _ = (
+                cls,
+                logger_instance,
+                discovered_auth_endpoint,
+                discovered_token_endpoint,
+            )
+            return discovery
+
+        async def fail_register(
+            endpoint: str, payload: dict[str, object]
+        ) -> DCRResponse:
+            _ = payload
+            raise AssertionError(
+                f"DCR must not run with an existing client: {endpoint}"
+            )
+
+        monkeypatch.setattr(
+            DummyMCPProvider,
+            "_discover_oauth_endpoints_async",
+            classmethod(fake_discover),
+        )
+        monkeypatch.setattr(
+            DummyMCPProvider,
+            "_submit_registration_request",
+            staticmethod(fail_register),
+        )
+
+        provider_config = ProviderConfig(
+            client_id="existing-client",
+            scopes=["mcp:read"],
+        )
+        provider = await DummyMCPProvider.instantiate(config=provider_config)
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+
+        assert provider.requested_scopes == ["mcp:read"]
+        assert parse_qs(urlparse(auth_url).query)["scope"] == ["mcp:read"]
+
+    async def test_mcp_provider_sync_existing_client_keeps_stored_scopes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The sync constructor also sends stored scopes verbatim with a known client."""
+
+        class DummyMCPProvider(MCPAuthProvider):
+            id: str = "sync_existing_client_mcp"  # type: ignore[assignment]
+            mcp_server_uri: str = "https://sync-existing.example/mcp"  # type: ignore[assignment]
+            scopes: ProviderScopes = ProviderScopes(default=[])  # type: ignore[assignment]
+            metadata: ProviderMetadata = ProviderMetadata(  # type: ignore[assignment]
+                id="sync_existing_client_mcp",
+                name="Sync Existing Client MCP",
+                description="MCP provider reusing a stored client synchronously",
+                requires_config=False,
+                enabled=True,
+            )
+
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "https://app.test")
+
+        def fail_register(self: MCPAuthProvider) -> DynamicRegistrationResult:
+            raise AssertionError("DCR must not run with an existing client")
+
+        monkeypatch.setattr(
+            DummyMCPProvider,
+            "_perform_dynamic_registration",
+            fail_register,
+        )
+
+        provider = DummyMCPProvider(
+            client_id="sync-existing-client",
+            scopes=["mcp:read"],
+            discovered_auth_endpoint="https://sync-existing.example/oauth/authorize",
+            discovered_token_endpoint="https://sync-existing.example/oauth/token",
+            registration_endpoint="https://sync-existing.example/oauth/register",
+            token_methods=["none"],
+            scopes_supported=["mcp:read", "offline_access"],
+        )
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+
+        assert provider.requested_scopes == ["mcp:read"]
+        assert parse_qs(urlparse(auth_url).query)["scope"] == ["mcp:read"]
 
     async def test_mcp_provider_default_resource_uses_full_mcp_uri(
         self,
@@ -5648,12 +5912,15 @@ class TestMCPProviderOAuth:
     @pytest.mark.parametrize(
         ("registered_scope_echo", "expected_authorize_scopes"),
         [
-            # AS narrowed the registration: authorize scope is the intersection.
+            # AS narrowed the registration: authorize with the registered set.
             ("read", ["read"]),
             # AS omitted the scope echo: requested set used verbatim.
             (None, ["read", "write", "offline_access"]),
-            # AS echoed extra scopes we never requested: extras must NOT be added.
-            ("read write offline_access admin", ["read", "write", "offline_access"]),
+            # The registration response is authoritative, including added scopes.
+            (
+                "read write offline_access admin",
+                ["read", "write", "offline_access", "admin"],
+            ),
         ],
     )
     async def test_connect_mcp_oauth_discovery_uses_effective_scopes(
@@ -5664,7 +5931,7 @@ class TestMCPProviderOAuth:
         registered_scope_echo: str | None,
         expected_authorize_scopes: list[str],
     ) -> None:
-        """Authorize URL scope is requested-intersect-registered, order preserved."""
+        """Authorize with registered scopes, or requested scopes when unreported."""
         await _seed_service_user(session, integration_service)
 
         endpoints = integration_service_module.MCPOAuthDiscoveryEndpoints(

@@ -172,17 +172,24 @@ def build_dcr_payload(
 
 
 def mcp_requested_scopes(
-    *, scopes: list[str] | None, scopes_supported: list[str]
+    *, scopes: list[str] | None, scopes_supported: list[str], expand: bool = True
 ) -> list[str]:
     """Add offline access when the OAuth server advertises support for it.
 
     ``scopes=[]`` is an explicit empty grant (e.g. narrowed by a DCR echo)
     and stays empty; ``scopes=None`` means unconfigured and may expand.
+    ``expand=False`` returns the scopes verbatim (used when reusing an
+    already-registered client, where re-expanding a DCR-narrowed set can trip
+    whitelist-enforcing servers).
     """
     if scopes is not None and not scopes:
         return []
     requested = list(scopes or [])
-    if "offline_access" in scopes_supported and "offline_access" not in requested:
+    if (
+        expand
+        and "offline_access" in scopes_supported
+        and "offline_access" not in requested
+    ):
         requested.append("offline_access")
     return requested
 
@@ -328,13 +335,14 @@ class BaseOAuthProvider(ABC):
         self._registration_endpoint: str | None = getattr(
             self, "_registration_endpoint", None
         )
+        # Use provided scopes or fall back to defaults. Dynamic registration
+        # needs these before client credentials are resolved.
+        self.requested_scopes = self.scopes.default if scopes is None else scopes
 
         # Resolve client credentials, allowing subclasses to supply defaults
         credentials = self._resolve_client_credentials(client_id, client_secret)
         self.client_id = credentials.client_id
         self.client_secret = credentials.client_secret
-        # Use provided scopes or fall back to defaults
-        self.requested_scopes = self.scopes.default if scopes is None else scopes
         # Resolve endpoints from overrides or defaults
         resolved_authorization_endpoint = authorization_endpoint or getattr(
             self, "default_authorization_endpoint", None
@@ -456,20 +464,6 @@ class BaseOAuthProvider(ABC):
         response.raise_for_status()
         return DCRResponse.model_validate(response.json())
 
-    def _build_dynamic_registration_payload(
-        self, registration_auth_method: str | None
-    ) -> dict[str, Any]:
-        """Build the dynamic client registration request payload."""
-        payload: dict[str, Any] = {
-            "client_name": self.metadata.name,
-            "redirect_uris": [self.__class__.redirect_uri()],  # pyright: ignore[reportAttributeAccessIssue]
-            "grant_types": ["authorization_code"],
-            "response_types": ["code"],
-        }
-        if registration_auth_method:
-            payload["token_endpoint_auth_method"] = registration_auth_method
-        return payload
-
     def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
         """Register a public client using OAuth 2.0 Dynamic Client Registration."""
 
@@ -477,8 +471,11 @@ class BaseOAuthProvider(ABC):
             raise ValueError("Dynamic registration endpoint is not available")
 
         registration_auth_method = self._dynamic_registration_auth_method()
-        registration_payload = self._build_dynamic_registration_payload(
-            registration_auth_method
+        registration_payload = build_dcr_payload(
+            client_name=self.metadata.name,
+            redirect_uris=[self.__class__.redirect_uri()],  # pyright: ignore[reportAttributeAccessIssue]
+            token_endpoint_auth_method=registration_auth_method,
+            requested_scopes=self.requested_scopes,
         )
 
         try:
@@ -836,17 +833,20 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             discovery_result.token_methods or []
         )
         configured_scopes = kwargs.pop("scopes", None)
-        # Empty provider defaults mean unconfigured (None), unlike an explicit
-        # empty scope set from stored config, which must stay empty.
+        # DCR runs in _resolve_client_credentials only without a client_id; a
+        # stored set reused with an existing client goes out verbatim.
+        will_register = not self._clean_credential(kwargs.get("client_id")) and bool(
+            self._registration_endpoint
+        )
         requested_scopes = mcp_requested_scopes(
             scopes=configured_scopes
             if configured_scopes is not None
             else (self.scopes.default or None),
             scopes_supported=discovery_result.scopes_supported,
+            expand=configured_scopes is None or will_register,
         )
-        self._registration_requested_scopes = self._effective_registered_scopes(
-            requested_scopes=requested_scopes,
-            registered_scopes=registered_scopes,
+        self._registration_requested_scopes = (
+            registered_scopes if registered_scopes is not None else requested_scopes
         )
 
         super().__init__(
@@ -1159,13 +1159,12 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             registration_result = self._perform_dynamic_registration()
             resolved_client_id = registration_result.client_id
             resolved_client_secret = registration_result.client_secret
-            effective_scopes = self._effective_registered_scopes(
-                requested_scopes=self._registration_requested_scopes,
-                registered_scopes=registration_result.registered_scopes,
-            )
-            # BaseOAuthProvider.__init__ already holds this list as its `scopes`
-            # argument, so mutate it in place before it initializes the client.
-            self._registration_requested_scopes[:] = effective_scopes
+            if registration_result.registered_scopes is not None:
+                # BaseOAuthProvider.__init__ already holds this list as its
+                # `scopes` argument, so update it before client initialization.
+                self._registration_requested_scopes[:] = (
+                    registration_result.registered_scopes
+                )
 
         if not resolved_client_id:
             raise ValueError("Missing hosted client credential: client_id")
@@ -1186,29 +1185,6 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         if "none" in methods:
             return "none"
         return None
-
-    @staticmethod
-    def _effective_registered_scopes(
-        *,
-        requested_scopes: list[str],
-        registered_scopes: list[str] | None,
-    ) -> list[str]:
-        """Restrict requested scopes to the DCR scope echo, preserving order."""
-        if registered_scopes is None:
-            return requested_scopes
-        registered = set(registered_scopes)
-        return [scope for scope in requested_scopes if scope in registered]
-
-    def _build_dynamic_registration_payload(
-        self, registration_auth_method: str | None
-    ) -> dict[str, Any]:
-        """Build the MCP dynamic client registration request payload."""
-        return build_dcr_payload(
-            client_name=self.metadata.name,
-            redirect_uris=[self.__class__.redirect_uri()],
-            token_endpoint_auth_method=registration_auth_method,
-            requested_scopes=self._registration_requested_scopes,
-        )
 
     def _dynamic_registration_auth_method(self) -> str | None:
         return self._select_dynamic_registration_auth_method(
@@ -1324,14 +1300,6 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             if config and config.scopes is not None
             else kwargs.get("scopes")
         )
-        # Empty provider defaults mean unconfigured (None), unlike an explicit
-        # empty scope set from stored config, which must stay empty.
-        scopes = mcp_requested_scopes(
-            scopes=configured_scopes
-            if configured_scopes is not None
-            else (cls.scopes.default or None),
-            scopes_supported=discovery_result.scopes_supported,
-        )
 
         if config:
             client_id = cls._clean_credential(config.client_id)
@@ -1339,6 +1307,17 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         else:
             client_id = cls._clean_credential(kwargs.get("client_id"))
             client_secret = cls._clean_credential(kwargs.get("client_secret"))
+
+        # A stored set reused with an existing client goes out verbatim; only
+        # expand when DCR will register the expanded set or scopes are unset.
+        will_register = not client_id and bool(discovery_result.registration_endpoint)
+        scopes = mcp_requested_scopes(
+            scopes=configured_scopes
+            if configured_scopes is not None
+            else (cls.scopes.default or None),
+            scopes_supported=discovery_result.scopes_supported,
+            expand=configured_scopes is None or will_register,
+        )
 
         registration_auth_method = None
         registered_scopes: list[str] | None = None
@@ -1356,10 +1335,6 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_secret = registration_result.client_secret
             registration_auth_method = registration_result.auth_method
             registered_scopes = registration_result.registered_scopes
-            scopes = cls._effective_registered_scopes(
-                requested_scopes=scopes,
-                registered_scopes=registered_scopes,
-            )
 
         if not client_id:
             raise ValueError("Missing hosted client credential: client_id")

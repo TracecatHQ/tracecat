@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
@@ -201,6 +201,10 @@ class MCPOAuthCallbackState:
 
     code_verifier: str | None
     token_auth_method: str | None
+
+
+class _AuthorizeUrlKwargs(TypedDict, total=False):
+    scope: str
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
@@ -1165,7 +1169,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         # Only send a scope param when we have something to request; today's
         # behavior omits it entirely when there are no scopes.
-        authorize_kwargs: dict[str, Any] = {}
+        authorize_kwargs: _AuthorizeUrlKwargs = {}
         if requested_scopes:
             authorize_kwargs["scope"] = " ".join(requested_scopes)
         auth_url, _ = client.create_authorization_url(
@@ -1260,17 +1264,15 @@ class IntegrationService(BaseWorkspaceService):
                 ),
                 requested_scopes=requested_scopes,
             )
-        # RFC 7591: the DCR scope echo is the AS whitelist, possibly narrowed.
-        # Intersect (preserving requested order) rather than adopting verbatim,
-        # since some AS echo broader default sets than we requested.
-        if registration.registered_scopes is not None:
-            registered_set = set(registration.registered_scopes)
-            effective_scopes = [s for s in requested_scopes if s in registered_set]
-        else:
-            effective_scopes = requested_scopes
+        # RFC 7591: a DCR scope echo is the authoritative registered set.
+        effective_scopes = (
+            registration.registered_scopes
+            if registration.registered_scopes is not None
+            else requested_scopes
+        )
         if effective_scopes != requested_scopes:
             self.logger.info(
-                "Narrowed custom MCP OAuth scopes to AS registration",
+                "Using registered custom MCP OAuth scopes",
                 integration_name=params.name,
                 requested_scopes=requested_scopes,
                 registered_scopes=registration.registered_scopes,
@@ -2882,9 +2884,12 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
+        # Reconnect reuses the registered client, so stored scopes go out
+        # verbatim; legacy NULL rows still expand with offline_access.
         requested_scopes = mcp_requested_scopes(
             scopes=provider_config.scopes,
             scopes_supported=endpoints.scopes_supported,
+            expand=provider_config.scopes is None,
         )
         self.logger.info(
             "Reconnecting custom MCP OAuth integration",
