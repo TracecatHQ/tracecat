@@ -20,7 +20,7 @@ from tracecat.agent.executor.activity import (
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.mcp.stdio_probe_types import (
-    MCP_STDIO_PROBE_TIMEOUT,
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPPersistInput,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
@@ -433,7 +433,7 @@ class TestProbeStdioMCPConnectionActivity:
             command="python",
             args=["-m", "example"],
             env=None,
-            timeout=MCP_STDIO_PROBE_TIMEOUT,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
         )
 
     @pytest.mark.anyio
