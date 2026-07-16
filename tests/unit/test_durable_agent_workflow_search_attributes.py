@@ -11,7 +11,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError
-from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
+from tracecat_ee.agent.activities import (
+    BuildAgentToolDefsArgs,
+    BuildAgentToolDefsResult,
+    BuildToolDefsResult,
+)
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
@@ -30,6 +34,7 @@ from tracecat.agent.executor.activity import AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.session.activities import LoadSessionMessagesResult
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -164,7 +169,7 @@ async def test_upsert_tracecat_search_attributes_preserves_existing_values() -> 
 
 
 @pytest.mark.anyio
-async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
+async def test_run_deprecates_entry_and_finalize_patches() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -184,9 +189,8 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
 
     with (
         patch(
-            "tracecat_ee.agent.workflows.durable.workflow.patched",
-            return_value=False,
-        ) as patched_mock,
+            "tracecat_ee.agent.workflows.durable.workflow.deprecate_patch"
+        ) as deprecate_patch_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
             return_value=False,
@@ -200,23 +204,22 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
+        patch.object(workflow_instance, "_finalize_turn", AsyncMock()) as finalize_mock,
     ):
         result = await workflow_instance.run(workflow_args)
 
-    # run() gates the search-attribute upsert (entry) and finalize_turn (finally)
-    # behind patch markers; legacy histories see False for both.
-    assert patched_mock.call_args_list == [
+    assert deprecate_patch_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
-    upsert_mock.assert_not_called()
+    upsert_mock.assert_called_once_with()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
+    finalize_mock.assert_awaited_once_with()
     assert result == expected_output
 
 
 @pytest.mark.anyio
-async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
-    """Legacy replays must not schedule the new session-error activity."""
+async def test_run_deprecates_session_error_patches() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -240,43 +243,39 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
 
     with (
         patch(
-            "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False, False, False],
-        ) as patched_mock,
+            "tracecat_ee.agent.workflows.durable.workflow.deprecate_patch"
+        ) as deprecate_patch_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
             return_value=False,
         ),
+        patch.object(workflow_instance, "_upsert_tracecat_search_attributes"),
         patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
         patch.object(
             workflow_instance,
             "_run_with_agent_executor",
             AsyncMock(side_effect=activity_error),
         ),
-        # Let the real _finalize_session_error run so its patch-gated
-        # early-return is exercised; mock only the actual scheduling call.
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
             AsyncMock(),
         ) as execute_activity_mock,
+        patch.object(workflow_instance, "_finalize_turn", AsyncMock()),
     ):
         with pytest.raises(ActivityError):
             await workflow_instance.run(workflow_args)
 
-    # Legacy replay (all patches off) on the pre-stream error path: should_stream
-    # resolves False, and _finalize_session_error early-returns before scheduling
-    # emit_session_error, preserving the legacy command shape.
-    assert patched_mock.call_args_list == [
+    assert deprecate_patch_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
         ((PERSIST_SESSION_ERROR_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
-    execute_activity_mock.assert_not_awaited()
+    execute_activity_mock.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> None:
+async def test_compile_agent_run_deprecates_tool_definition_patch() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -304,12 +303,13 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
 
     with (
         patch(
-            "tracecat_ee.agent.workflows.durable.workflow.patched",
-            return_value=False,
-        ) as patched_mock,
+            "tracecat_ee.agent.workflows.durable.workflow.deprecate_patch"
+        ) as deprecate_patch_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
-            AsyncMock(return_value=build_result),
+            AsyncMock(
+                return_value=BuildAgentToolDefsResult(scopes={"root": build_result})
+            ),
         ) as execute_activity_mock,
         patch.object(
             workflow_instance,
@@ -323,12 +323,13 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             internal_tool_context=None,
         )
 
-    patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
+    deprecate_patch_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_args = execute_activity_mock.await_args.kwargs["arg"]
-    assert isinstance(activity_args, BuildToolDefsArgs)
-    assert activity_args.tool_filters.actions == ["core.http_request"]
+    assert isinstance(activity_args, BuildAgentToolDefsArgs)
+    assert len(activity_args.scopes) == 1
+    assert activity_args.scopes[0].tool_filters.actions == ["core.http_request"]
     assert compiled.root.build_result == build_result
     assert compiled.root.mcp_auth_token == "mcp-token"
     assert compiled.subagents == []
@@ -336,10 +337,7 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
 
 
 @pytest.mark.anyio
-async def test_load_terminal_message_history_skips_activity_without_patch_marker() -> (
-    None
-):
-    """Legacy replays must not schedule the new terminal-history activity."""
+async def test_load_terminal_message_history_deprecates_patch() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -353,23 +351,19 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
 
     with (
         patch(
-            "tracecat_ee.agent.workflows.durable.workflow.patched",
-            return_value=False,
-        ) as patched_mock,
+            "tracecat_ee.agent.workflows.durable.workflow.deprecate_patch"
+        ) as deprecate_patch_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
-            new_callable=AsyncMock,
+            AsyncMock(return_value=LoadSessionMessagesResult()),
         ) as execute_activity_mock,
     ):
-        execute_activity_mock.side_effect = AssertionError(
-            "legacy replay scheduled terminal message load"
-        )
         message_history = await workflow_instance._load_terminal_message_history(
             AgentExecutorResult(success=True)
         )
 
-    patched_mock.assert_called_once_with(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH)
-    execute_activity_mock.assert_not_called()
+    deprecate_patch_mock.assert_called_once_with(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH)
+    execute_activity_mock.assert_awaited_once()
     assert message_history is None
 
 
