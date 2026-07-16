@@ -1119,7 +1119,7 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
+    async def is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
         """Check whether this session has any persisted local history yet."""
         stmt = (
             select(AgentSessionHistory.id)
@@ -1131,10 +1131,6 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
-
-    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
-        """Return whether the session should receive its initial artifact seed."""
-        return await self._is_first_prompt_for_session(agent_session.id)
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
@@ -1365,6 +1361,7 @@ class AgentSessionService(BaseWorkspaceService):
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
         *,
         active_stream_id: uuid.UUID | None = None,
+        is_first_prompt: bool | None = None,
     ) -> ChatResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
@@ -1377,6 +1374,8 @@ class AgentSessionService(BaseWorkspaceService):
                 into the workflow input and onto the session row so the producer
                 and reader share the same per-turn Redis key. Defaults to a freshly
                 minted id for callers that don't manage their own stream.
+            is_first_prompt: Whether the session had no history before this turn.
+                When omitted, the service queries history for direct callers.
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
@@ -1439,9 +1438,9 @@ class AgentSessionService(BaseWorkspaceService):
         # executor streams history rows mid-turn, so checking afterwards would
         # race. Placeholder titles ("Chat 1", "Slack thread", ...) vary by
         # surface, so first-prompt history is the signal, not the title text.
-        should_auto_title = user_prompt is not None and (
-            await self._is_first_prompt_for_session(session_id)
-        )
+        if is_first_prompt is None:
+            is_first_prompt = await self.is_first_prompt_for_session(session_id)
+        should_auto_title = user_prompt is not None and is_first_prompt
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:

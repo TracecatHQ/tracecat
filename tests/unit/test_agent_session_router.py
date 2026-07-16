@@ -466,6 +466,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         session_id=session_id,
         request=request,
         active_stream_id=agent_session.active_stream_id,
+        is_first_prompt=None,
     )
 
 
@@ -497,7 +498,7 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
-        should_seed_initial_artifact=AsyncMock(return_value=False),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -529,7 +530,7 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
 
     assert isinstance(response, StreamingResponse)
     with_session_mock.assert_called_once_with(role=role)
-    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.is_first_prompt_for_session.assert_awaited_once_with(session_id)
     fake_svc.build_initial_artifact.assert_not_awaited()
     fake_stream.sse.assert_called_once()
     assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
@@ -546,6 +547,7 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
         session_id=session_id,
         request=request,
         active_stream_id=minted_stream_id,
+        is_first_prompt=False,
     )
 
 
@@ -589,7 +591,7 @@ async def test_send_message_new_turn_bubble_id_survives_fast_finalize() -> None:
                 stream_url="/stream", chat_id=session_id, curr_run_id=run_id
             )
         ),
-        should_seed_initial_artifact=AsyncMock(return_value=False),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -658,7 +660,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
-        should_seed_initial_artifact=AsyncMock(return_value=True),
+        is_first_prompt_for_session=AsyncMock(return_value=True),
         build_initial_artifact=AsyncMock(return_value=artifact),
         apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
     )
@@ -691,7 +693,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         )
 
     assert isinstance(response, StreamingResponse)
-    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.is_first_prompt_for_session.assert_awaited_once_with(session_id)
     fake_svc.build_initial_artifact.assert_awaited_once_with(agent_session)
     fake_stream.append.assert_awaited_once()
     artifact_event = fake_stream.append.await_args.args[0]
@@ -717,6 +719,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
     assert run_turn_kwargs["session_id"] == session_id
     assert run_turn_kwargs["request"] == request
     assert isinstance(run_turn_kwargs["active_stream_id"], uuid.UUID)
+    assert run_turn_kwargs["is_first_prompt"] is True
 
 
 @pytest.mark.anyio
@@ -755,7 +758,7 @@ async def test_send_message_new_turn_skips_initial_artifact_after_first_prompt()
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
-        should_seed_initial_artifact=AsyncMock(return_value=False),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=artifact),
         apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
     )
@@ -788,7 +791,7 @@ async def test_send_message_new_turn_skips_initial_artifact_after_first_prompt()
         )
 
     assert isinstance(response, StreamingResponse)
-    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.is_first_prompt_for_session.assert_awaited_once_with(session_id)
     fake_svc.build_initial_artifact.assert_not_awaited()
     fake_svc.apply_artifact_side_effects.assert_not_awaited()
     fake_stream.append.assert_not_awaited()
@@ -823,7 +826,7 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(side_effect=RuntimeError("temporal unavailable")),
-        should_seed_initial_artifact=AsyncMock(return_value=False),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
         clear_active_turn=AsyncMock(return_value=None),
     )
@@ -856,7 +859,7 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
             )
 
     assert exc_info.value.status_code == 500
-    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.is_first_prompt_for_session.assert_awaited_once_with(session_id)
     fake_svc.build_initial_artifact.assert_not_awaited()
     fake_svc.run_turn.assert_awaited_once()
     # Startup failure surfaces a terminal frame + clears the active-turn pointers.

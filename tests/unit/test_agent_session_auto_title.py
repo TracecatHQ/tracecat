@@ -116,7 +116,7 @@ async def test_auto_title_does_not_skip_when_history_exists(role: Role) -> None:
     )
     agent_session.id = uuid.uuid4()
 
-    service._is_first_prompt_for_session = AsyncMock(return_value=False)
+    service.is_first_prompt_for_session = AsyncMock(return_value=False)
 
     with patch(
         "tracecat.agent.session.service.generate_session_title",
@@ -125,7 +125,7 @@ async def test_auto_title_does_not_skip_when_history_exists(role: Role) -> None:
         await service.auto_title_session_on_first_prompt(agent_session, "Do something")
 
     assert agent_session.title == "Do something useful"
-    service._is_first_prompt_for_session.assert_not_awaited()
+    service.is_first_prompt_for_session.assert_not_awaited()
 
 
 @pytest.mark.anyio
