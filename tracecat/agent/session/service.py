@@ -46,6 +46,10 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    resolve_agents_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
@@ -68,9 +72,7 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     TurnLifecycleResult,
 )
-from tracecat.agent.subagents import (
-    ResolvedAgentsConfig,
-)
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
@@ -145,6 +147,50 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
+
+    async def _resolve_dispatch_agents_config(
+        self,
+        *,
+        agent_session: AgentSession,
+        config: AgentConfig,
+    ) -> ResolvedAgentsRuntimeConfig:
+        """Resolve the runtime agents tree before Temporal dispatch."""
+
+        resolved = await resolve_agents_config(
+            AgentPresetService(self.session, self.role),
+            agents=config.agents,
+            parent_preset_id=agent_session.agent_preset_id,
+            include_runtime_config=True,
+        )
+        runtime_config = resolved.to_runtime_config()
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            runtime_config = runtime_config.model_copy(
+                update={
+                    "subagents": [
+                        subagent.model_copy(
+                            update={
+                                "config": subagent.config.model_copy(
+                                    update={
+                                        "actions": (
+                                            filter_workspace_chat_tools_for_scopes(
+                                                subagent.config.actions,
+                                                role=self.role,
+                                            )
+                                            if subagent.config.actions is not None
+                                            else None
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                        for subagent in runtime_config.subagents
+                    ]
+                }
+            )
+        return runtime_config
 
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
         """Get entitlement-aware default tools for a session entity type."""
@@ -256,6 +302,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         channel_context: dict[str, Any] | None = None,
         agents_binding: ResolvedAgentsConfig | None = None,
+        resolve_agents_binding: bool = True,
     ) -> AgentSession:
         """Create a new agent session.
 
@@ -283,7 +330,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             agent_preset_id=args.agent_preset_id,
         )
-        pinned_preset_version_id = await self._validate_preset_version_for_assignment(
+        selected_preset_version_id = await self._validate_preset_version_for_assignment(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
             agent_preset_id=args.agent_preset_id,
@@ -291,12 +338,14 @@ class AgentSessionService(BaseWorkspaceService):
         )
         if agents_binding is not None:
             resolved_agents_binding = agents_binding.model_dump(mode="json")
-        else:
+        elif resolve_agents_binding:
             resolved_agents_binding = (
                 await self._resolve_agents_binding_for_preset_version_id(
-                    pinned_preset_version_id
+                    selected_preset_version_id
                 )
             )
+        else:
+            resolved_agents_binding = None
         await self._validate_session_mcp_integrations(args.mcp_integrations)
 
         agent_session = AgentSession(
@@ -310,7 +359,7 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             mcp_integrations=args.mcp_integrations,
             agent_preset_id=logical_preset_id,
-            agent_preset_version_id=pinned_preset_version_id,
+            agent_preset_version_id=selected_preset_version_id,
             agents_binding=resolved_agents_binding,
             # Harness
             harness_type=args.harness_type,
@@ -347,7 +396,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_preset_id: uuid.UUID | None,
         agent_preset_version_id: uuid.UUID | None,
     ) -> uuid.UUID | None:
-        """Validate and return the pinned preset version for a session assignment."""
+        """Validate and return an exact preset version selected for a session."""
         logical_preset_id = self._resolve_logical_preset_id(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -378,7 +427,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def _resolve_agents_binding_for_preset_version_id(
         self, preset_version_id: uuid.UUID | None
     ) -> dict[str, Any] | None:
-        """Resolve the normalized subagent binding for a pinned preset version."""
+        """Resolve the normalized subagent binding for an exact preset version."""
         if preset_version_id is None:
             return None
 
@@ -386,9 +435,8 @@ class AgentSessionService(BaseWorkspaceService):
         version = await preset_service.resolve_agent_preset_version(
             preset_version_id=preset_version_id
         )
-        return ResolvedAgentsConfig.model_validate(version.agents).model_dump(
-            mode="json"
-        )
+        binding = await preset_service.get_version_subagent_binding(version)
+        return binding.model_dump(mode="json")
 
     async def get_session(
         self,
@@ -570,6 +618,7 @@ class AgentSessionService(BaseWorkspaceService):
         args: AgentSessionCreate,
         *,
         agents_binding: ResolvedAgentsConfig | None = None,
+        resolve_agents_binding: bool = True,
     ) -> tuple[AgentSession, bool]:
         """Get an existing session or create a new one.
 
@@ -585,7 +634,11 @@ class AgentSessionService(BaseWorkspaceService):
             existing = await self.get_session(args.id)
             if existing:
                 return existing, False
-        new_session = await self.create_session(args, agents_binding=agents_binding)
+        new_session = await self.create_session(
+            args,
+            agents_binding=agents_binding,
+            resolve_agents_binding=resolve_agents_binding,
+        )
         return new_session, True
 
     async def list_sessions(
@@ -732,7 +785,7 @@ class AgentSessionService(BaseWorkspaceService):
                 if preset_id_updated and (
                     requested_preset_id != agent_session.agent_preset_id
                 ):
-                    pinned_version_id = (
+                    selected_version_id = (
                         await self._validate_preset_version_for_assignment(
                             entity_type=entity_type,
                             entity_id=agent_session.entity_id,
@@ -743,9 +796,9 @@ class AgentSessionService(BaseWorkspaceService):
                         )
                     )
                 elif version_id_updated and requested_version_id is None:
-                    pinned_version_id = None
+                    selected_version_id = None
                 elif version_id_updated:
-                    pinned_version_id = (
+                    selected_version_id = (
                         await self._validate_preset_version_for_assignment(
                             entity_type=entity_type,
                             entity_id=agent_session.entity_id,
@@ -754,12 +807,12 @@ class AgentSessionService(BaseWorkspaceService):
                         )
                     )
                 else:
-                    pinned_version_id = requested_version_id
+                    selected_version_id = requested_version_id
                 agent_session.agent_preset_id = logical_preset_id
-                agent_session.agent_preset_version_id = pinned_version_id
+                agent_session.agent_preset_version_id = selected_version_id
                 agent_session.agents_binding = (
                     await self._resolve_agents_binding_for_preset_version_id(
-                        pinned_version_id
+                        selected_version_id
                     )
                 )
 
@@ -1414,6 +1467,13 @@ class AgentSessionService(BaseWorkspaceService):
         if user_prompt is not None:
             await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
 
+        run_id = uuid.uuid4()
+        # Per-turn stream id: use the HTTP-minted id when provided, else mint
+        # one. Pinned into the workflow input so the worker producer writes to
+        # the same per-turn Redis key the reader joins (immune to the
+        # stale-turn overwrite race).
+        stream_id = active_stream_id or uuid.uuid4()
+
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
             if request_instructions:
@@ -1429,12 +1489,10 @@ class AgentSessionService(BaseWorkspaceService):
                 await check_entitlement(
                     self.session, self.role, Entitlement.AGENT_ADDONS
                 )
-            run_id = uuid.uuid4()
-            # Per-turn stream id: use the HTTP-minted id when provided, else mint
-            # one. Pinned into the workflow input so the worker producer writes to
-            # the same per-turn Redis key the reader joins (immune to the
-            # stale-turn overwrite race).
-            stream_id = active_stream_id or uuid.uuid4()
+            resolved_agents_config = await self._resolve_dispatch_agents_config(
+                agent_session=agent_session,
+                config=agent_config,
+            )
 
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
@@ -1442,6 +1500,7 @@ class AgentSessionService(BaseWorkspaceService):
                 active_stream_id=stream_id,
                 curr_run_id=run_id,
                 config=agent_config,
+                resolved_agents_config=resolved_agents_config,
             )
 
             client = await get_temporal_client()
@@ -2050,7 +2109,8 @@ class AgentSessionService(BaseWorkspaceService):
                 raise TracecatNotFoundError(
                     f"Agent preset with ID '{entity_id}' not found"
                 )
-            prompt = AgentPresetBuilderPrompt(preset=preset)
+            preset_read = await agent_preset_service.build_preset_read(preset)
+            prompt = AgentPresetBuilderPrompt(preset=preset_read)
             return prompt.instructions
         if entity_type == AgentSessionEntity.WORKSPACE_CHAT:
             return WorkspaceCopilotPrompts().instructions

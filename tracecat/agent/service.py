@@ -41,7 +41,10 @@ from tracecat.db.models import (
     OrganizationSecret,
     Secret,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -1092,8 +1095,8 @@ class AgentManagementService(BaseOrgService):
         Args:
             preset_id: Agent preset ID to load
             slug: Agent preset slug to load (alternative to preset_id)
-            preset_version_id: Optional preset version ID to pin
-            preset_version: Optional preset version number to pin
+            preset_version_id: Exact version ID from a run or restore snapshot
+            preset_version: Exact version number for legacy replay
         """
         if self.presets is None:
             raise TracecatAuthorizationError(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -15,6 +15,7 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
@@ -42,9 +43,10 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
 
 
 class ResolveAgentPresetVersionRefActivityInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     role: Role
     preset_slug: str
-    preset_version: int | None = None
 
 
 class AgentPresetVersionRef(BaseModel):
@@ -52,12 +54,26 @@ class AgentPresetVersionRef(BaseModel):
     preset_version_id: uuid.UUID
 
 
+class ResolveAgentPresetDispatchActivityInput(BaseModel):
+    role: Role
+    preset_slug: str
+    actions: list[str] | None = None
+    instructions: str | None = None
+
+
+class AgentPresetDispatchConfig(AgentPresetVersionRef):
+    config: AgentConfigPayload
+    resolved_agents_config: ResolvedAgentsRuntimeConfig
+
+
 class ResolveAgentsConfigActivityInput(BaseModel):
     role: Role
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
-    follow_latest_versions: bool | None = None
+    # Optional-with-default so existing activity inputs deserialize. Only the
+    # legacy durable-resume path sets it to rebuild a stored exact binding.
+    preserve_resolved_versions: bool = False
 
 
 @activity.defn
@@ -65,23 +81,27 @@ async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
     async with AgentManagementService.with_session(role=args.role) as service:
+        config: AgentConfig | None = None
         async with service.with_preset_config(
             preset_id=args.preset_id,
             slug=args.preset_slug,
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
-        ) as config:
-            return agent_config_to_payload(config)
+        ) as resolved_config:
+            config = resolved_config
+
+        assert config is not None
+        return agent_config_to_payload(config)
 
 
 @activity.defn
 async def resolve_agent_preset_version_ref_activity(
     args: ResolveAgentPresetVersionRefActivityInput,
 ) -> AgentPresetVersionRef:
+    # Legacy fallback; remove after workflow drain.
     async with AgentPresetService.with_session(role=args.role) as service:
         version = await service.resolve_agent_preset_version(
             slug=args.preset_slug,
-            preset_version=args.preset_version,
         )
         return AgentPresetVersionRef(
             preset_id=version.preset_id,
@@ -90,20 +110,57 @@ async def resolve_agent_preset_version_ref_activity(
 
 
 @activity.defn
+async def resolve_agent_preset_dispatch_activity(
+    args: ResolveAgentPresetDispatchActivityInput,
+) -> AgentPresetDispatchConfig:
+    """Resolve the complete preset payload once before workflow dispatch."""
+
+    async with AgentManagementService.with_session(role=args.role) as service:
+        if service.presets is None:
+            raise ApplicationError("Agent presets require a workspace role")
+
+        version = await service.presets.resolve_agent_preset_version(
+            slug=args.preset_slug,
+        )
+        async with service.with_preset_config(
+            preset_version_id=version.id,
+        ) as config:
+            if args.actions:
+                config.actions = args.actions
+            if args.instructions:
+                config.instructions = (
+                    f"{config.instructions}\n{args.instructions}"
+                    if config.instructions
+                    else args.instructions
+                )
+
+            resolved_agents = await resolve_agents_config(
+                service.presets,
+                agents=config.agents,
+                parent_preset_id=version.preset_id,
+                parent_slug=args.preset_slug,
+                include_runtime_config=True,
+            )
+            return AgentPresetDispatchConfig(
+                preset_id=version.preset_id,
+                preset_version_id=version.id,
+                config=agent_config_to_payload(config),
+                resolved_agents_config=resolved_agents.to_runtime_config(),
+            )
+
+
+@activity.defn
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
-        follow_latest_versions = args.follow_latest_versions
-        if follow_latest_versions is None:
-            follow_latest_versions = await service.use_latest_resource_versions()
         resolved = await resolve_agents_config(
             service,
             agents=args.agents,
             parent_preset_id=args.parent_preset_id,
             parent_slug=args.parent_slug,
             include_runtime_config=True,
-            follow_latest_versions=follow_latest_versions,
+            preserve_resolved_versions=args.preserve_resolved_versions,
         )
         return resolved.to_runtime_config()
 

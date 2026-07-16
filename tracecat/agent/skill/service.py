@@ -8,6 +8,7 @@ import mimetypes
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclasses_replace
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Never
@@ -18,13 +19,12 @@ import yaml
 from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetSkillBindingBase
 from tracecat.agent.skill.schemas import (
     NewSkillName,
     SkillCreate,
@@ -36,7 +36,6 @@ from tracecat.agent.skill.schemas import (
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
     SkillFileEntry,
-    SkillName,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
@@ -83,8 +82,6 @@ SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
-# Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
-SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
 NEW_SKILL_NAME_ADAPTER = TypeAdapter(NewSkillName)
 
@@ -161,7 +158,13 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
-type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillDraftBlobMapFactory = Callable[[str], Awaitable[dict[str, SkillFileBlobRef]]]
+"""Builds the seeded draft blob map for a new skill.
+
+Receives the allocated live slug so the seeded ``SKILL.md`` package name can
+match it: publishing assigns the live slug from the manifest name, so a draft
+seeded with a colliding display name would be unpublishable out of the box.
+"""
 
 
 def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
@@ -1092,10 +1095,19 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.slug = manifest_name
         skill.description = validation.description
         self.session.add(skill)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not _is_skill_slug_unique_violation(exc):
+                raise
+            raise TracecatValidationError(
+                f"Skill slug '{manifest_name}' is already in use for this workspace",
+                detail={"code": "skill_slug_conflict", "slug": manifest_name},
+            ) from None
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
@@ -1153,15 +1165,13 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            # Legacy writers (old pods during the expand window) insert rows
-            # without a slug; surface the backfill semantics (slug := name)
-            # until the contract release backfills and sets NOT NULL.
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
+            # Expand compatibility: legacy writers archive through archived_at.
             deleted_at=skill.deleted_at or skill.archived_at,
             current_version=current_version_summary,
             is_draft_publishable=draft.is_publishable,
@@ -1177,9 +1187,7 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            # Same expand-window projection as SkillRead: legacy rows inserted
-            # without a slug present their name as the slug.
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
@@ -1187,7 +1195,9 @@ class SkillService(BaseWorkspaceService):
             deleted_at=skill.deleted_at or skill.archived_at,
         )
 
-    async def _validate_skill_slug_available(self, slug: str) -> None:
+    async def _validate_skill_slug_available(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> None:
         """Ensure a live skill slug is not already reserved in this workspace.
 
         Used by workspace-sync import, where the manifest names an exact slug
@@ -1195,7 +1205,7 @@ class SkillService(BaseWorkspaceService):
         creation uses ``_allocate_skill_slug`` instead.
         """
 
-        if await self._skill_slug_exists(slug):
+        if await self._skill_slug_exists(slug, excluding_skill_id=excluding_skill_id):
             raise TracecatValidationError(
                 f"Skill slug '{slug}' is already in use for this workspace",
                 detail={"code": "skill_slug_conflict", "slug": slug},
@@ -1224,31 +1234,20 @@ class SkillService(BaseWorkspaceService):
         suffix = f"-{counter}"
         return f"{slug[: SKILL_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
 
-    async def _skill_slug_exists(self, slug: str) -> bool:
-        """Check whether a live row already occupies ``slug`` in this workspace.
+    async def _skill_slug_exists(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> bool:
+        """Check whether a live row already occupies ``slug`` in this workspace."""
 
-        Legacy rows inserted by old pods during the expand window have
-        ``slug IS NULL`` and project their name as the slug (see
-        ``_build_skill_read``), so they reserve their name too. The contract
-        backfill assigns them that slug permanently.
-
-        Liveness matches the ``uq_skill_workspace_slug_active`` partial-index
-        predicate (both columns NULL): legacy pods archive by setting only
-        ``archived_at``, and such effectively-dead rows must not report a slug
-        as taken that the index would accept.
-        """
-
-        stmt = select(
-            sa.exists().where(
-                Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == slug),
-                ),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.slug == slug,
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+        ]
+        if excluding_skill_id is not None:
+            predicates.append(Skill.id != excluding_skill_id)
+        stmt = select(sa.exists().where(*predicates))
         return bool((await self.session.execute(stmt)).scalar_one())
 
     async def _create_skill_with_slug_retry(
@@ -1274,7 +1273,7 @@ class SkillService(BaseWorkspaceService):
                 await self.session.flush()
                 await self._replace_draft_with_blob_map(
                     skill=skill,
-                    path_to_blob=await path_to_blob_factory(),
+                    path_to_blob=await path_to_blob_factory(slug),
                 )
                 await self.session.commit()
             except IntegrityError as exc:
@@ -1337,8 +1336,6 @@ class SkillService(BaseWorkspaceService):
             Skill.id == skill_id,
         ]
         if not include_archived:
-            # Expand-window check: legacy writers set only archived_at; the
-            # contract release drops the archived_at leg.
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
@@ -1371,52 +1368,26 @@ class SkillService(BaseWorkspaceService):
             if uuid_match := await self.get_skill(parsed_skill_id):
                 return uuid_match
 
-        try:
-            skill_slug = SKILL_SLUG_ADAPTER.validate_python(identifier)
-        except ValidationError:
+        return await self.get_skill_by_slug(identifier)
+
+    async def get_skill_by_slug(self, slug: str) -> Skill | None:
+        """Return the live skill owning a slug."""
+
+        # The slug backfill copied historical names verbatim, including values
+        # predating today's SkillName pattern.
+        if not slug or len(slug) > SKILL_SLUG_MAX_LENGTH:
             return None
-        # Legacy rows inserted by old pods during the expand window have
-        # ``slug IS NULL`` and project their name as the slug (see
-        # ``_build_skill_read``), so they must stay reachable by that slug.
-        # If both an exact-slug row and a legacy row match, the exact slug
-        # wins; ties order like the backfill migration (created_at, id).
         stmt = (
             select(Skill)
             .options(selectinload(Skill.current_version))
             .where(
                 Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == skill_slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == skill_slug),
-                ),
+                Skill.slug == slug,
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
-            .order_by(
-                sa.case((Skill.slug == skill_slug, 0), else_=1),
-                Skill.created_at.asc(),
-                Skill.id.asc(),
-            )
-            .limit(2)
         )
-        skills = (await self.session.execute(stmt)).scalars().all()
-        if not skills:
-            return None
-        if skills[0].slug == skill_slug:
-            # Exact slug matches are unique among live rows
-            # (``uq_skill_workspace_slug_active``), so this is deterministic.
-            return skills[0]
-        # Only legacy (``slug IS NULL``) rows matched. The partial unique index
-        # does not constrain NULL slugs and old pods enforced no name
-        # uniqueness, so multiple live rows can project the same fallback slug.
-        # Binding one silently would be a silent substitution; fail loud. This
-        # edge self-extinguishes at contract when slugs are backfilled NOT NULL.
-        if len(skills) > 1:
-            raise TracecatValidationError(
-                "Skill identifier is ambiguous",
-                detail={"code": "ambiguous_skill_id"},
-            ) from None
-        return skills[0]
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
@@ -1458,50 +1429,6 @@ class SkillService(BaseWorkspaceService):
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _get_bindable_skills(
-        self,
-        skill_ids: Sequence[uuid.UUID],
-        *,
-        for_update: bool = False,
-    ) -> dict[uuid.UUID, Skill]:
-        """Return active skills that can be bound onto a preset.
-
-        When ``for_update`` is true, rows are locked in a deterministic order so
-        skill archival and preset binding writes serialize on the same records.
-        """
-
-        normalized_ids = sorted(set(skill_ids), key=str)
-        if not normalized_ids:
-            return {}
-
-        if not for_update:
-            stmt = select(Skill).where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            return {
-                skill.id: skill
-                for skill in (await self.session.execute(stmt)).scalars().all()
-            }
-
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.id)
-            .with_for_update()
-        )
-        return {
-            skill.id: skill
-            for skill in (await self.session.execute(stmt)).scalars().all()
-        }
-
     @require_scope("agent:create")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_skill(self, params: SkillCreate) -> SkillRead:
@@ -1514,9 +1441,13 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def default_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # Seed the package name with the allocated live slug (which may
+            # carry a deduplication suffix); publish assigns the live slug
+            # from the manifest, so a colliding display name here would make
+            # the untouched default draft unpublishable.
             root_markdown = self._build_default_skill_markdown(
-                name=params.name,
+                name=slug,
                 description=params.description,
             )
             root_blob = await self._get_or_create_blob(
@@ -1550,10 +1481,28 @@ class SkillService(BaseWorkspaceService):
 
         validation, prepared_files = self._validate_upload_draft(params)
 
-        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def uploaded_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # If slug allocation had to suffix past a live duplicate, rewrite
+            # the uploaded package name to the allocated slug so the draft
+            # stays publishable (publish assigns the live slug from the
+            # manifest name).
+            files = prepared_files
+            if slug != validation.name:
+                files = [
+                    dataclasses_replace(
+                        file,
+                        content=self._merge_skill_markdown_metadata(
+                            file.content.decode("utf-8"),
+                            name=slug,
+                        ).encode("utf-8"),
+                    )
+                    if file.path == "SKILL.md"
+                    else file
+                    for file in prepared_files
+                ]
             prepared_draft = await self._materialize_upload_draft(
                 validation=validation,
-                prepared_files=prepared_files,
+                prepared_files=files,
             )
             return prepared_draft.path_to_blob
 
@@ -1581,7 +1530,6 @@ class SkillService(BaseWorkspaceService):
             path_to_blob=prepared_draft.path_to_blob,
         )
         if skill.current_version_id is None:
-            skill.name = params.name
             skill.description = prepared_draft.validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -1992,7 +1940,6 @@ class SkillService(BaseWorkspaceService):
             and not validation.errors
             and validation.name is not None
         ):
-            skill.name = validation.name
             skill.description = validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -2092,6 +2039,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         return await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=[
@@ -2142,6 +2095,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         file_refs = [
             (
                 file.path,
@@ -2327,7 +2286,7 @@ class SkillService(BaseWorkspaceService):
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillReadMinimal:
-        """Restore a historical version as the current selected skill version."""
+        """Roll historical content forward as a new immutable skill version."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
@@ -2337,181 +2296,105 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
-        skill.current_version_id = version.id
-        skill.name = version.name
-        skill.description = version.description
-        self.session.add(skill)
-        await self.session.commit()
-        await self.session.refresh(skill)
-        return self._build_skill_read_minimal(skill)
+        # The restored package name becomes the live slug, so validate it
+        # against other live skills before publishing the new version.
+        await self._validate_skill_slug_available(
+            version.name,
+            excluding_skill_id=skill.id,
+        )
+        rows = await self._list_version_rows(version.id)
+        await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    version_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=version_file.content_type,
+                    ),
+                )
+                for version_file, blob_row in rows
+            ],
+            validation=ManifestValidationResult(
+                name=version.name,
+                description=version.description,
+            ),
+        )
+        restored_skill = await self.get_skill(skill_id)
+        if restored_skill is None:  # pragma: no cover - locked row cannot disappear
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        return self._build_skill_read_minimal(restored_skill)
 
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless any preset head still references it."""
+        """Archive a skill unless a live preset's current version references it."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetSkill)
+        current_version_binding = (
+            select(AgentPresetVersionSkill)
             .join(
                 AgentPreset,
-                AgentPreset.id == AgentPresetSkill.preset_id,
+                AgentPreset.current_version_id
+                == AgentPresetVersionSkill.preset_version_id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPresetVersionSkill.skill_id == skill.id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+            .exists()
+        )
+        rollback_binding = (
+            select(AgentPresetSkill)
+            .join(
+                AgentPreset,
+                sa.and_(
+                    AgentPreset.workspace_id == AgentPresetSkill.workspace_id,
+                    AgentPreset.id == AgentPresetSkill.preset_id,
+                ),
             )
             .where(
                 AgentPresetSkill.workspace_id == self.workspace_id,
                 AgentPresetSkill.skill_id == skill.id,
                 AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.current_version_id.is_(None),
                 AgentPreset.deleted_at.is_(None),
             )
+            .exists()
         )
-        binding_count = int(
-            (await self.session.execute(binding_stmt)).scalar_one() or 0
+        binding_exists = await self.session.scalar(
+            select(sa.or_(current_version_binding, rollback_binding))
         )
-        if binding_count > 0:
+        if binding_exists:
             raise TracecatValidationError(
                 "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
             )
-        archived_at = datetime.now(UTC)
-        skill.archived_at = archived_at
-        skill.deleted_at = archived_at
+        deleted_at = datetime.now(UTC)
+        skill.archived_at = deleted_at
+        skill.deleted_at = deleted_at
         self.session.add(skill)
         await self.session.commit()
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def validate_binding_inputs(
-        self,
-        bindings: Sequence[AgentPresetSkillBindingBase],
-        *,
-        for_update: bool = False,
-    ) -> None:
-        """Validate preset skill bindings before they are persisted."""
-
-        if not bindings:
-            return
-        if len({binding.skill_id for binding in bindings}) != len(bindings):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
-
-        skill_ids = [binding.skill_id for binding in bindings]
-        skills = await self._get_bindable_skills(
-            skill_ids,
-            for_update=for_update,
-        )
-        missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
-        if missing:
-            raise TracecatValidationError(
-                f"Some skills were not found in this workspace: {sorted(missing)}",
-                detail={"code": "skill_not_found", "missing_skill_ids": missing},
-            )
-
-        for binding in bindings:
-            skill = skills[binding.skill_id]
-            if skill.current_version_id is None:
-                raise TracecatValidationError(
-                    f"Skill '{skill.name}' has no published version",
-                    detail={"code": "skill_not_published", "skill_id": str(skill.id)},
-                )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_refs_for_preset_version(
         self,
         preset_version_id: uuid.UUID,
-        *,
-        use_latest_versions: bool = False,
     ) -> list[ResolvedSkillRef]:
-        """Return skill refs for an immutable preset version."""
-
-        if use_latest_versions:
-            return await self._get_latest_skill_refs_for_preset_version(
-                preset_version_id
-            )
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                SkillVersion.name,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.manifest_sha256,
-                Skill.deleted_at,
-                Skill.archived_at,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            skill_version_id,
-            manifest_sha256,
-            deleted_at,
-            archived_at,
-        ) in rows:
-            if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_version_id=skill_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced skill is archived."""
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-
-    async def _get_latest_skill_refs_for_preset_version(
-        self, preset_version_id: uuid.UUID
-    ) -> list[ResolvedSkillRef]:
-        """Return current skill versions for a preset version's skill IDs."""
+        """Resolve a preset version's Skill edges through current heads."""
 
         stmt = (
             select(
                 AgentPresetVersionSkill.skill_id,
                 Skill.name,
-                Skill.current_version_id,
+                Skill.slug,
                 Skill.deleted_at,
                 Skill.archived_at,
+                Skill.current_version_id,
                 SkillVersion.name,
                 SkillVersion.manifest_sha256,
             )
@@ -2542,78 +2425,40 @@ class SkillService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        missing_current: list[str] = []
         for (
             skill_id,
-            skill_name,
-            current_version_id,
+            current_skill_name,
+            skill_slug,
             deleted_at,
             archived_at,
-            current_version_name,
+            skill_version_id,
+            skill_name,
             manifest_sha256,
         ) in rows:
             if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_id is None:
-                missing_current.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_name is None:
-                self._raise_missing_version_name(skill_version_id=current_version_id)
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=current_version_name,
-                    skill_version_id=current_version_id,
-                    manifest_sha256=manifest_sha256,
+                reason = "deleted"
+            elif skill_version_id is None or skill_name is None:
+                reason = "unpublished"
+            else:
+                resolved.append(
+                    ResolvedSkillRef(
+                        skill_id=skill_id,
+                        skill_name=skill_name,
+                        skill_version_id=skill_version_id,
+                        manifest_sha256=manifest_sha256,
+                    )
                 )
-            )
+                continue
 
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        if missing_current:
-            raise TracecatValidationError(
-                "Some skills have no current published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skills": sorted(missing_current),
-                    "preset_version_id": str(preset_version_id),
-                },
+            self.logger.warning(
+                "Skipping preset skill ref during current-head resolution",
+                skill_id=str(skill_id),
+                skill_slug=skill_slug,
+                skill_name=current_skill_name,
+                reason=reason,
+                preset_version_id=str(preset_version_id),
             )
         return resolved
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_resolved_skill_ref(
-        self, *, skill_id: uuid.UUID, skill_version_id: uuid.UUID
-    ) -> ResolvedSkillRef:
-        """Return one exact skill ref for a published skill version."""
-
-        stmt = select(
-            Skill.id,
-            SkillVersion.name,
-            SkillVersion.id,
-            SkillVersion.manifest_sha256,
-        ).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.id == skill_id,
-            SkillVersion.workspace_id == self.workspace_id,
-            SkillVersion.skill_id == Skill.id,
-            SkillVersion.id == skill_version_id,
-        )
-        row = (await self.session.execute(with_deleted(stmt))).tuples().first()
-        if row is None:
-            raise TracecatNotFoundError(
-                f"Skill version '{skill_version_id}' not found for skill '{skill_id}'"
-            )
-        resolved_skill_id, skill_name, resolved_version_id, manifest_sha256 = row
-        if skill_name is None:
-            self._raise_missing_version_name(skill_version_id=resolved_version_id)
-        return ResolvedSkillRef(
-            skill_id=resolved_skill_id,
-            skill_name=skill_name,
-            skill_version_id=resolved_version_id,
-            manifest_sha256=manifest_sha256,
-        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file_materialization(

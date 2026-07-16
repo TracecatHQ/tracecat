@@ -360,7 +360,17 @@ class TestBuildAgentArgsActivity:
 
         result = await DSLActivities.build_agent_args_activity(input)
 
-        assert result.agents.model_dump(mode="json") == args["agents"]
+        assert result.agents.model_dump(mode="json") == {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "qa-child-agent",
+                    "name": "child-analyst",
+                    "description": "Use for enrichment analysis.",
+                    "max_turns": 2,
+                }
+            ],
+        }
 
     @pytest.mark.anyio
     async def test_null_agents_config_normalizes_to_disabled(self, role: Role):

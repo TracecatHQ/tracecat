@@ -37,12 +37,15 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.preset.activities import (
+        ResolveAgentPresetDispatchActivityInput,
         ResolveAgentPresetVersionRefActivityInput,
+        resolve_agent_preset_dispatch_activity,
         resolve_agent_preset_version_ref_activity,
     )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
+    from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.contexts import (
         ctx_interaction,
         ctx_logical_time,
@@ -1098,42 +1101,65 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                    preset_ref = await workflow.execute_activity(
-                        resolve_agent_preset_version_ref_activity,
-                        ResolveAgentPresetVersionRefActivityInput(
-                            role=self.role,
-                            preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-
-                    # Create override config with placeholder model/provider
-                    # These will be ignored by DurableAgentWorkflow when preset_slug is present
-                    # but are required by AgentConfig schema.
-                    override_config = None
-                    if preset_action_args.actions or preset_action_args.instructions:
-                        override_config = AgentConfig(
-                            model_name="preset-override",
-                            model_provider="preset-override",
-                            actions=preset_action_args.actions,
-                            instructions=preset_action_args.instructions,
+                    if workflow.patched("dsl-preset-dispatch-resolution-v1"):
+                        session_id = preset_action_args.session_id or workflow.uuid4()
+                        dispatch_config = await workflow.execute_activity(
+                            resolve_agent_preset_dispatch_activity,
+                            ResolveAgentPresetDispatchActivityInput(
+                                role=self.role,
+                                preset_slug=preset_action_args.preset,
+                                actions=preset_action_args.actions,
+                                instructions=preset_action_args.instructions,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
                         )
+                        preset_ref = dispatch_config
+                        agent_config = agent_config_from_payload(dispatch_config.config)
+                        resolved_agents_config = dispatch_config.resolved_agents_config
+                    else:
+                        # Preserve the command and RNG order recorded by existing
+                        # mainline histories: preflight first, then mint the session.
+                        preset_ref = await workflow.execute_activity(
+                            resolve_agent_preset_version_ref_activity,
+                            ResolveAgentPresetVersionRefActivityInput(
+                                role=self.role,
+                                preset_slug=preset_action_args.preset,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                        session_id = preset_action_args.session_id or workflow.uuid4()
+
+                        agent_config = None
+                        if (
+                            preset_action_args.actions
+                            or preset_action_args.instructions
+                        ):
+                            agent_config = AgentConfig(
+                                model_name="preset-override",
+                                model_provider="preset-override",
+                                actions=preset_action_args.actions,
+                                instructions=preset_action_args.instructions,
+                            )
+                        resolved_agents_config = None
 
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
-                            preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
-                            config=override_config,
+                            preset_slug=(
+                                None
+                                if resolved_agents_config is not None
+                                else preset_action_args.preset
+                            ),
+                            config=agent_config,
+                            resolved_agents_config=resolved_agents_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
                         ),

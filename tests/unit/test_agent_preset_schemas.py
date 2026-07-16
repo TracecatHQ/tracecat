@@ -6,10 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tracecat.agent.preset.internal_router import (
-    PresetCreateRequest,
-    PresetUpdateRequest,
-)
+from tracecat.agent.preset.internal_router import PresetCreateRequest
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -19,7 +16,7 @@ from tracecat.agent.preset.schemas import (
     build_agent_preset_read_minimal,
     build_subagent_eligibility,
 )
-from tracecat.db.models import AgentPreset
+from tracecat.db.models import AgentPreset, AgentPresetVersion
 
 
 def make_agent_preset(
@@ -31,21 +28,33 @@ def make_agent_preset(
     enable_internet_access: bool = False,
 ) -> AgentPreset:
     timestamp = datetime(2026, 3, 9, tzinfo=UTC)
-    return AgentPreset(
+    preset_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    version = AgentPresetVersion(
         id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        name=name,
-        slug=slug,
-        description=None,
+        preset_id=preset_id,
+        workspace_id=workspace_id,
+        version=1,
         model_provider="openai",
         model_name="gpt-4o-mini",
-        current_version_id=None,
         tool_approvals=tool_approvals,
-        agents=agents or {"enabled": False},
+        agents=agents or {},
         enable_internet_access=enable_internet_access,
         created_at=timestamp,
         updated_at=timestamp,
     )
+    preset = AgentPreset(
+        id=preset_id,
+        workspace_id=workspace_id,
+        name=name,
+        slug=slug,
+        description=None,
+        current_version_id=version.id,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    preset.current_version = version
+    return preset
 
 
 def test_agent_preset_create_trims_required_fields() -> None:
@@ -125,15 +134,20 @@ def test_agent_preset_create_ignores_legacy_skill_version_id() -> None:
     assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
-def test_agent_preset_skill_binding_read_requires_stored_version() -> None:
-    with pytest.raises(ValidationError):
-        AgentPresetSkillBindingRead.model_validate(
-            {
-                "skill_id": str(uuid.uuid4()),
-                "skill_name": "triage-skill",
-                "skill_version": 1,
-            }
-        )
+def test_agent_preset_skill_binding_read_contains_only_head_metadata() -> None:
+    skill_id = uuid.uuid4()
+
+    binding = AgentPresetSkillBindingRead.model_validate(
+        {
+            "skill_id": str(skill_id),
+            "skill_name": "triage-skill",
+        }
+    )
+
+    assert binding.model_dump(mode="json") == {
+        "skill_id": str(skill_id),
+        "skill_name": "triage-skill",
+    }
 
 
 @pytest.mark.parametrize(
@@ -156,12 +170,6 @@ def test_agent_preset_skill_binding_read_requires_stored_version() -> None:
                 "model_provider": "openai",
             },
         ),
-        (
-            PresetUpdateRequest,
-            {
-                "name": "   ",
-            },
-        ),
     ],
 )
 def test_agent_preset_request_schemas_reject_blank_trimmed_values(
@@ -172,7 +180,25 @@ def test_agent_preset_request_schemas_reject_blank_trimmed_values(
         schema_cls.model_validate(kwargs)
 
 
-@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, PresetUpdateRequest])
+@pytest.mark.parametrize(
+    "field",
+    (
+        "name",
+        "model_name",
+        "model_provider",
+        "retries",
+        "enable_thinking",
+        "enable_internet_access",
+    ),
+)
+def test_agent_preset_update_rejects_explicit_null_for_required_fields(
+    field: str,
+) -> None:
+    with pytest.raises(ValidationError, match=f"{field} cannot be null"):
+        AgentPresetUpdate.model_validate({field: None})
+
+
+@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, AgentPresetUpdate])
 def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
     schema_cls: type[BaseModel],
 ) -> None:
@@ -205,7 +231,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
             "retries": 3,
             "enable_thinking": True,
             "enable_internet_access": False,
-            "current_version_id": None,
+            "current_version_id": "3f8d0919-5584-4fe2-a888-123a3423372c",
             "created_at": "2026-03-09T00:00:00Z",
             "updated_at": "2026-03-09T00:00:00Z",
         }
@@ -265,6 +291,27 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
     }
     assert dumped["capabilities"] == ["approvals", "subagents"]
     assert "agents" not in dumped
+
+
+def test_agent_preset_read_minimal_supports_unpublished_heads() -> None:
+    timestamp = datetime(2026, 3, 9, tzinfo=UTC)
+    preset = AgentPreset(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="Unpublished preset",
+        slug="unpublished-preset",
+        current_version_id=None,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+
+    payload = build_agent_preset_read_minimal(preset)
+
+    assert payload.current_version_id is None
+    assert payload.model_provider is None
+    assert payload.model_name is None
+    assert payload.capabilities == []
+    assert payload.current_version_subagent_eligibility.eligible is True
 
 
 def test_build_subagent_eligibility_allows_plain_versions() -> None:

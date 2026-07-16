@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -37,24 +37,16 @@ class AgentPresetSkillBindingBase(Schema):
     skill_id: uuid.UUID
 
 
-class AgentPresetSkillBindingRead(Schema):
-    """Resolved preset skill binding with metadata."""
+class AgentPresetSkillBindingRead(AgentPresetSkillBindingBase):
+    """Preset-to-Skill ResourceHead edge with display metadata."""
 
-    skill_id: uuid.UUID
-    skill_version_id: uuid.UUID
     skill_name: str
-    skill_version: int
 
 
-class AgentPresetSkillBindingChange(BaseModel):
-    """Diff entry for skill binding changes between preset versions."""
+class AgentPresetSkillBindingChange(AgentPresetSkillBindingRead):
+    """Attachment change between two preset versions."""
 
-    skill_id: uuid.UUID
-    skill_name: str
-    old_skill_version_id: uuid.UUID | None = None
-    old_skill_version: int | None = None
-    new_skill_version_id: uuid.UUID | None = None
-    new_skill_version: int | None = None
+    change_type: Literal["attached", "detached"]
 
 
 PresetName = Annotated[
@@ -94,23 +86,14 @@ class AgentPresetExecutionConfig(Schema):
     enable_internet_access: bool = Field(default=False)
 
 
-class AgentPresetExecutionConfigWrite(Schema):
+AGENT_PRESET_EXECUTION_FIELDS = set(AgentPresetExecutionConfig.model_fields)
+
+
+class AgentPresetExecutionConfigWrite(AgentPresetExecutionConfig):
     """Write-time execution validation for mutable preset fields."""
 
-    instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField
     model_provider: PresetModelWriteField
-    catalog_id: uuid.UUID | None = Field(default=None)
-    base_url: str | None = Field(default=None, max_length=500)
-    output_type: OutputType | None = Field(default=None)
-    actions: list[str] | None = Field(default=None)
-    namespaces: list[str] | None = Field(default=None)
-    tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
-    retries: int = Field(default=3, ge=0)
-    enable_thinking: bool = Field(default=True)
-    enable_internet_access: bool = Field(default=False)
 
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):
@@ -155,6 +138,20 @@ class AgentPresetUpdate(BaseModel):
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
+    @model_validator(mode="after")
+    def reject_explicit_null_for_required_version_fields(self) -> Self:
+        for field in (
+            "name",
+            "model_name",
+            "model_provider",
+            "retries",
+            "enable_thinking",
+            "enable_internet_access",
+        ):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
 
 class AgentPresetReadMinimal(Schema):
     """Minimal API model for reading agent presets in list endpoints."""
@@ -164,8 +161,8 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
-    model_provider: str
-    model_name: str
+    model_provider: str | None
+    model_name: str | None
     folder_id: uuid.UUID | None = None
     tags: list[TagRead] = Field(default_factory=list)
     current_version_id: uuid.UUID | None = None
@@ -181,23 +178,39 @@ def build_agent_preset_read_minimal(
     preset: AgentPreset,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
-    read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = cast(
-        AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
+    version = preset.current_version
+    subagents_enabled = (
+        AgentSubagentsConfig.model_validate(version.agents).enabled
+        if version is not None
+        else False
     )
-    tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
-    return read.model_copy(
-        update={
-            "capabilities": _agent_preset_capabilities(
-                agents_config=agents_config,
-                tool_approvals=tool_approvals,
-                enable_internet_access=bool(preset.enable_internet_access),
-            ),
-            "current_version_subagent_eligibility": build_subagent_eligibility(
-                agents_config=agents_config,
-                tool_approvals=tool_approvals,
-            ),
-        }
+    agents_config = AgentSubagentsConfig(enabled=subagents_enabled)
+    tool_approvals = version.tool_approvals if version is not None else None
+    enable_internet_access = (
+        version.enable_internet_access if version is not None else False
+    )
+    return AgentPresetReadMinimal(
+        id=preset.id,
+        workspace_id=preset.workspace_id,
+        name=preset.name,
+        slug=preset.slug,
+        description=preset.description,
+        model_provider=version.model_provider if version is not None else None,
+        model_name=version.model_name if version is not None else None,
+        folder_id=preset.folder_id,
+        tags=[TagRead.model_validate(tag) for tag in preset.tags],
+        current_version_id=preset.current_version_id,
+        capabilities=_agent_preset_capabilities(
+            agents_config=agents_config,
+            tool_approvals=tool_approvals,
+            enable_internet_access=enable_internet_access,
+        ),
+        current_version_subagent_eligibility=build_subagent_eligibility(
+            agents_config=agents_config,
+            tool_approvals=tool_approvals,
+        ),
+        created_at=preset.created_at,
+        updated_at=preset.updated_at,
     )
 
 
@@ -270,7 +283,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     name: str
     slug: str
     description: str | None = Field(default=None, max_length=1000)
-    current_version_id: uuid.UUID | None = None
+    current_version_id: uuid.UUID | None
     folder_id: uuid.UUID | None = None
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime

@@ -18,6 +18,7 @@ from tracecat.agent.executor_worker import (
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.preset.activities import (
     resolve_agent_preset_config_activity,
+    resolve_agent_preset_dispatch_activity,
     resolve_agent_preset_version_ref_activity,
 )
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
@@ -44,12 +45,14 @@ def _activity_names(activities: Sequence[object]) -> set[str]:
 
 def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
     names = _activity_names(get_dsl_worker_activities())
+    assert _activity_name(resolve_agent_preset_dispatch_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
 
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:
     names = _activity_names(get_agent_worker_activities())
     assert _activity_name(resolve_agent_preset_config_activity) in names
+    assert _activity_name(resolve_agent_preset_dispatch_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
     assert _activity_name(persist_stdio_mcp_connection_activity) in names
 

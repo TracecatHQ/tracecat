@@ -2230,9 +2230,6 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name="Delete MCP preset",
             slug="delete-mcp-preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            mcp_integrations=[str(created.id)],
         )
         integration_service.session.add(agent_session)
         integration_service.session.add(preset)
@@ -2243,9 +2240,9 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             preset_id=preset_id,
             version=1,
-            model_name=preset.model_name,
-            model_provider=preset.model_provider,
-            mcp_integrations=list(preset.mcp_integrations or []),
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(created.id)],
         )
         integration_service.session.add(initial_version)
         await integration_service.session.flush()
@@ -2270,8 +2267,6 @@ class TestMCPIntegrationCRUD:
         )
         refreshed_preset = refreshed_preset_result.scalars().one()
         assert refreshed_preset.current_version_id != initial_version_id
-        assert refreshed_preset.mcp_integrations is not None
-        assert str(created.id) not in refreshed_preset.mcp_integrations
 
         refreshed_session_result = await integration_service.session.execute(
             select(AgentSession).where(AgentSession.id == agent_session_id)
@@ -2288,8 +2283,9 @@ class TestMCPIntegrationCRUD:
         )
         current_version = current_version_result.scalars().one()
         assert current_version.version == 2
-        assert current_version.mcp_integrations is not None
-        assert str(created.id) not in current_version.mcp_integrations
+        assert current_version.mcp_integrations is None
+        await integration_service.session.refresh(initial_version)
+        assert initial_version.mcp_integrations == [str(created.id)]
 
     async def test_delete_mcp_integration_shared_oauth_keeps_tokens(
         self,
@@ -2456,14 +2452,6 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name="MCP provider preset",
             slug="mcp-provider-preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            mcp_integrations=[
-                str(mcp_integration_id),
-                str(duplicate_managed_mcp_id),
-                str(wildcard_collision_mcp_id),
-                str(workspace_created_id),
-            ],
         )
         agent_session = AgentSession(
             workspace_id=integration_service.workspace_id,
@@ -2485,9 +2473,14 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             preset_id=preset_id,
             version=1,
-            model_name=preset.model_name,
-            model_provider=preset.model_provider,
-            mcp_integrations=list(preset.mcp_integrations or []),
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[
+                str(mcp_integration_id),
+                str(duplicate_managed_mcp_id),
+                str(wildcard_collision_mcp_id),
+                str(workspace_created_id),
+            ],
         )
         integration_service.session.add(initial_version)
         await integration_service.session.flush()
@@ -2528,11 +2521,6 @@ class TestMCPIntegrationCRUD:
         )
         refreshed_preset = refreshed_preset_result.scalars().first()
         assert refreshed_preset is not None
-        assert refreshed_preset.mcp_integrations is not None
-        assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
-        assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
-        assert str(wildcard_collision_mcp_id) in refreshed_preset.mcp_integrations
-        assert str(workspace_created_id) in refreshed_preset.mcp_integrations
         assert refreshed_preset.current_version_id != initial_version_id
 
         refreshed_session_result = await integration_service.session.execute(
@@ -2585,9 +2573,6 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name="Custom MCP preset",
             slug="custom-mcp-preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            mcp_integrations=[str(created.id)],
         )
         agent_session = AgentSession(
             workspace_id=integration_service.workspace_id,
@@ -2604,9 +2589,9 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             preset_id=preset_id,
             version=1,
-            model_name=preset.model_name,
-            model_provider=preset.model_provider,
-            mcp_integrations=list(preset.mcp_integrations or []),
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(created.id)],
         )
         integration_service.session.add(initial_version)
         await integration_service.session.flush()
@@ -2631,9 +2616,16 @@ class TestMCPIntegrationCRUD:
                 select(AgentPreset).where(AgentPreset.id == preset_id)
             )
         ).one()
-        assert refreshed_preset.mcp_integrations is not None
-        assert str(created.id) not in refreshed_preset.mcp_integrations
         assert refreshed_preset.current_version_id != initial_version_id
+
+        current_version = (
+            await integration_service.session.scalars(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.id == refreshed_preset.current_version_id
+                )
+            )
+        ).one()
+        assert current_version.mcp_integrations is None
 
         refreshed_session = (
             await integration_service.session.scalars(
@@ -2663,9 +2655,6 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name="Rollback preset",
             slug="rollback-preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            mcp_integrations=[str(created_id)],
         )
         agent_session = AgentSession(
             workspace_id=integration_service.workspace_id,
@@ -2675,16 +2664,27 @@ class TestMCPIntegrationCRUD:
         )
         integration_service.session.add(preset)
         integration_service.session.add(agent_session)
-        await integration_service.session.commit()
+        await integration_service.session.flush()
         preset_id = preset.id
         agent_session_id = agent_session.id
+        initial_version = AgentPresetVersion(
+            workspace_id=integration_service.workspace_id,
+            preset_id=preset_id,
+            version=1,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(created_id)],
+        )
+        integration_service.session.add(initial_version)
+        await integration_service.session.flush()
+        initial_version_id = initial_version.id
+        preset.current_version_id = initial_version_id
+        await integration_service.session.commit()
 
         conflicting_preset = AgentPreset(
             workspace_id=integration_service.workspace_id,
             name="Rollback preset conflict",
             slug="rollback-preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
         )
         integration_service.session.add(conflicting_preset)
 
@@ -2708,8 +2708,16 @@ class TestMCPIntegrationCRUD:
         )
         refreshed_preset = refreshed_preset_result.scalars().first()
         assert refreshed_preset is not None
-        assert refreshed_preset.mcp_integrations is not None
-        assert str(created_id) in refreshed_preset.mcp_integrations
+        assert refreshed_preset.current_version_id == initial_version_id
+        versions = list(
+            await integration_service.session.scalars(
+                select(AgentPresetVersion)
+                .where(AgentPresetVersion.preset_id == preset_id)
+                .order_by(AgentPresetVersion.version)
+            )
+        )
+        assert [version.version for version in versions] == [1]
+        assert versions[0].mcp_integrations == [str(created_id)]
 
         refreshed_session_result = await integration_service.session.execute(
             select(AgentSession).where(AgentSession.id == agent_session_id)

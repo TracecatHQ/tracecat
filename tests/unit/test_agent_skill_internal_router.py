@@ -10,12 +10,24 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 from tracecat.agent.skill.internal_router import (
+    _raise_skill_validation_error as _raise_internal_skill_validation_error,
+)
+from tracecat.agent.skill.internal_router import (
     get_skill,
     get_skill_version,
     list_skill_versions,
     list_skills,
     publish_skill_version,
     router,
+)
+from tracecat.agent.skill.internal_router import (
+    restore_skill_version as internal_restore_skill_version,
+)
+from tracecat.agent.skill.router import (
+    _raise_skill_validation_error as _raise_public_skill_validation_error,
+)
+from tracecat.agent.skill.router import (
+    restore_skill_version as public_restore_skill_version,
 )
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
@@ -41,6 +53,25 @@ def test_internal_router_does_not_expose_draft_publish() -> None:
 
     assert ("/internal/agent/skills/{skill_id}/publish", "POST") not in routes
     assert ("/internal/agent/skills/{skill_id}/versions", "POST") in routes
+
+
+@pytest.mark.parametrize(
+    "raise_error",
+    [_raise_public_skill_validation_error, _raise_internal_skill_validation_error],
+)
+def test_skill_in_use_validation_error_is_http_409(raise_error: Any) -> None:
+    detail = {"code": "skill_in_use"}
+
+    with pytest.raises(HTTPException) as exc_info:
+        raise_error(
+            TracecatValidationError(
+                "Skill is still attached to a preset",
+                detail=detail,
+            )
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail
 
 
 @pytest.mark.anyio
@@ -199,6 +230,67 @@ async def test_publish_skill_version_converts_version_conflict_to_http_409() -> 
             await raw_publish_skill_version(
                 skill_id=uuid.uuid4(),
                 params=cast(Any, object()),
+                role=_executor_role(),
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail
+
+
+@pytest.mark.anyio
+async def test_internal_restore_skill_version_converts_slug_conflict_to_http_409() -> (
+    None
+):
+    """Restore surfaces reclaimed-slug conflicts as 409, not a 500."""
+
+    detail = {"code": "skill_slug_conflict", "slug": "reclaimed-slug"}
+    mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(id=uuid.uuid4())
+    mock_service.restore_version.side_effect = TracecatValidationError(
+        "Skill slug 'reclaimed-slug' is already in use for this workspace",
+        detail=detail,
+    )
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            raw_restore = cast(Any, internal_restore_skill_version).__wrapped__
+            await raw_restore(
+                skill_id="reclaimed-slug-owner",
+                version_id=uuid.uuid4(),
+                role=_executor_role(),
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail
+
+
+@pytest.mark.anyio
+async def test_public_restore_skill_version_converts_slug_conflict_to_http_409() -> (
+    None
+):
+    """The public restore route maps the same conflict through 409."""
+
+    detail = {"code": "skill_slug_conflict", "slug": "reclaimed-slug"}
+    mock_service = AsyncMock()
+    mock_service.restore_version.side_effect = TracecatValidationError(
+        "Skill slug 'reclaimed-slug' is already in use for this workspace",
+        detail=detail,
+    )
+
+    with patch(
+        "tracecat.agent.skill.router.SkillService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            raw_restore = cast(Any, public_restore_skill_version).__wrapped__
+            await raw_restore(
+                skill_id=uuid.uuid4(),
+                version_id=uuid.uuid4(),
                 role=_executor_role(),
                 session=AsyncMock(),
             )

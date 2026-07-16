@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
-from typing import Annotated, Any, cast
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field
 
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -15,11 +14,14 @@ from tracecat.agent.preset.schemas import (
     AgentPresetReadMinimal,
     AgentPresetSkillBindingBase,
     AgentPresetUpdate,
-    build_subagent_eligibility,
+    PresetModelWriteField,
+    PresetName,
+    PresetSlug,
+    build_agent_preset_read_minimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
@@ -32,32 +34,19 @@ router = APIRouter(
     include_in_schema=False,
 )
 
-PresetName = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
-]
-PresetSlug = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
-]
-PresetModelField = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
-]
-
 
 class PresetCreateRequest(BaseModel):
     """Request body for creating an agent preset."""
 
     name: PresetName
-    model_name: PresetModelField | None = Field(
+    model_name: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model name field retained for backward "
             "compatibility. Prefer catalog_id, which is the canonical model selector."
         ),
     )
-    model_provider: PresetModelField | None = Field(
+    model_provider: PresetModelWriteField | None = Field(
         default=None,
         description=(
             "Deprecated legacy model provider field retained for backward "
@@ -81,44 +70,6 @@ class PresetCreateRequest(BaseModel):
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
-    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
-
-
-class PresetUpdateRequest(BaseModel):
-    """Request body for updating an agent preset."""
-
-    name: PresetName | None = None
-    slug: PresetSlug | None = None
-    description: str | None = Field(default=None, max_length=1000)
-    instructions: str | None = Field(default=None)
-    model_name: PresetModelField | None = Field(
-        default=None,
-        description=(
-            "Deprecated legacy model name field retained for backward "
-            "compatibility. Prefer catalog_id, which is the canonical model selector."
-        ),
-    )
-    model_provider: PresetModelField | None = Field(
-        default=None,
-        description=(
-            "Deprecated legacy model provider field retained for backward "
-            "compatibility. Prefer catalog_id, which is the canonical model selector."
-        ),
-    )
-    catalog_id: uuid.UUID | None = Field(
-        default=None,
-        description="Canonical model catalog row ID backing this preset.",
-    )
-    base_url: str | None = Field(default=None, max_length=500)
-    output_type: OutputType | None = Field(default=None)
-    actions: list[str] | None = Field(default=None)
-    namespaces: list[str] | None = Field(default=None)
-    tool_approvals: dict[str, bool] | None = Field(default=None)
-    mcp_integrations: list[str] | None = Field(default=None)
-    agents: AgentSubagentsConfig | None = Field(default=None)
-    retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = Field(default=None)
-    enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
@@ -174,30 +125,7 @@ async def list_presets(
     """List all agent presets for the workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    results: list[AgentPresetReadMinimal] = []
-    for preset in presets:
-        read = AgentPresetReadMinimal.model_validate(preset)
-        agents = AgentSubagentsConfig.model_validate(preset.agents or {})
-        tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
-        capabilities = []
-        if has_manual_tool_approvals(tool_approvals):
-            capabilities.append("approvals")
-        if agents.enabled:
-            capabilities.append("subagents")
-        if preset.enable_internet_access:
-            capabilities.append("internet_access")
-        results.append(
-            read.model_copy(
-                update={
-                    "capabilities": capabilities,
-                    "current_version_subagent_eligibility": build_subagent_eligibility(
-                        agents_config=agents,
-                        tool_approvals=tool_approvals,
-                    ),
-                }
-            )
-        )
-    return results
+    return [build_agent_preset_read_minimal(preset) for preset in presets]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -256,7 +184,7 @@ async def update_preset_by_slug(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     slug: str,
-    params: PresetUpdateRequest,
+    params: AgentPresetUpdate,
 ) -> AgentPresetRead:
     """Update an agent preset by slug."""
     service = AgentPresetService(session, role=role)
@@ -267,9 +195,7 @@ async def update_preset_by_slug(
             detail=f"Agent preset with slug '{slug}' not found",
         )
     try:
-        updated_preset = await service.update_preset(
-            preset, AgentPresetUpdate(**params.model_dump(exclude_unset=True))
-        )
+        updated_preset = await service.update_preset(preset, params)
         return await service.build_preset_read(updated_preset)
     except TracecatValidationError as exc:
         raise HTTPException(

@@ -490,7 +490,10 @@ class AgentFolderService(BaseWorkspaceService):
                 if order_by == "desc"
                 else AgentPreset.created_at.asc()
             )
-            .options(selectinload(AgentPreset.tags))
+            .options(
+                selectinload(AgentPreset.tags),
+                selectinload(AgentPreset.current_version),
+            )
         )
         preset_result = await self.session.execute(preset_statement)
         presets = preset_result.scalars().all()
@@ -591,14 +594,17 @@ class AgentFolderService(BaseWorkspaceService):
             )
 
         for preset in presets:
+            version = preset.current_version
             items_by_id[preset.id] = AgentPresetDirectoryItem(
                 type="preset",
                 id=preset.id,
                 name=preset.name,
                 slug=preset.slug,
                 description=preset.description,
-                model_provider=preset.model_provider,
-                model_name=preset.model_name,
+                model_provider=(
+                    version.model_provider if version is not None else None
+                ),
+                model_name=version.model_name if version is not None else None,
                 folder_id=preset.folder_id,
                 tags=[
                     TagRead.model_validate(tag, from_attributes=True)

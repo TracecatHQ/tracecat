@@ -414,8 +414,8 @@ class AgentWorkflowArgs(BaseModel):
     agent_preset_version_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Pinned preset version used for this workflow run. "
-            "If null, the run follows the preset's current version."
+            "Resolved preset version frozen for this workflow run. "
+            "If null, dispatch resolves the preset's current head."
         ),
     )
     harness_type: HarnessType | None = Field(
@@ -473,11 +473,16 @@ def _preserved_agents_binding(
 ) -> ResolvedAgentsConfig | None:
     if not load_result.found:
         return None
+    if not load_result.has_resume_state:
+        # A pre-created session that has never run may already persist an
+        # explicitly selected version's saved binding. Verbatim restore protects the
+        # topology of sessions with actual history; a first turn must
+        # resolve fresh through the current head so a deleted
+        # child is skipped-and-recorded, never silently restored.
+        return None
     if load_result.agents_binding is not None:
         return load_result.agents_binding
-    if load_result.has_resume_state:
-        return ResolvedAgentsConfig()
-    return None
+    return ResolvedAgentsConfig()
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
@@ -586,17 +591,11 @@ class DurableAgentWorkflow:
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
-            activity_input = (
-                ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_version_id=args.agent_preset_version_id,
-                )
-                if args.agent_preset_version_id is not None
-                else ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_slug=args.agent_args.preset_slug,
-                    preset_version=args.agent_args.preset_version,
-                )
+            activity_input = ResolveAgentPresetConfigActivityInput(
+                role=self.role,
+                preset_id=args.agent_preset_id,
+                preset_slug=args.agent_args.preset_slug,
+                preset_version_id=args.agent_preset_version_id,
             )
             preset_config_payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
@@ -640,9 +639,15 @@ class DurableAgentWorkflow:
         cfg: AgentConfig,
         *,
         agents: AgentSubagentsConfig | None = None,
-        follow_latest_versions: bool | None = None,
+        preserve_resolved_versions: bool = False,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
+        if (
+            agents is None
+            and not preserve_resolved_versions
+            and args.agent_args.resolved_agents_config is not None
+        ):
+            return args.agent_args.resolved_agents_config
         if not agents_config.enabled:
             return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
@@ -654,7 +659,7 @@ class DurableAgentWorkflow:
                 agents=agents_config,
                 parent_preset_id=args.agent_preset_id,
                 parent_slug=args.agent_args.preset_slug,
-                follow_latest_versions=follow_latest_versions,
+                preserve_resolved_versions=preserve_resolved_versions,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1094,7 +1099,11 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         load_result: LoadSessionResult | None = None
-        if workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+        dispatch_resolved_agents = args.agent_args.resolved_agents_config
+        has_dispatch_resolved_agents = dispatch_resolved_agents is not None
+        if dispatch_resolved_agents is not None:
+            agents_result = dispatch_resolved_agents
+        elif workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
@@ -1104,12 +1113,19 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            if preserved_binding := _preserved_agents_binding(load_result):
+            preserved_binding = _preserved_agents_binding(load_result)
+            if preserved_binding is not None:
+                # preserve_resolved_versions rebuilds the stored binding
+                # verbatim (exact version IDs, with_deleted). The session
+                # activity fails the run on any binding mismatch, so this
+                # path must never re-resolve through heads — a child preset
+                # that advanced or was deleted
+                # mid-session would otherwise make the session unresumable.
                 agents_result = await self._resolve_agents_config(
                     args,
                     cfg,
                     agents=_agents_config_from_binding(preserved_binding),
-                    follow_latest_versions=False,
+                    preserve_resolved_versions=True,
                 )
             else:
                 agents_result = await self._resolve_agents_config(args, cfg)
@@ -1131,7 +1147,12 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
-                agents_binding=agents_result.to_agents_binding(),
+                agents_binding=(
+                    None
+                    if has_dispatch_resolved_agents
+                    else agents_result.to_agents_binding()
+                ),
+                resolve_agents_binding=not has_dispatch_resolved_agents,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
@@ -1180,6 +1201,7 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
+        assert load_result is not None
 
         if load_result.found and load_result.sdk_session_id:
             logger.info(

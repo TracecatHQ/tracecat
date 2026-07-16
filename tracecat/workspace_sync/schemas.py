@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -176,15 +176,16 @@ class WorkflowResourceSpec(BaseModel):
 
 
 class AgentPresetSkillBinding(BaseModel):
-    """Reference from an agent preset to a skill, optionally version-pinned."""
+    """Reference from an agent preset version to a Skill ResourceHead."""
 
-    model_config = ConfigDict(extra="allow")
+    # Accept legacy manifests containing ``version`` while dropping it from the
+    # canonical in-memory and serialized contract.
+    model_config = ConfigDict(extra="ignore")
 
-    slug: str = Field(min_length=1, description="Slug of the referenced skill.")
-    version: int | None = Field(
-        default=None,
-        ge=1,
-        description="Pinned skill version, or ``None`` to track the latest.",
+    slug: str = Field(
+        min_length=1,
+        max_length=64,
+        description="Slug of the referenced skill.",
     )
 
 
@@ -199,7 +200,8 @@ class AgentPresetSubagentRef(BaseModel):
     version: int | None = Field(
         default=None,
         ge=1,
-        description="Pinned child preset version, or ``None`` to track the latest.",
+        exclude=True,
+        description="Deprecated input; subagents always follow the ResourceHead.",
     )
     name: str | None = Field(
         default=None, description="Optional runtime alias for the subagent."
@@ -226,7 +228,11 @@ class AgentPresetVersionResourceSpec(BaseModel):
     version_number: int = Field(
         ge=1, description="Preset version number scoped to the parent preset."
     )
-    name: str = Field(min_length=1, description="Human-readable preset name.")
+    name: str | None = Field(
+        default=None,
+        exclude=True,
+        description="Deprecated input; display name belongs to the preset head.",
+    )
     instructions: str | None = Field(
         default=None,
         description="System prompt / instructions for the agent.",
@@ -241,7 +247,7 @@ class AgentPresetVersionResourceSpec(BaseModel):
     )
     skills: list[AgentPresetSkillBinding] = Field(
         default_factory=list,
-        description="Skills bound to the preset, optionally version-pinned.",
+        description="Skill ResourceHeads bound to the preset version.",
     )
     subagents: list[AgentPresetSubagentRef] = Field(
         default_factory=list,
@@ -273,7 +279,8 @@ class AgentPresetVersionResourceSpec(BaseModel):
     )
     mcp_integrations: list[str] = Field(
         default_factory=list,
-        description="MCP integration slugs available to the agent.",
+        exclude=True,
+        description="Unsupported input; MCP integrations are workspace-local.",
     )
     retries: int = Field(
         default=3,
@@ -288,6 +295,18 @@ class AgentPresetVersionResourceSpec(BaseModel):
         default=False,
         description="Whether the agent may access the internet.",
     )
+
+    @model_validator(mode="after")
+    def validate_unique_bindings(self) -> Self:
+        skill_slugs = [binding.slug for binding in self.skills]
+        if len(skill_slugs) != len(set(skill_slugs)):
+            raise ValueError("preset version skill bindings must be unique")
+        subagent_aliases = [
+            subagent.name or subagent.slug for subagent in self.subagents
+        ]
+        if len(subagent_aliases) != len(set(subagent_aliases)):
+            raise ValueError("preset version subagent aliases must be unique")
+        return self
 
 
 class AgentPresetResourceSpec(BaseModel):
@@ -334,7 +353,7 @@ class AgentPresetResourceSpec(BaseModel):
     skills: list[AgentPresetSkillBinding] = Field(
         default_factory=list,
         exclude=True,
-        description="Skills bound to the preset, optionally version-pinned.",
+        description="Skill ResourceHeads bound to the preset.",
     )
     subagents: list[AgentPresetSubagentRef] = Field(
         default_factory=list,
@@ -414,6 +433,11 @@ class SkillFileSpec(BaseModel):
         default=None,
         description="Encoding used for non-text file contents in Git.",
     )
+    content_type: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Persisted MIME type for this immutable file.",
+    )
 
 
 class SkillVersionResourceSpec(BaseModel):
@@ -428,7 +452,10 @@ class SkillVersionResourceSpec(BaseModel):
     version_number: int = Field(
         ge=1, description="Skill version number scoped to the parent skill."
     )
-    name: str = Field(min_length=1, description="Human-readable skill version name.")
+    name: str = Field(
+        min_length=1,
+        description="Immutable Agent Skills package identifier for this version.",
+    )
     description: str | None = Field(
         default=None, description="Optional skill version description."
     )
@@ -456,10 +483,18 @@ class SkillResourceSpec(BaseModel):
         min_length=1,
         description="Stable source id; the skill's single-segment file path key.",
     )
+    # Expand compatibility: a legacy row can carry a pre-validation name as its
+    # effective slug until contract backfills and constrains the column.
     slug: str = Field(
-        min_length=1, description="Unique skill slug used for cross-references."
+        min_length=1,
+        max_length=64,
+        description="Current package locator used for cross-references.",
     )
-    name: str = Field(min_length=1, description="Human-readable skill name.")
+    name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="User-facing display name.",
+    )
     description: str | None = Field(
         default=None, description="Optional skill description."
     )

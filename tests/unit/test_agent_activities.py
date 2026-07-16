@@ -25,6 +25,9 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
 )
+from tracecat_ee.agent.workflows.durable import (
+    _preserved_agents_binding,
+)
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -762,18 +765,27 @@ class TestCreateSessionActivity:
                 {"enabled": False},
                 None,
                 None,
-                False,
-                False,
-                id="different-explicit-binding",
+                True,
+                True,
+                id="never-run-overwrites-stale-binding",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
                 None,
                 None,
+                True,
+                False,
+                id="dispatch-resolved-turn-does-not-reconcile-shared-binding",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                {"enabled": False},
+                "sdk-session-1",
+                None,
                 False,
                 False,
-                id="missing-incoming-binding",
+                id="resume-state-mismatch-still-fails",
             ),
         ],
     )
@@ -791,7 +803,12 @@ class TestCreateSessionActivity:
         expected_success: bool,
         expected_backfill: bool,
     ):
-        """Existing sessions reject binding changes once SDK/fork resume state exists."""
+        """Existing sessions reject binding changes once SDK/fork resume state exists.
+
+        A never-run session (no SDK session, no fork parent) adopts the
+        freshly resolved binding instead: an explicit version selection persists
+        the version's saved binding, but the first turn resolves fresh.
+        """
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -824,15 +841,14 @@ class TestCreateSessionActivity:
             with pytest.raises(ApplicationError) as exc_info:
                 await create_session_activity(input)
             assert exc_info.value.message == (
-                "Agent session was created with a different agents binding"
+                "Agent session turn was dispatched with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
 
         if expected_backfill:
-            assert incoming_agents_binding is not None
-            assert (
-                mock_agent_session.agents_binding
-                == incoming_agents_binding.model_dump(mode="json")
+            requested_binding = incoming_agents_binding or ResolvedAgentsConfig()
+            assert mock_agent_session.agents_binding == requested_binding.model_dump(
+                mode="json"
             )
             mock_service.session.add.assert_called_once_with(mock_agent_session)
             mock_service.session.commit.assert_awaited_once()
@@ -992,6 +1008,51 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         mock_service.auto_title_session_on_first_prompt.assert_not_awaited()
+
+
+class TestPreservedAgentsBinding:
+    """Gate verbatim binding restore on actual session resume state."""
+
+    @pytest.mark.parametrize(
+        ("load_result", "expected"),
+        [
+            pytest.param(
+                LoadSessionResult(
+                    found=True,
+                    agents_binding=ResolvedAgentsConfig(enabled=True),
+                    has_resume_state=False,
+                ),
+                None,
+                id="never-run",
+            ),
+            pytest.param(
+                LoadSessionResult(
+                    found=True,
+                    sdk_session_id="sdk-session-1",
+                    agents_binding=ResolvedAgentsConfig(enabled=True),
+                    has_resume_state=True,
+                ),
+                ResolvedAgentsConfig(enabled=True),
+                id="resumed-with-binding",
+            ),
+            pytest.param(
+                LoadSessionResult(
+                    found=True,
+                    sdk_session_id="sdk-session-1",
+                    has_resume_state=True,
+                ),
+                ResolvedAgentsConfig(),
+                id="resumed-without-binding",
+            ),
+            pytest.param(LoadSessionResult(found=False), None, id="missing"),
+        ],
+    )
+    def test_preserved_binding_gate(
+        self,
+        load_result: LoadSessionResult,
+        expected: ResolvedAgentsConfig | None,
+    ) -> None:
+        assert _preserved_agents_binding(load_result) == expected
 
 
 class TestLoadSessionActivity:

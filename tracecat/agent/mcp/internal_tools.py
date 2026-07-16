@@ -292,8 +292,9 @@ async def list_available_tools(
 
     async with AgentPresetService.with_session(role=role) as preset_service:
         preset = await preset_service.get_preset(preset_id)
-        if preset:
-            preset_action_set = set(preset.actions or [])
+        if preset and preset.current_version_id is not None:
+            current = await preset_service.get_current_version_for_preset(preset)
+            preset_action_set = set(current.actions or [])
 
     # Search using registry index instead of RegistryAction table
     async with RegistryActionsService.with_session(role=role) as svc:
@@ -355,8 +356,20 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
 
+        if preset.current_version_id is None:
+            initial_model = {
+                "model_name": preset.model_name,
+                "model_provider": preset.model_provider,
+            }
+            params = AgentPresetUpdate.model_validate(
+                initial_model | params.model_dump(exclude_unset=True)
+            )
+
         if params.actions is not None:
-            current_actions = set(preset.actions or [])
+            current_actions: set[str] = set()
+            if preset.current_version_id is not None:
+                current = await service.get_current_version_for_preset(preset)
+                current_actions = set(current.actions or [])
             proposed_actions = set(params.actions)
             added_actions = sorted(proposed_actions - current_actions)
             if added_actions:

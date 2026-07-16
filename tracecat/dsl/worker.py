@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.agent.preset.activities import (
+        resolve_agent_preset_dispatch_activity,
         resolve_agent_preset_version_ref_activity,
     )
     from tracecat.dsl.action import DSLActivities
@@ -92,6 +93,7 @@ def get_activities() -> list[Callable]:
     activities: list[Callable] = [
         *DSLActivities.load(),
         *CollectionActivities.get_activities(),
+        resolve_agent_preset_dispatch_activity,
         resolve_agent_preset_version_ref_activity,
         get_workflow_definition_activity,
         resolve_registry_lock_activity,

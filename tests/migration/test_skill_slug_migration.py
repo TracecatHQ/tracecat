@@ -17,6 +17,8 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 MIGRATION_REVISION = "c6a8d4f3b2e1"
+CONTRACT_REVISION = "44320bf05445"
+
 PREVIOUS_REVISION = "8b4f6c2d1a9e"
 
 
@@ -542,5 +544,152 @@ def test_skill_slug_migration_treats_legacy_archived_rows_as_dead(
                     ),
                     {"id": duplicate_foo_id, "workspace_id": workspace_id},
                 )
+    finally:
+        engine.dispose()
+
+
+def test_skill_contract_closes_late_expand_writes(
+    migration_db_url: str,
+) -> None:
+    """Contract reconciles late legacy rows before enforcing final invariants."""
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    canonical_id = uuid.uuid4()
+    occupied_suffix_id = uuid.uuid4()
+    late_slugless_id = uuid.uuid4()
+    legacy_archived_id = uuid.uuid4()
+    archived_at = datetime(2026, 1, 5, tzinfo=UTC)
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        with engine.begin() as conn:
+            _insert_organization_and_workspace(
+                conn,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                label="contract",
+            )
+            for skill_id, name, slug, row_archived_at, created_at in (
+                (
+                    canonical_id,
+                    "collision",
+                    "collision",
+                    None,
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                ),
+                (
+                    occupied_suffix_id,
+                    "occupied",
+                    "collision-2",
+                    None,
+                    datetime(2026, 1, 2, tzinfo=UTC),
+                ),
+                (
+                    late_slugless_id,
+                    "collision",
+                    None,
+                    None,
+                    datetime(2026, 1, 3, tzinfo=UTC),
+                ),
+                (
+                    legacy_archived_id,
+                    "collision",
+                    None,
+                    archived_at,
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                ),
+            ):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO skill (
+                            id, workspace_id, name, slug, draft_revision,
+                            archived_at, deleted_at, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :workspace_id, :name, :slug, 0,
+                            :archived_at, NULL, :created_at, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": skill_id,
+                        "workspace_id": workspace_id,
+                        "name": name,
+                        "slug": slug,
+                        "archived_at": row_archived_at,
+                        "created_at": created_at,
+                    },
+                )
+
+        _run_alembic(migration_db_url, "upgrade", CONTRACT_REVISION)
+
+        with engine.begin() as conn:
+            rows = {
+                row["id"]: (row["slug"], row["deleted_at"])
+                for row in (
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id, slug, deleted_at FROM skill
+                            WHERE workspace_id = :workspace_id
+                            """
+                        ),
+                        {"workspace_id": workspace_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+            }
+            slug_nullable = conn.execute(
+                text(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'skill' AND column_name = 'slug'
+                    """
+                )
+            ).scalar_one()
+            archived_column_count = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'skill' AND column_name = 'archived_at'
+                    """
+                )
+            ).scalar_one()
+            index_definition = conn.execute(
+                text(
+                    """
+                    SELECT pg_get_indexdef(indexrelid)
+                    FROM pg_index
+                    WHERE indexrelid = 'uq_skill_workspace_slug_active'::regclass
+                    """
+                )
+            ).scalar_one()
+
+        assert rows[canonical_id] == ("collision", None)
+        assert rows[occupied_suffix_id] == ("collision-2", None)
+        assert rows[late_slugless_id] == ("collision-3", None)
+        assert rows[legacy_archived_id] == ("collision", None)
+        assert slug_nullable == "NO"
+        assert archived_column_count == 1
+        assert "deleted_at IS NULL" in index_definition
+        assert "archived_at IS NULL" in index_definition
+
+        _run_alembic(migration_db_url, "downgrade", MIGRATION_REVISION)
+        with engine.begin() as conn:
+            downgraded_slug_nullable = conn.execute(
+                text(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'skill' AND column_name = 'slug'
+                    """
+                )
+            ).scalar_one()
+        assert downgraded_slug_nullable == "YES"
     finally:
         engine.dispose()

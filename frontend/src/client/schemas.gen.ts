@@ -2242,11 +2242,25 @@ export const $AgentPresetDirectoryItem = {
       title: "Description",
     },
     model_provider: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Provider",
     },
     model_name: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Name",
     },
     folder_id: {
@@ -2528,6 +2542,7 @@ export const $AgentPresetRead = {
     "workspace_id",
     "name",
     "slug",
+    "current_version_id",
     "created_at",
     "updated_at",
   ],
@@ -2567,11 +2582,25 @@ export const $AgentPresetReadMinimal = {
       title: "Description",
     },
     model_provider: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Provider",
     },
     model_name: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Name",
     },
     folder_id: {
@@ -2667,57 +2696,16 @@ export const $AgentPresetSkillBindingChange = {
       type: "string",
       title: "Skill Name",
     },
-    old_skill_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Skill Version Id",
-    },
-    old_skill_version: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Skill Version",
-    },
-    new_skill_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Skill Version Id",
-    },
-    new_skill_version: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Skill Version",
+    change_type: {
+      type: "string",
+      enum: ["attached", "detached"],
+      title: "Change Type",
     },
   },
   type: "object",
-  required: ["skill_id", "skill_name"],
+  required: ["skill_id", "skill_name", "change_type"],
   title: "AgentPresetSkillBindingChange",
-  description: "Diff entry for skill binding changes between preset versions.",
+  description: "Attachment change between two preset versions.",
 } as const
 
 export const $AgentPresetSkillBindingRead = {
@@ -2727,24 +2715,15 @@ export const $AgentPresetSkillBindingRead = {
       format: "uuid",
       title: "Skill Id",
     },
-    skill_version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Skill Version Id",
-    },
     skill_name: {
       type: "string",
       title: "Skill Name",
     },
-    skill_version: {
-      type: "integer",
-      title: "Skill Version",
-    },
   },
   type: "object",
-  required: ["skill_id", "skill_version_id", "skill_name", "skill_version"],
+  required: ["skill_id", "skill_name"],
   title: "AgentPresetSkillBindingRead",
-  description: "Resolved preset skill binding with metadata.",
+  description: "Preset-to-Skill ResourceHead edge with display metadata.",
 } as const
 
 export const $AgentPresetSubagentEligibility = {
@@ -4482,6 +4461,9 @@ export const $AnyAttachedSubagentRef = {
       $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
     },
     {
+      $ref: "#/components/schemas/HeadAttachedSubagentRef",
+    },
+    {
       $ref: "#/components/schemas/AttachedSubagentRef",
     },
   ],
@@ -4512,10 +4494,6 @@ export const $AppSettingsRead = {
     app_action_form_mode_enabled: {
       type: "boolean",
       title: "App Action Form Mode Enabled",
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      default: "latest",
     },
   },
   type: "object",
@@ -4571,12 +4549,6 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      description:
-        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
-      default: "latest",
     },
   },
   type: "object",
@@ -5121,23 +5093,11 @@ export const $AttachedSubagentRef = {
       minLength: 1,
       title: "Preset",
     },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
-    },
     name: {
       anyOf: [
         {
           type: "string",
-          maxLength: 80,
+          maxLength: 160,
           minLength: 1,
           pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
         },
@@ -14317,6 +14277,65 @@ export const $HarnessType = {
   description: "Supported agent harnesses.",
 } as const
 
+export const $HeadAttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 160,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset", "preset_id"],
+  title: "HeadAttachedSubagentRef",
+  description: "Stable internal reference to a child preset ResourceHead.",
+} as const
+
 export const $HealthResponse = {
   properties: {
     status: {
@@ -20773,23 +20792,11 @@ export const $ResolvedAttachedSubagentRef = {
       minLength: 1,
       title: "Preset",
     },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
-    },
     name: {
       anyOf: [
         {
           type: "string",
-          maxLength: 80,
+          maxLength: 160,
           minLength: 1,
           pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
         },
@@ -20832,6 +20839,18 @@ export const $ResolvedAttachedSubagentRef = {
       type: "string",
       format: "uuid",
       title: "Preset Version Id",
+    },
+    preset_version: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version",
     },
   },
   additionalProperties: false,
@@ -23581,10 +23600,12 @@ export const $SkillRead = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package locator.",
     },
     description: {
       anyOf: [
@@ -23692,10 +23713,12 @@ export const $SkillReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package locator.",
     },
     description: {
       anyOf: [
@@ -28272,12 +28295,6 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
-} as const
-
-export const $VersionedResourceResolutionStrategy = {
-  type: "string",
-  enum: ["pinned", "latest"],
-  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {
