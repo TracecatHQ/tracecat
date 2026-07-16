@@ -62,14 +62,6 @@ class CreateSessionResult(BaseModel):
     error: str | None = None
 
 
-class AutoTitleSessionInput(BaseModel):
-    """Input for auto_title_session_activity."""
-
-    role: Role
-    session_id: uuid.UUID
-    user_prompt: str
-
-
 class PendingToolResult(BaseModel):
     """Pending tool execution result that preserves approval ordering."""
 
@@ -224,9 +216,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 service.session.add(agent_session)
                 await service.session.commit()
 
-            # Workflow-created sessions do not exist when the detached auto-title
-            # activity starts, so title them here after creation. The service's
-            # compare-and-set guard makes this safe if the activities overlap.
+            # Avoid duplicate title generation when run_turn already attempted
+            # first-prompt auto-title before spawning this workflow.
             if created and input.initial_user_prompt is not None:
                 await service.auto_title_session_on_first_prompt(
                     agent_session,
@@ -268,36 +259,6 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
         logger.error("Failed to create agent session", error=str(e))
         return CreateSessionResult(
             session_id=input.session_id, success=False, error=str(e)
-        )
-
-
-@activity.defn
-async def auto_title_session_activity(input: AutoTitleSessionInput) -> None:
-    """Best-effort auto-title for an existing session's first prompt."""
-    ctx_role.set(input.role)
-
-    try:
-        async with AgentSessionService.with_session(role=input.role) as service:
-            agent_session = await service.get_session(input.session_id)
-            if agent_session is None:
-                logger.info(
-                    "session_auto_title_skip",
-                    session_id=str(input.session_id),
-                    prompt_length=len(input.user_prompt.strip()),
-                    reason="session_not_found",
-                )
-                return
-            await service.auto_title_session_on_first_prompt(
-                agent_session,
-                input.user_prompt,
-            )
-    except Exception as e:
-        logger.warning(
-            "session_auto_title_failure",
-            session_id=str(input.session_id),
-            prompt_length=len(input.user_prompt.strip()),
-            error=str(e),
-            error_type=type(e).__name__,
         )
 
 
@@ -517,7 +478,6 @@ def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
         create_session_activity,
-        auto_title_session_activity,
         load_session_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,

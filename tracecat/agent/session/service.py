@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import copy
 import hashlib
@@ -75,6 +76,7 @@ from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
@@ -129,7 +131,41 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+DEFAULT_SESSION_TITLE = "New Chat"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _auto_title_session(
+    *,
+    session_id: uuid.UUID,
+    user_prompt: str,
+    role: Role,
+) -> None:
+    """Best-effort auto-title using a fresh database session."""
+    try:
+        async with AgentSessionService.with_session(role=role) as service:
+            agent_session = await service.get_session(session_id)
+            if agent_session is None:
+                logger.info(
+                    "session_auto_title_skip",
+                    session_id=str(session_id),
+                    prompt_length=len(user_prompt.strip()),
+                    reason="session_not_found",
+                )
+                return
+            await service.auto_title_session_on_first_prompt(
+                agent_session,
+                user_prompt,
+            )
+    except Exception as e:
+        logger.warning(
+            "session_auto_title_failure",
+            session_id=str(session_id),
+            prompt_length=len(user_prompt.strip()),
+            error=str(e),
+            error_type=type(e).__name__,
+        )
 
 
 @dataclass
@@ -1192,18 +1228,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return
 
-        if not await self._is_first_prompt_for_session(agent_session.id):
-            logger.info(
-                "session_auto_title_skip",
-                session_id=str(agent_session.id),
-                entity_type=entity_type,
-                prompt_length=len(prompt),
-                old_title_length=len(old_title),
-                new_title_length=0,
-                reason="not_first_prompt",
-            )
-            return
-
         logger.info(
             "session_auto_title_attempt",
             session_id=str(agent_session.id),
@@ -1270,16 +1294,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return
 
-        history_exists = (
-            select(AgentSessionHistory.id)
-            .where(
-                AgentSessionHistory.workspace_id == self.workspace_id,
-                AgentSessionHistory.session_id == agent_session.id,
-            )
-            .limit(1)
-            .exists()
-        )
-
         try:
             result = await self.session.execute(
                 update(AgentSession)
@@ -1287,7 +1301,6 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSession.id == agent_session.id,
                     AgentSession.workspace_id == self.workspace_id,
                     AgentSession.title == old_title,
-                    ~history_exists,
                 )
                 .values(title=new_title)
                 .returning(AgentSession.id)
@@ -1410,6 +1423,19 @@ class AgentSessionService(BaseWorkspaceService):
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
+
+        if user_prompt is not None and (
+            not agent_session.title or agent_session.title == DEFAULT_SESSION_TITLE
+        ):
+            task = asyncio.create_task(
+                _auto_title_session(
+                    session_id=session_id,
+                    user_prompt=user_prompt,
+                    role=self.role,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:

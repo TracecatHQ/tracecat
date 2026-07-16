@@ -52,8 +52,6 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
     )
     agent_session.id = uuid.uuid4()
 
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
-
     with patch(
         "tracecat.agent.session.service.generate_session_title",
         AsyncMock(return_value="Investigate login failures"),
@@ -82,8 +80,6 @@ async def test_auto_title_uses_service_role_for_generation(user_role: Role) -> N
         entity_id=uuid.uuid4(),
     )
     agent_session.id = uuid.uuid4()
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
-
     generate_title = AsyncMock(return_value="Investigate login failures")
     with patch(
         "tracecat.agent.session.service.generate_session_title",
@@ -106,12 +102,15 @@ async def test_auto_title_uses_service_role_for_generation(user_role: Role) -> N
 
 
 @pytest.mark.anyio
-async def test_auto_title_skips_when_not_first_prompt(role: Role) -> None:
+async def test_auto_title_does_not_skip_when_history_exists(role: Role) -> None:
     session = AsyncMock()
+    session.execute.return_value = SimpleNamespace(
+        scalar_one_or_none=lambda: uuid.uuid4()
+    )
     service = AgentSessionService(session, role)
     agent_session = AgentSession(
         workspace_id=role.workspace_id,
-        title="Existing title",
+        title="New Chat",
         entity_type="copilot",
         entity_id=uuid.uuid4(),
     )
@@ -119,9 +118,14 @@ async def test_auto_title_skips_when_not_first_prompt(role: Role) -> None:
 
     service._is_first_prompt_for_session = AsyncMock(return_value=False)
 
-    await service.auto_title_session_on_first_prompt(agent_session, "Do something")
+    with patch(
+        "tracecat.agent.session.service.generate_session_title",
+        AsyncMock(return_value="Do something useful"),
+    ):
+        await service.auto_title_session_on_first_prompt(agent_session, "Do something")
 
-    session.execute.assert_not_awaited()
+    assert agent_session.title == "Do something useful"
+    service._is_first_prompt_for_session.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -137,8 +141,6 @@ async def test_auto_title_does_not_raise_on_expected_generation_error(
         entity_id=uuid.uuid4(),
     )
     agent_session.id = uuid.uuid4()
-
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
 
     with patch(
         "tracecat.agent.session.service.generate_session_title",
@@ -167,8 +169,6 @@ async def test_auto_title_does_not_raise_on_llm_completion_error(
     )
     agent_session.id = uuid.uuid4()
 
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
-
     with patch(
         "tracecat.agent.session.service.generate_session_title",
         AsyncMock(side_effect=LLMCompletionError("provider down")),
@@ -196,8 +196,6 @@ async def test_auto_title_does_not_raise_on_validation_error(
     )
     agent_session.id = uuid.uuid4()
 
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
-
     with patch(
         "tracecat.agent.session.service.generate_session_title",
         AsyncMock(side_effect=TracecatValidationError("invalid model config")),
@@ -222,8 +220,6 @@ async def test_auto_title_raises_on_unexpected_generation_error(role: Role) -> N
         entity_id=uuid.uuid4(),
     )
     agent_session.id = uuid.uuid4()
-
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
 
     with (
         patch(
@@ -268,8 +264,6 @@ async def test_auto_title_skips_when_compare_and_set_guard_fails(role: Role) -> 
         entity_id=uuid.uuid4(),
     )
     agent_session.id = uuid.uuid4()
-
-    service._is_first_prompt_for_session = AsyncMock(return_value=True)
 
     with patch(
         "tracecat.agent.session.service.generate_session_title",
