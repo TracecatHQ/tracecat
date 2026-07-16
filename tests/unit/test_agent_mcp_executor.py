@@ -10,12 +10,16 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from tracecat.agent.mcp import executor
 from tracecat.agent.tokens import MCPTokenClaims
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-def _build_claims() -> MCPTokenClaims:
+def _build_claims(
+    *,
+    scopes: frozenset[str] | None = frozenset({"action:core.http_request:execute"}),
+) -> MCPTokenClaims:
     session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
     return MCPTokenClaims(
         workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
@@ -24,7 +28,7 @@ def _build_claims() -> MCPTokenClaims:
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
         allowed_actions=["core.http_request"],
-        scopes=frozenset({"action:core.http_request:execute"}),
+        scopes=scopes,
     )
 
 
@@ -36,10 +40,23 @@ def _build_registry_lock() -> RegistryLock:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("scopes", "expected_execution_grant"),
+    [
+        pytest.param(
+            frozenset({"action:core.http_request:execute"}),
+            frozenset({"core.http_request"}),
+            id="scoped-agent",
+        ),
+        pytest.param(None, None, id="legacy-pre-patch-agent"),
+    ],
+)
 async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(
     monkeypatch: pytest.MonkeyPatch,
+    scopes: frozenset[str] | None,
+    expected_execution_grant: frozenset[str] | None,
 ) -> None:
-    claims = _build_claims()
+    claims = _build_claims(scopes=scopes)
     monkeypatch.setattr(
         executor, "build_agent_tool_workflow_id", lambda: "agent-tool/tool-wf-123"
     )
@@ -67,8 +84,13 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
 
     call = fake_client.execute_workflow.await_args
     workflow_input = call.args[1]
-    assert workflow_input.role.scopes == claims.scopes
-    assert workflow_input.run_input.allowed_actions == frozenset(claims.allowed_actions)
+    expected_role_scopes = (
+        claims.scopes
+        if claims.scopes is not None
+        else SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
+    )
+    assert workflow_input.role.scopes == expected_role_scopes
+    assert workflow_input.run_input.allowed_actions == expected_execution_grant
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
     assert call.kwargs["memo"] == {
         "parent_agent_workflow_id": f"agent/{claims.session_id}",

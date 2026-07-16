@@ -118,11 +118,18 @@ async def execute_action(
 
     logger.info("Executing action via executor workflow", action_name=action_name)
 
+    # A missing scope snapshot identifies an MCP token created by a pre-patch
+    # Agent history. Do not propagate only half of the new dual authorization
+    # context, because that would turn its existing tool list into a deny-all
+    # gateway grant. Those histories retain their recorded legacy behavior.
+    execution_grant = (
+        frozenset(claims.allowed_actions) if claims.scopes is not None else None
+    )
     run_input = build_run_input(
         action_name,
         args,
         registry_lock,
-        allowed_actions=frozenset(claims.allowed_actions),
+        allowed_actions=execution_grant,
     )
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),

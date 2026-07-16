@@ -313,6 +313,16 @@ async def _resolve_get_case_action(request: Request) -> frozenset[str]:
     return frozenset({"core.cases.get_linked_case_rows"})
 
 
+async def _resolve_create_comment_action(request: Request) -> frozenset[str]:
+    """Require the general comment capability for top-level comments."""
+    payload = await _request_json_object(request)
+    if payload.get("parent_id") is None:
+        return frozenset({"core.cases.create_comment"})
+    # The general create action also accepts a parent ID, so either configured
+    # action legitimately represents a reply.
+    return frozenset({"core.cases.create_comment", "core.cases.reply_to_comment"})
+
+
 async def _resolve_table_lookup_action(request: Request) -> frozenset[str]:
     """Prevent a single-row lookup grant from expanding to an arbitrary batch."""
     payload = await _request_json_object(request)
@@ -333,6 +343,10 @@ async def _request_json_object(request: Request) -> dict[str, Any]:
 GATEWAY_ACTION_RESOLVERS_BY_ENDPOINT: dict[str, GatewayActionResolver] = {
     "tracecat.agent.internal_router.run_agent_endpoint": _resolve_run_agent_action,
     "tracecat.cases.internal_router.get_case": _resolve_get_case_action,
+    "tracecat.cases.internal_router.create_comment": _resolve_create_comment_action,
+    "tracecat.cases.internal_router.create_comment_simple": (
+        _resolve_create_comment_action
+    ),
     "tracecat.tables.internal_router.lookup_rows": _resolve_table_lookup_action,
 }
 

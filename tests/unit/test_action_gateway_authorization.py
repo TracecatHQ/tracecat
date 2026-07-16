@@ -10,7 +10,11 @@ from starlette.requests import Request
 
 from tracecat.agent.internal_router import run_agent_endpoint
 from tracecat.auth.executor_tokens import ExecutorTokenPayload
-from tracecat.cases.internal_router import get_case
+from tracecat.cases.internal_router import (
+    create_comment,
+    create_comment_simple,
+    get_case,
+)
 from tracecat.executor.action_gateway.capabilities import (
     _agent_gateway_action_allowed,
     resolve_gateway_actions,
@@ -97,6 +101,63 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
     )
 
     required_actions = await resolve_gateway_actions(request, get_case)
+
+    assert required_actions == expected_actions
+    assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        pytest.param(create_comment, id="api-response"),
+        pytest.param(create_comment_simple, id="udf-response"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("payload", "granted_action", "expected_actions", "allowed"),
+    [
+        pytest.param(
+            {"content": "Top-level comment"},
+            "core.cases.reply_to_comment",
+            frozenset({"core.cases.create_comment"}),
+            False,
+            id="reply-grant-cannot-create-top-level",
+        ),
+        pytest.param(
+            {"content": "Top-level comment"},
+            "core.cases.create_comment",
+            frozenset({"core.cases.create_comment"}),
+            True,
+            id="create-grant-can-create-top-level",
+        ),
+        pytest.param(
+            {"content": "Reply", "parent_id": "parent-comment-id"},
+            "core.cases.reply_to_comment",
+            frozenset({"core.cases.create_comment", "core.cases.reply_to_comment"}),
+            True,
+            id="reply-grant-can-reply",
+        ),
+        pytest.param(
+            {"content": "Reply", "parent_id": "parent-comment-id"},
+            "core.cases.create_comment",
+            frozenset({"core.cases.create_comment", "core.cases.reply_to_comment"}),
+            True,
+            id="create-grant-can-reply",
+        ),
+    ],
+)
+async def test_comment_grant_is_bounded_by_parent_id(
+    endpoint: Callable[..., Any],
+    payload: dict[str, Any],
+    granted_action: str,
+    expected_actions: frozenset[str],
+    allowed: bool,
+) -> None:
+    claims = _claims(granted_action)
+    request = _json_request(payload)
+
+    required_actions = await resolve_gateway_actions(request, endpoint)
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
