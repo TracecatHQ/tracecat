@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import pytest
+from authlib.integrations.base_client.errors import OAuthError
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -51,7 +52,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import EntitlementRequired
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
     MCPConnectionVerificationError,
@@ -4516,6 +4517,180 @@ class TestMCPProviderOAuth:
         assert refresh_logs[0]["refresh_token_rotated"] is expected_rotated
         assert refresh_logs[0]["expires_in"] == 1800
         assert refresh_logs[0]["granted_scope"] == "read"
+
+    async def _store_expired_mcp_integration(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> OAuthIntegration:
+        """Custom MCP OAuth integration whose access token already expired."""
+        provider_key = ProviderKey(
+            id=f"custom_mcp_dead_refresh_{uuid.uuid4().hex}",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="dead-refresh-client",
+            authorization_endpoint="https://auth.example.test/oauth/authorize",
+            token_endpoint="https://auth.example.test/oauth/token",
+        )
+        integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("stale-access-token"),
+            refresh_token=SecretStr("dead-refresh-token"),
+            expires_in=3600,
+        )
+        integration.expires_at = datetime.now(UTC) - timedelta(hours=1)
+        await session.commit()
+        await session.refresh(integration)
+        return integration
+
+    async def test_refresh_invalid_grant_discards_dead_refresh_token(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Terminal invalid_grant clears the refresh token and flags re-auth."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+
+        async def fake_refresh(
+            *, integration: OAuthIntegration, refresh_token: str
+        ) -> OAuthIntegration:
+            _ = integration, refresh_token
+            raise OAuthError(error="invalid_grant", description="session expired")
+
+        monkeypatch.setattr(
+            integration_service, "_refresh_custom_mcp_integration", fake_refresh
+        )
+
+        result = await integration_service.refresh_token_if_needed(integration)
+
+        assert result.encrypted_refresh_token is None
+        assert result.status == IntegrationStatus.REAUTH_REQUIRED
+
+    async def test_refresh_invalid_grant_keeps_concurrently_rotated_token(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A losing refresh must not clear a token rotated by a concurrent winner."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+
+        async def fake_refresh(
+            *, integration: OAuthIntegration, refresh_token: str
+        ) -> OAuthIntegration:
+            _ = refresh_token
+            # Simulate a concurrent refresh winning: a new token lands in the row
+            # before this attempt's invalid_grant (rotation reuse detection).
+            integration.encrypted_refresh_token = integration_service._encrypt_token(
+                "rotated-refresh-token"
+            )
+            await session.commit()
+            raise OAuthError(error="invalid_grant", description="reuse detected")
+
+        monkeypatch.setattr(
+            integration_service, "_refresh_custom_mcp_integration", fake_refresh
+        )
+
+        result = await integration_service.refresh_token_if_needed(integration)
+
+        assert result.encrypted_refresh_token is not None
+        assert (
+            integration_service._decrypt_token(result.encrypted_refresh_token)
+            == "rotated-refresh-token"
+        )
+        assert result.status == IntegrationStatus.CONNECTED
+
+    async def test_refresh_transient_error_keeps_refresh_token(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Non-terminal OAuth errors leave the stored refresh token untouched."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+
+        async def fake_refresh(
+            *, integration: OAuthIntegration, refresh_token: str
+        ) -> OAuthIntegration:
+            _ = integration, refresh_token
+            raise OAuthError(error="temporarily_unavailable", description="down")
+
+        monkeypatch.setattr(
+            integration_service, "_refresh_custom_mcp_integration", fake_refresh
+        )
+
+        result = await integration_service.refresh_token_if_needed(integration)
+
+        assert result.encrypted_refresh_token is not None
+        assert result.status == IntegrationStatus.CONNECTED
+
+    async def test_reconnect_catalog_mcp_with_dead_token_returns_oauth_redirect(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A reauth_required row gets a fresh authorize redirect on reconnect.
+
+        Regression: the "already connected" early-return treated a dead token
+        as connected, so reconnect skipped OAuth and 401'd at verification.
+        """
+        catalog = _catalog_entry(
+            slug="dead-token-mcp",
+            name="Dead Token MCP",
+            description="Reconnect regression",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.test/mcp",
+            },
+            sort_key="0000:dead-token-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        integration.encrypted_refresh_token = None
+        session.add(
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name="Dead Token MCP",
+                slug="dead-token-mcp",
+                catalog_slug=catalog.slug,
+                server_type="http",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+                tools=[],
+            )
+        )
+        await session.commit()
+        await session.refresh(integration)
+        assert integration.status == IntegrationStatus.REAUTH_REQUIRED
+
+        await _seed_service_user(session, integration_service)
+        _patch_mcp_oauth_client(monkeypatch)
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        assert result.oauth_connect is not None
+        assert result.oauth_connect.auth_url
 
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,

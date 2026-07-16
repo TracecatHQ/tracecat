@@ -24,7 +24,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
@@ -35,6 +35,7 @@ from tracecat.integrations.schemas import (
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
+    credential_reauth_required,
 )
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
@@ -2347,3 +2348,49 @@ class TestIntegrationServiceScopes:
 
         assert config is not None
         assert config.scopes == ["fallback.read", "fallback.write"]
+
+
+def _oauth_integration_row(
+    *,
+    encrypted_refresh_token: bytes | None,
+    expires_at: datetime | None,
+) -> OAuthIntegration:
+    return OAuthIntegration(
+        workspace_id=uuid.uuid4(),
+        provider_id="test_provider",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        encrypted_access_token=b"access",
+        encrypted_refresh_token=encrypted_refresh_token,
+        expires_at=expires_at,
+    )
+
+
+def test_integration_status_flags_dead_credential_as_reauth_required() -> None:
+    """Expired token with no refresh token is REAUTH_REQUIRED, not CONNECTED."""
+    expired = datetime.now(UTC) - timedelta(minutes=1)
+    live = datetime.now(UTC) + timedelta(hours=1)
+
+    dead = _oauth_integration_row(encrypted_refresh_token=None, expires_at=expired)
+    assert dead.status == IntegrationStatus.REAUTH_REQUIRED
+
+    # Expired with a refresh token self-heals on next use: still CONNECTED.
+    refreshable = _oauth_integration_row(
+        encrypted_refresh_token=b"refresh", expires_at=expired
+    )
+    assert refreshable.status == IntegrationStatus.CONNECTED
+
+    fresh = _oauth_integration_row(encrypted_refresh_token=None, expires_at=live)
+    assert fresh.status == IntegrationStatus.CONNECTED
+
+    non_expiring = _oauth_integration_row(encrypted_refresh_token=None, expires_at=None)
+    assert non_expiring.status == IntegrationStatus.CONNECTED
+
+
+def test_credential_reauth_required_truth_table() -> None:
+    expired = datetime.now(UTC) - timedelta(minutes=1)
+    live = datetime.now(UTC) + timedelta(hours=1)
+
+    assert credential_reauth_required(has_refresh_token=False, expires_at=expired)
+    assert not credential_reauth_required(has_refresh_token=True, expires_at=expired)
+    assert not credential_reauth_required(has_refresh_token=False, expires_at=live)
+    assert not credential_reauth_required(has_refresh_token=False, expires_at=None)

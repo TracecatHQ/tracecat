@@ -15,6 +15,7 @@ from uuid import uuid4
 import httpx
 import orjson
 import sqlalchemy as sa
+from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
@@ -59,7 +60,11 @@ from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entry_by_slug,
 )
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthGrantType,
+)
 from tracecat.integrations.mcp_validation import (
     ALLOWED_MCP_COMMANDS,
     MAX_SERVER_NAME_LENGTH,
@@ -98,11 +103,13 @@ from tracecat.integrations.schemas import (
     MCPToolPolicyUpdate,
     MCPToolSummary,
     MCPVerificationStatusRead,
+    OAuthTokenState,
     PlatformMCPCatalogState,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
+    credential_reauth_required,
     validate_url_credential_values,
 )
 from tracecat.integrations.types import (
@@ -1828,6 +1835,17 @@ class IntegrationService(BaseWorkspaceService):
                             except Exception as e:
                                 refresh_error = e
                                 await refresh_session.refresh(locked)
+                                if (
+                                    isinstance(e, OAuthError)
+                                    and e.error == "invalid_grant"
+                                ):
+                                    locked.encrypted_refresh_token = None
+                                    refresh_service.logger.warning(
+                                        "Authorization server rejected the refresh "
+                                        "token; re-authorization required",
+                                        provider=locked.provider_id,
+                                        user_id=locked.user_id,
+                                    )
 
                             await refresh_session.commit()
                             if refresh_error is not None:
@@ -2820,10 +2838,13 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration = await self.session.get(
             OAuthIntegration, mcp_integration.oauth_integration_id
         )
+        # CONNECTED covers "token present and alive (or refreshable)"; a
+        # reauth_required row must fall through to the reconnect redirect.
         return bool(
             oauth_integration
             and oauth_integration.workspace_id == self.workspace_id
             and is_set(oauth_integration.encrypted_access_token)
+            and oauth_integration.status == IntegrationStatus.CONNECTED
         )
 
     async def _start_existing_custom_mcp_oauth(
@@ -3261,22 +3282,30 @@ class IntegrationService(BaseWorkspaceService):
         ]
 
     @staticmethod
-    def _mcp_integration_state_from_access_token(
+    def _mcp_integration_state_from_token(
         *,
         mcp_integration: MCPIntegration,
-        encrypted_access_token: bytes | None,
+        token_state: OAuthTokenState | None,
     ) -> PlatformMCPCatalogState:
-        if mcp_integration.auth_type == MCPAuthType.OAUTH2 and not (
-            encrypted_access_token is not None and is_set(encrypted_access_token)
-        ):
-            return "configured"
+        if mcp_integration.auth_type == MCPAuthType.OAUTH2:
+            if token_state is None or not (
+                token_state.encrypted_access_token is not None
+                and is_set(token_state.encrypted_access_token)
+            ):
+                return "configured"
+            if credential_reauth_required(
+                has_refresh_token=token_state.encrypted_refresh_token is not None
+                and is_set(token_state.encrypted_refresh_token),
+                expires_at=token_state.expires_at,
+            ):
+                return "reauth_required"
         if mcp_integration.tools is None:
             return "configured"
         return "connected"
 
-    async def _mcp_oauth_access_tokens_by_id(
+    async def _mcp_oauth_token_states_by_id(
         self, mcp_integrations: Sequence[MCPIntegration]
-    ) -> dict[uuid.UUID, bytes | None]:
+    ) -> dict[uuid.UUID, OAuthTokenState]:
         oauth_integration_ids = {
             oauth_integration_id
             for mcp_integration in mcp_integrations
@@ -3288,13 +3317,20 @@ class IntegrationService(BaseWorkspaceService):
             return {}
 
         result = await self.session.execute(
-            select(OAuthIntegration.id, OAuthIntegration.encrypted_access_token).where(
+            select(
+                OAuthIntegration.id,
+                OAuthIntegration.encrypted_access_token,
+                OAuthIntegration.encrypted_refresh_token,
+                OAuthIntegration.expires_at,
+            ).where(
                 OAuthIntegration.workspace_id == self.workspace_id,
                 OAuthIntegration.id.in_(oauth_integration_ids),
             )
         )
-        rows = result.tuples().all()
-        return dict(rows)
+        return {
+            row_id: OAuthTokenState(access_token, refresh_token, expires_at)
+            for row_id, access_token, refresh_token, expires_at in result.tuples().all()
+        }
 
     async def mcp_oauth_authorization_pending(
         self, *, mcp_integration: MCPIntegration
@@ -3311,8 +3347,11 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id = mcp_integration.oauth_integration_id
         if oauth_integration_id is None:
             return True
-        tokens_by_id = await self._mcp_oauth_access_tokens_by_id([mcp_integration])
-        encrypted_access_token = tokens_by_id.get(oauth_integration_id)
+        tokens_by_id = await self._mcp_oauth_token_states_by_id([mcp_integration])
+        token_state = tokens_by_id.get(oauth_integration_id)
+        encrypted_access_token = (
+            token_state.encrypted_access_token if token_state else None
+        )
         return not (
             encrypted_access_token is not None and is_set(encrypted_access_token)
         )
@@ -3320,16 +3359,16 @@ class IntegrationService(BaseWorkspaceService):
     async def mcp_integration_state(
         self, *, mcp_integration: MCPIntegration
     ) -> PlatformMCPCatalogState:
-        tokens_by_id = await self._mcp_oauth_access_tokens_by_id([mcp_integration])
+        tokens_by_id = await self._mcp_oauth_token_states_by_id([mcp_integration])
         oauth_integration_id = mcp_integration.oauth_integration_id
-        encrypted_access_token = (
+        token_state = (
             tokens_by_id.get(oauth_integration_id)
             if oauth_integration_id is not None
             else None
         )
-        return self._mcp_integration_state_from_access_token(
+        return self._mcp_integration_state_from_token(
             mcp_integration=mcp_integration,
-            encrypted_access_token=encrypted_access_token,
+            token_state=token_state,
         )
 
     async def list_mcp_integrations_with_state(
@@ -3337,11 +3376,11 @@ class IntegrationService(BaseWorkspaceService):
     ) -> Sequence[MCPIntegrationWithState]:
         """List MCP integrations with OAuth-backed connection state."""
         integrations = await self.list_mcp_integrations(source=source)
-        tokens_by_id = await self._mcp_oauth_access_tokens_by_id(integrations)
+        tokens_by_id = await self._mcp_oauth_token_states_by_id(integrations)
         items: list[MCPIntegrationWithState] = []
         for integration in integrations:
             oauth_integration_id = integration.oauth_integration_id
-            encrypted_access_token = (
+            token_state = (
                 tokens_by_id.get(oauth_integration_id)
                 if oauth_integration_id is not None
                 else None
@@ -3349,9 +3388,9 @@ class IntegrationService(BaseWorkspaceService):
             items.append(
                 MCPIntegrationWithState(
                     integration=integration,
-                    state=self._mcp_integration_state_from_access_token(
+                    state=self._mcp_integration_state_from_token(
                         mcp_integration=integration,
-                        encrypted_access_token=encrypted_access_token,
+                        token_state=token_state,
                     ),
                 )
             )

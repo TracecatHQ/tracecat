@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import orjson
 import pytest
@@ -12,6 +13,7 @@ from tracecat.integrations.catalog import loader
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.catalog.types import RawCatalogRow
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.schemas import OAuthTokenState
 
 
 class _CatalogResource:
@@ -644,7 +646,7 @@ def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
             slug="no-auth-mcp",
             auth_type=MCPAuthType.NONE,
         ),
-        encrypted_access_token=None,
+        token_state=None,
     )
 
     assert state == "configured"
@@ -660,7 +662,59 @@ def test_catalog_state_marks_verified_non_oauth_mcp_rows_connected() -> None:
             auth_type=MCPAuthType.NONE,
             tools=[],
         ),
-        encrypted_access_token=None,
+        token_state=None,
+    )
+
+    assert state == "connected"
+
+
+def _oauth_mcp_row() -> MCPIntegration:
+    return MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="OAuth MCP",
+        slug="oauth-mcp",
+        auth_type=MCPAuthType.OAUTH2,
+        tools=[],
+    )
+
+
+def test_catalog_state_flags_dead_oauth_token_as_reauth_required() -> None:
+    """Expired access token with no refresh token cannot self-heal."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+    )
+
+    assert state == "reauth_required"
+
+
+def test_catalog_state_keeps_refreshable_expired_oauth_token_connected() -> None:
+    """An expired access token with a refresh token self-heals on next use."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=b"refresh",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_non_expiring_oauth_token_connected() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=None,
+        ),
     )
 
     assert state == "connected"
