@@ -171,8 +171,8 @@ _GITHUB_TREE_CHUNK_MAX_BYTES = 2 * 1024 * 1024
 """Cap the serialized payload per create-tree call.
 
 Tree entries embed file content inline, so entry count alone does not bound
-request size. A single entry larger than the cap still ships alone because an
-entry cannot be split."""
+request size. A file whose inline entry alone exceeds the cap is uploaded
+through the blob endpoint and referenced by SHA instead."""
 
 _GITHUB_RETRY_BUDGET_SECONDS = 45.0
 """Maximum shared Retry-After delay budget for one GitHub export."""
@@ -517,15 +517,35 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     message="No changes detected; nothing to commit.",
                 )
 
-            elements = [
-                InputGitTreeElement(
+            elements: list[InputGitTreeElement] = []
+            for path, content in sorted(changed_files.items()):
+                inline_element = InputGitTreeElement(
                     path=path,
                     mode="100644",
                     type="blob",
                     content=content,
                 )
-                for path, content in sorted(changed_files.items())
-            ]
+                inline_bytes = len(json.dumps(inline_element._identity).encode("utf-8"))
+                if inline_bytes <= _GITHUB_TREE_CHUNK_MAX_BYTES:
+                    elements.append(inline_element)
+                    continue
+                # Inline content above the chunk cap would recreate the
+                # oversized-request failure the cap prevents; upload the blob
+                # separately and reference its SHA in the tree instead.
+                github_stage = "create_blob"
+                github_endpoint = "POST /repos/{owner}/{repo}/git/blobs"
+                blob = await _github_write_with_retry(
+                    lambda content=content: repo.create_git_blob(content, "utf-8"),
+                    budget=retry_budget,
+                )
+                elements.append(
+                    InputGitTreeElement(
+                        path=path,
+                        mode="100644",
+                        type="blob",
+                        sha=blob.sha,
+                    )
+                )
             elements.extend(
                 InputGitTreeElement(path=path, mode="100644", type="blob", sha=None)
                 for path in sorted(stale_paths)

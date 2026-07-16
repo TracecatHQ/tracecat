@@ -1980,9 +1980,10 @@ async def test_github_write_files_splits_tree_chunks_by_payload_size(
     }
     repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
 
-    # Each large element serializes past half the patched cap, so no two of
-    # them may share a chunk despite the 128-entry count limit.
-    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 500):
+    # Every element stays under the 700-byte cap individually (manifest ~525,
+    # workflow entries ~387 serialized), but no two fit a chunk together, so
+    # the packer must emit one chunk per element despite the 128-entry limit.
+    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 700):
         result = await _write_files_with_fake_repo(
             repo,
             service=workspace_sync_service,
@@ -1991,8 +1992,47 @@ async def test_github_write_files_splits_tree_chunks_by_payload_size(
         )
 
     assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["create_git_blob"] == 0
     assert repo.call_counts["create_git_tree"] == 4
     assert all(len(tree.elements) == 1 for tree in repo.trees)
+    assert repo.final_files == files
+
+
+@pytest.mark.anyio
+async def test_github_write_files_uploads_oversized_entries_as_blobs(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        "workflows/big/definition.yml": "x" * 2000,
+        "workflows/small/definition.yml": "version: 1\n",
+    }
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    # Only the big file's inline entry serializes past the 1000-byte cap
+    # (manifest ~525, small ~103), so it alone must ship through the blob
+    # endpoint and appear in the tree as a SHA reference.
+    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 1000):
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["create_git_blob"] == 1
+    assert repo.blobs == [("x" * 2000, "utf-8")]
+    identities = [
+        cast(Any, element)._identity for tree in repo.trees for element in tree.elements
+    ]
+    big_identity = next(
+        identity
+        for identity in identities
+        if identity["path"] == "workflows/big/definition.yml"
+    )
+    assert "content" not in big_identity
+    assert big_identity["sha"] == "blob-1"
     assert repo.final_files == files
 
 
@@ -2261,6 +2301,7 @@ class _FakeGitHubRepo:
         self._get_git_tree_error = get_git_tree_error
         self._create_git_tree_errors = list(create_git_tree_errors or ())
         self._create_git_ref_errors = list(create_git_ref_errors or ())
+        self._blob_contents: dict[str, str] = {}
         self._tree_truncated = tree_truncated
         self.created_refs: list[tuple[str, str]] = []
         self.compare_calls: list[tuple[str, str]] = []
@@ -2331,7 +2372,9 @@ class _FakeGitHubRepo:
     def create_git_blob(self, content: str, encoding: str):
         self.call_counts["create_git_blob"] += 1
         self.blobs.append((content, encoding))
-        return SimpleNamespace(sha=f"blob-{len(self.blobs)}")
+        sha = f"blob-{len(self.blobs)}"
+        self._blob_contents[sha] = content
+        return SimpleNamespace(sha=sha)
 
     def create_git_tree(self, elements: list[object], *, base_tree: object):
         self.call_counts["create_git_tree"] += 1
@@ -2345,9 +2388,10 @@ class _FakeGitHubRepo:
             if "content" in identity:
                 assert "sha" not in identity
                 tree_files[path] = identity["content"]
-            else:
-                assert identity["sha"] is None
+            elif identity["sha"] is None:
                 tree_files.pop(path, None)
+            else:
+                tree_files[path] = self._blob_contents[identity["sha"]]
         tree = SimpleNamespace(
             sha=f"tree-{len(self.trees) + 1}",
             elements=elements,
