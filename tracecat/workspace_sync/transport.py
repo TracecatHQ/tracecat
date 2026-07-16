@@ -174,6 +174,13 @@ Tree entries embed file content inline, so entry count alone does not bound
 request size. A file whose inline entry alone exceeds the cap is uploaded
 through the blob endpoint and referenced by SHA instead."""
 
+_GITHUB_TREE_ENVELOPE_BYTES = 128
+"""Bytes reserved for the create-tree JSON envelope.
+
+Covers the ``{"base_tree": "<sha>", "tree": [...]}`` framing so a chunk
+measured element-by-element cannot exceed the cap once fully serialized;
+per-element ``", "`` separators are charged to each element instead."""
+
 _GITHUB_RETRY_BUDGET_SECONDS = 45.0
 """Maximum shared Retry-After delay budget for one GitHub export."""
 
@@ -525,8 +532,15 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     type="blob",
                     content=content,
                 )
-                inline_bytes = len(json.dumps(inline_element._identity).encode("utf-8"))
-                if inline_bytes <= _GITHUB_TREE_CHUNK_MAX_BYTES:
+                # Charge the ", " separator to the element so element-by-element
+                # accounting matches the fully serialized request.
+                inline_bytes = (
+                    len(json.dumps(inline_element._identity).encode("utf-8")) + 2
+                )
+                if (
+                    inline_bytes
+                    <= _GITHUB_TREE_CHUNK_MAX_BYTES - _GITHUB_TREE_ENVELOPE_BYTES
+                ):
                     elements.append(inline_element)
                     continue
                 # Inline content above the chunk cap would recreate the
@@ -554,11 +568,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             current_chunk: list[InputGitTreeElement] = []
             current_chunk_bytes = 0
             for element in elements:
-                element_bytes = len(json.dumps(element._identity).encode("utf-8"))
+                element_bytes = len(json.dumps(element._identity).encode("utf-8")) + 2
                 if current_chunk and (
                     len(current_chunk) >= _GITHUB_TREE_CHUNK_SIZE
                     or current_chunk_bytes + element_bytes
-                    > _GITHUB_TREE_CHUNK_MAX_BYTES
+                    > _GITHUB_TREE_CHUNK_MAX_BYTES - _GITHUB_TREE_ENVELOPE_BYTES
                 ):
                     element_chunks.append(current_chunk)
                     current_chunk = []
