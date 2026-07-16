@@ -184,7 +184,7 @@ async def main() -> None:
                 "output": None,
                 "stdout": "",
                 "stderr": "",
-                "error": None,
+                "error": f"Timed out after {timeout}s while probing stdio MCP server",
                 "error_code": "timeout",
             }
         )

@@ -246,13 +246,13 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
 
 @pytest.mark.anyio
 async def test_probe_returns_friendly_structured_timeout() -> None:
-    """A graceful in-sandbox timeout produces an actionable user error."""
+    """The timeout code wins while retaining the sandbox diagnostic error."""
     executor = MagicMock(
         execute=AsyncMock(
             return_value=SandboxResult(
                 success=False,
                 error_code=SandboxErrorCode.TIMEOUT,
-                error=None,
+                error="Timed out after 45s while probing stdio MCP server",
                 stderr="",
             )
         )
