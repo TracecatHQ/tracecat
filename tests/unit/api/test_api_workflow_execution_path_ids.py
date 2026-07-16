@@ -34,7 +34,7 @@ def _workflow_definition_content(title: str = "Test Workflow") -> dict:
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_accepts_slash_id(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that the internal router accepts execution IDs with slash delimiter."""
@@ -53,7 +53,9 @@ async def test_internal_get_execution_status_accepts_slash_id(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -64,7 +66,7 @@ async def test_internal_get_execution_status_accepts_slash_id(
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_accepts_url_encoded_slash(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that URL-encoded slash (%2F) is decoded correctly."""
@@ -89,7 +91,9 @@ async def test_internal_get_execution_status_accepts_url_encoded_slash(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{encoded_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{encoded_id}"
+        )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -100,7 +104,7 @@ async def test_internal_get_execution_status_accepts_url_encoded_slash(
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_accepts_colon_delimiter(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that execution IDs with colon delimiter are accepted."""
@@ -119,7 +123,9 @@ async def test_internal_get_execution_status_accepts_colon_delimiter(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -129,7 +135,7 @@ async def test_internal_get_execution_status_accepts_colon_delimiter(
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_returns_404_when_not_found(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that 404 is returned when execution is not found."""
@@ -143,7 +149,9 @@ async def test_internal_get_execution_status_returns_404_when_not_found(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert "not found" in response.json()["detail"].lower()
@@ -151,7 +159,7 @@ async def test_internal_get_execution_status_returns_404_when_not_found(
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_returns_error_for_failed_workflow(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that error details are returned for failed workflows."""
@@ -181,7 +189,9 @@ async def test_internal_get_execution_status_returns_error_for_failed_workflow(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -192,7 +202,7 @@ async def test_internal_get_execution_status_returns_error_for_failed_workflow(
 
 @pytest.mark.anyio
 async def test_internal_get_execution_status_unwraps_nested_failure_cause(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that nested ActivityError-style causes are unwrapped to root message."""
@@ -230,7 +240,9 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
         "connect",
         AsyncMock(return_value=mock_svc),
     ):
-        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -245,7 +257,7 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
 
 @pytest.mark.anyio
 async def test_internal_execute_workflow_by_id(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test executing a workflow by workflow_id."""
@@ -293,7 +305,7 @@ async def test_internal_execute_workflow_by_id(
             AsyncMock(return_value=mock_exec_service),
         ),
     ):
-        response = client.post(
+        response = action_gateway_client.post(
             "/internal/workflows/executions",
             json={"workflow_id": workflow_id, "trigger_inputs": {"key": "value"}},
         )
@@ -306,7 +318,7 @@ async def test_internal_execute_workflow_by_id(
 
 @pytest.mark.anyio
 async def test_internal_execute_workflow_by_alias(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test executing a workflow by workflow_alias."""
@@ -368,7 +380,7 @@ async def test_internal_execute_workflow_by_alias(
             AsyncMock(return_value=mock_exec_service),
         ),
     ):
-        response = client.post(
+        response = action_gateway_client.post(
             "/internal/workflows/executions",
             json={"workflow_alias": workflow_alias},
         )
@@ -381,7 +393,7 @@ async def test_internal_execute_workflow_by_alias(
 
 @pytest.mark.anyio
 async def test_internal_execute_workflow_returns_404_for_unknown_alias(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that 404 is returned when workflow alias is not found."""
@@ -400,7 +412,7 @@ async def test_internal_execute_workflow_returns_404_for_unknown_alias(
             mock_wf_service.resolve_workflow_alias,
         ),
     ):
-        response = client.post(
+        response = action_gateway_client.post(
             "/internal/workflows/executions",
             json={"workflow_alias": "nonexistent-alias"},
         )
@@ -411,11 +423,11 @@ async def test_internal_execute_workflow_returns_404_for_unknown_alias(
 
 @pytest.mark.anyio
 async def test_internal_execute_workflow_returns_400_when_no_id_or_alias(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that 400 is returned when neither workflow_id nor workflow_alias provided."""
-    response = client.post(
+    response = action_gateway_client.post(
         "/internal/workflows/executions",
         json={},
     )
@@ -426,7 +438,7 @@ async def test_internal_execute_workflow_returns_400_when_no_id_or_alias(
 
 @pytest.mark.anyio
 async def test_internal_execute_workflow_returns_404_for_missing_definition(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Test that 404 is returned when workflow definition is not found."""
@@ -447,7 +459,7 @@ async def test_internal_execute_workflow_returns_404_for_missing_definition(
             mock_defn_service.get_definition_by_workflow_id,
         ),
     ):
-        response = client.post(
+        response = action_gateway_client.post(
             "/internal/workflows/executions",
             json={"workflow_id": workflow_id},
         )

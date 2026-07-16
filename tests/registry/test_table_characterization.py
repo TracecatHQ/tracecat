@@ -15,8 +15,8 @@ from __future__ import annotations
 import uuid
 from typing import get_args
 
+import httpx
 import pytest
-import respx
 from httpx import ASGITransport
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,14 +37,16 @@ from tracecat_registry.core.table import (
     update_row,
 )
 
-from tracecat import config
-from tracecat.api.app import app
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
+from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+
+_ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
+app = create_action_gateway_app()
 
 
 @pytest.fixture
@@ -64,26 +66,26 @@ async def table_test_role(svc_workspace: Workspace) -> Role:
 async def table_ctx(
     table_test_role: Role,
     session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Set up the ctx_role and registry context for table UDF tests.
 
-    Uses SDK path with respx mock to route HTTP calls to the FastAPI app.
+    Routes SDK calls through the Action Gateway ASGI app.
     """
     registry_ctx = RegistryContext(
         workspace_id=str(table_test_role.workspace_id),
         workflow_id="test-workflow-id",
         run_id="test-run-id",
         environment="default",
-        api_url=config.TRACECAT__API_URL,
     )
     set_context(registry_ctx)
+    monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", _ACTION_GATEWAY_SOCKET)
 
-    # Set up respx mock to route SDK HTTP calls to the FastAPI app
-    respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
-    respx_mock.start()
-    respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
-        side_effect=ASGITransport(app).handle_async_request
-    )
+    def create_gateway_transport(*, uds: str) -> ASGITransport:
+        assert uds == _ACTION_GATEWAY_SOCKET
+        return ASGITransport(app=app)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_gateway_transport)
 
     def override_role():
         return table_test_role
@@ -103,7 +105,6 @@ async def table_ctx(
     finally:
         ctx_role.reset(token)
         clear_context()
-        respx_mock.stop()
         app.dependency_overrides.clear()
 
 
