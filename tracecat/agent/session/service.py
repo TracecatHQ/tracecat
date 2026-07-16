@@ -1411,9 +1411,6 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
-        if user_prompt is not None:
-            await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
-
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
             if request_instructions:

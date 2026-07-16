@@ -104,7 +104,7 @@ class TestSessionActivities:
         """Test that get_session_activities returns a list of activity functions."""
         activities = get_session_activities()
         assert isinstance(activities, list)
-        assert len(activities) == 5
+        assert len(activities) == 6
 
         # All returned items should have the temporal activity definition
         for activity in activities:
@@ -117,6 +117,7 @@ class TestSessionActivities:
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
         assert "create_session_activity" in activity_names
+        assert "auto_title_session_activity" in activity_names
         assert "load_session_activity" in activity_names
         assert "load_session_messages_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names

@@ -62,6 +62,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
+        AutoTitleSessionInput,
         CreateSessionInput,
         FinalizeTurnInput,
         LoadSessionInput,
@@ -69,6 +70,7 @@ with workflow.unsafe.imports_passed_through():
         LoadSessionResult,
         PendingToolResult,
         ReconcileToolResultsInput,
+        auto_title_session_activity,
         create_session_activity,
         finalize_turn_activity,
         load_session_activity,
@@ -460,6 +462,7 @@ LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-histo
 PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
     "durable-agent-preserve-resumed-agent-bindings-v1"
 )
+PARALLEL_AUTO_TITLE_PATCH = "durable-agent-parallel-auto-title-v1"
 
 
 def _agents_config_from_binding(
@@ -880,6 +883,19 @@ class DurableAgentWorkflow:
         else:
             logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
 
+        auto_title_handle: workflow.ActivityHandle[None] | None = None
+        if workflow.patched(PARALLEL_AUTO_TITLE_PATCH):
+            auto_title_handle = workflow.start_activity(
+                auto_title_session_activity,
+                AutoTitleSessionInput(
+                    role=self.role,
+                    session_id=self.session_id,
+                    user_prompt=args.agent_args.user_prompt,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
         try:
             cfg = await self._build_config(args)
             # Success needs no write: last_error was already cleared at turn
@@ -903,6 +919,18 @@ class DurableAgentWorkflow:
             await self._finalize_session_error(e.message, should_stream=should_stream)
             raise
         finally:
+            # Detached activity handles are cancelled when the workflow returns.
+            # Await at the terminal boundary so titling completes without gating
+            # config resolution, agent execution, or streaming startup.
+            if auto_title_handle is not None:
+                try:
+                    await auto_title_handle
+                except ActivityError as exc:
+                    logger.warning(
+                        "Failed to auto-title agent session",
+                        session_id=str(self.session_id),
+                        error=str(exc),
+                    )
             # Terminal boundary only: approval-pause awaits inside the executor
             # loop and never reaches here. Clear the active-turn pointers so the
             # mid-turn DB filter releases the final rows and reconnect -> 204.
