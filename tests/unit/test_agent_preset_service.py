@@ -318,6 +318,7 @@ class TestAgentPresetService:
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
         assert created_preset.enable_thinking is True
+        assert created_preset.timeout_seconds == 1800
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
         # Retrieve by ID
@@ -931,7 +932,11 @@ class TestAgentPresetService:
 
         updated_preset = await agent_preset_service.update_preset(
             created_preset,
-            AgentPresetUpdate(instructions="Updated instructions", retries=7),
+            AgentPresetUpdate(
+                instructions="Updated instructions",
+                retries=7,
+                timeout_seconds=3600,
+            ),
         )
         versions = await agent_preset_service.list_versions(
             created_preset.id,
@@ -942,6 +947,11 @@ class TestAgentPresetService:
         assert updated_preset.current_version_id != version_1.id
         assert [version.version for version in versions.items] == [2, 1]
         assert versions.items[0].id == updated_preset.current_version_id
+        assert updated_preset.timeout_seconds == 3600
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            updated_preset
+        )
+        assert current_version.timeout_seconds == 3600
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,

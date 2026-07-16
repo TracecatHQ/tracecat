@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
@@ -90,6 +95,11 @@ class AgentPresetExecutionConfig(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
 
@@ -109,6 +119,11 @@ class AgentPresetExecutionConfigWrite(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
 
@@ -151,6 +166,11 @@ class AgentPresetUpdate(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
+    timeout_seconds: int = Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+    )
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
@@ -293,6 +313,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             tool_approvals=self.tool_approvals,
             agents=self.agents,
             retries=self.retries,
+            timeout_seconds=self.timeout_seconds,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
         )

@@ -48,6 +48,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
@@ -3504,6 +3505,10 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
 
     __tablename__ = "agent_preset"
     __table_args__ = (
+        CheckConstraint(
+            "timeout_seconds >= 5 AND timeout_seconds <= 3600",
+            name="timeout_seconds_range",
+        ),
         Index(
             "uq_agent_preset_workspace_slug_active",
             "workspace_id",
@@ -3600,6 +3605,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    timeout_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        server_default=text(str(AGENT_TIMEOUT_SECONDS_DEFAULT)),
+        nullable=False,
+        doc="Maximum active runtime for each agent turn in seconds",
+    )
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -3655,7 +3667,13 @@ class AgentPresetVersion(WorkspaceModel):
     """Immutable version snapshot for an agent preset."""
 
     __tablename__ = "agent_preset_version"
-    __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
+    __table_args__ = (
+        CheckConstraint(
+            "timeout_seconds >= 5 AND timeout_seconds <= 3600",
+            name="timeout_seconds_range",
+        ),
+        UniqueConstraint("workspace_id", "preset_id", "version"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3734,6 +3752,13 @@ class AgentPresetVersion(WorkspaceModel):
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
+    )
+    timeout_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        server_default=text(str(AGENT_TIMEOUT_SECONDS_DEFAULT)),
+        nullable=False,
+        doc="Maximum active runtime for each agent turn in seconds",
     )
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,

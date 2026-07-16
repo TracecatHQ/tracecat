@@ -17,6 +17,14 @@ class TextArea:
 
 
 @dataclass(slots=True)
+class Integer:
+    component_id: Literal["integer"] = "integer"
+    min_val: int | None = None
+    max_val: int | None = None
+    step: int = 1
+
+
+@dataclass(slots=True)
 class Code:
     component_id: Literal["code"] = "code"
     lang: Literal["yaml", "python"] = "python"
@@ -65,6 +73,7 @@ __all__ = [
     "AgentModel",
     "AgentPreset",
     "Code",
+    "Integer",
     "MCPIntegration",
     "ModelSelection",
     "TextArea",

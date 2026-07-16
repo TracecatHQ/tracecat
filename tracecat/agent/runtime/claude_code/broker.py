@@ -15,6 +15,7 @@ from tracecat.agent.artifacts.working_set import (
 )
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.runtime.claude_code.transport import (
@@ -53,6 +54,7 @@ class ClaudeTurnRequest:
     socket_dir: Path
     llm_socket_path: Path
     enable_internet_access: bool
+    timeout_seconds: int = AGENT_TIMEOUT_SECONDS_DEFAULT
     artifact_working_set: ArtifactWorkingSetInput | None = None
     skills_dir: Path | None = None
     hydrate_work_dir: Callable[[Path], Awaitable[None]] | None = None
@@ -175,6 +177,7 @@ class ClaudeRuntimeBroker:
                     path_mapping=path_mapping,
                     enable_internet_access=request.enable_internet_access,
                     use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
+                    timeout_seconds=request.timeout_seconds,
                     session_id=str(request.init_payload.session_id),
                     skills_dir=request.skills_dir,
                 ),

@@ -150,6 +150,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
         ),
         agents=config.agents,
         retries=config.retries,
+        timeout_seconds=config.timeout_seconds,
         enable_thinking=config.enable_thinking,
         enable_internet_access=config.enable_internet_access,
         resolved_skills=(
@@ -182,6 +183,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
         ),
         agents=payload.agents,
         retries=payload.retries,
+        timeout_seconds=payload.timeout_seconds,
         enable_thinking=payload.enable_thinking,
         enable_internet_access=payload.enable_internet_access,
         resolved_skills=(

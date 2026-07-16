@@ -25,7 +25,12 @@ from claude_agent_sdk._version import __version__
 from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
 from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+)
 from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
+from tracecat.agent.sandbox.config import AgentResourceLimits, AgentSandboxConfig
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
     cleanup_spawned_runtime,
@@ -94,6 +99,7 @@ class SandboxedCLITransport(Transport):
         path_mapping: AgentSandboxPathMapping,
         enable_internet_access: bool,
         use_jailed_paths: bool,
+        timeout_seconds: int = AGENT_TIMEOUT_SECONDS_DEFAULT,
         skills_dir: Path | None = None,
     ) -> None:
         self._options = options
@@ -104,6 +110,7 @@ class SandboxedCLITransport(Transport):
         self._path_mapping = path_mapping
         self._enable_internet_access = enable_internet_access
         self._use_jailed_paths = use_jailed_paths
+        self._timeout_seconds = timeout_seconds
         self._skills_dir = skills_dir
         self._process: asyncio.subprocess.Process | None = None
         self._spawned_runtime: SpawnedRuntime | None = None
@@ -179,6 +186,16 @@ class SandboxedCLITransport(Transport):
                 enable_internet_access=self._enable_internet_access,
                 skills_dir=self._skills_dir,
                 inherited_fds=mcp_binding.inherited_fds,
+                config=AgentSandboxConfig(
+                    resources=AgentResourceLimits(
+                        cpu_seconds=(
+                            self._timeout_seconds + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+                        ),
+                        timeout_seconds=(
+                            self._timeout_seconds + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+                        ),
+                    )
+                ),
             )
         self._process = self._spawned_runtime.process
         if self._process.stdin is None or self._process.stdout is None:

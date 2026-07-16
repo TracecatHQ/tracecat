@@ -318,6 +318,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 namespaces=sorted(version.namespaces or []),
                 mcp_integrations=sorted(version.mcp_integrations or []),
                 retries=version.retries,
+                timeout_seconds=version.timeout_seconds,
                 enable_thinking=version.enable_thinking,
                 enable_internet_access=version.enable_internet_access,
             )
@@ -949,6 +950,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "mcp_integrations": preset.mcp_integrations,
             "agents": preset.agents,
             "retries": preset.retries,
+            "timeout_seconds": preset.timeout_seconds,
             "enable_thinking": preset.enable_thinking,
             "enable_internet_access": preset.enable_internet_access,
         }
@@ -970,6 +972,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "tool_approvals": _tool_approvals(spec.tool_approvals),
             "mcp_integrations": spec.mcp_integrations or None,
             "retries": spec.retries,
+            "timeout_seconds": spec.timeout_seconds,
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,
         }

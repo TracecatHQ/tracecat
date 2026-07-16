@@ -1221,7 +1221,10 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result == expected_result
-            mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            mock_executor_cls.assert_called_once_with(
+                input=mock_executor_input,
+                timeout_seconds=mock_executor_input.timeout_seconds,
+            )
 
     @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(
