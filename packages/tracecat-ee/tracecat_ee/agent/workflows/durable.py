@@ -1467,6 +1467,9 @@ class DurableAgentWorkflow:
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
+                        agent_allowed_actions=frozenset(
+                            compiled_run.root.tool_definitions
+                        ),
                         mcp_auth_token=compiled_run.root.mcp_auth_token,
                         # Post-approval: emit to the (possibly rotated) stream.
                         # set_approvals rotated self.active_stream_id when the
@@ -1728,6 +1731,7 @@ class DurableAgentWorkflow:
         approved_tools: list[ApprovedToolCall],
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
+        agent_allowed_actions: frozenset[str],
         mcp_auth_token: str,
         active_stream_id: uuid.UUID | None,
     ) -> tuple[list, list[str]]:
@@ -1781,7 +1785,10 @@ class DurableAgentWorkflow:
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
-                            allowed_actions=frozenset(registry_lock.actions)
+                            # The lock includes recursive template steps that are
+                            # executable only as part of the approved template.
+                            # The Agent grant contains only exposed tool names.
+                            allowed_actions=agent_allowed_actions
                             if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
                             else None,
                         )

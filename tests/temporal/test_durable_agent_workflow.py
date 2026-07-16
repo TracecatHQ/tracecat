@@ -1039,7 +1039,12 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             },
             registry_lock=RegistryLock(
                 origins={"tracecat_registry": "test-version"},
-                actions={"core.http_request": "tracecat_registry"},
+                actions={
+                    "core.http_request": "tracecat_registry",
+                    # Simulate a recursive template dependency. It belongs in
+                    # the lock, but must not become an Agent-callable action.
+                    "core.cases.list_cases": "tracecat_registry",
+                },
             ),
         )
         return BuildAgentToolDefsResult(
