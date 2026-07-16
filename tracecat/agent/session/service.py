@@ -10,6 +10,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -131,7 +132,6 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
-DEFAULT_SESSION_TITLE = "New Chat"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
@@ -142,29 +142,40 @@ async def _auto_title_session(
     user_prompt: str,
     role: Role,
 ) -> None:
-    """Best-effort auto-title using a fresh database session."""
-    try:
-        async with AgentSessionService.with_session(role=role) as service:
-            agent_session = await service.get_session(session_id)
-            if agent_session is None:
-                logger.info(
-                    "session_auto_title_skip",
-                    session_id=str(session_id),
-                    prompt_length=len(user_prompt.strip()),
-                    reason="session_not_found",
-                )
-                return
-            await service.auto_title_session_on_first_prompt(
-                agent_session,
-                user_prompt,
+    """Best-effort auto-title using a fresh database session.
+
+    Expected generation errors are handled inside
+    ``auto_title_session_on_first_prompt``; anything else propagates to the
+    task's done callback so programming/database faults surface in logs.
+    """
+    async with AgentSessionService.with_session(role=role) as service:
+        agent_session = await service.get_session(session_id)
+        if agent_session is None:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(session_id),
+                prompt_length=len(user_prompt.strip()),
+                reason="session_not_found",
             )
-    except Exception as e:
-        logger.warning(
+            return
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            user_prompt,
+        )
+
+
+def _finalize_auto_title_task(
+    task: asyncio.Task[None], *, session_id: uuid.UUID
+) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        logger.error(
             "session_auto_title_failure",
             session_id=str(session_id),
-            prompt_length=len(user_prompt.strip()),
-            error=str(e),
-            error_type=type(e).__name__,
+            error=str(exc),
+            error_type=type(exc).__name__,
         )
 
 
@@ -1424,18 +1435,13 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
-        if user_prompt is not None and (
-            not agent_session.title or agent_session.title == DEFAULT_SESSION_TITLE
-        ):
-            task = asyncio.create_task(
-                _auto_title_session(
-                    session_id=session_id,
-                    user_prompt=user_prompt,
-                    role=self.role,
-                )
-            )
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+        # Titling eligibility must be decided before the workflow spawns: the
+        # executor streams history rows mid-turn, so checking afterwards would
+        # race. Placeholder titles ("Chat 1", "Slack thread", ...) vary by
+        # surface, so first-prompt history is the signal, not the title text.
+        should_auto_title = user_prompt is not None and (
+            await self._is_first_prompt_for_session(session_id)
+        )
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
@@ -1516,6 +1522,21 @@ class AgentSessionService(BaseWorkspaceService):
                     session_id
                 ),
             )
+
+            # Spawn after the workflow starts so a rejected/failed turn never
+            # renames the session.
+            if should_auto_title and user_prompt is not None:
+                task = asyncio.create_task(
+                    _auto_title_session(
+                        session_id=session_id,
+                        user_prompt=user_prompt,
+                        role=self.role,
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(
+                    partial(_finalize_auto_title_task, session_id=session_id)
+                )
 
         # Return ChatResponse with session_id for streaming. Surface run_id so the
         # HTTP layer builds the stable bubble id from the value we just minted
