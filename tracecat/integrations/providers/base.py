@@ -140,6 +140,28 @@ def oauth_authorization_server_metadata_urls(issuer: str) -> list[str]:
     return urls
 
 
+def build_dcr_payload(
+    *,
+    client_name: str,
+    redirect_uris: list[str],
+    token_endpoint_auth_method: str | None = None,
+) -> dict[str, Any]:
+    """Build the RFC 7591 dynamic client registration request payload.
+
+    Advertise ``refresh_token`` so the AS mints refresh-capable clients (MCP
+    spec: clients SHOULD include ``refresh_token`` in ``grant_types``).
+    """
+    payload: dict[str, Any] = {
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+    }
+    if token_endpoint_auth_method:
+        payload["token_endpoint_auth_method"] = token_endpoint_auth_method
+    return payload
+
+
 def _is_disallowed_oauth_address(
     address: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
@@ -408,61 +430,6 @@ class BaseOAuthProvider(ABC):
             response = await client.post(endpoint, json=payload, timeout=10.0)
         response.raise_for_status()
         return DCRResponse.model_validate(response.json())
-
-    def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
-        """Register a public client using OAuth 2.0 Dynamic Client Registration."""
-
-        if not self._registration_endpoint:
-            raise ValueError("Dynamic registration endpoint is not available")
-
-        registration_payload = {
-            "client_name": self.metadata.name,
-            "redirect_uris": [self.__class__.redirect_uri()],  # pyright: ignore[reportAttributeAccessIssue]
-            "grant_types": ["authorization_code"],
-            "response_types": ["code"],
-        }
-
-        registration_auth_method = self._dynamic_registration_auth_method()
-        if registration_auth_method:
-            registration_payload["token_endpoint_auth_method"] = (
-                registration_auth_method
-            )
-
-        try:
-            registration_response = asyncio.run(
-                self._submit_registration_request(
-                    self._registration_endpoint, registration_payload
-                )
-            )
-        except RuntimeError as exc:
-            message = str(exc)
-            if "event loop" in message.lower() and "running" in message.lower():
-                raise RuntimeError(
-                    "Dynamic client registration must be awaited. Use the async "
-                    "instantiate() helper when creating providers in async contexts."
-                ) from exc
-            raise
-
-        auth_method = (
-            registration_response.token_endpoint_auth_method or registration_auth_method
-        )
-        if auth_method:
-            self._client_registration_auth_method = auth_method
-
-        self.logger.info(
-            "Registered OAuth client dynamically",
-            provider=self.id,
-        )
-
-        return DynamicRegistrationResult(
-            client_id=registration_response.client_id,
-            client_secret=registration_response.client_secret,
-            auth_method=auth_method,
-        )
-
-    def _dynamic_registration_auth_method(self) -> str | None:
-        """Preferred token endpoint auth method when registering dynamically."""
-        return None
 
     def _get_token_endpoint_auth_method(self) -> str | None:
         """Return auth method to use when calling the token endpoint."""
@@ -1100,6 +1067,53 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             return "none"
         return None
 
+    def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
+        """Register a public client using OAuth 2.0 Dynamic Client Registration."""
+
+        if not self._registration_endpoint:
+            raise ValueError("Dynamic registration endpoint is not available")
+
+        registration_auth_method = self._select_dynamic_registration_auth_method(
+            self._token_endpoint_auth_methods_supported
+        )
+        registration_payload = build_dcr_payload(
+            client_name=self.metadata.name,
+            redirect_uris=[self.__class__.redirect_uri()],
+            token_endpoint_auth_method=registration_auth_method,
+        )
+
+        try:
+            registration_response = asyncio.run(
+                self._submit_registration_request(
+                    self._registration_endpoint, registration_payload
+                )
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+            if "event loop" in message.lower() and "running" in message.lower():
+                raise RuntimeError(
+                    "Dynamic client registration must be awaited. Use the async "
+                    "instantiate() helper when creating providers in async contexts."
+                ) from exc
+            raise
+
+        auth_method = (
+            registration_response.token_endpoint_auth_method or registration_auth_method
+        )
+        if auth_method:
+            self._client_registration_auth_method = auth_method
+
+        self.logger.info(
+            "Registered OAuth client dynamically",
+            provider=self.id,
+        )
+
+        return DynamicRegistrationResult(
+            client_id=registration_response.client_id,
+            client_secret=registration_response.client_secret,
+            auth_method=auth_method,
+        )
+
     @classmethod
     async def _perform_dynamic_registration_async(
         cls,
@@ -1110,16 +1124,11 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
     ) -> DynamicRegistrationResult:
         """Execute dynamic registration without blocking the event loop."""
 
-        registration_payload = {
-            "client_name": cls.metadata.name,
-            "redirect_uris": [cls.redirect_uri()],
-            "grant_types": ["authorization_code"],
-            "response_types": ["code"],
-        }
-        if registration_auth_method:
-            registration_payload["token_endpoint_auth_method"] = (
-                registration_auth_method
-            )
+        registration_payload = build_dcr_payload(
+            client_name=cls.metadata.name,
+            redirect_uris=[cls.redirect_uri()],
+            token_endpoint_auth_method=registration_auth_method,
+        )
 
         logger_instance.info(
             "Attempting dynamic client registration",
@@ -1158,11 +1167,6 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_id=registration_response.client_id,
             client_secret=registration_response.client_secret,
             auth_method=auth_method,
-        )
-
-    def _dynamic_registration_auth_method(self) -> str | None:
-        return self._select_dynamic_registration_auth_method(
-            self._token_endpoint_auth_methods_supported
         )
 
     def _get_token_endpoint_auth_method(self) -> str | None:

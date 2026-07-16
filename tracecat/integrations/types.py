@@ -8,6 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 type MCPServerType = Literal["http", "stdio"]
 
 
+def _filter_string_items(value: object) -> list[str] | None:
+    """String items for list input, else None. Both models parse untrusted metadata."""
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str)]
+    return None
+
+
 class OAuthServerMetadata(BaseModel):
     """Authorization-server / protected-resource metadata (untrusted RFC 8414/9728)."""
 
@@ -19,20 +26,18 @@ class OAuthServerMetadata(BaseModel):
     token_endpoint: str | None = None
     registration_endpoint: str | None = None
     token_endpoint_auth_methods_supported: list[str] = Field(default_factory=list)
+    scopes_supported: list[str] = Field(default_factory=list)
 
     @field_validator(
         "authorization_servers",
         "token_endpoint_auth_methods_supported",
+        "scopes_supported",
         mode="before",
     )
     @classmethod
     def _only_strings(cls, value: object) -> list[str]:
         """Drop malformed list items rather than rejecting the metadata document."""
-        return (
-            [item for item in value if isinstance(item, str)]
-            if isinstance(value, list)
-            else []
-        )
+        return _filter_string_items(value) or []
 
     @field_validator(
         "resource",
@@ -64,6 +69,15 @@ class DCRResponse(BaseModel):
     client_id: str = Field(min_length=1)
     client_secret: str | None = None
     token_endpoint_auth_method: str | None = None
+    # RFC 7591 echoes the final registered metadata, incl. AS modifications.
+    # None = grant_types omitted ("as requested"); [] = AS stripped all grants.
+    grant_types: list[str] | None = None
+    scope: str | None = None
+
+    @field_validator("grant_types", mode="before")
+    @classmethod
+    def _only_strings(cls, value: object) -> list[str] | None:
+        return _filter_string_items(value)
 
     @field_validator("client_id")
     @classmethod
@@ -73,7 +87,9 @@ class DCRResponse(BaseModel):
             raise ValueError("Dynamic client registration did not return client_id")
         return client_id
 
-    @field_validator("client_secret", "token_endpoint_auth_method", mode="before")
+    @field_validator(
+        "client_secret", "token_endpoint_auth_method", "scope", mode="before"
+    )
     @classmethod
     def _optional_string(cls, value: object) -> str | None:
         return value if isinstance(value, str) and value else None

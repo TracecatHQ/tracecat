@@ -6,7 +6,7 @@ import re
 import secrets
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
@@ -76,6 +76,7 @@ from tracecat.integrations.providers.base import (
     ClientCredentialsOAuthProvider,
     CustomOAuthProviderMixin,
     MCPAuthProvider,
+    build_dcr_payload,
     oauth_authorization_server_metadata_urls,
     validate_oauth_endpoint,
     validate_oauth_endpoint_resolves_public_async,
@@ -164,6 +165,7 @@ class MCPOAuthDiscoveryEndpoints:
     token_methods: list[str]
     registration_endpoint: str | None
     resource: str
+    scopes_supported: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,8 @@ class MCPOAuthRegistrationResult:
     client_id: str
     client_secret: str | None
     auth_method: str | None
+    # RFC 7591 scope echo (AS-registered whitelist); None = no echo / not from DCR.
+    registered_scopes: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -955,6 +959,7 @@ class IntegrationService(BaseWorkspaceService):
             if registration_endpoint
             else None,
             resource=resource_uri,
+            scopes_supported=direct_metadata.scopes_supported,
         )
 
     async def _resolve_mcp_oauth_endpoints(
@@ -997,15 +1002,17 @@ class IntegrationService(BaseWorkspaceService):
         registration_endpoint: str,
         client_name: str,
         token_auth_method: str | None,
+        requested_scopes: list[str],
     ) -> MCPOAuthRegistrationResult:
-        payload: dict[str, object] = {
-            "client_name": client_name,
-            "redirect_uris": [self._mcp_oauth_redirect_uri()],
-            "grant_types": ["authorization_code"],
-            "response_types": ["code"],
-        }
-        if token_auth_method:
-            payload["token_endpoint_auth_method"] = token_auth_method
+        payload = build_dcr_payload(
+            client_name=client_name,
+            redirect_uris=[self._mcp_oauth_redirect_uri()],
+            token_endpoint_auth_method=token_auth_method,
+        )
+        # RFC 7591 `scope` whitelists what the client may later request; keep it
+        # aligned with the authorize-time scope set so strict AS don't strip it.
+        if requested_scopes:
+            payload["scope"] = " ".join(requested_scopes)
 
         await validate_oauth_endpoint_resolves_public_async(registration_endpoint)
         async with httpx.AsyncClient() as client:
@@ -1025,10 +1032,30 @@ class IntegrationService(BaseWorkspaceService):
         auth_method = (
             registration_response.token_endpoint_auth_method or token_auth_method
         )
+        # RFC 7591 responses echo the AS-registered metadata; flag when the AS
+        # dropped the refresh_token grant we requested. An absent echo (None)
+        # means "as requested"; a declared-empty [] means the AS stripped grants.
+        grant_types_downgraded = (
+            registration_response.grant_types is not None
+            and "refresh_token" not in registration_response.grant_types
+        )
+        # RFC 7591 `scope` echoes the scopes the AS registered (its whitelist);
+        # None when the response omits it.
+        registered_scopes = (
+            registration_response.scope.split() if registration_response.scope else None
+        )
+        self.logger.info(
+            "Registered custom MCP OAuth client",
+            registration_endpoint_host=urlparse(registration_endpoint).hostname,
+            registered_grant_types=registration_response.grant_types,
+            registered_scope=registration_response.scope,
+            grant_types_downgraded=grant_types_downgraded,
+        )
         return MCPOAuthRegistrationResult(
             client_id=registration_response.client_id,
             client_secret=registration_response.client_secret,
             auth_method=auth_method,
+            registered_scopes=registered_scopes,
         )
 
     async def _generate_custom_mcp_provider_id(self, *, name: str) -> str:
@@ -1077,6 +1104,19 @@ class IntegrationService(BaseWorkspaceService):
             raise ValueError("Failed to create MCP OAuth integration")
         return integration
 
+    @staticmethod
+    def _mcp_requested_scopes(
+        *, scopes: list[str] | None, scopes_supported: list[str]
+    ) -> list[str]:
+        """Configured scopes plus offline_access when the AS advertises it.
+
+        Only adds, never filters: catalog scopes are hand-curated and kept as-is.
+        """
+        requested = list(scopes or [])
+        if "offline_access" in scopes_supported and "offline_access" not in requested:
+            requested.append("offline_access")
+        return requested
+
     async def _start_custom_mcp_oauth_authorization(
         self,
         *,
@@ -1084,6 +1124,7 @@ class IntegrationService(BaseWorkspaceService):
         server_uri: str,
         endpoints: MCPOAuthDiscoveryEndpoints,
         registration: MCPOAuthRegistrationResult,
+        requested_scopes: list[str],
     ) -> IntegrationOAuthConnect:
         if self.role.user_id is None:
             raise ValueError("User ID is required")
@@ -1122,12 +1163,18 @@ class IntegrationService(BaseWorkspaceService):
             token_auth_method=token_auth_method,
             with_response_type=True,
         )
+        # Only send a scope param when we have something to request; today's
+        # behavior omits it entirely when there are no scopes.
+        authorize_kwargs: dict[str, Any] = {}
+        if requested_scopes:
+            authorize_kwargs["scope"] = " ".join(requested_scopes)
         auth_url, _ = client.create_authorization_url(
             endpoints.authorization_endpoint,
             state=str(state_id),
             code_challenge=code_challenge,
             code_challenge_method="S256",
             resource=endpoints.resource,
+            **authorize_kwargs,
         )
         return IntegrationOAuthConnect(
             auth_url=auth_url,
@@ -1178,6 +1225,19 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=params.server_uri,
             allowed_endpoint_hosts=allowed_endpoint_hosts,
         )
+        # Request offline_access only when the AS advertises it, so refresh
+        # tokens survive session-bound authorization policies. Computed once and
+        # threaded to both DCR and the authorize URL so the two can't disagree.
+        requested_scopes = self._mcp_requested_scopes(
+            scopes=scopes, scopes_supported=endpoints.scopes_supported
+        )
+        self.logger.info(
+            "Connecting custom MCP OAuth integration",
+            provider_id=params.catalog_slug,
+            integration_name=params.name,
+            scopes_supported=endpoints.scopes_supported,
+            requested_scopes=requested_scopes,
+        )
         # Prefer user-supplied OAuth client credentials; otherwise fall back to
         # dynamic client registration (DCR) against the discovered endpoint.
         registration = self._mcp_oauth_client_registration_from_credentials(
@@ -1196,13 +1256,30 @@ class IntegrationService(BaseWorkspaceService):
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
+                requested_scopes=requested_scopes,
+            )
+        # RFC 7591: the DCR scope echo is the AS whitelist, possibly narrowed.
+        # Intersect (preserving requested order) rather than adopting verbatim,
+        # since some AS echo broader default sets than we requested.
+        if registration.registered_scopes is not None:
+            registered_set = set(registration.registered_scopes)
+            effective_scopes = [s for s in requested_scopes if s in registered_set]
+        else:
+            effective_scopes = requested_scopes
+        if effective_scopes != requested_scopes:
+            self.logger.info(
+                "Narrowed custom MCP OAuth scopes to AS registration",
+                integration_name=params.name,
+                requested_scopes=requested_scopes,
+                registered_scopes=registration.registered_scopes,
+                effective_scopes=effective_scopes,
             )
         oauth_integration = await self._create_custom_mcp_oauth_provider(
             name=params.name,
             description=params.description,
             endpoints=endpoints,
             registration=registration,
-            scopes=scopes,
+            scopes=effective_scopes,
         )
         if existing_mcp_integration is not None:
             existing_mcp_integration.oauth_integration_id = oauth_integration.id
@@ -1225,6 +1302,7 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=mcp_integration.server_uri or params.server_uri,
             endpoints=endpoints,
             registration=registration,
+            requested_scopes=effective_scopes,
         )
         return PlatformMCPCatalogConnectResult(
             mcp_integration=mcp_integration,
@@ -1372,6 +1450,13 @@ class IntegrationService(BaseWorkspaceService):
             raise ValueError(
                 "MCP OAuth token response did not include access_token"
             ) from exc
+        self.logger.info(
+            "Completed custom MCP OAuth authorization",
+            provider_id=provider_id,
+            granted_scope=token.scope,
+            has_refresh_token=token.refresh_token is not None,
+            expires_in=token.expires_in,
+        )
         return await self.store_integration(
             provider_key=provider_key,
             user_id=self.role.user_id,
@@ -1436,20 +1521,35 @@ class IntegrationService(BaseWorkspaceService):
                 default_scope=integration.scope or "",
             )
         except ValueError:
+            # The token endpoint call already consumed the refresh token here;
+            # the old refresh token is spent regardless of this parse failure.
+            self.logger.warning(
+                "MCP OAuth refresh response could not be parsed",
+                provider_id=integration.provider_id,
+            )
             return integration
         integration.encrypted_access_token = self._encrypt_token(
             token.access_token.get_secret_value()
         )
-        if token.refresh_token:
-            integration.encrypted_refresh_token = self._encrypt_token(
-                token.refresh_token.get_secret_value()
-            )
+        new_refresh_token = (
+            token.refresh_token.get_secret_value() if token.refresh_token else None
+        )
+        rotated = new_refresh_token is not None and new_refresh_token != refresh_token
+        if new_refresh_token:
+            integration.encrypted_refresh_token = self._encrypt_token(new_refresh_token)
         if token.expires_in is not None:
             integration.expires_at = datetime.now(UTC) + timedelta(
                 seconds=token.expires_in
             )
         if token.scope:
             integration.scope = token.scope
+        self.logger.info(
+            "Refreshed MCP OAuth integration",
+            provider_id=integration.provider_id,
+            refresh_token_rotated=rotated,
+            expires_in=token.expires_in,
+            granted_scope=token.scope,
+        )
         return integration
 
     @staticmethod
@@ -2756,6 +2856,16 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
+        requested_scopes = self._mcp_requested_scopes(
+            scopes=provider_config.scopes,
+            scopes_supported=endpoints.scopes_supported,
+        )
+        self.logger.info(
+            "Reconnecting custom MCP OAuth integration",
+            provider_id=oauth_integration.provider_id,
+            scopes_supported=endpoints.scopes_supported,
+            requested_scopes=requested_scopes,
+        )
         oauth_connect = await self._start_custom_mcp_oauth_authorization(
             integration=oauth_integration,
             server_uri=mcp_integration.server_uri,
@@ -2765,6 +2875,7 @@ class IntegrationService(BaseWorkspaceService):
                 client_secret=client_secret,
                 auth_method=None,
             ),
+            requested_scopes=requested_scopes,
         )
         return PlatformMCPCatalogConnectResult(
             mcp_integration=mcp_integration,
