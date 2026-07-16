@@ -8409,6 +8409,70 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
     )
 
 
+@pytest.mark.parametrize("reauth_first", [False, True])
+@pytest.mark.parametrize(
+    "other_status,expected_status",
+    [
+        (IntegrationStatus.NOT_CONFIGURED, IntegrationStatus.REAUTH_REQUIRED),
+        (IntegrationStatus.CONFIGURED, IntegrationStatus.REAUTH_REQUIRED),
+        (IntegrationStatus.CONNECTED, IntegrationStatus.CONNECTED),
+    ],
+)
+@pytest.mark.anyio
+async def test_integrations_inventory_ranks_status_deterministically(
+    monkeypatch: pytest.MonkeyPatch,
+    reauth_first: bool,
+    other_status: IntegrationStatus,
+    expected_status: IntegrationStatus,
+) -> None:
+    other = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        status=other_status,
+    )
+    reauth_required = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        status=IntegrationStatus.REAUTH_REQUIRED,
+    )
+    integrations = [reauth_required, other]
+    if not reauth_first:
+        integrations.reverse()
+
+    class _SlackProvider:
+        id = "slack"
+        grant_type = OAuthGrantType.AUTHORIZATION_CODE
+        metadata = SimpleNamespace(
+            name="Slack",
+            description="Slack integration",
+            enabled=True,
+            requires_config=False,
+        )
+
+    class _IntegrationService:
+        async def list_integrations(self):
+            return integrations
+
+        async def list_mcp_integrations(self):
+            return []
+
+        async def list_custom_providers(self):
+            return []
+
+    monkeypatch.setattr(mcp_server, "all_providers", lambda: [_SlackProvider])
+    monkeypatch.setattr(
+        mcp_server.IntegrationService,
+        "with_session",
+        lambda role: _AsyncContext(_IntegrationService()),
+    )
+
+    inventory = await mcp_server._build_integrations_inventory(
+        cast(Any, SimpleNamespace())
+    )
+
+    assert inventory.oauth_providers[0].integration_status == expected_status.value
+
+
 @pytest.mark.anyio
 async def test_get_workflow_authoring_context_truncates_embedded_collections(
     monkeypatch: pytest.MonkeyPatch,

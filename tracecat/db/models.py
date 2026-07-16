@@ -4516,9 +4516,14 @@ class OAuthIntegration(TimestampMixin, Base):
 
         # Return status based on conditions
         if is_connected:
-            # Expired with a refresh token still self-heals on next use and
-            # stays CONNECTED; expired without one is dead until re-auth.
-            if self.is_expired and self.encrypted_refresh_token is None:
+            # Authorization-code credentials need interactive reauthorization
+            # once expired unless they have a usable refresh token. Client
+            # credentials refresh non-interactively using their stored config.
+            if (
+                self.grant_type == OAuthGrantType.AUTHORIZATION_CODE
+                and self.is_expired
+                and not self.encrypted_refresh_token
+            ):
                 return IntegrationStatus.REAUTH_REQUIRED
             return IntegrationStatus.CONNECTED
         elif is_configured:

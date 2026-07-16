@@ -84,7 +84,6 @@ export function OAuthIntegrationDetailsDialog({
 
   const providerName = provider?.metadata.name || providerId
   const isConnected = integration?.status === "connected"
-  // Token expired with no refresh token: only re-authorizing revives it.
   const needsReauth = integration?.status === "reauth_required"
   const hasConnection = isConnected || needsReauth
   const isExpired = integration?.is_expired ?? false
@@ -111,6 +110,13 @@ export function OAuthIntegrationDetailsDialog({
   }, [integration?.expires_at])
 
   const lastUpdatedRelative = formatRelative(integration?.updated_at)
+  let connectionStatusDescription = "Connected"
+  if (needsReauth) {
+    connectionStatusDescription =
+      "The access token expired. Reconnect to restore this integration."
+  } else if (lastUpdatedRelative) {
+    connectionStatusDescription = `Last updated ${lastUpdatedRelative}`
+  }
 
   if (!open) {
     return null
@@ -210,11 +216,7 @@ export function OAuthIntegrationDetailsDialog({
                             ) : null}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {needsReauth
-                              ? "The access token expired and no refresh token is available. Reauthorize to restore this integration."
-                              : lastUpdatedRelative
-                                ? `Last updated ${lastUpdatedRelative}`
-                                : "Connected"}
+                            {connectionStatusDescription}
                           </p>
                         </div>
                       </div>

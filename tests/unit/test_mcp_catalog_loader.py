@@ -12,7 +12,7 @@ from tracecat.db.models import MCPIntegration
 from tracecat.integrations.catalog import loader
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.catalog.types import RawCatalogRow
-from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.schemas import OAuthTokenState
 
 
@@ -647,6 +647,7 @@ def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
             auth_type=MCPAuthType.NONE,
         ),
         token_state=None,
+        oauth_grant_type=None,
     )
 
     assert state == "configured"
@@ -663,6 +664,7 @@ def test_catalog_state_marks_verified_non_oauth_mcp_rows_connected() -> None:
             tools=[],
         ),
         token_state=None,
+        oauth_grant_type=None,
     )
 
     assert state == "connected"
@@ -688,6 +690,7 @@ def test_catalog_state_flags_dead_oauth_token_as_reauth_required() -> None:
             encrypted_refresh_token=None,
             expires_at=datetime.now(UTC) - timedelta(minutes=1),
         ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
     )
 
     assert state == "reauth_required"
@@ -702,6 +705,7 @@ def test_catalog_state_keeps_refreshable_expired_oauth_token_connected() -> None
             encrypted_refresh_token=b"refresh",
             expires_at=datetime.now(UTC) - timedelta(minutes=1),
         ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
     )
 
     assert state == "connected"
@@ -715,6 +719,22 @@ def test_catalog_state_keeps_non_expiring_oauth_token_connected() -> None:
             encrypted_refresh_token=None,
             expires_at=None,
         ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_expired_client_credentials_connected() -> None:
+    """Client credentials renew without an interactive reauthorization flow."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
     )
 
     assert state == "connected"

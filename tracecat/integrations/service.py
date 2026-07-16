@@ -82,6 +82,7 @@ from tracecat.integrations.providers.base import (
     CustomOAuthProviderMixin,
     MCPAuthProvider,
     build_dcr_payload,
+    mcp_requested_scopes,
     oauth_authorization_server_metadata_urls,
     validate_oauth_endpoint,
     validate_oauth_endpoint_resolves_public_async,
@@ -149,6 +150,14 @@ class MCPIntegrationWithState:
 
     integration: MCPIntegration
     state: PlatformMCPCatalogState
+
+
+@dataclass(frozen=True)
+class MCPOAuthConnectionState:
+    """OAuth credential fields needed to derive an MCP connection state."""
+
+    token_state: OAuthTokenState
+    grant_type: OAuthGrantType
 
 
 class InsecureOAuthEndpointError(ValueError):
@@ -1015,11 +1024,8 @@ class IntegrationService(BaseWorkspaceService):
             client_name=client_name,
             redirect_uris=[self._mcp_oauth_redirect_uri()],
             token_endpoint_auth_method=token_auth_method,
+            requested_scopes=requested_scopes,
         )
-        # RFC 7591 `scope` whitelists what the client may later request; keep it
-        # aligned with the authorize-time scope set so strict AS don't strip it.
-        if requested_scopes:
-            payload["scope"] = " ".join(requested_scopes)
 
         await validate_oauth_endpoint_resolves_public_async(registration_endpoint)
         async with httpx.AsyncClient() as client:
@@ -1110,19 +1116,6 @@ class IntegrationService(BaseWorkspaceService):
         if integration is None:
             raise ValueError("Failed to create MCP OAuth integration")
         return integration
-
-    @staticmethod
-    def _mcp_requested_scopes(
-        *, scopes: list[str] | None, scopes_supported: list[str]
-    ) -> list[str]:
-        """Configured scopes plus offline_access when the AS advertises it.
-
-        Only adds, never filters: catalog scopes are hand-curated and kept as-is.
-        """
-        requested = list(scopes or [])
-        if "offline_access" in scopes_supported and "offline_access" not in requested:
-            requested.append("offline_access")
-        return requested
 
     async def _start_custom_mcp_oauth_authorization(
         self,
@@ -1235,8 +1228,10 @@ class IntegrationService(BaseWorkspaceService):
         # Request offline_access only when the AS advertises it, so refresh
         # tokens survive session-bound authorization policies. Computed once and
         # threaded to both DCR and the authorize URL so the two can't disagree.
-        requested_scopes = self._mcp_requested_scopes(
-            scopes=scopes, scopes_supported=endpoints.scopes_supported
+        # A fresh connect has no stored grant, so an empty catalog scope list
+        # means unconfigured and may still expand with offline_access.
+        requested_scopes = mcp_requested_scopes(
+            scopes=scopes or None, scopes_supported=endpoints.scopes_supported
         )
         self.logger.info(
             "Connecting custom MCP OAuth integration",
@@ -1516,20 +1511,22 @@ class IntegrationService(BaseWorkspaceService):
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
         await validate_oauth_endpoint_resolves_public_async(token_endpoint)
+        oauth_response = await client.refresh_token(
+            token_endpoint,
+            refresh_token=refresh_token,
+            resource=endpoints.resource,
+        )
         try:
             token = TokenResponse.from_oauth_response(
-                await client.refresh_token(
-                    token_endpoint,
-                    refresh_token=refresh_token,
-                    resource=endpoints.resource,
-                ),
+                oauth_response,
                 default_refresh_token=refresh_token,
                 default_expires_in=None,
                 default_scope=integration.scope or "",
             )
         except ValueError:
-            # The token endpoint call already consumed the refresh token here;
-            # the old refresh token is spent regardless of this parse failure.
+            # A malformed response does not prove that the server spent or
+            # rotated the refresh token. Keep it until an explicit terminal
+            # OAuth error such as invalid_grant confirms it is unusable.
             self.logger.warning(
                 "MCP OAuth refresh response could not be parsed",
                 provider_id=integration.provider_id,
@@ -2243,6 +2240,9 @@ class IntegrationService(BaseWorkspaceService):
                 configured_authorization=integration.authorization_endpoint,
                 configured_token=integration.token_endpoint,
             )
+            # Fall back to defaults only when scopes were never configured; an
+            # explicitly empty stored set (DCR granted nothing) stays empty.
+            parsed_scopes = self.parse_scopes(integration.requested_scopes)
             return ProviderConfig(
                 client_id=client_id,
                 client_secret=SecretStr(client_secret)
@@ -2250,8 +2250,7 @@ class IntegrationService(BaseWorkspaceService):
                 else None,
                 authorization_endpoint=authorization_endpoint,
                 token_endpoint=token_endpoint,
-                scopes=self.parse_scopes(integration.requested_scopes)
-                or default_scopes,
+                scopes=parsed_scopes if parsed_scopes is not None else default_scopes,
             )
         except InsecureOAuthEndpointError as e:
             self.logger.error(
@@ -2306,8 +2305,14 @@ class IntegrationService(BaseWorkspaceService):
         return True
 
     def parse_scopes(self, scopes: str | None) -> list[str] | None:
-        """Parse a space-separated string of scopes into a list of scopes."""
-        return scopes.split(" ") if scopes else None
+        """Parse a space-separated string of scopes into a list of scopes.
+
+        ``""`` is an explicit empty scope set (e.g. narrowed by a DCR echo)
+        and parses to ``[]``; only ``None`` means unconfigured.
+        """
+        if scopes is None:
+            return None
+        return scopes.split(" ") if scopes else []
 
     async def _auto_create_mcp_integration_if_needed(
         self,
@@ -2877,7 +2882,7 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
-        requested_scopes = self._mcp_requested_scopes(
+        requested_scopes = mcp_requested_scopes(
             scopes=provider_config.scopes,
             scopes_supported=endpoints.scopes_supported,
         )
@@ -3286,6 +3291,7 @@ class IntegrationService(BaseWorkspaceService):
         *,
         mcp_integration: MCPIntegration,
         token_state: OAuthTokenState | None,
+        oauth_grant_type: OAuthGrantType | None,
     ) -> PlatformMCPCatalogState:
         if mcp_integration.auth_type == MCPAuthType.OAUTH2:
             if token_state is None or not (
@@ -3293,19 +3299,22 @@ class IntegrationService(BaseWorkspaceService):
                 and is_set(token_state.encrypted_access_token)
             ):
                 return "configured"
-            if credential_reauth_required(
-                has_refresh_token=token_state.encrypted_refresh_token is not None
-                and is_set(token_state.encrypted_refresh_token),
-                expires_at=token_state.expires_at,
+            if (
+                oauth_grant_type == OAuthGrantType.AUTHORIZATION_CODE
+                and credential_reauth_required(
+                    has_refresh_token=token_state.encrypted_refresh_token is not None
+                    and is_set(token_state.encrypted_refresh_token),
+                    expires_at=token_state.expires_at,
+                )
             ):
                 return "reauth_required"
         if mcp_integration.tools is None:
             return "configured"
         return "connected"
 
-    async def _mcp_oauth_token_states_by_id(
+    async def _mcp_oauth_states_by_id(
         self, mcp_integrations: Sequence[MCPIntegration]
-    ) -> dict[uuid.UUID, OAuthTokenState]:
+    ) -> dict[uuid.UUID, MCPOAuthConnectionState]:
         oauth_integration_ids = {
             oauth_integration_id
             for mcp_integration in mcp_integrations
@@ -3322,14 +3331,24 @@ class IntegrationService(BaseWorkspaceService):
                 OAuthIntegration.encrypted_access_token,
                 OAuthIntegration.encrypted_refresh_token,
                 OAuthIntegration.expires_at,
+                OAuthIntegration.grant_type,
             ).where(
                 OAuthIntegration.workspace_id == self.workspace_id,
                 OAuthIntegration.id.in_(oauth_integration_ids),
             )
         )
         return {
-            row_id: OAuthTokenState(access_token, refresh_token, expires_at)
-            for row_id, access_token, refresh_token, expires_at in result.tuples().all()
+            row_id: MCPOAuthConnectionState(
+                token_state=OAuthTokenState(access_token, refresh_token, expires_at),
+                grant_type=grant_type,
+            )
+            for (
+                row_id,
+                access_token,
+                refresh_token,
+                expires_at,
+                grant_type,
+            ) in result.tuples().all()
         }
 
     async def mcp_oauth_authorization_pending(
@@ -3347,10 +3366,10 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id = mcp_integration.oauth_integration_id
         if oauth_integration_id is None:
             return True
-        tokens_by_id = await self._mcp_oauth_token_states_by_id([mcp_integration])
-        token_state = tokens_by_id.get(oauth_integration_id)
+        oauth_states_by_id = await self._mcp_oauth_states_by_id([mcp_integration])
+        oauth_state = oauth_states_by_id.get(oauth_integration_id)
         encrypted_access_token = (
-            token_state.encrypted_access_token if token_state else None
+            oauth_state.token_state.encrypted_access_token if oauth_state else None
         )
         return not (
             encrypted_access_token is not None and is_set(encrypted_access_token)
@@ -3359,16 +3378,17 @@ class IntegrationService(BaseWorkspaceService):
     async def mcp_integration_state(
         self, *, mcp_integration: MCPIntegration
     ) -> PlatformMCPCatalogState:
-        tokens_by_id = await self._mcp_oauth_token_states_by_id([mcp_integration])
+        oauth_states_by_id = await self._mcp_oauth_states_by_id([mcp_integration])
         oauth_integration_id = mcp_integration.oauth_integration_id
-        token_state = (
-            tokens_by_id.get(oauth_integration_id)
+        oauth_state = (
+            oauth_states_by_id.get(oauth_integration_id)
             if oauth_integration_id is not None
             else None
         )
         return self._mcp_integration_state_from_token(
             mcp_integration=mcp_integration,
-            token_state=token_state,
+            token_state=oauth_state.token_state if oauth_state else None,
+            oauth_grant_type=oauth_state.grant_type if oauth_state else None,
         )
 
     async def list_mcp_integrations_with_state(
@@ -3376,12 +3396,12 @@ class IntegrationService(BaseWorkspaceService):
     ) -> Sequence[MCPIntegrationWithState]:
         """List MCP integrations with OAuth-backed connection state."""
         integrations = await self.list_mcp_integrations(source=source)
-        tokens_by_id = await self._mcp_oauth_token_states_by_id(integrations)
+        oauth_states_by_id = await self._mcp_oauth_states_by_id(integrations)
         items: list[MCPIntegrationWithState] = []
         for integration in integrations:
             oauth_integration_id = integration.oauth_integration_id
-            token_state = (
-                tokens_by_id.get(oauth_integration_id)
+            oauth_state = (
+                oauth_states_by_id.get(oauth_integration_id)
                 if oauth_integration_id is not None
                 else None
             )
@@ -3390,7 +3410,10 @@ class IntegrationService(BaseWorkspaceService):
                     integration=integration,
                     state=self._mcp_integration_state_from_token(
                         mcp_integration=integration,
-                        token_state=token_state,
+                        token_state=oauth_state.token_state if oauth_state else None,
+                        oauth_grant_type=(
+                            oauth_state.grant_type if oauth_state else None
+                        ),
                     ),
                 )
             )

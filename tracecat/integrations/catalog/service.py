@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from tracecat.db.models import MCPIntegration, OAuthIntegration
 from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
-from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.schemas import (
     MCPToolSummary,
     OAuthTokenState,
@@ -28,6 +28,11 @@ from tracecat.service import BaseService
 _CATALOG_STATUSES: frozenset[PlatformMCPCatalogStatus] = frozenset(
     {"available", "coming_soon", "deprecated", "hidden"}
 )
+_CATALOG_WORKSPACE_STATE_RANK: dict[PlatformMCPCatalogState, int] = {
+    "connected": 0,
+    "reauth_required": 1,
+    "configured": 2,
+}
 
 
 class CatalogWorkspaceState(NamedTuple):
@@ -35,6 +40,7 @@ class CatalogWorkspaceState(NamedTuple):
 
     mcp_integration: MCPIntegration
     token_state: OAuthTokenState | None
+    oauth_grant_type: OAuthGrantType | None
 
 
 class PlatformMCPCatalogService(BaseService):
@@ -175,12 +181,16 @@ class PlatformMCPCatalogService(BaseService):
                             "encrypted_refresh_token"
                         ),
                         OAuthIntegration.expires_at.label("token_expires_at"),
+                        OAuthIntegration.grant_type.label("oauth_grant_type"),
                         OAuthIntegration.provider_id.label("provider_id"),
                         MCPIntegration.catalog_slug.label("catalog_slug"),
                     )
                     .outerjoin(
                         OAuthIntegration,
-                        OAuthIntegration.id == MCPIntegration.oauth_integration_id,
+                        sa.and_(
+                            OAuthIntegration.id == MCPIntegration.oauth_integration_id,
+                            OAuthIntegration.workspace_id == workspace_id,
+                        ),
                     )
                     .where(MCPIntegration.workspace_id == workspace_id)
                     .order_by(
@@ -195,8 +205,9 @@ class PlatformMCPCatalogService(BaseService):
 
         # Multiple rows can map to one catalog entry. Rank candidates so an
         # explicit catalog_slug binding beats the legacy provider-slug
-        # heuristic and a connected row beats a stale one; rows iterate
-        # newest-first, so remaining ties go to the most recent row.
+        # heuristic, and connection health beats recency: connected rows win,
+        # followed by rows requiring reauthorization, then configured rows.
+        # Rows iterate newest-first, so remaining ties go to the most recent.
         state_by_catalog_id: dict[uuid.UUID, CatalogWorkspaceState] = {}
         best_rank: dict[uuid.UUID, tuple[int, int]] = {}
         for (
@@ -204,6 +215,7 @@ class PlatformMCPCatalogService(BaseService):
             encrypted_access_token,
             encrypted_refresh_token,
             token_expires_at,
+            oauth_grant_type,
             provider_id,
             catalog_slug,
         ) in rows:
@@ -231,14 +243,17 @@ class PlatformMCPCatalogService(BaseService):
             state = self._catalog_state(
                 mcp_integration=mcp_integration,
                 token_state=token_state,
+                oauth_grant_type=oauth_grant_type,
             )
-            rank = (match_rank, 0 if state == "connected" else 1)
+            state_rank = _CATALOG_WORKSPACE_STATE_RANK.get(state, 3)
+            rank = (match_rank, state_rank)
             current = best_rank.get(catalog_id)
             if current is None or rank < current:
                 best_rank[catalog_id] = rank
                 state_by_catalog_id[catalog_id] = CatalogWorkspaceState(
                     mcp_integration=mcp_integration,
                     token_state=token_state,
+                    oauth_grant_type=oauth_grant_type,
                 )
         return state_by_catalog_id
 
@@ -256,6 +271,7 @@ class PlatformMCPCatalogService(BaseService):
         *,
         mcp_integration: MCPIntegration | None,
         token_state: OAuthTokenState | None,
+        oauth_grant_type: OAuthGrantType | None,
     ) -> PlatformMCPCatalogState:
         if mcp_integration is None:
             return "not_configured"
@@ -265,10 +281,13 @@ class PlatformMCPCatalogService(BaseService):
                 and is_set(token_state.encrypted_access_token)
             ):
                 return "configured"
-            if credential_reauth_required(
-                has_refresh_token=token_state.encrypted_refresh_token is not None
-                and is_set(token_state.encrypted_refresh_token),
-                expires_at=token_state.expires_at,
+            if (
+                oauth_grant_type == OAuthGrantType.AUTHORIZATION_CODE
+                and credential_reauth_required(
+                    has_refresh_token=token_state.encrypted_refresh_token is not None
+                    and is_set(token_state.encrypted_refresh_token),
+                    expires_at=token_state.expires_at,
+                )
             ):
                 return "reauth_required"
         if mcp_integration.tools is None:
@@ -311,6 +330,7 @@ class PlatformMCPCatalogService(BaseService):
     ) -> PlatformMCPCatalogRead:
         mcp_integration = state.mcp_integration if state else None
         token_state = state.token_state if state else None
+        oauth_grant_type = state.oauth_grant_type if state else None
         locked = not agent_addons_entitled and mcp_integration is None
         connection_spec = entry.connection_spec if agent_addons_entitled else None
         connection_options = (
@@ -332,6 +352,7 @@ class PlatformMCPCatalogService(BaseService):
             state=cls._catalog_state(
                 mcp_integration=mcp_integration,
                 token_state=token_state,
+                oauth_grant_type=oauth_grant_type,
             ),
             mcp_integration_id=mcp_integration.id if mcp_integration else None,
             mcp_server_type=cls._mcp_server_type(

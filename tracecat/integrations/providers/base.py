@@ -54,6 +54,9 @@ class DynamicRegistrationResult(BaseModel):
     auth_method: str | None = Field(
         None, description="Token endpoint authentication method"
     )
+    registered_scopes: list[str] | None = Field(
+        default=None, description="Scopes echoed by the authorization server"
+    )
 
 
 class OAuthDiscoveryResult(BaseModel):
@@ -65,6 +68,9 @@ class OAuthDiscoveryResult(BaseModel):
     token_endpoint: str = Field(..., description="OAuth token endpoint URL")
     token_methods: list[str] = Field(
         default_factory=list, description="Supported token endpoint auth methods"
+    )
+    scopes_supported: list[str] = Field(
+        default_factory=list, description="Scopes advertised by the OAuth server"
     )
     registration_endpoint: str | None = Field(
         None, description="Dynamic client registration endpoint URL"
@@ -145,6 +151,7 @@ def build_dcr_payload(
     client_name: str,
     redirect_uris: list[str],
     token_endpoint_auth_method: str | None = None,
+    requested_scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the RFC 7591 dynamic client registration request payload.
 
@@ -159,7 +166,25 @@ def build_dcr_payload(
     }
     if token_endpoint_auth_method:
         payload["token_endpoint_auth_method"] = token_endpoint_auth_method
+    if requested_scopes:
+        payload["scope"] = " ".join(requested_scopes)
     return payload
+
+
+def mcp_requested_scopes(
+    *, scopes: list[str] | None, scopes_supported: list[str]
+) -> list[str]:
+    """Add offline access when the OAuth server advertises support for it.
+
+    ``scopes=[]`` is an explicit empty grant (e.g. narrowed by a DCR echo)
+    and stays empty; ``scopes=None`` means unconfigured and may expand.
+    """
+    if scopes is not None and not scopes:
+        return []
+    requested = list(scopes or [])
+    if "offline_access" in scopes_supported and "offline_access" not in requested:
+        requested.append("offline_access")
+    return requested
 
 
 def _is_disallowed_oauth_address(
@@ -430,6 +455,72 @@ class BaseOAuthProvider(ABC):
             response = await client.post(endpoint, json=payload, timeout=10.0)
         response.raise_for_status()
         return DCRResponse.model_validate(response.json())
+
+    def _build_dynamic_registration_payload(
+        self, registration_auth_method: str | None
+    ) -> dict[str, Any]:
+        """Build the dynamic client registration request payload."""
+        payload: dict[str, Any] = {
+            "client_name": self.metadata.name,
+            "redirect_uris": [self.__class__.redirect_uri()],  # pyright: ignore[reportAttributeAccessIssue]
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        }
+        if registration_auth_method:
+            payload["token_endpoint_auth_method"] = registration_auth_method
+        return payload
+
+    def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
+        """Register a public client using OAuth 2.0 Dynamic Client Registration."""
+
+        if not self._registration_endpoint:
+            raise ValueError("Dynamic registration endpoint is not available")
+
+        registration_auth_method = self._dynamic_registration_auth_method()
+        registration_payload = self._build_dynamic_registration_payload(
+            registration_auth_method
+        )
+
+        try:
+            registration_response = asyncio.run(
+                self._submit_registration_request(
+                    self._registration_endpoint, registration_payload
+                )
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+            if "event loop" in message.lower() and "running" in message.lower():
+                raise RuntimeError(
+                    "Dynamic client registration must be awaited. Use the async "
+                    "instantiate() helper when creating providers in async contexts."
+                ) from exc
+            raise
+
+        auth_method = (
+            registration_response.token_endpoint_auth_method or registration_auth_method
+        )
+        if auth_method:
+            self._client_registration_auth_method = auth_method
+
+        self.logger.info(
+            "Registered OAuth client dynamically",
+            provider=self.id,
+        )
+
+        return DynamicRegistrationResult(
+            client_id=registration_response.client_id,
+            client_secret=registration_response.client_secret,
+            auth_method=auth_method,
+            registered_scopes=(
+                registration_response.scope.split()
+                if registration_response.scope
+                else None
+            ),
+        )
+
+    def _dynamic_registration_auth_method(self) -> str | None:
+        """Preferred token endpoint auth method when registering dynamically."""
+        return None
 
     def _get_token_endpoint_auth_method(self) -> str | None:
         """Return auth method to use when calling the token endpoint."""
@@ -717,6 +808,8 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         discovered_token_endpoint: str | None = None,
         registration_endpoint: str | None = None,
         token_methods: list[str] | None = None,
+        scopes_supported: list[str] | None = None,
+        registered_scopes: list[str] | None = None,
         **kwargs,
     ):
         """Initialize MCP provider with dynamic endpoint discovery."""
@@ -735,16 +828,31 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             discovered_token_endpoint=discovered_token_endpoint,
             registration_endpoint=registration_endpoint,
             token_methods_override=token_methods,
+            scopes_supported_override=scopes_supported,
         )
 
         self._registration_endpoint = discovery_result.registration_endpoint
         self._token_endpoint_auth_methods_supported = (
             discovery_result.token_methods or []
         )
+        configured_scopes = kwargs.pop("scopes", None)
+        # Empty provider defaults mean unconfigured (None), unlike an explicit
+        # empty scope set from stored config, which must stay empty.
+        requested_scopes = mcp_requested_scopes(
+            scopes=configured_scopes
+            if configured_scopes is not None
+            else (self.scopes.default or None),
+            scopes_supported=discovery_result.scopes_supported,
+        )
+        self._registration_requested_scopes = self._effective_registered_scopes(
+            requested_scopes=requested_scopes,
+            registered_scopes=registered_scopes,
+        )
 
         super().__init__(
             authorization_endpoint=discovery_result.authorization_endpoint,
             token_endpoint=discovery_result.token_endpoint,
+            scopes=self._registration_requested_scopes,
             **kwargs,
         )
 
@@ -755,6 +863,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         discovered_token_endpoint: str | None,
         registration_endpoint: str | None,
         token_methods_override: list[str] | None,
+        scopes_supported_override: list[str] | None,
     ) -> OAuthDiscoveryResult:
         """Return discovery result for initialization, performing lookup when needed."""
         if discovered_auth_endpoint and discovered_token_endpoint:
@@ -762,6 +871,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
                 authorization_endpoint=discovered_auth_endpoint,
                 token_endpoint=discovered_token_endpoint,
                 token_methods=token_methods_override or [],
+                scopes_supported=scopes_supported_override or [],
                 registration_endpoint=registration_endpoint,
             )
 
@@ -774,6 +884,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             authorization_endpoint=discovered.authorization_endpoint,
             token_endpoint=discovered.token_endpoint,
             token_methods=token_methods_override or discovered.token_methods,
+            scopes_supported=scopes_supported_override or discovered.scopes_supported,
             registration_endpoint=registration_endpoint
             or discovered.registration_endpoint,
         )
@@ -881,6 +992,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
                     authorization_endpoint=auth_endpoint,
                     token_endpoint=token_endpoint,
                     token_methods=token_methods,
+                    scopes_supported=metadata.scopes_supported,
                     registration_endpoint=registration_endpoint,
                 )
         except Exception as e:
@@ -980,6 +1092,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
                 authorization_endpoint=authorization_endpoint,
                 token_endpoint=token_endpoint,
                 token_methods=token_methods,
+                scopes_supported=metadata.scopes_supported,
                 registration_endpoint=registration_endpoint,
             )
         except Exception as e:
@@ -1046,6 +1159,13 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             registration_result = self._perform_dynamic_registration()
             resolved_client_id = registration_result.client_id
             resolved_client_secret = registration_result.client_secret
+            effective_scopes = self._effective_registered_scopes(
+                requested_scopes=self._registration_requested_scopes,
+                registered_scopes=registration_result.registered_scopes,
+            )
+            # BaseOAuthProvider.__init__ already holds this list as its `scopes`
+            # argument, so mutate it in place before it initializes the client.
+            self._registration_requested_scopes[:] = effective_scopes
 
         if not resolved_client_id:
             raise ValueError("Missing hosted client credential: client_id")
@@ -1067,51 +1187,32 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             return "none"
         return None
 
-    def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
-        """Register a public client using OAuth 2.0 Dynamic Client Registration."""
+    @staticmethod
+    def _effective_registered_scopes(
+        *,
+        requested_scopes: list[str],
+        registered_scopes: list[str] | None,
+    ) -> list[str]:
+        """Restrict requested scopes to the DCR scope echo, preserving order."""
+        if registered_scopes is None:
+            return requested_scopes
+        registered = set(registered_scopes)
+        return [scope for scope in requested_scopes if scope in registered]
 
-        if not self._registration_endpoint:
-            raise ValueError("Dynamic registration endpoint is not available")
-
-        registration_auth_method = self._select_dynamic_registration_auth_method(
-            self._token_endpoint_auth_methods_supported
-        )
-        registration_payload = build_dcr_payload(
+    def _build_dynamic_registration_payload(
+        self, registration_auth_method: str | None
+    ) -> dict[str, Any]:
+        """Build the MCP dynamic client registration request payload."""
+        return build_dcr_payload(
             client_name=self.metadata.name,
             redirect_uris=[self.__class__.redirect_uri()],
             token_endpoint_auth_method=registration_auth_method,
+            requested_scopes=self._registration_requested_scopes,
         )
 
-        try:
-            registration_response = asyncio.run(
-                self._submit_registration_request(
-                    self._registration_endpoint, registration_payload
-                )
-            )
-        except RuntimeError as exc:
-            message = str(exc)
-            if "event loop" in message.lower() and "running" in message.lower():
-                raise RuntimeError(
-                    "Dynamic client registration must be awaited. Use the async "
-                    "instantiate() helper when creating providers in async contexts."
-                ) from exc
-            raise
-
-        auth_method = (
-            registration_response.token_endpoint_auth_method or registration_auth_method
-        )
-        if auth_method:
-            self._client_registration_auth_method = auth_method
-
-        self.logger.info(
-            "Registered OAuth client dynamically",
-            provider=self.id,
-        )
-
-        return DynamicRegistrationResult(
-            client_id=registration_response.client_id,
-            client_secret=registration_response.client_secret,
-            auth_method=auth_method,
+    def _dynamic_registration_auth_method(self) -> str | None:
+        return self._select_dynamic_registration_auth_method(
+            self._token_endpoint_auth_methods_supported
         )
 
     @classmethod
@@ -1120,6 +1221,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         *,
         registration_endpoint: str,
         registration_auth_method: str | None,
+        requested_scopes: list[str],
         logger_instance,
     ) -> DynamicRegistrationResult:
         """Execute dynamic registration without blocking the event loop."""
@@ -1128,6 +1230,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_name=cls.metadata.name,
             redirect_uris=[cls.redirect_uri()],
             token_endpoint_auth_method=registration_auth_method,
+            requested_scopes=requested_scopes,
         )
 
         logger_instance.info(
@@ -1167,6 +1270,11 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_id=registration_response.client_id,
             client_secret=registration_response.client_secret,
             auth_method=auth_method,
+            registered_scopes=(
+                registration_response.scope.split()
+                if registration_response.scope
+                else None
+            ),
         )
 
     def _get_token_endpoint_auth_method(self) -> str | None:
@@ -1211,10 +1319,18 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             discovered_token_endpoint=discovered_token_endpoint,
         )
 
-        scopes = (
+        configured_scopes = (
             config.scopes
             if config and config.scopes is not None
             else kwargs.get("scopes")
+        )
+        # Empty provider defaults mean unconfigured (None), unlike an explicit
+        # empty scope set from stored config, which must stay empty.
+        scopes = mcp_requested_scopes(
+            scopes=configured_scopes
+            if configured_scopes is not None
+            else (cls.scopes.default or None),
+            scopes_supported=discovery_result.scopes_supported,
         )
 
         if config:
@@ -1225,6 +1341,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_secret = cls._clean_credential(kwargs.get("client_secret"))
 
         registration_auth_method = None
+        registered_scopes: list[str] | None = None
         if not client_id and discovery_result.registration_endpoint:
             registration_auth_method = cls._select_dynamic_registration_auth_method(
                 discovery_result.token_methods
@@ -1232,11 +1349,17 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             registration_result = await cls._perform_dynamic_registration_async(
                 registration_endpoint=discovery_result.registration_endpoint,
                 registration_auth_method=registration_auth_method,
+                requested_scopes=scopes,
                 logger_instance=logger_instance,
             )
             client_id = registration_result.client_id
             client_secret = registration_result.client_secret
             registration_auth_method = registration_result.auth_method
+            registered_scopes = registration_result.registered_scopes
+            scopes = cls._effective_registered_scopes(
+                requested_scopes=scopes,
+                registered_scopes=registered_scopes,
+            )
 
         if not client_id:
             raise ValueError("Missing hosted client credential: client_id")
@@ -1250,6 +1373,8 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             token_endpoint=discovery_result.token_endpoint,
             registration_endpoint=discovery_result.registration_endpoint,
             token_methods=discovery_result.token_methods,
+            scopes_supported=discovery_result.scopes_supported,
+            registered_scopes=registered_scopes,
         )
 
         provider = cls(**init_kwargs)
