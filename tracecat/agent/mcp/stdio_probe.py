@@ -17,9 +17,8 @@ import orjson
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PERSIST_ACTIVITY_NAME,
     MCP_STDIO_PROBE_ACTIVITY_NAME,
-    MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
     MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER,
-    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    MCP_STDIO_PROBE_TIMEOUT,
     MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX,
     StdioMCPPersistInput,
     StdioMCPProbeInput,
@@ -44,9 +43,8 @@ from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 __all__ = [
     "MCP_STDIO_PERSIST_ACTIVITY_NAME",
     "MCP_STDIO_PROBE_ACTIVITY_NAME",
-    "MCP_STDIO_PROBE_DEFAULT_TIMEOUT",
     "MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER",
-    "MCP_STDIO_PROBE_TIMEOUT_CAP",
+    "MCP_STDIO_PROBE_TIMEOUT",
     "MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX",
     "StdioMCPPersistInput",
     "StdioMCPProbeInput",

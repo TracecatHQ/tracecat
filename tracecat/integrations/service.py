@@ -27,7 +27,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.mcp.stdio_probe_types import (
-    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    MCP_STDIO_PROBE_TIMEOUT,
     StdioMCPProbeResult,
     StdioMCPProbeWorkflowInput,
     build_stdio_mcp_probe_workflow_id,
@@ -3296,7 +3296,7 @@ class IntegrationService(BaseWorkspaceService):
                 ),
                 id=workflow_id,
                 task_queue=config.TRACECAT__AGENT_QUEUE,
-                run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
+                run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT + 90),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
             )
@@ -3559,7 +3559,7 @@ class IntegrationService(BaseWorkspaceService):
             ),
             id=workflow_id,
             task_queue=config.TRACECAT__AGENT_QUEUE,
-            run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
+            run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT + 90),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         )

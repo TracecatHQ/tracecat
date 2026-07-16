@@ -13,7 +13,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.mcp.stdio_probe_types import (
         MCP_STDIO_PERSIST_ACTIVITY_NAME,
         MCP_STDIO_PROBE_ACTIVITY_NAME,
-        MCP_STDIO_PROBE_TIMEOUT_CAP,
+        MCP_STDIO_PROBE_TIMEOUT,
         StdioMCPPersistInput,
         StdioMCPProbeInput,
         StdioMCPProbeResult,
@@ -34,10 +34,8 @@ class StdioMCPProbeWorkflow:
                 role=input.role,
             ),
             task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-            start_to_close_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 30),
-            schedule_to_close_timeout=timedelta(
-                seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 60
-            ),
+            start_to_close_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT + 30),
+            schedule_to_close_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT + 60),
             retry_policy=RetryPolicy(maximum_attempts=1),
             result_type=StdioMCPProbeResult,
         )

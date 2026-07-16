@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tracecat.agent.mcp.stdio_probe import (
-    MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
     MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER,
+    MCP_STDIO_PROBE_TIMEOUT,
     build_stdio_mcp_probe_workflow_id,
     probe_stdio_mcp_tools_in_sandbox,
     sanitize_stdio_probe_error,
@@ -232,15 +232,15 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
             command="python",
             args=["-m", "example"],
             env=None,
-            timeout=MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
+            timeout=MCP_STDIO_PROBE_TIMEOUT,
         )
 
     config = executor.execute.await_args.args[1]
     assert config.resources.cpu_seconds == (
-        MCP_STDIO_PROBE_DEFAULT_TIMEOUT + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
+        MCP_STDIO_PROBE_TIMEOUT + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
     )
     assert config.resources.timeout_seconds == (
-        MCP_STDIO_PROBE_DEFAULT_TIMEOUT + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
+        MCP_STDIO_PROBE_TIMEOUT + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
     )
 
 

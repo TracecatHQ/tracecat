@@ -20,7 +20,7 @@ from tracecat.agent.executor.activity import (
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.mcp.stdio_probe_types import (
-    MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
+    MCP_STDIO_PROBE_TIMEOUT,
     StdioMCPPersistInput,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
@@ -399,13 +399,11 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("saved_timeout", [None, 30, 120, 300])
-    async def test_probe_normalizes_timeout_at_activity_boundary(
+    async def test_probe_uses_verification_timeout(
         self,
         mock_role: Role,
-        saved_timeout: int | None,
     ) -> None:
-        """The activity passes a normalized timeout to the sandbox probe."""
+        """The activity passes the verification timeout to the sandbox probe."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
@@ -426,7 +424,6 @@ class TestProbeStdioMCPConnectionActivity:
                 command="python",
                 args=["-m", "example"],
                 stdio_env=None,
-                timeout=saved_timeout,
                 mcp_integration_id=uuid.uuid4(),
                 mcp_integration_slug="test-stdio-server",
             )
@@ -436,7 +433,7 @@ class TestProbeStdioMCPConnectionActivity:
             command="python",
             args=["-m", "example"],
             env=None,
-            timeout=MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
+            timeout=MCP_STDIO_PROBE_TIMEOUT,
         )
 
     @pytest.mark.anyio

@@ -14,8 +14,7 @@ from tracecat.integrations.schemas import MCPToolSummary
 MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX = "mcp-stdio-probe"
 MCP_STDIO_PROBE_ACTIVITY_NAME = "probe_stdio_mcp_connection_activity"
 MCP_STDIO_PERSIST_ACTIVITY_NAME = "persist_stdio_mcp_connection_activity"
-MCP_STDIO_PROBE_DEFAULT_TIMEOUT = 120
-MCP_STDIO_PROBE_TIMEOUT_CAP = 120
+MCP_STDIO_PROBE_TIMEOUT = 120
 MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER = 10
 _MAX_STDIO_PROBE_ERROR_LENGTH = 12_000
 _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
