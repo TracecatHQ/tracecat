@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import itertools
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -163,6 +164,12 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 _GITHUB_BLOB_CONCURRENCY = 8
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
 
+_GITHUB_TREE_CHUNK_SIZE = 128
+"""Balance request count against GitHub create-tree timeouts (observed as 422)."""
+
+_GITHUB_RETRY_BUDGET_SECONDS = 45.0
+"""Maximum shared Retry-After delay budget for one GitHub export."""
+
 _GITHUB_RATE_LIMIT_HEADER_NAMES = (
     "x-ratelimit-limit",
     "x-ratelimit-remaining",
@@ -177,6 +184,47 @@ _GITLAB_PAGE_SIZE = 100
 
 _GITLAB_BLOB_CONCURRENCY = 8
 """Maximum concurrent GitLab blob calls during sync reads."""
+
+
+@dataclass
+class _GitHubRetryBudget:
+    """Mutable Retry-After delay budget shared by one GitHub export."""
+
+    remaining_seconds: float
+
+
+def _git_blob_sha(content: str) -> str:
+    """Return the Git blob object SHA for UTF-8 ``content``."""
+    content_bytes = content.encode("utf-8")
+    framed_content = b"blob " + str(len(content_bytes)).encode() + b"\0" + content_bytes
+    return hashlib.sha1(framed_content, usedforsecurity=False).hexdigest()
+
+
+async def _github_write_with_retry[T](
+    call: Callable[[], T],
+    *,
+    budget: _GitHubRetryBudget,
+) -> T:
+    """Run a GitHub write call, honoring Retry-After within ``budget``."""
+    while True:
+        try:
+            return await asyncio.to_thread(call)
+        except GithubException as e:
+            headers = {key.lower(): value for key, value in (e.headers or {}).items()}
+            retry_after_header = headers.get("retry-after")
+            if (
+                e.status != 403
+                or retry_after_header is None
+                or budget.remaining_seconds <= 0
+            ):
+                raise
+            try:
+                retry_after = max(float(retry_after_header), 0.0)
+            except (TypeError, ValueError):
+                raise
+            sleep_seconds = min(retry_after, budget.remaining_seconds)
+            budget.remaining_seconds -= sleep_seconds
+            await asyncio.sleep(sleep_seconds)
 
 
 class BaseWorkspaceSyncTransport(BaseWorkspaceService):
@@ -377,58 +425,44 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
                 target_branch = await asyncio.to_thread(repo.get_branch, branch)
 
-            content_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
-
-            async def changed_file(path: str, content: str) -> tuple[str, str] | None:
-                """Return ``(path, content)`` when the branch content differs."""
-                existing_content: str | None = None
-                try:
-                    async with content_semaphore:
-                        existing = await asyncio.to_thread(
-                            repo.get_contents,
-                            path,
-                            ref=branch,
-                        )
-                    if not isinstance(existing, list):
-                        existing_content = base64.b64decode(existing.content).decode(
-                            "utf-8"
-                        )
-                except GithubException as e:
-                    if e.status != 404:
-                        raise
-                if existing_content != content:
-                    return path, content
-                return None
-
-            github_stage = "compare_projected_files"
-            github_endpoint = "GET /repos/{owner}/{repo}/contents/{path}"
-            changed_file_entries = await asyncio.gather(
-                *(
-                    changed_file(path, content)
-                    for path, content in sorted(files.items())
-                )
-            )
-            changed_files = {
-                path: content
-                for entry in changed_file_entries
-                if entry is not None
-                for path, content in (entry,)
-            }
-
             github_stage = "resolve_target_commit"
             github_endpoint = "GET /repos/{owner}/{repo}/git/commits/{sha}"
             target_commit = await asyncio.to_thread(
                 repo.get_git_commit,
                 target_branch.commit.sha,
             )
-            github_stage = "scan_stale_paths"
+            github_stage = "read_target_tree"
             github_endpoint = "GET /repos/{owner}/{repo}/git/trees/{sha}"
-            stale_paths = await self._stale_paths_under_roots(
-                repo=repo,
-                tree_sha=target_commit.tree.sha,
-                files=files,
-                roots=delete_missing_paths_under,
+            target_tree = await asyncio.to_thread(
+                repo.get_git_tree,
+                sha=target_commit.tree.sha,
+                recursive=True,
             )
+            target_tree_truncated = target_tree.raw_data.get("truncated") is True
+            target_blob_shas = {
+                item.path: item.sha
+                for item in target_tree.tree
+                if item.type == "blob" and item.path
+            }
+            if target_tree_truncated:
+                changed_files = dict(files)
+                stale_paths: set[str] = set()
+                self.logger.warning(
+                    "Skipping GitHub workspace sync stale-path deletion because "
+                    "the recursive tree response was truncated",
+                    tree_sha=target_commit.tree.sha,
+                )
+            else:
+                changed_files = {
+                    path: content
+                    for path, content in files.items()
+                    if target_blob_shas.get(path) != _git_blob_sha(content)
+                }
+                stale_paths = self._stale_paths_under_roots(
+                    tree_entries=target_tree.tree,
+                    files=files,
+                    roots=delete_missing_paths_under,
+                )
 
             pr_url: str | None = None
             pr_number: int | None = None
@@ -465,71 +499,81 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     message="No changes detected; nothing to commit.",
                 )
 
-            blob_create_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
-
-            async def create_blob_element(
-                path: str,
-                content: str,
-            ) -> InputGitTreeElement:
-                """Create a Git blob and return its tree element."""
-                async with blob_create_semaphore:
-                    blob = await asyncio.to_thread(
-                        repo.create_git_blob,
-                        content,
-                        "utf-8",
-                    )
-                return InputGitTreeElement(
+            elements = [
+                InputGitTreeElement(
                     path=path,
                     mode="100644",
                     type="blob",
-                    sha=blob.sha,
+                    content=content,
                 )
-
-            github_stage = "create_blobs"
-            github_endpoint = "POST /repos/{owner}/{repo}/git/blobs"
-            elements = list(
-                await asyncio.gather(
-                    *(
-                        create_blob_element(path, content)
-                        for path, content in sorted(changed_files.items())
-                    )
-                )
-            )
+                for path, content in sorted(changed_files.items())
+            ]
             elements.extend(
                 InputGitTreeElement(path=path, mode="100644", type="blob", sha=None)
                 for path in sorted(stale_paths)
             )
-            tree_payload_size_bytes = len(
-                orjson.dumps(
-                    {
-                        "base_tree": target_commit.tree.sha,
-                        "tree": [element._identity for element in elements],
-                    }
+            element_chunks = [
+                elements[index : index + _GITHUB_TREE_CHUNK_SIZE]
+                for index in range(0, len(elements), _GITHUB_TREE_CHUNK_SIZE)
+            ]
+            tree_payload_size_bytes = sum(
+                len(
+                    orjson.dumps(
+                        {
+                            "base_tree": target_commit.tree.sha,
+                            "tree": [element._identity for element in chunk],
+                        }
+                    )
                 )
+                for chunk in element_chunks
             )
 
             self.logger.info(
                 "Creating GitHub workspace sync tree",
                 tree_entry_count=len(elements),
+                tree_chunk_count=len(element_chunks),
                 tree_payload_size_bytes=tree_payload_size_bytes,
             )
-            github_stage = "create_tree"
-            github_endpoint = "POST /repos/{owner}/{repo}/git/trees"
-            tree = await asyncio.to_thread(
-                repo.create_git_tree,
-                elements,
-                base_tree=target_commit.tree,
+            retry_budget = _GitHubRetryBudget(_GITHUB_RETRY_BUDGET_SECONDS)
+            tree = target_commit.tree
+            for chunk_index, chunk in enumerate(element_chunks, start=1):
+                github_stage = "create_tree_chunk"
+                github_endpoint = "POST /repos/{owner}/{repo}/git/trees"
+                base_tree = tree
+                tree = await _github_write_with_retry(
+                    lambda chunk=chunk, base_tree=base_tree: repo.create_git_tree(
+                        chunk,
+                        base_tree=base_tree,
+                    ),
+                    budget=retry_budget,
+                )
+                self.logger.info(
+                    "Created GitHub workspace sync tree chunk",
+                    tree_chunk_index=chunk_index,
+                    tree_chunk_count=len(element_chunks),
+                    tree_entry_count=len(chunk),
+                    tree_sha=tree.sha,
+                )
+
+            github_stage = "create_commit"
+            github_endpoint = "POST /repos/{owner}/{repo}/git/commits"
+            commit = await _github_write_with_retry(
+                lambda: repo.create_git_commit(
+                    message,
+                    tree,
+                    [target_commit],
+                ),
+                budget=retry_budget,
             )
-            github_stage = "finalize_commit"
-            github_endpoint = "POST|PATCH /repos/{owner}/{repo}/git/commits|refs"
-            commit = await asyncio.to_thread(
-                repo.create_git_commit,
-                message,
-                tree,
-                [target_commit],
-            )
+            github_stage = "resolve_target_ref"
+            github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
             ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
-            await asyncio.to_thread(ref.edit, sha=commit.sha)
+            github_stage = "update_target_ref"
+            github_endpoint = "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
+            await _github_write_with_retry(
+                lambda: ref.edit(sha=commit.sha),
+                budget=retry_budget,
+            )
             self.logger.info(
                 "Updated GitHub workspace sync ref",
                 tree_sha=tree.sha,
@@ -577,15 +621,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         finally:
             gh.close()
 
-    async def _stale_paths_under_roots(
+    def _stale_paths_under_roots(
         self,
         *,
-        repo: Any,
-        tree_sha: str,
+        tree_entries: Sequence[Any],
         files: dict[str, str],
         roots: Sequence[str],
     ) -> set[str]:
-        """Return managed blob paths at ``tree_sha`` no longer in ``files``.
+        """Return managed blob paths in ``tree_entries`` no longer in ``files``.
 
         These are the stale files under ``roots`` that an export should delete so
         the branch mirrors the projected workspace exactly.
@@ -594,14 +637,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         if not managed_roots:
             return set()
 
-        tree = await asyncio.to_thread(
-            repo.get_git_tree,
-            sha=tree_sha,
-            recursive=True,
-        )
         return {
             item.path
-            for item in tree.tree
+            for item in tree_entries
             if item.type == "blob"
             and item.path
             and item.path not in files
