@@ -303,9 +303,10 @@ class ActionRunner:
             sandbox_env: dict[str, str] = {}
             if env_vars:
                 sandbox_env.update(env_vars)
+            # Internal SDK requests must use the executor-local Action Gateway.
+            sandbox_env.pop("TRACECAT__API_URL", None)
 
             # SDK context for any registry SDK operations
-            sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
             sandbox_env["TRACECAT__WORKSPACE_ID"] = (
                 str(role.workspace_id) if role.workspace_id else ""
             )
@@ -426,10 +427,11 @@ class ActionRunner:
         env = os.environ.copy()
         if env_vars:
             env.update(env_vars)
+        # Do not leak the internal API address inherited from the executor.
+        env.pop("TRACECAT__API_URL", None)
 
         # Ensure SDK context is available for registry actions executed by minimal_runner.
         if resolved_context is not None:
-            env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
             env["TRACECAT__WORKSPACE_ID"] = resolved_context.workspace_id
             env["TRACECAT__WORKFLOW_ID"] = resolved_context.workflow_id
             env["TRACECAT__RUN_ID"] = resolved_context.run_id

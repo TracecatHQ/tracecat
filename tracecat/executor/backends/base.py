@@ -244,9 +244,10 @@ class ExecutorBackend(ABC):
         """Build run_python environment with Tracecat SDK context always enabled."""
 
         env_vars = dict(user_env_vars or {})
+        # Internal SDK requests must use the executor-local Action Gateway.
+        env_vars.pop("TRACECAT__API_URL", None)
         env_vars.update(
             {
-                "TRACECAT__API_URL": config.TRACECAT__API_URL,
                 "TRACECAT__WORKSPACE_ID": resolved_context.workspace_id,
                 "TRACECAT__WORKFLOW_ID": resolved_context.workflow_id,
                 "TRACECAT__RUN_ID": resolved_context.run_id,

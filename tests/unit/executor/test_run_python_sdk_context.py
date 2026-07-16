@@ -202,6 +202,7 @@ def _make_run_python_context() -> ResolvedContext:
             "script": "def main():\n    return 1",
             "env_vars": {
                 "CUSTOM_VALUE": "kept",
+                "TRACECAT__API_URL": "http://user-supplied-api.invalid",
                 "TRACECAT__WORKSPACE_ID": "user-cannot-shadow-context",
             },
         },
@@ -289,7 +290,6 @@ async def main():
 def _registry_ctx_env_vars() -> dict[str, str]:
     return {
         "TRACECAT__ACTION_GATEWAY_SOCKET": str(ACTION_GATEWAY_SANDBOX_SOCKET),
-        "TRACECAT__API_URL": "http://api.test:8000",
         "TRACECAT__WORKSPACE_ID": "workspace-id",
         "TRACECAT__WORKFLOW_ID": "workflow-id",
         "TRACECAT__RUN_ID": "run-id",
@@ -306,7 +306,7 @@ def _expected_registry_ctx_smoke_result(
     run_id: str = "run-id",
     wf_exec_id: str = "workflow-id/execution-id",
     environment: str = "testing",
-    api_url: str = "http://api.test:8000",
+    api_url: str = "http://api:8000",
     token: str = "executor-token",
 ) -> dict[str, Any]:
     return {
@@ -1111,7 +1111,7 @@ async def test_tracecat_registry_ctx_rejects_sync_call_in_async_code() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_python_backend_always_injects_sdk_context(
+async def test_run_python_backend_injects_sdk_context_without_api_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1155,7 +1155,6 @@ async def test_run_python_backend_always_injects_sdk_context(
     assert result.result == {"ok": True}
     assert captured["env_vars"] == {
         "CUSTOM_VALUE": "kept",
-        "TRACECAT__API_URL": "http://api.test:8000",
         "TRACECAT__WORKSPACE_ID": resolved_context.workspace_id,
         "TRACECAT__WORKFLOW_ID": resolved_context.workflow_id,
         "TRACECAT__RUN_ID": resolved_context.run_id,
