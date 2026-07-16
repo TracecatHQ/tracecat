@@ -102,7 +102,7 @@ export function WorkflowExecutionNav({
                 href={`${baseUrl}/executions/${executionId}`}
                 className={cn(
                   buttonVariants({ variant: "default", size: "sm" }),
-                  "h-11 justify-start rounded-none bg-background px-3 text-muted-foreground shadow-none hover:cursor-default hover:bg-muted/50",
+                  "h-11 justify-start rounded-none bg-background px-3 text-muted-foreground shadow-none hover:cursor-pointer hover:bg-muted/50",
                   executionId === currExecutionIdDecoded &&
                     "bg-muted-foreground/10"
                 )}
