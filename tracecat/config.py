@@ -747,9 +747,9 @@ TRACECAT__LITELLM_BASE_URL = os.environ.get(
 """Internal base URL for the managed LiteLLM service."""
 
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
-    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
+    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 600.0
 )
-"""Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+"""Read timeout for the LLM socket proxy in seconds (default: 10 minutes)."""
 
 
 TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(
