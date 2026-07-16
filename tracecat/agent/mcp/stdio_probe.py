@@ -257,22 +257,6 @@ def _kill_probe_process_tree(process: asyncio.subprocess.Process) -> None:
         process.kill()
 
 
-def _timeout_probe_result(timeout_seconds: int) -> StdioMCPProbeResult:
-    """Return an actionable user-facing result for a probe timeout."""
-    timeout_label = f"{timeout_seconds} second"
-    if timeout_seconds != 1:
-        timeout_label = f"{timeout_label}s"
-    return StdioMCPProbeResult(
-        success=False,
-        message="MCP server verification timed out",
-        error=(
-            "The MCP server did not finish starting or respond to the tools request "
-            f"within {timeout_label}. Check the server command, dependencies, "
-            "network access, and credentials, then try again."
-        ),
-    )
-
-
 async def _execute_probe_without_nsjail(
     job_dir: Path,
     *,
@@ -406,7 +390,11 @@ async def probe_stdio_mcp_tools_in_sandbox(
                     timeout_seconds=timeout_seconds,
                 )
     except SandboxTimeoutError:
-        return _timeout_probe_result(timeout_seconds)
+        return StdioMCPProbeResult(
+            success=False,
+            message="Connection to the MCP server timed out",
+            error=f"Timed out after {timeout_seconds}s while probing stdio MCP server",
+        )
     except Exception as exc:
         error = sanitize_stdio_probe_error(str(exc), env=env)
         return StdioMCPProbeResult(
@@ -417,7 +405,11 @@ async def probe_stdio_mcp_tools_in_sandbox(
 
     if not result.success:
         if result.error_code is SandboxErrorCode.TIMEOUT:
-            return _timeout_probe_result(timeout_seconds)
+            return StdioMCPProbeResult(
+                success=False,
+                message="Connection to the MCP server timed out",
+                error=f"Timed out after {timeout_seconds}s while probing stdio MCP server",
+            )
         error = sanitize_stdio_probe_error(result.error or result.stderr, env=env)
         return StdioMCPProbeResult(
             success=False,

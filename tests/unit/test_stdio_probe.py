@@ -276,10 +276,8 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
         )
 
     assert result.success is False
-    assert result.message == "MCP server verification timed out"
-    assert result.error is not None
-    assert "within 45 seconds" in result.error
-    assert "network access" in result.error
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 45s while probing stdio MCP server"
 
 
 @pytest.mark.anyio
@@ -307,9 +305,8 @@ async def test_probe_returns_friendly_sandbox_timeout() -> None:
         )
 
     assert result.success is False
-    assert result.message == "MCP server verification timed out"
-    assert result.error is not None
-    assert "within 45 seconds" in result.error
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 45s while probing stdio MCP server"
 
 
 @pytest.mark.anyio
@@ -429,9 +426,8 @@ async def test_pid_fallback_reports_friendly_timeout() -> None:
         )
 
     assert result.success is False
-    assert result.message == "MCP server verification timed out"
-    assert result.error is not None
-    assert "within 1 second" in result.error
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 1s while probing stdio MCP server"
     assert "USERNS" not in result.error
 
 
