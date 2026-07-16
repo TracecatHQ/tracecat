@@ -140,6 +140,7 @@ async def _auto_title_session(
     *,
     session_id: uuid.UUID,
     user_prompt: str,
+    expected_title: str,
     role: Role,
 ) -> None:
     """Best-effort auto-title using a fresh database session.
@@ -161,6 +162,7 @@ async def _auto_title_session(
         await service.auto_title_session_on_first_prompt(
             agent_session,
             user_prompt,
+            expected_title=expected_title,
         )
 
 
@@ -1217,11 +1219,25 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         agent_session: AgentSession,
         user_prompt: str,
+        *,
+        expected_title: str,
     ) -> None:
         """Best-effort auto-title on first prompt via direct PydanticAI call."""
         prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
-        old_title = agent_session.title
+        old_title = expected_title
+
+        if agent_session.title != expected_title:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(agent_session.title),
+                reason="title_changed_since_scheduling",
+            )
+            return
 
         if not prompt:
             logger.info(
@@ -1441,6 +1457,8 @@ class AgentSessionService(BaseWorkspaceService):
         if is_first_prompt is None:
             is_first_prompt = await self.is_first_prompt_for_session(session_id)
         should_auto_title = user_prompt is not None and is_first_prompt
+        # Snapshot here so the detached task cannot overwrite a mid-flight rename.
+        expected_title = agent_session.title
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
@@ -1529,6 +1547,7 @@ class AgentSessionService(BaseWorkspaceService):
                     _auto_title_session(
                         session_id=session_id,
                         user_prompt=user_prompt,
+                        expected_title=expected_title,
                         role=self.role,
                     )
                 )
