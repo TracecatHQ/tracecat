@@ -352,10 +352,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
-        github_stage = "prepare_branch"
-        github_endpoint = "GET|POST /repos/{owner}/{repo}/branches|git/refs"
+        github_stage = "resolve_repository"
+        github_endpoint = "GET /repos/{owner}/{repo}"
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            github_stage = "prepare_branch"
+            github_endpoint = "GET|POST /repos/{owner}/{repo}/branches|git/refs"
             base_branch_name = pr_base_branch or url.ref or repo.default_branch
             if create_pr and branch == base_branch_name:
                 raise TracecatValidationError(
@@ -536,6 +538,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             )
 
             if create_pr:
+                github_stage = "upsert_pull_request"
+                github_endpoint = "GET|POST /repos/{owner}/{repo}/pulls"
                 pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                     repo=repo,
                     url=url,
