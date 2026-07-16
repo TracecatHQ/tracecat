@@ -103,6 +103,9 @@ class RegistryContext:
         """Get the SDK client for this context."""
         from tracecat_registry.sdk.client import TracecatClient
 
+        if self._client is not None:
+            return self._client
+
         return TracecatClient(
             token=self.token,
             workspace_id=self.workspace_id,
