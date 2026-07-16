@@ -6,6 +6,7 @@ import asyncio
 import base64
 import hashlib
 import itertools
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -13,7 +14,6 @@ from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
 import httpx
-import orjson
 from github.GithubException import GithubException
 from github.InputGitTreeElement import InputGitTreeElement
 from pydantic import BaseModel
@@ -205,7 +205,12 @@ async def _github_write_with_retry[T](
     *,
     budget: _GitHubRetryBudget,
 ) -> T:
-    """Run a GitHub write call, honoring Retry-After within ``budget``."""
+    """Run a GitHub write call, honoring Retry-After within ``budget``.
+
+    GitHub signals rate limiting with either 403 or 429. A nonpositive
+    Retry-After is re-raised rather than retried so a persistent zero-delay
+    response cannot spin without consuming budget.
+    """
     while True:
         try:
             return await asyncio.to_thread(call)
@@ -213,14 +218,16 @@ async def _github_write_with_retry[T](
             headers = {key.lower(): value for key, value in (e.headers or {}).items()}
             retry_after_header = headers.get("retry-after")
             if (
-                e.status != 403
+                e.status not in (403, 429)
                 or retry_after_header is None
                 or budget.remaining_seconds <= 0
             ):
                 raise
             try:
-                retry_after = max(float(retry_after_header), 0.0)
+                retry_after = float(retry_after_header)
             except (TypeError, ValueError):
+                raise
+            if retry_after <= 0:
                 raise
             sleep_seconds = min(retry_after, budget.remaining_seconds)
             budget.remaining_seconds -= sleep_seconds
@@ -516,14 +523,16 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 elements[index : index + _GITHUB_TREE_CHUNK_SIZE]
                 for index in range(0, len(elements), _GITHUB_TREE_CHUNK_SIZE)
             ]
+            # Mirror PyGithub's Requester serialization (json.dumps with default
+            # separators) so the logged size matches the transmitted payload.
             tree_payload_size_bytes = sum(
                 len(
-                    orjson.dumps(
+                    json.dumps(
                         {
                             "base_tree": target_commit.tree.sha,
                             "tree": [element._identity for element in chunk],
                         }
-                    )
+                    ).encode("utf-8")
                 )
                 for chunk in element_chunks
             )

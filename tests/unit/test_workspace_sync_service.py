@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import uuid
 from collections import Counter
 from math import ceil
@@ -1866,6 +1867,108 @@ async def test_github_write_files_retries_403_with_retry_after(
     sleep.assert_awaited_once_with(0.25)
     assert repo.call_counts["create_git_tree"] == 2
     assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
+async def test_github_write_files_retries_429_with_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=429,
+        data={"message": "Too many requests"},
+        headers={"Retry-After": "0.25"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=[retry_error],
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    sleep.assert_awaited_once_with(0.25)
+    assert repo.call_counts["create_git_tree"] == 2
+    assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
+async def test_github_write_files_reraises_nonpositive_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=403,
+        data={"message": "Request blocked"},
+        headers={"Retry-After": "0"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=[retry_error],
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep,
+        pytest.raises(GitHubAppError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    sleep.assert_not_awaited()
+    assert repo.call_counts["create_git_tree"] == 1
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_github_write_files_logs_pygithub_serialized_payload_size(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    sync_logger = Mock()
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        create_pr=False,
+        logger=sync_logger,
+    )
+
+    tree_log = next(
+        call
+        for call in sync_logger.info.call_args_list
+        if call.args and call.args[0] == "Creating GitHub workspace sync tree"
+    )
+    # PyGithub's Requester serializes with json.dumps default separators; the
+    # logged size must match that framing, not a compact serialization.
+    expected_payload_size = sum(
+        len(
+            json.dumps(
+                {
+                    "base_tree": f"tree-{'a' * 40}",
+                    "tree": [cast(Any, element)._identity for element in tree.elements],
+                }
+            ).encode("utf-8")
+        )
+        for tree in repo.trees
+    )
+    assert tree_log.kwargs["tree_payload_size_bytes"] == expected_payload_size
 
 
 @pytest.mark.anyio
