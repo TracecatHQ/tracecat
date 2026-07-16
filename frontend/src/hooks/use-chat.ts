@@ -633,6 +633,16 @@ export function useVercelChat({
       queryClient.invalidateQueries({
         queryKey: ["pending-approvals-count", workspaceId],
       })
+      // First-prompt auto-titling runs as a detached backend task that can
+      // commit after the invalidation above on fast turns, leaving the
+      // placeholder title ("Chat 1", ...) in the sidebar until the next
+      // mutation. Re-check on a delay — the second point covers the titling
+      // LLM call's 15s timeout. No-op when nothing is stale or mounted.
+      for (const delayMs of [4_000, 16_000]) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+        }, delayMs)
+      }
     },
     onData,
   })

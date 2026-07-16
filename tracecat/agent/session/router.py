@@ -476,6 +476,7 @@ async def send_message(
                 agent_session=agent_session,
             )
 
+            is_first_prompt: bool | None = None
             if isinstance(request, ContinueRunRequest):
                 # Continuations resume the same workflow + per-turn stream. Reuse
                 # the existing stream id and follow only newly appended events;
@@ -499,7 +500,8 @@ async def send_message(
                     stream_id=stream_id,
                 )
                 start_id = "0-0"
-                if await svc.should_seed_initial_artifact(agent_session) and (
+                is_first_prompt = await svc.is_first_prompt_for_session(session_id)
+                if is_first_prompt and (
                     artifact := await svc.build_initial_artifact(agent_session)
                 ):
                     await svc.apply_artifact_side_effects(
@@ -514,6 +516,7 @@ async def send_message(
                     session_id=session_id,
                     request=request,
                     active_stream_id=stream_id,
+                    is_first_prompt=is_first_prompt,
                 )
             except Exception as turn_exc:
                 if not isinstance(request, ContinueRunRequest):

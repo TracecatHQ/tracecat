@@ -960,6 +960,7 @@ class TestCreateSessionActivity:
         mock_service.auto_title_session_on_first_prompt.assert_awaited_once_with(
             mock_agent_session,
             "Investigate login failures",
+            expected_title=mock_agent_session.title,
         )
 
     @pytest.mark.anyio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import copy
 import hashlib
@@ -9,6 +10,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -75,6 +77,7 @@ from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
@@ -130,6 +133,52 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _auto_title_session(
+    *,
+    session_id: uuid.UUID,
+    user_prompt: str,
+    expected_title: str,
+    role: Role,
+) -> None:
+    """Best-effort auto-title using a fresh database session.
+
+    Expected generation errors are handled inside
+    ``auto_title_session_on_first_prompt``; anything else propagates to the
+    task's done callback so programming/database faults surface in logs.
+    """
+    async with AgentSessionService.with_session(role=role) as service:
+        agent_session = await service.get_session(session_id)
+        if agent_session is None:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(session_id),
+                prompt_length=len(user_prompt.strip()),
+                reason="session_not_found",
+            )
+            return
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            user_prompt,
+            expected_title=expected_title,
+        )
+
+
+def _finalize_auto_title_task(
+    task: asyncio.Task[None], *, session_id: uuid.UUID
+) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        logger.error(
+            "session_auto_title_failure",
+            session_id=str(session_id),
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
 
 
 @dataclass
@@ -1072,7 +1121,7 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
+    async def is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
         """Check whether this session has any persisted local history yet."""
         stmt = (
             select(AgentSessionHistory.id)
@@ -1084,10 +1133,6 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
-
-    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
-        """Return whether the session should receive its initial artifact seed."""
-        return await self._is_first_prompt_for_session(agent_session.id)
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
@@ -1174,11 +1219,25 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         agent_session: AgentSession,
         user_prompt: str,
+        *,
+        expected_title: str,
     ) -> None:
         """Best-effort auto-title on first prompt via direct PydanticAI call."""
         prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
-        old_title = agent_session.title
+        old_title = expected_title
+
+        if agent_session.title != expected_title:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(agent_session.title),
+                reason="title_changed_since_scheduling",
+            )
+            return
 
         if not prompt:
             logger.info(
@@ -1189,18 +1248,6 @@ class AgentSessionService(BaseWorkspaceService):
                 old_title_length=len(old_title),
                 new_title_length=0,
                 reason="empty_prompt",
-            )
-            return
-
-        if not await self._is_first_prompt_for_session(agent_session.id):
-            logger.info(
-                "session_auto_title_skip",
-                session_id=str(agent_session.id),
-                entity_type=entity_type,
-                prompt_length=len(prompt),
-                old_title_length=len(old_title),
-                new_title_length=0,
-                reason="not_first_prompt",
             )
             return
 
@@ -1270,16 +1317,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return
 
-        history_exists = (
-            select(AgentSessionHistory.id)
-            .where(
-                AgentSessionHistory.workspace_id == self.workspace_id,
-                AgentSessionHistory.session_id == agent_session.id,
-            )
-            .limit(1)
-            .exists()
-        )
-
         try:
             result = await self.session.execute(
                 update(AgentSession)
@@ -1287,7 +1324,6 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSession.id == agent_session.id,
                     AgentSession.workspace_id == self.workspace_id,
                     AgentSession.title == old_title,
-                    ~history_exists,
                 )
                 .values(title=new_title)
                 .returning(AgentSession.id)
@@ -1341,6 +1377,7 @@ class AgentSessionService(BaseWorkspaceService):
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
         *,
         active_stream_id: uuid.UUID | None = None,
+        is_first_prompt: bool | None = None,
     ) -> ChatResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
@@ -1353,6 +1390,8 @@ class AgentSessionService(BaseWorkspaceService):
                 into the workflow input and onto the session row so the producer
                 and reader share the same per-turn Redis key. Defaults to a freshly
                 minted id for callers that don't manage their own stream.
+            is_first_prompt: Whether the session had no history before this turn.
+                When omitted, the service queries history for direct callers.
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
@@ -1411,8 +1450,15 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
-        if user_prompt is not None:
-            await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
+        # Titling eligibility must be decided before the workflow spawns: the
+        # executor streams history rows mid-turn, so checking afterwards would
+        # race. Placeholder titles ("Chat 1", "Slack thread", ...) vary by
+        # surface, so first-prompt history is the signal, not the title text.
+        if is_first_prompt is None:
+            is_first_prompt = await self.is_first_prompt_for_session(session_id)
+        should_auto_title = user_prompt is not None and is_first_prompt
+        # Snapshot here so the detached task cannot overwrite a mid-flight rename.
+        expected_title = agent_session.title
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
@@ -1494,6 +1540,22 @@ class AgentSessionService(BaseWorkspaceService):
                     session_id
                 ),
             )
+
+            # Spawn after the workflow starts so a rejected/failed turn never
+            # renames the session.
+            if should_auto_title and user_prompt is not None:
+                task = asyncio.create_task(
+                    _auto_title_session(
+                        session_id=session_id,
+                        user_prompt=user_prompt,
+                        expected_title=expected_title,
+                        role=self.role,
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(
+                    partial(_finalize_auto_title_task, session_id=session_id)
+                )
 
         # Return ChatResponse with session_id for streaming. Surface run_id so the
         # HTTP layer builds the stable bubble id from the value we just minted
