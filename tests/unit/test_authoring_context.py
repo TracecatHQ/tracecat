@@ -302,6 +302,24 @@ class TestComputeAttributedUserScopes:
         scopes = await credentials.compute_attributed_user_scopes(role)
         assert scopes == frozenset({"workflow:read"})
 
+    async def test_preserves_explicit_attributed_service_scopes(self) -> None:
+        from tracecat.auth import credentials
+        from tracecat.auth.types import Role
+
+        expected_scopes = frozenset(
+            {"case:read", "action:core.cases.list_cases:execute"}
+        )
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            user_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            scopes=expected_scopes,
+        )
+
+        assert await credentials.compute_attributed_user_scopes(role) == expected_scopes
+
 
 class TestAuthoringContextRouteCallerScoping:
     """The internal authoring-context route gates inventory by the real caller.

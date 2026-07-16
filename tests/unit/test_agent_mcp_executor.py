@@ -24,6 +24,7 @@ def _build_claims() -> MCPTokenClaims:
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
         allowed_actions=["core.http_request"],
+        scopes=frozenset({"action:core.http_request:execute"}),
     )
 
 
@@ -65,6 +66,9 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     )
 
     call = fake_client.execute_workflow.await_args
+    workflow_input = call.args[1]
+    assert workflow_input.role.scopes == claims.scopes
+    assert workflow_input.run_input.allowed_actions == frozenset(claims.allowed_actions)
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
     assert call.kwargs["memo"] == {
         "parent_agent_workflow_id": f"agent/{claims.session_id}",

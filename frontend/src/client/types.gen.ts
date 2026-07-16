@@ -6587,6 +6587,7 @@ export type RunActionInput = {
   stream_id?: string
   session_id?: string | null
   registry_lock: RegistryLock
+  allowed_actions?: Array<string> | null
 }
 
 /**

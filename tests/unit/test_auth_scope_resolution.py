@@ -77,6 +77,21 @@ async def test_compute_effective_scopes_service_with_user_id_uses_allowlist() ->
 
 
 @pytest.mark.anyio
+async def test_compute_effective_scopes_preserves_explicit_service_scopes() -> None:
+    expected_scopes = frozenset({"case:read", "action:core.cases.list_cases:execute"})
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        scopes=expected_scopes,
+    )
+
+    scopes = await credentials.compute_effective_scopes(role)
+
+    assert scopes == expected_scopes
+
+
+@pytest.mark.anyio
 async def test_compute_effective_scopes_unknown_service_principal_gets_empty_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

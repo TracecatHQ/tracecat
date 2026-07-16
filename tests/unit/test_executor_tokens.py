@@ -38,6 +38,9 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
+        scopes=frozenset({"*"}),
+        allowed_actions=frozenset({"core.script.run_python", "core.cases.list_cases"}),
+        action="core.script.run_python",
         wf_id=wf_id,
         wf_exec_id=wf_exec_id,
         ttl_seconds=60,
@@ -47,8 +50,34 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
 
     assert verified.workspace_id == workspace_id
     assert verified.user_id == user_id
+    assert verified.scopes == frozenset({"*"})
+    assert verified.allowed_actions == frozenset(
+        {"core.script.run_python", "core.cases.list_cases"}
+    )
+    assert verified.action == "core.script.run_python"
     assert verified.wf_id == wf_id
     assert verified.wf_exec_id == wf_exec_id
+
+
+def test_executor_token_preserves_explicit_empty_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset(),
+        allowed_actions=frozenset(),
+        action="core.script.run_python",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    verified = verify_executor_token(token)
+
+    assert verified.scopes == frozenset()
+    assert verified.allowed_actions == frozenset()
 
 
 def test_verify_executor_token_expired(monkeypatch: pytest.MonkeyPatch):
@@ -133,6 +162,9 @@ async def test_role_dependency_executor_token_populates_org_context(
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
+        scopes=frozenset({"action:core.cases.list_cases:execute", "case:read"}),
+        allowed_actions=frozenset({"core.script.run_python", "core.cases.list_cases"}),
+        action="core.script.run_python",
         wf_id="wf-1",
         wf_exec_id="run-1",
         ttl_seconds=60,
@@ -158,6 +190,9 @@ async def test_role_dependency_executor_token_populates_org_context(
     assert resolved.workspace_id == workspace_id
     assert resolved.user_id == user_id
     assert resolved.organization_id == organization_id
+    assert resolved.scopes == frozenset(
+        {"action:core.cases.list_cases:execute", "case:read"}
+    )
 
 
 @pytest.mark.anyio

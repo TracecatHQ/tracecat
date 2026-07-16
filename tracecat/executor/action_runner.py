@@ -325,6 +325,9 @@ class ActionRunner:
                 workspace_id=role.workspace_id,
                 user_id=role.user_id,
                 service_id=role.service_id,
+                scopes=role.scopes,
+                allowed_actions=input.allowed_actions,
+                action=input.task.action,
                 wf_id=str(input.run_context.wf_id),
                 wf_exec_id=str(input.run_context.wf_run_id),
             )

@@ -21,6 +21,7 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.mcp.executor import build_role_from_claims
 from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.session.schemas import (
     AgentSessionRead,
@@ -30,7 +31,6 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     TracecatValidationError,
@@ -215,14 +215,7 @@ def _get_preset_id(context: InternalToolContext | None) -> uuid.UUID:
 
 def _build_role(claims: MCPTokenClaims) -> Role:
     """Build a Role from MCP token claims."""
-    return Role(
-        type="service",
-        service_id="tracecat-mcp",
-        workspace_id=claims.workspace_id,
-        organization_id=claims.organization_id,
-        user_id=claims.user_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
-    )
+    return build_role_from_claims(claims)
 
 
 async def _get_action_configuration(

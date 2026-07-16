@@ -555,6 +555,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        allowed_actions=frozenset({"core.http_request", "core.script.run_python"}),
     )
 
     assert result.task.action == "core_http_request"
@@ -566,6 +567,9 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.allowed_actions == frozenset(
+        {"core.http_request", "core.script.run_python"}
+    )
 
 
 def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:

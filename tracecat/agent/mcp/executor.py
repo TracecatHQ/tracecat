@@ -55,6 +55,7 @@ def build_tracecat_mcp_role(
     workspace_id: UUID | None,
     organization_id: UUID | None,
     user_id: UUID | None,
+    scopes: frozenset[str] | None = None,
 ) -> Role:
     """Build the trusted MCP service role for action execution."""
     return Role(
@@ -63,7 +64,9 @@ def build_tracecat_mcp_role(
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
+        scopes=scopes
+        if scopes is not None
+        else SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
 
 
@@ -73,6 +76,7 @@ def build_role_from_claims(claims: MCPTokenClaims) -> Role:
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
+        scopes=claims.scopes,
     )
 
 
@@ -114,7 +118,12 @@ async def execute_action(
 
     logger.info("Executing action via executor workflow", action_name=action_name)
 
-    run_input = build_run_input(action_name, args, registry_lock)
+    run_input = build_run_input(
+        action_name,
+        args,
+        registry_lock,
+        allowed_actions=frozenset(claims.allowed_actions),
+    )
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
         workflow_id=build_agent_tool_workflow_id(),
@@ -147,6 +156,7 @@ def build_run_input(
     execution_id: UUID | None = None,
     logical_time: datetime | None = None,
     environment: str = "default",
+    allowed_actions: frozenset[str] | None = None,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
 
@@ -175,6 +185,7 @@ def build_run_input(
         run_context=run_context,
         exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
         registry_lock=registry_lock,
+        allowed_actions=allowed_actions,
     )
 
 

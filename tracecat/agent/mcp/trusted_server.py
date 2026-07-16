@@ -38,6 +38,7 @@ from tracecat.agent.common.types import (
 from tracecat.agent.mcp.executor import (
     ActionExecutionError,
     ActionNotAllowedError,
+    build_role_from_claims,
     execute_action,
 )
 from tracecat.agent.mcp.internal_tools import (
@@ -62,7 +63,6 @@ from tracecat.agent.mcp.utils import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
@@ -170,14 +170,7 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
 
     This must be called before any service that requires organization context.
     """
-    role = Role(
-        type="service",
-        service_id="tracecat-mcp",
-        workspace_id=claims.workspace_id,
-        organization_id=claims.organization_id,
-        user_id=claims.user_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
-    )
+    role = build_role_from_claims(claims)
     ctx_role.set(role)
     return role
 

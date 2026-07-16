@@ -128,9 +128,9 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
 
     Scope computation follows this hierarchy:
     1. Roles explicitly executing with platform-superuser privileges get "*"
-    2. Service principals (non-user flows) use static allowlist scopes
-    3. Direct user role assignments (org-wide and workspace-specific)
-    4. Group role assignments (org-wide and workspace-specific)
+    2. Service principals with resolved scopes retain that authority
+    3. Legacy service principals use static allowlist scopes
+    4. Direct and group user role assignments
     """
     if role.is_platform_superuser:
         return frozenset({"*"})
@@ -139,6 +139,8 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
         return role.scopes or frozenset()
 
     if role.type == "service":
+        if role.scopes is not None:
+            return role.scopes
         service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
         if service_scopes is None:
             logger.warning(
@@ -176,16 +178,16 @@ async def compute_attributed_user_scopes(role: Role) -> frozenset[str] | None:
     """Effective RBAC scopes of the human user a service role acts for.
 
     Executor/service roles carry ``user_id`` when the call chain originated
-    from an attributed user action (e.g. a workspace-chat tool call routed
-    through the executor). Service roles authorize against a static allowlist
-    (``SERVICE_PRINCIPAL_SCOPES``), so data-read gates evaluated against them
-    always pass; use this to evaluate such gates against the real caller
-    instead. Returns ``None`` when there is no attributed user (schedules,
-    webhooks, subflows) or the role is not a service principal — callers
-    should then fall back to the role's own scopes.
+    from an attributed user action. Signed scopes on the service role are an
+    authoritative caller snapshot. Legacy service roles without signed scopes
+    resolve the attributed user's current RBAC scopes from the database.
+    Returns ``None`` when there is no attributed user or the role is not a
+    service principal.
     """
     if role.type != "service" or role.user_id is None or role.organization_id is None:
         return None
+    if role.scopes is not None:
+        return role.scopes
     return await _compute_effective_scopes_cached(
         role.user_id, role.organization_id, role.workspace_id
     )
@@ -341,8 +343,8 @@ async def _authenticate_service(
     ):
         organization_id = await _get_workspace_org_id(context_workspace_id)
     # Parse scopes from header if present (for inter-service calls)
-    scopes: frozenset[str] = frozenset()
-    if scopes_header := request.headers.get("x-tracecat-role-scopes"):
+    scopes: frozenset[str] | None = None
+    if (scopes_header := request.headers.get("x-tracecat-role-scopes")) is not None:
         scopes = frozenset(
             stripped for s in scopes_header.split(",") if (stripped := s.strip())
         )
@@ -823,6 +825,7 @@ async def _authenticate_executor(
         workspace_id=token_payload.workspace_id,
         organization_id=organization_id,
         user_id=token_payload.user_id,
+        scopes=token_payload.scopes,
     )
 
     # Validate workspace requirements for executor

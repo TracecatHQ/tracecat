@@ -139,6 +139,7 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
+AGENT_EXECUTION_GRANT_PATCH = "durable-agent-execution-grant-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +163,7 @@ def _build_approved_tool_run_input(
     run_id: uuid.UUID,
     execution_id: uuid.UUID,
     logical_time: datetime,
+    allowed_actions: frozenset[str] | None = None,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -172,6 +174,7 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        allowed_actions=allowed_actions,
     )
 
 
@@ -237,6 +240,7 @@ def _start_registry_tool_call(
     registry_lock: RegistryLock,
     service_role: Role,
     logical_time: datetime,
+    allowed_actions: frozenset[str] | None = None,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -249,6 +253,7 @@ def _start_registry_tool_call(
                 run_id=workflow.uuid4(),
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
+                allowed_actions=allowed_actions,
             ),
             service_role,
         ],
@@ -686,6 +691,9 @@ class DurableAgentWorkflow:
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
+            scopes=self.role.scopes
+            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
+            else None,
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,
@@ -1728,6 +1736,9 @@ class DurableAgentWorkflow:
             workspace_id=self.role.workspace_id,
             organization_id=self.role.organization_id,
             user_id=self.role.user_id,
+            scopes=self.role.scopes
+            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
+            else None,
         )
         pending_results: list[PendingToolResult] = []
         cancelled_tool_call_ids: list[str] = []
@@ -1767,6 +1778,9 @@ class DurableAgentWorkflow:
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
+                            allowed_actions=frozenset(registry_lock.actions)
+                            if workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
+                            else None,
                         )
                     )
                     result = PendingToolResult(
