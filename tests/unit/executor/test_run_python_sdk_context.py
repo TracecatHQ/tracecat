@@ -288,6 +288,7 @@ async def main():
 
 def _registry_ctx_env_vars() -> dict[str, str]:
     return {
+        "TRACECAT__ACTION_GATEWAY_SOCKET": str(ACTION_GATEWAY_SANDBOX_SOCKET),
         "TRACECAT__API_URL": "http://api.test:8000",
         "TRACECAT__WORKSPACE_ID": "workspace-id",
         "TRACECAT__WORKFLOW_ID": "workflow-id",
@@ -951,6 +952,7 @@ def test_registry_pythonpaths_can_import_ctx_without_site_packages(
         env={
             "PYTHONPATH": env_vars["PYTHONPATH"],
             "PYTHONDONTWRITEBYTECODE": "1",
+            "TRACECAT__ACTION_GATEWAY_SOCKET": str(ACTION_GATEWAY_SANDBOX_SOCKET),
         },
     )
 
