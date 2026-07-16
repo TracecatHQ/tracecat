@@ -1633,6 +1633,13 @@ class ClaudeAgentRuntime:
                 self.client = client
                 self._client_connected_event.set()
                 log_benchmark_phase("runtime_client_connected")
+                if payload.ttft_activity_started_at is not None:
+                    await self._event_writer.send_log(
+                        "info",
+                        "ttft.sandbox_startup",
+                        duration_ms=(perf_counter() - payload.ttft_activity_started_at)
+                        * 1000,
+                    )
                 stderr_task = asyncio.create_task(drain_stderr())
                 session_flush_task = asyncio.create_task(
                     self._flush_session_lines_when_signaled(
@@ -1652,6 +1659,7 @@ class ClaudeAgentRuntime:
                         await self._event_writer.send_stream_event(
                             self._build_compaction_status_event(phase="started")
                         )
+                    prompt_dispatched_at = perf_counter()
                     await client.query(query_input)
                     log_benchmark_phase("runtime_query_sent")
                     self._query_sent_event.set()
@@ -1678,13 +1686,23 @@ class ClaudeAgentRuntime:
                             fork_session=fork_session,
                         )
                         if isinstance(message, StreamEvent):
+                            first_token_duration_ms: float | None = None
                             if not first_stream_event_logged:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
+                                first_token_duration_ms = (
+                                    perf_counter() - prompt_dispatched_at
+                                ) * 1000
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
                             await self._event_writer.send_stream_event(unified)
+                            if first_token_duration_ms is not None:
+                                await self._event_writer.send_log(
+                                    "info",
+                                    "ttft.first_token",
+                                    duration_ms=first_token_duration_ms,
+                                )
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):

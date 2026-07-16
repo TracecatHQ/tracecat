@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -47,6 +48,7 @@ from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.priority import INTERACTIVE_AGENT_WORKFLOW_PRIORITY
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
@@ -1362,6 +1364,7 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If the session is not found.
             ValueError: If the request/entity type is unsupported.
         """
+        turn_started_at = perf_counter()
         from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import (
             AgentWorkflowArgs,
@@ -1483,15 +1486,25 @@ class AgentSessionService(BaseWorkspaceService):
                 task_queue=config.TRACECAT__AGENT_QUEUE,
             )
 
-            await client.start_workflow(
+            workflow_args.trigger_ts = datetime.now(UTC)
+            handle = await client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
                 id=str(workflow_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                priority=INTERACTIVE_AGENT_WORKFLOW_PRIORITY,
                 search_attributes=self._build_direct_agent_search_attributes(
                     session_id
                 ),
+            )
+            logger.info(
+                "ttft.http_prelude",
+                session_id=str(session_id),
+                workflow_id=str(workflow_id),
+                workflow_run_id=getattr(handle, "first_execution_run_id", None),
+                run_id=str(run_id),
+                duration_ms=(perf_counter() - turn_started_at) * 1000,
             )
 
         # Return ChatResponse with session_id for streaming. Surface run_id so the

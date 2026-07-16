@@ -117,6 +117,8 @@ class AgentExecutorInput(BaseModel):
     # Workflow run id for this turn. Pinned so the producer tags persisted
     # history rows, letting mid-turn loads hide the active run's partial rows.
     curr_run_id: uuid.UUID | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
     user_prompt: str
     config: AgentConfig
     # Role for context
@@ -240,6 +242,7 @@ class SandboxedAgentExecutor:
     """
 
     input: AgentExecutorInput
+    activity_started_at: float = field(default_factory=perf_counter)
     timeout_seconds: int = field(
         default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
     )
@@ -417,6 +420,7 @@ class SandboxedAgentExecutor:
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
+            ttft_activity_started_at=self.activity_started_at,
         )
 
     async def run(self) -> AgentExecutorResult:
@@ -448,6 +452,8 @@ class SandboxedAgentExecutor:
                 workspace_id=self.input.workspace_id,
                 active_stream_id=self.input.active_stream_id,
                 curr_run_id=self.input.curr_run_id,
+                workflow_id=self.input.workflow_id,
+                workflow_run_id=self.input.workflow_run_id,
             )
             handler = LoopbackHandler(input=loopback_input)
 
@@ -1177,6 +1183,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
+    activity_started_at = perf_counter()
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
@@ -1197,6 +1204,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         )
 
     executor = SandboxedAgentExecutor(input=input)
+    executor.activity_started_at = activity_started_at
     result = await executor.run()
 
     if result.success:

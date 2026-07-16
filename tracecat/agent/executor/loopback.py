@@ -97,6 +97,8 @@ class LoopbackInput:
     workspace_id: uuid.UUID
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -849,12 +851,17 @@ class LoopbackHandler:
     async def send_log(self, level: str, message: str, **extra: object) -> None:
         """Emit a structured runtime log."""
         log_fn = getattr(logger, level, logger.info)
-        log_fn(
-            "[runtime] {}",
-            message,
-            session_id=self.input.session_id,
+        fields = {
+            "session_id": self.input.session_id,
+            "workflow_id": self.input.workflow_id,
+            "workflow_run_id": self.input.workflow_run_id,
+            "run_id": str(self.input.curr_run_id) if self.input.curr_run_id else None,
             **extra,
-        )
+        }
+        if message.startswith("ttft."):
+            log_fn(message, **fields)
+        else:
+            log_fn("[runtime] {}", message, **fields)
 
     async def _initialize_stream_sink(self) -> LoopbackEventSink:
         """Build stream sink for this session."""

@@ -9,6 +9,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import (
+    Priority,
     RetryPolicy,
     SearchAttributePair,
     TypedSearchAttributes,
@@ -40,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.agent.priority import BACKGROUND_AGENT_WORKFLOW_PRIORITY
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
@@ -163,6 +165,13 @@ with workflow.unsafe.imports_passed_through():
 
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
+DURABLE_AGENT_PRIORITY_PATCH = "dsl-durable-agent-priority-v1"
+
+
+def _durable_agent_workflow_priority() -> Priority:
+    if workflow.patched(DURABLE_AGENT_PRIORITY_PATCH):
+        return BACKGROUND_AGENT_WORKFLOW_PRIORITY
+    return Priority()
 
 
 def _inherit_search_attributes_with_alias(
@@ -1005,6 +1014,7 @@ class DSLWorkflow:
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
+                        priority=_durable_agent_workflow_priority(),
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,
@@ -1072,6 +1082,7 @@ class DSLWorkflow:
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
+                        priority=_durable_agent_workflow_priority(),
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,
@@ -1152,6 +1163,7 @@ class DSLWorkflow:
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
+                        priority=_durable_agent_workflow_priority(),
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,

@@ -399,6 +399,10 @@ class AgentWorkflowArgs(BaseModel):
 
     role: Role
     agent_args: RunAgentArgs
+    trigger_ts: datetime | None = Field(
+        default=None,
+        description="API wall-clock timestamp recorded before workflow dispatch.",
+    )
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
     entity_type: AgentSessionEntity = Field(
@@ -510,6 +514,35 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
+        self._pre_executor_started_at: datetime | None = None
+
+    def _ttft_log_fields(self) -> dict[str, str]:
+        info = workflow.info()
+        return {
+            "session_id": str(self.session_id),
+            "workflow_id": info.workflow_id,
+            "workflow_run_id": info.run_id,
+            "run_id": str(
+                AgentWorkflowID.from_workflow_id(info.workflow_id).session_id
+            ),
+        }
+
+    @staticmethod
+    def _ttft_now() -> datetime | None:
+        if not workflow.in_workflow():
+            return None
+        return workflow.now()
+
+    def _log_ttft_duration(self, event: str, started_at: datetime | None) -> None:
+        if started_at is None:
+            return
+        workflow.logger.info(
+            event,
+            extra={
+                **self._ttft_log_fields(),
+                "duration_ms": (workflow.now() - started_at).total_seconds() * 1000,
+            },
+        )
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -567,11 +600,16 @@ class DurableAgentWorkflow:
     ) -> None:
         if cfg.model_provider != "custom-model-provider":
             return
+        started_at = self._ttft_now()
         result = await workflow.execute_activity(
             resolve_custom_model_provider_config_activity,
             args=(self.role, cfg.catalog_id),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        self._log_ttft_duration(
+            "ttft.pre_executor.resolve_custom_model_provider_config_activity",
+            started_at,
         )
         cfg.base_url = result.base_url
         cfg.passthrough = result.passthrough
@@ -598,11 +636,16 @@ class DurableAgentWorkflow:
                     preset_version=args.agent_args.preset_version,
                 )
             )
+            started_at = self._ttft_now()
             preset_config_payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
                 activity_input,
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._log_ttft_duration(
+                "ttft.pre_executor.resolve_agent_preset_config_activity",
+                started_at,
             )
             preset_config = agent_config_from_payload(preset_config_payload)
             # Apply overrides from the provided config (if any)
@@ -647,7 +690,8 @@ class DurableAgentWorkflow:
             return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
             return ResolvedAgentsRuntimeConfig(enabled=True)
-        return await workflow.execute_activity(
+        started_at = self._ttft_now()
+        result = await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
                 role=self.role,
@@ -659,6 +703,10 @@ class DurableAgentWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
+        self._log_ttft_duration(
+            "ttft.pre_executor.resolve_agents_config_activity", started_at
+        )
+        return result
 
     def _mint_scope_mcp_token(
         self,
@@ -725,6 +773,7 @@ class DurableAgentWorkflow:
         )
         if not workflow.patched(BUILD_AGENT_TOOL_DEFINITIONS_PATCH):
             try:
+                started_at = self._ttft_now()
                 legacy_build_result = await workflow.execute_activity_method(
                     AgentActivities.build_tool_definitions,
                     arg=BuildToolDefsArgs(
@@ -739,6 +788,9 @@ class DurableAgentWorkflow:
                     ),
                     start_to_close_timeout=timedelta(seconds=120),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+                self._log_ttft_duration(
+                    "ttft.pre_executor.build_tool_definitions", started_at
                 )
             except ActivityError as e:
                 if isinstance(e.cause, ApplicationError):
@@ -786,6 +838,7 @@ class DurableAgentWorkflow:
             scope_specs.append(scope_spec)
 
         try:
+            started_at = self._ttft_now()
             build_result = await workflow.execute_activity_method(
                 AgentActivities.build_agent_tool_definitions,
                 arg=BuildAgentToolDefsArgs(
@@ -796,6 +849,9 @@ class DurableAgentWorkflow:
                     seconds=120 * max(1, len(scope_specs))
                 ),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._log_ttft_duration(
+                "ttft.pre_executor.build_agent_tool_definitions", started_at
             )
         except ActivityError as e:
             if isinstance(e.cause, ApplicationError):
@@ -869,6 +925,18 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
+        if args.trigger_ts is not None:
+            workflow.logger.info(
+                "ttft.temporal_scheduling",
+                extra={
+                    **self._ttft_log_fields(),
+                    "approx_wall_delta_ms": (
+                        workflow.now() - args.trigger_ts
+                    ).total_seconds()
+                    * 1000,
+                },
+            )
+        self._pre_executor_started_at = self._ttft_now()
         if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
             self._upsert_tracecat_search_attributes()
         logger.debug(
@@ -1098,11 +1166,15 @@ class DurableAgentWorkflow:
             # Load session topology before resolving agents. A resumed session's
             # stored binding is the stable runtime contract, even if the preset
             # now follows a newer child version.
+            started_at = self._ttft_now()
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._log_ttft_duration(
+                "ttft.pre_executor.load_session_activity", started_at
             )
             if preserved_binding := _preserved_agents_binding(load_result):
                 agents_result = await self._resolve_agents_config(
@@ -1118,6 +1190,7 @@ class DurableAgentWorkflow:
 
         # Create or get the AgentSession - idempotent, safe to call on resume
         # Persist the active workflow token as curr_run_id for approval lookups.
+        started_at = self._ttft_now()
         create_result = await workflow.execute_activity(
             create_session_activity,
             CreateSessionInput(
@@ -1139,6 +1212,7 @@ class DurableAgentWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
+        self._log_ttft_duration("ttft.pre_executor.create_session_activity", started_at)
         if not create_result.success:
             raise ApplicationError(
                 f"Failed to create agent session: {create_result.error}",
@@ -1174,11 +1248,15 @@ class DurableAgentWorkflow:
             # Legacy command order for histories without the binding-preservation
             # patch marker. sdk_session_data is replay compatibility only; new
             # activity executions leave it unset.
+            started_at = self._ttft_now()
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._log_ttft_duration(
+                "ttft.pre_executor.load_session_activity", started_at
             )
 
         if load_result.found and load_result.sdk_session_id:
@@ -1209,6 +1287,8 @@ class DurableAgentWorkflow:
             workspace_id=self.workspace_id,
             active_stream_id=args.agent_args.active_stream_id,
             curr_run_id=curr_run_id,
+            workflow_id=info.workflow_id,
+            workflow_run_id=info.run_id,
             user_prompt=args.agent_args.user_prompt,
             config=cfg,
             role=self.role,
@@ -1220,6 +1300,10 @@ class DurableAgentWorkflow:
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
         )
+
+        if self._pre_executor_started_at is not None:
+            self._log_ttft_duration("ttft.pre_executor", self._pre_executor_started_at)
+            self._pre_executor_started_at = None
 
         # Run the executor activity
         while True:
@@ -1452,6 +1536,8 @@ class DurableAgentWorkflow:
                     workspace_id=self.workspace_id,
                     active_stream_id=args.agent_args.active_stream_id,
                     curr_run_id=curr_run_id,
+                    workflow_id=info.workflow_id,
+                    workflow_run_id=info.run_id,
                     user_prompt=args.agent_args.user_prompt,
                     config=cfg,
                     role=self.role,

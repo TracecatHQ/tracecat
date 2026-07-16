@@ -49,6 +49,7 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
+    ttft_activity_started_at: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
@@ -85,6 +86,7 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            ttft_activity_started_at=data.get("ttft_activity_started_at"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,6 +114,8 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.ttft_activity_started_at is not None:
+            result["ttft_activity_started_at"] = self.ttft_activity_started_at
         return result
 
 
