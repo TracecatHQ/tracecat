@@ -27,7 +27,13 @@ REQUIRED_CLAIMS = (
 
 
 class ExecutorTokenPayload(BaseModel):
-    """Payload extracted from a verified executor JWT."""
+    """Signed authorization context for sandbox-originated SDK calls.
+
+    ``scopes`` is the caller Role bound. ``allowed_actions`` is the independent
+    Agent toolset bound. ``action`` identifies the sandbox action that minted the
+    token, so the gateway can restrict user-authored run-python code without
+    changing ordinary workflow execution.
+    """
 
     workspace_id: WorkspaceID
     user_id: UserID | None

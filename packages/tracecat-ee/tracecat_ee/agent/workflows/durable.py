@@ -139,6 +139,9 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
+# Starts signing the caller scope snapshot and resolved Agent toolset into the
+# MCP/executor chain. The legacy branch preserves deterministic replay for Agent
+# workflow histories created before this authorization boundary existed.
 AGENT_EXECUTION_GRANT_PATCH = "durable-agent-execution-grant-v1"
 
 

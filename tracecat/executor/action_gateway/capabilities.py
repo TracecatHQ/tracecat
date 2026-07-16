@@ -1,8 +1,30 @@
-"""Registry-action capabilities exposed by Action Gateway endpoints."""
+"""Bound nested Agent SDK calls to the configured registry toolset.
+
+``core.script.run_python`` runs user-authored code, so its executor token must
+not expose every Action Gateway operation available to the caller. For each
+nested request this module enforces the two independent authorization bounds::
+
+    caller Role allows action
+    AND
+    Agent execution grant allows action
+
+The SDK calls lower-level HTTP endpoints rather than dispatching another
+registry action, so the server-matched FastAPI endpoint is mapped back to the
+registry action(s) that legitimately use it. The lookup is O(1), happens after
+routing, and denies unmapped endpoints by default for Agent ``run_python``.
+
+Most endpoints represent one concrete operation. A few are shared by registry
+actions that intentionally use the same primitive (for example an update action
+that reads back its result). When request parameters select a stronger operation,
+``GATEWAY_ACTION_RESOLVERS_BY_ENDPOINT`` narrows the candidate action before the
+dual check. Add a resolver and an attack-shaped test whenever a new shared
+endpoint has such a parameter-dependent privilege boundary.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from json import JSONDecodeError
 from typing import Any
 
 from fastapi import HTTPException, Request, status
@@ -11,6 +33,9 @@ from tracecat.auth.executor_tokens import ExecutorTokenPayload, verify_executor_
 from tracecat.authz.controls import has_scope
 from tracecat.dsl.enums import PlatformAction
 
+# Values identify registry actions whose implementation legitimately reaches the
+# endpoint. Multiple values are allowed only for a shared underlying primitive;
+# parameter-dependent privilege differences belong in the resolver table below.
 GATEWAY_ACTIONS_BY_ENDPOINT: dict[str, frozenset[str]] = {
     # Agent execution and ranking
     "tracecat.agent.internal_router.run_agent_endpoint": frozenset(
@@ -262,11 +287,71 @@ def get_gateway_actions(endpoint: Callable[..., Any]) -> frozenset[str] | None:
     return GATEWAY_ACTIONS_BY_ENDPOINT.get(endpoint_key(endpoint))
 
 
+GatewayActionResolver = Callable[[Request], Awaitable[frozenset[str]]]
+
+
+async def _resolve_run_agent_action(request: Request) -> frozenset[str]:
+    """Distinguish an ad-hoc Agent configuration from a stored preset run."""
+    payload = await _request_json_object(request)
+    if payload.get("preset_slug"):
+        return frozenset({"ai.preset_agent"})
+    return frozenset({"ai.agent"})
+
+
+async def _resolve_get_case_action(request: Request) -> frozenset[str]:
+    """Treat linked rows as a separate capability from base case details."""
+    include_rows = request.query_params.get("include_rows")
+    if include_rows is None or include_rows.lower() in {"false", "0", "off", "no"}:
+        return frozenset({"core.cases.get_case"})
+    return frozenset({"core.cases.get_linked_case_rows"})
+
+
+async def _resolve_table_lookup_action(request: Request) -> frozenset[str]:
+    """Prevent a single-row lookup grant from expanding to an arbitrary batch."""
+    payload = await _request_json_object(request)
+    if payload.get("limit") == 1:
+        return frozenset({"core.table.lookup", "core.table.lookup_many"})
+    return frozenset({"core.table.lookup_many"})
+
+
+async def _request_json_object(request: Request) -> dict[str, Any]:
+    """Read a JSON object without turning malformed input into a gateway 500."""
+    try:
+        payload = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+GATEWAY_ACTION_RESOLVERS_BY_ENDPOINT: dict[str, GatewayActionResolver] = {
+    "tracecat.agent.internal_router.run_agent_endpoint": _resolve_run_agent_action,
+    "tracecat.cases.internal_router.get_case": _resolve_get_case_action,
+    "tracecat.tables.internal_router.lookup_rows": _resolve_table_lookup_action,
+}
+
+
+async def resolve_gateway_actions(
+    request: Request,
+    endpoint: Callable[..., Any],
+) -> frozenset[str] | None:
+    """Resolve the concrete registry operation represented by this request."""
+    key = endpoint_key(endpoint)
+    if resolver := GATEWAY_ACTION_RESOLVERS_BY_ENDPOINT.get(key):
+        return await resolver(request)
+    return GATEWAY_ACTIONS_BY_ENDPOINT.get(key)
+
+
 def _agent_gateway_action_allowed(
     claims: ExecutorTokenPayload,
     required_actions: frozenset[str] | None,
 ) -> bool:
-    """Check both the caller Role and Agent grant for a gateway operation."""
+    """Require one concrete action to pass both authorization bounds.
+
+    ``required_actions`` is a set of equivalent candidates for one concrete
+    endpoint operation. It is not a set of cumulative permissions: one action
+    must be present in the signed Agent grant *and* allowed by the signed caller
+    Role scopes.
+    """
     if (
         claims.scopes is None
         or claims.allowed_actions is None
@@ -282,26 +367,37 @@ def _agent_gateway_action_allowed(
 
 
 async def enforce_agent_action_capability(request: Request) -> None:
-    """Enforce an Agent run_python grant on the server-matched endpoint."""
+    """Enforce the Agent grant on the server-matched endpoint.
+
+    This is a FastAPI dependency, rather than middleware, because FastAPI has
+    already selected ``request.scope["endpoint"]`` when dependencies run. That
+    gives us a constant-time lookup without reimplementing route matching.
+    """
     authorization = request.headers.get("authorization", "")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
+        # The normal route authentication dependency owns missing credentials.
         return
 
     try:
         claims = verify_executor_token(token)
     except ValueError:
+        # The normal route authentication dependency owns invalid credentials.
         return
 
     if (
         claims.action != PlatformAction.RUN_PYTHON
+        # ``None`` marks an execution created before the Agent-grant patch. Keep
+        # those in-flight Temporal histories on their recorded legacy behavior.
         or claims.allowed_actions is None
         or request.url.path == "/internal/health"
     ):
         return
 
     endpoint = request.scope.get("endpoint")
-    required_actions = get_gateway_actions(endpoint) if callable(endpoint) else None
+    required_actions = (
+        await resolve_gateway_actions(request, endpoint) if callable(endpoint) else None
+    )
     if _agent_gateway_action_allowed(claims, required_actions):
         return
 
