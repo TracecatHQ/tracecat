@@ -609,8 +609,8 @@ variable "agent_executor_worker_pool_size" {
 
 variable "llm_proxy_read_timeout" {
   type        = string
-  description = "LLM proxy read timeout in seconds (default: 300)"
-  default     = "300"
+  description = "LLM proxy read timeout in seconds (default: 600)"
+  default     = "600"
 }
 
 variable "llm_gateway_credential_cache_ttl_seconds" {
