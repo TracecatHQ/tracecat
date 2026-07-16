@@ -399,11 +399,13 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
     @pytest.mark.anyio
-    async def test_probe_uses_two_minute_minimum_timeout(
+    @pytest.mark.parametrize("saved_timeout", [None, 30, 120, 300])
+    async def test_probe_normalizes_timeout_at_activity_boundary(
         self,
         mock_role: Role,
+        saved_timeout: int | None,
     ) -> None:
-        """Saved legacy timeouts do not shorten stdio verification."""
+        """The activity passes a normalized timeout to the sandbox probe."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
@@ -424,7 +426,7 @@ class TestProbeStdioMCPConnectionActivity:
                 command="python",
                 args=["-m", "example"],
                 stdio_env=None,
-                timeout=30,
+                timeout=saved_timeout,
                 mcp_integration_id=uuid.uuid4(),
                 mcp_integration_slug="test-stdio-server",
             )

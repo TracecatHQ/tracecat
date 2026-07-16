@@ -356,17 +356,14 @@ async def probe_stdio_mcp_tools_in_sandbox(
     command: str,
     args: list[str] | None,
     env: dict[str, str] | None,
-    timeout: int | None,
+    timeout: int,
 ) -> StdioMCPProbeResult:
     """Run a stdio MCP server in a sandbox and list its tools.
 
     Uses nsjail when available; otherwise falls back to the same best-effort
     PID-level isolation that unsandboxed Python actions use.
     """
-    timeout_seconds = min(
-        timeout or MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
-        MCP_STDIO_PROBE_TIMEOUT_CAP,
-    )
+    timeout_seconds = timeout
     hard_timeout_seconds = timeout_seconds + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
     payload = {
         "command": command,

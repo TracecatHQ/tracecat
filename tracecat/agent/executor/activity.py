@@ -54,6 +54,7 @@ from tracecat.agent.mcp.stdio_probe import (
 )
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
@@ -1103,7 +1104,10 @@ async def _resolve_and_probe_stdio_config(
             error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
         )
 
-    probe_timeout = max(timeout or 0, MCP_STDIO_PROBE_DEFAULT_TIMEOUT)
+    probe_timeout = min(
+        max(timeout or 0, MCP_STDIO_PROBE_DEFAULT_TIMEOUT),
+        MCP_STDIO_PROBE_TIMEOUT_CAP,
+    )
     return await probe_stdio_mcp_tools_in_sandbox(
         command=command,
         args=args,

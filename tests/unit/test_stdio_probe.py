@@ -208,7 +208,7 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
 
 @pytest.mark.anyio
-async def test_probe_default_timeout_leaves_buffer_before_nsjail_limit() -> None:
+async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
     """The probe can write a structured result before nsjail hard-stops it."""
     sandbox_result = MagicMock(
         success=True,
@@ -232,7 +232,7 @@ async def test_probe_default_timeout_leaves_buffer_before_nsjail_limit() -> None
             command="python",
             args=["-m", "example"],
             env=None,
-            timeout=None,
+            timeout=MCP_STDIO_PROBE_DEFAULT_TIMEOUT,
         )
 
     config = executor.execute.await_args.args[1]
