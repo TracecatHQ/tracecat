@@ -104,7 +104,6 @@ class RegistryContext:
         from tracecat_registry.sdk.client import TracecatClient
 
         return TracecatClient(
-            api_url=self.api_url,
             token=self.token,
             workspace_id=self.workspace_id,
         )
