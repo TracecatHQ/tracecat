@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
 import httpx
+import orjson
 from github.GithubException import GithubException
 from github.InputGitTreeElement import InputGitTreeElement
 from pydantic import BaseModel
@@ -161,6 +162,15 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 
 _GITHUB_BLOB_CONCURRENCY = 8
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
+
+_GITHUB_RATE_LIMIT_HEADER_NAMES = (
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-used",
+    "x-ratelimit-reset",
+    "x-ratelimit-resource",
+)
+"""GitHub response headers retained in structured exporter error logs."""
 
 _GITLAB_PAGE_SIZE = 100
 """GitLab REST page size used for workspace sync reads."""
@@ -342,8 +352,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
+        github_stage = "resolve_repository"
+        github_endpoint = "GET /repos/{owner}/{repo}"
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            github_stage = "prepare_branch"
+            github_endpoint = "GET|POST /repos/{owner}/{repo}/branches|git/refs"
             base_branch_name = pr_base_branch or url.ref or repo.default_branch
             if create_pr and branch == base_branch_name:
                 raise TracecatValidationError(
@@ -386,6 +400,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     return path, content
                 return None
 
+            github_stage = "compare_projected_files"
+            github_endpoint = "GET /repos/{owner}/{repo}/contents/{path}"
             changed_file_entries = await asyncio.gather(
                 *(
                     changed_file(path, content)
@@ -399,10 +415,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 for path, content in (entry,)
             }
 
+            github_stage = "resolve_target_commit"
+            github_endpoint = "GET /repos/{owner}/{repo}/git/commits/{sha}"
             target_commit = await asyncio.to_thread(
                 repo.get_git_commit,
                 target_branch.commit.sha,
             )
+            github_stage = "scan_stale_paths"
+            github_endpoint = "GET /repos/{owner}/{repo}/git/trees/{sha}"
             stale_paths = await self._stale_paths_under_roots(
                 repo=repo,
                 tree_sha=target_commit.tree.sha,
@@ -413,7 +433,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             pr_url: str | None = None
             pr_number: int | None = None
             pr_reused = False
+            self.logger.info(
+                "Prepared GitHub workspace sync changes",
+                changed_file_count=len(changed_files),
+                deleted_file_count=len(stale_paths),
+            )
             if not changed_files and not stale_paths:
+                github_stage = "reuse_pull_request"
+                github_endpoint = "GET|POST /repos/{owner}/{repo}/compare|pulls"
                 branch_has_commits = await self._branch_has_commits_between(
                     repo=repo,
                     base_branch_name=base_branch_name,
@@ -458,6 +485,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     sha=blob.sha,
                 )
 
+            github_stage = "create_blobs"
+            github_endpoint = "POST /repos/{owner}/{repo}/git/blobs"
             elements = list(
                 await asyncio.gather(
                     *(
@@ -466,21 +495,33 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     )
                 )
             )
-            for path in sorted(stale_paths):
-                elements.append(
-                    InputGitTreeElement(
-                        path=path,
-                        mode="100644",
-                        type="blob",
-                        sha=None,
-                    )
+            elements.extend(
+                InputGitTreeElement(path=path, mode="100644", type="blob", sha=None)
+                for path in sorted(stale_paths)
+            )
+            tree_payload_size_bytes = len(
+                orjson.dumps(
+                    {
+                        "base_tree": target_commit.tree.sha,
+                        "tree": [element._identity for element in elements],
+                    }
                 )
+            )
 
+            self.logger.info(
+                "Creating GitHub workspace sync tree",
+                tree_entry_count=len(elements),
+                tree_payload_size_bytes=tree_payload_size_bytes,
+            )
+            github_stage = "create_tree"
+            github_endpoint = "POST /repos/{owner}/{repo}/git/trees"
             tree = await asyncio.to_thread(
                 repo.create_git_tree,
                 elements,
                 base_tree=target_commit.tree,
             )
+            github_stage = "finalize_commit"
+            github_endpoint = "POST|PATCH /repos/{owner}/{repo}/git/commits|refs"
             commit = await asyncio.to_thread(
                 repo.create_git_commit,
                 message,
@@ -489,8 +530,16 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             )
             ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
             await asyncio.to_thread(ref.edit, sha=commit.sha)
+            self.logger.info(
+                "Updated GitHub workspace sync ref",
+                tree_sha=tree.sha,
+                commit_sha=commit.sha,
+                ref=branch,
+            )
 
             if create_pr:
+                github_stage = "upsert_pull_request"
+                github_endpoint = "GET|POST /repos/{owner}/{repo}/pulls"
                 pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                     repo=repo,
                     url=url,
@@ -510,6 +559,20 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 message="Committed workspace sync changes.",
             )
         except GithubException as e:
+            headers = {key.lower(): value for key, value in (e.headers or {}).items()}
+            self.logger.error(
+                "GitHub workspace sync request failed",
+                stage=github_stage,
+                github_endpoint=github_endpoint,
+                github_status=e.status,
+                github_request_id=headers.get("x-github-request-id"),
+                github_retry_after=headers.get("retry-after"),
+                github_rate_limit_headers={
+                    name: headers[name]
+                    for name in _GITHUB_RATE_LIMIT_HEADER_NAMES
+                    if name in headers
+                },
+            )
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh.close()
