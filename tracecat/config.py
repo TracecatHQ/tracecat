@@ -390,10 +390,6 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = env_bool(
     "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", default=True
 )
 """Disable eager activity execution for Temporal workflows."""
-TEMPORAL__TASK_QUEUE_PRIORITY_ENABLED = env_bool(
-    "TEMPORAL__TASK_QUEUE_PRIORITY_ENABLED", default=False
-)
-"""Enable task queue priorities when the Temporal cluster supports them."""
 TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = env_bool(
     "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", default=False
 )

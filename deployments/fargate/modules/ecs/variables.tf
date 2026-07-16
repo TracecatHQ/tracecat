@@ -240,12 +240,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-variable "temporal_task_queue_priority_enabled" {
-  type        = bool
-  description = "Enable task queue priorities when the Temporal cluster supports them"
-  default     = false
-}
-
 
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
