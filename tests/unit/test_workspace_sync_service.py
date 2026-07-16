@@ -2066,8 +2066,10 @@ async def test_github_write_files_retry_budget_exhaustion_reraises(
             create_pr=False,
         )
 
-    assert [call.args[0] for call in sleep.await_args_list] == pytest.approx([0.6, 0.4])
-    assert repo.call_counts["create_git_tree"] == 3
+    # The first Retry-After (0.6) fits the 1.0 budget; the second (0.6) exceeds
+    # the remaining 0.4 and re-raises without a truncated sleep or early retry.
+    assert [call.args[0] for call in sleep.await_args_list] == pytest.approx([0.6])
+    assert repo.call_counts["create_git_tree"] == 2
     assert repo.call_counts["create_git_commit"] == 0
     assert repo.call_counts["ref.edit"] == 0
 

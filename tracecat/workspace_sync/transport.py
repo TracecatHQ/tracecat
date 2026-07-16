@@ -216,7 +216,9 @@ async def _github_write_with_retry[T](
 
     GitHub signals rate limiting with either 403 or 429. A nonpositive
     Retry-After is re-raised rather than retried so a persistent zero-delay
-    response cannot spin without consuming budget.
+    response cannot spin without consuming budget, and a Retry-After larger
+    than the remaining budget is re-raised rather than truncated — retrying
+    before the requested delay elapses can extend secondary throttling.
     """
     while True:
         try:
@@ -234,11 +236,10 @@ async def _github_write_with_retry[T](
                 retry_after = float(retry_after_header)
             except (TypeError, ValueError):
                 raise
-            if retry_after <= 0:
+            if retry_after <= 0 or retry_after > budget.remaining_seconds:
                 raise
-            sleep_seconds = min(retry_after, budget.remaining_seconds)
-            budget.remaining_seconds -= sleep_seconds
-            await asyncio.sleep(sleep_seconds)
+            budget.remaining_seconds -= retry_after
+            await asyncio.sleep(retry_after)
 
 
 class BaseWorkspaceSyncTransport(BaseWorkspaceService):
