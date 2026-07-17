@@ -12,15 +12,23 @@ import pytest
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
+from tracecat_ee.agent.prepare import (
+    PrepareAgentTurnInput,
+    PrepareAgentTurnResult,
+    prepare_agent_turn_activity,
+)
+from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     FINALIZE_TURN_PATCH,
+    FUSED_PREPARE_TURN_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     PERSIST_SESSION_ERROR_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    PreparedTurn,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
 )
@@ -175,7 +183,7 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     )
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
-    cfg = cast(Any, workflow_args.agent_args.config)
+    prepared = cast(Any, object())
     expected_output = AgentOutput(
         output="ok",
         duration=0.1,
@@ -194,23 +202,126 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
         patch.object(
             workflow_instance, "_upsert_tracecat_search_attributes"
         ) as upsert_mock,
-        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
         patch.object(
             workflow_instance,
-            "_run_with_agent_executor",
+            "_prepare_turn_legacy",
+            AsyncMock(return_value=prepared),
+        ) as prepare_legacy_mock,
+        patch.object(
+            workflow_instance,
+            "_execute_agent_turns",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
     ):
         result = await workflow_instance.run(workflow_args)
 
-    # run() gates the search-attribute upsert (entry) and finalize_turn (finally)
-    # behind patch markers; legacy histories see False for both.
+    # run() gates the search-attribute upsert (entry), the fused prepare phase,
+    # and finalize_turn (finally) behind patch markers; legacy histories see
+    # False for all three and take the legacy prepare chain.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((FUSED_PREPARE_TURN_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
     upsert_mock.assert_not_called()
-    run_mock.assert_awaited_once_with(workflow_args, cfg)
+    prepare_legacy_mock.assert_awaited_once_with(workflow_args)
+    run_mock.assert_awaited_once_with(workflow_args, prepared)
+    assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_run_uses_fused_prepare_activity_with_patch_marker() -> None:
+    """New executions run the whole prepare phase as one activity."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    root_build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    prepare_result = PrepareAgentTurnResult(
+        config=cfg,
+        sdk_session_id="sdk-session",
+        is_fork=True,
+        root_build_result=root_build_result,
+        subagents=[],
+    )
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+    expected_curr_run_id = workflow_args.agent_args.session_id
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=[False, True, False],
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=str(AgentWorkflowID(expected_curr_run_id))
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=prepare_result),
+        ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            return_value="mcp-token",
+        ),
+        patch.object(
+            workflow_instance,
+            "_execute_agent_turns",
+            AsyncMock(return_value=expected_output),
+        ) as run_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    assert patched_mock.call_args_list == [
+        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((FUSED_PREPARE_TURN_PATCH,),),
+        ((FINALIZE_TURN_PATCH,),),
+    ]
+
+    execute_activity_mock.assert_awaited_once()
+    assert execute_activity_mock.await_args is not None
+    activity_fn, activity_input = execute_activity_mock.await_args.args
+    assert activity_fn is prepare_agent_turn_activity
+    assert isinstance(activity_input, PrepareAgentTurnInput)
+    assert activity_input.session_id == workflow_args.agent_args.session_id
+    assert activity_input.curr_run_id == expected_curr_run_id
+    assert activity_input.user_prompt == "hello"
+    timeout = execute_activity_mock.await_args.kwargs["start_to_close_timeout"]
+    assert timeout.total_seconds() == 300
+
+    run_mock.assert_awaited_once()
+    assert run_mock.await_args is not None
+    _, prepared = run_mock.await_args.args
+    assert isinstance(prepared, PreparedTurn)
+    assert prepared.config == cfg
+    assert prepared.sdk_session_id == "sdk-session"
+    assert prepared.is_fork is True
+    assert prepared.internal_tool_context is None
+    assert prepared.compiled_run.root.build_result == root_build_result
+    assert prepared.compiled_run.root.mcp_auth_token == "mcp-token"
+    assert prepared.compiled_run.subagents == []
+    assert prepared.compiled_run.llm_routes == {}
     assert result == expected_output
 
 
@@ -227,7 +338,6 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     )
     workflow_args = _build_workflow_args(role)
     workflow_instance = DurableAgentWorkflow(workflow_args)
-    cfg = cast(Any, workflow_args.agent_args.config)
     activity_error = ActivityError(
         "activity failed",
         scheduled_event_id=1,
@@ -241,16 +351,15 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False, False, False],
+            side_effect=[False, False, False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
             return_value=False,
         ),
-        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
         patch.object(
             workflow_instance,
-            "_run_with_agent_executor",
+            "_prepare_turn_legacy",
             AsyncMock(side_effect=activity_error),
         ),
         # Let the real _finalize_session_error run so its patch-gated
@@ -268,6 +377,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     # emit_session_error, preserving the legacy command shape.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((FUSED_PREPARE_TURN_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
         ((PERSIST_SESSION_ERROR_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),

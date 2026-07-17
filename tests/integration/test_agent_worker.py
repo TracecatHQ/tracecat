@@ -25,8 +25,13 @@ import pytest
 from temporalio import activity
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.worker import Worker
-from tracecat_ee.agent.activities import AgentActivities
+from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsResult
 from tracecat_ee.agent.approvals.service import ApprovalManager
+from tracecat_ee.agent.prepare import (
+    PrepareAgentTurnInput,
+    PrepareAgentTurnResult,
+    prepare_agent_turn_activity,
+)
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
@@ -37,6 +42,7 @@ from tracecat_ee.agent.workflows.durable import (
 from tests.conftest import AGENT_TASK_QUEUE
 from tracecat import config
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -60,6 +66,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
 
 # Use worker-specific queue from conftest for pytest-xdist isolation
@@ -115,6 +122,47 @@ def create_mock_load_session_messages_activity() -> Callable[..., Any]:
     return mock_load_session_messages_activity
 
 
+def create_mock_prepare_turn_activity(
+    *,
+    sdk_session_id: str | None = None,
+) -> Callable[..., Any]:
+    """Create deterministic fused prepare data without session DB dependencies."""
+    tool_definitions = {
+        "core.http_request": MCPToolDefinition(
+            name="core__http_request",
+            description="Make HTTP requests",
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "method": {"type": "string"},
+                },
+                "required": ["url", "method"],
+            },
+        )
+    }
+
+    @activity.defn(name="prepare_agent_turn_activity")
+    async def mock_prepare_agent_turn_activity(
+        input: PrepareAgentTurnInput,
+    ) -> PrepareAgentTurnResult:
+        assert input.config is not None
+        return PrepareAgentTurnResult(
+            config=input.config,
+            sdk_session_id=sdk_session_id,
+            root_build_result=BuildToolDefsResult(
+                tool_definitions=tool_definitions,
+                registry_lock=RegistryLock(
+                    origins={"tracecat_registry": "test-version"},
+                    actions={"core.http_request": "tracecat_registry"},
+                ),
+            ),
+            subagents=[],
+        )
+
+    return mock_prepare_agent_turn_activity
+
+
 def create_mock_run_agent_activity(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> Callable[..., Any]:
@@ -156,6 +204,7 @@ def create_activities_with_mock_executor(
     activities.append(create_mock_create_session_activity())
     activities.append(create_mock_load_session_activity())
     activities.append(create_mock_load_session_messages_activity())
+    activities.append(create_mock_prepare_turn_activity())
 
     # Add mocked runtime activity
     activities.append(create_mock_run_agent_activity(response_callback))
@@ -190,6 +239,7 @@ def agent_worker_factory(
             activities = [
                 *agent_activities.get_activities(),
                 *get_session_activities(),
+                prepare_agent_turn_activity,
                 *ApprovalManager.get_activities(),
             ]
 
@@ -247,6 +297,7 @@ class TestAgentWorkerLifecycle:
             "load_session_activity",
             "load_session_messages_activity",
             "reconcile_tool_results_activity",
+            "finalize_turn_activity",
         }
 
 
@@ -435,17 +486,11 @@ class TestAgentWorkerSingleTenant:
         ) -> CreateSessionResult:
             return CreateSessionResult(session_id=input.session_id, success=True)
 
-        load_session_call_count = 0
-
         @activity.defn(name="load_session_activity")
         async def mock_load_session_activity(
             input: LoadSessionInput,
         ) -> LoadSessionResult:
             del input
-            nonlocal load_session_call_count
-            load_session_call_count += 1
-            if load_session_call_count == 1:
-                return LoadSessionResult(found=False)
             return LoadSessionResult(
                 found=True,
                 sdk_session_id="sdk-session",
@@ -514,6 +559,9 @@ class TestAgentWorkerSingleTenant:
             mock_create_session_activity,
             mock_load_session_activity,
             create_mock_load_session_messages_activity(),
+            # First turn starts without an SDK session; the continuation's
+            # "sdk-session" must come from the mid-loop reload, not prepare.
+            create_mock_prepare_turn_activity(),
             mock_record_approval_requests,
             mock_apply_approval_decisions,
             mock_execute_action_activity,
