@@ -28,6 +28,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.db.common import DBConstraints
 from tracecat.db.models import Action, Workflow
@@ -844,6 +845,32 @@ def parse_workflow_edit_request(
     return request
 
 
+def _workflow_edit_audit_details(context: AuditCallContext) -> AuditEventDetails:
+    workflow = cast(Workflow, context.arguments["workflow"])
+    original_document = cast(
+        WorkflowEditDocument,
+        context.arguments["original_document"],
+    )
+    updated_document = cast(
+        WorkflowEditDocument,
+        context.arguments["updated_document"],
+    )
+    changed_sections = workflow_edit_document_changed_sections(
+        original_document,
+        updated_document,
+    )
+    return AuditEventDetails(
+        resource_id=WorkflowUUID.new(workflow.id),
+        data={"changed_fields": sorted(changed_sections)},
+        emit=bool(changed_sections),
+    )
+
+
+@audit_log(
+    resource_type="workflow",
+    action="update",
+    attempt_metadata=_workflow_edit_audit_details,
+)
 async def persist_workflow_edit_document(
     *,
     role: Any,

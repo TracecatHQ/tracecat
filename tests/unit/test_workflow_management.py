@@ -55,7 +55,9 @@ class _FakeWorkflowGraphService:
     def __init__(self, _session: Any, *, role: Role):
         self.role = role
 
-    async def apply_operations(self, **_kwargs: Any) -> None:
+    async def apply_operations_to_locked_workflow(
+        self, *_args: Any, **_kwargs: Any
+    ) -> None:
         return None
 
 
@@ -384,6 +386,9 @@ async def test_external_import_publishes_before_online_case_trigger(
             self.session = session
             self.role = role
 
+        async def require_entitlement(self, _entitlement: object) -> None:
+            return None
+
         async def upsert_case_trigger(
             self,
             workflow_id: uuid.UUID,
@@ -482,7 +487,7 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
 ) -> None:
     """An online case trigger on an unpublished workflow becomes WorkflowEditError.
 
-    ``CaseTriggersService.upsert_case_trigger`` raises ``TracecatValidationError``
+    ``CaseTriggersService`` raises ``TracecatValidationError``
     for correctable authoring mistakes (e.g. enabling a case trigger before the
     workflow is published). ``persist_workflow_edit_document`` must convert that
     into a transport-neutral ``WorkflowEditError`` so the internal edit route
@@ -516,6 +521,9 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
         def __init__(self, session: Any, role: Role) -> None:
             self.session = session
             self.role = role
+
+        async def require_entitlement(self, _entitlement: object) -> None:
+            return None
 
         async def upsert_case_trigger(
             self,

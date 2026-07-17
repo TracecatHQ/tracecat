@@ -575,9 +575,17 @@ def test_auto_generate_layout_round_trips_through_extract():
 @pytest.mark.anyio
 async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     """A metadata-only update must not overwrite title/status with NULL."""
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"*"}),
+    )
 
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), role
 
     wf_id = uuid.uuid4()
 
@@ -620,8 +628,17 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
             pass
 
     workflow_service = _WorkflowService()
+    captured: dict[str, Any] = {}
+
+    async def _apply_yaml_update(**kwargs):
+        captured.update(kwargs)
+        for key, value in (
+            kwargs["update_params"].model_dump(exclude_unset=True).items()
+        ):
+            setattr(fake_workflow, key, value)
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_apply_workflow_yaml_update", _apply_yaml_update)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
@@ -641,12 +658,24 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     assert "description" not in setattr_calls
     assert "status" not in setattr_calls
     assert workflow_service.for_update_calls == [True]
+    assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(wf_id)
+    assert captured["update_params"].model_dump(exclude_unset=True) == {}
+    assert captured["yaml_payload"] is None
 
 
 @pytest.mark.anyio
 async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypatch):
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"*"}),
+    )
+
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), role
 
     workflow_id = uuid.uuid4()
     workflow = SimpleNamespace(id=workflow_id)
@@ -676,6 +705,13 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     async def _apply_yaml_update(**kwargs):
         captured.update(kwargs)
 
+    yaml_payload = SimpleNamespace(
+        definition=object(),
+        layout=None,
+        schedules=None,
+        case_trigger=None,
+    )
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
@@ -685,7 +721,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     monkeypatch.setattr(
         mcp_server,
         "_parse_workflow_yaml_payload",
-        lambda definition_yaml: {"definition_yaml": definition_yaml},
+        lambda definition_yaml: yaml_payload,
     )
     monkeypatch.setattr(mcp_server, "_apply_workflow_yaml_update", _apply_yaml_update)
 
@@ -700,9 +736,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     assert payload["mode"] == "replace"
     assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
     assert captured["definition_yaml"] == "definition:\n  title: Example\n"
-    assert captured["yaml_payload"] == {
-        "definition_yaml": "definition:\n  title: Example\n"
-    }
+    assert captured["yaml_payload"] is yaml_payload
     assert captured["update_mode"] == "replace"
     assert workflow_service.for_update_calls == [True]
 
@@ -3583,28 +3617,22 @@ async def test_update_webhook(monkeypatch):
         api_key=None,
     )
 
-    async def _get_webhook(session, workspace_id, workflow_id):
-        return fake_webhook
-
-    class FakeSession:
-        def add(self, obj):
-            pass
-
-        async def commit(self):
-            pass
-
-        async def refresh(self, _obj):
-            pass
-
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    async def _update_webhook(*, role, session, workflow_id, params):
+        del role, session, workflow_id
+        for key, value in params.model_dump(exclude_unset=True).items():
+            setattr(fake_webhook, key, value)
+
     monkeypatch.setattr(
-        "tracecat.webhooks.service.get_webhook",
-        _get_webhook,
+        mcp_server.webhook_service,
+        "update_webhook",
+        _update_webhook,
     )
     monkeypatch.setattr(
         mcp_server,
         "get_async_session_context_manager",
-        lambda: _AsyncContext(FakeSession()),
+        lambda: _AsyncContext(SimpleNamespace()),
     )
 
     result = await _tool(mcp_server.update_webhook)(
@@ -3643,28 +3671,22 @@ async def test_update_webhook_omits_unset_fields(monkeypatch):
     )
     setattr_calls.clear()
 
-    async def _get_webhook(session, workspace_id, workflow_id):
-        return fake_webhook
-
-    class FakeSession:
-        def add(self, obj):
-            pass
-
-        async def commit(self):
-            pass
-
-        async def refresh(self, _obj):
-            pass
-
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    async def _update_webhook(*, role, session, workflow_id, params):
+        del role, session, workflow_id
+        for key, value in params.model_dump(exclude_unset=True).items():
+            setattr(fake_webhook, key, value)
+
     monkeypatch.setattr(
-        "tracecat.webhooks.service.get_webhook",
-        _get_webhook,
+        mcp_server.webhook_service,
+        "update_webhook",
+        _update_webhook,
     )
     monkeypatch.setattr(
         mcp_server,
         "get_async_session_context_manager",
-        lambda: _AsyncContext(FakeSession()),
+        lambda: _AsyncContext(SimpleNamespace()),
     )
 
     result = await _tool(mcp_server.update_webhook)(

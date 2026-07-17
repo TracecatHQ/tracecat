@@ -12,12 +12,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
-from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType, AuditSink
+from tracecat.audit.sanitization import sanitize_audit_metadata
+from tracecat.audit.types import (
+    AuditAction,
+    AuditEvent,
+    AuditMetadata,
+    AuditMetadataValue,
+    AuditResourceType,
+    AuditSink,
+)
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_client_ip, ctx_role
+from tracecat.contexts import ctx_client_ip, ctx_role, ctx_user_agent
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
+from tracecat.sanitization import redact_sensitive_text
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
 
@@ -87,7 +96,7 @@ class AuditService(BaseService):
                 self.logger.warning(
                     "Failed to decrypt platform audit setting",
                     key=key,
-                    error=str(exc),
+                    error=redact_sensitive_text(str(exc), redact_emails=True),
                 )
                 return None
         return orjson.loads(value)
@@ -121,7 +130,6 @@ class AuditService(BaseService):
         if not isinstance(value, str):
             self.logger.warning(
                 "audit_webhook_url must be a string",
-                value=value,
                 value_type=type(value),
             )
             return None
@@ -165,7 +173,6 @@ class AuditService(BaseService):
         if not isinstance(value, bool):
             self.logger.warning(
                 "audit_webhook_verify_ssl must be a bool",
-                value=value,
                 value_type=type(value),
             )
             return True
@@ -179,7 +186,6 @@ class AuditService(BaseService):
         if not isinstance(value, str):
             self.logger.warning(
                 "audit_webhook_payload_attribute must be a string",
-                value=value,
                 value_type=type(value),
             )
             return None
@@ -213,8 +219,8 @@ class AuditService(BaseService):
         except Exception as exc:
             self.logger.warning(
                 "Failed to deliver audit webhook",
-                error=str(exc),
-                webhook_url=webhook_url,
+                error=redact_sensitive_text(str(exc), redact_emails=True),
+                webhook_url=redact_sensitive_text(webhook_url),
                 status_code=getattr(response, "status_code", None),
             )
 
@@ -235,7 +241,8 @@ class AuditService(BaseService):
                     return service_account.name
             except Exception as exc:
                 self.logger.warning(
-                    "Failed to fetch service account actor name", error=str(exc)
+                    "Failed to fetch service account actor name",
+                    error=redact_sensitive_text(str(exc), redact_emails=True),
                 )
             return None
         if self.role.user_id is None:
@@ -248,7 +255,10 @@ class AuditService(BaseService):
             if (user := result.scalar_one_or_none()) is not None:
                 actor_label = user.email
         except Exception as exc:
-            self.logger.warning("Failed to fetch actor email", error=str(exc))
+            self.logger.warning(
+                "Failed to fetch actor email",
+                error=redact_sensitive_text(str(exc), redact_emails=True),
+            )
         return actor_label
 
     def _build_payload(
@@ -260,7 +270,8 @@ class AuditService(BaseService):
         status: AuditEventStatus,
         actor_label: str | None,
         ip_address: str | None,
-        data: dict[str, Any] | None,
+        user_agent: str | None,
+        data: dict[str, AuditMetadataValue] | None,
     ) -> AuditEvent:
         if self.role is None or self.role.actor_id is None:
             raise ValueError("Audit payload requires an auditable actor")
@@ -282,6 +293,7 @@ class AuditService(BaseService):
             action=action,
             status=status,
             ip_address=ip_address,
+            user_agent=user_agent,
             data=data,
         )
 
@@ -292,13 +304,47 @@ class AuditService(BaseService):
         action: AuditAction,
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
-        data: dict[str, Any] | None = None,
+        data: AuditMetadata | None = None,
         include_actor_label: bool = True,
         include_ip_address: bool = True,
+        include_user_agent: bool = True,
     ) -> None:
+        """Deliver a privacy-bounded audit event when a sink is configured.
+
+        Generic ``data`` is reduced to stable identifiers, changed-field names,
+        and a small set of operational discriminators. Unknown fields are
+        dropped. An otherwise allowed field is also dropped if its string value
+        contains a recognized credential pattern. Raw function arguments and
+        return values are never inspected.
+
+        Actor labels, client IPs, and user agents are separate opt-out fields
+        because they are useful for attribution and security investigations but
+        contain PII or sensitive client metadata. Stable actor and resource IDs
+        remain the preferred identifiers.
+
+        Args:
+            resource_type: Type of resource affected by the operation.
+            action: Operation performed on the resource.
+            resource_id: Stable resource ID, when one is available.
+            status: Lifecycle state or outcome of the operation.
+            data: Explicitly selected operational metadata. Arbitrary resource
+                content, names, descriptions, inputs, outputs, bodies, headers,
+                and secret-bearing values are not accepted by the audit policy.
+            include_actor_label: Whether to resolve and include the actor email
+                or service-account name. This field contains PII or user-provided
+                identifying text.
+            include_ip_address: Whether to include the request client IP from
+                context. This field is sensitive security metadata.
+            include_user_agent: Whether to include the bounded request
+                user-agent from context. This field is sensitive security
+                metadata and may identify client software or devices.
+        """
+
         if self.role is None or getattr(self.role, "actor_id", None) is None:
             self.logger.debug(
-                "Skipping audit log", reason="non_auditable_role", role=self.role
+                "Skipping audit log",
+                reason="non_auditable_role",
+                role_type=getattr(self.role, "type", None),
             )
             return
 
@@ -315,7 +361,8 @@ class AuditService(BaseService):
             status=status,
             actor_label=actor_label,
             ip_address=ctx_client_ip.get() if include_ip_address else None,
-            data=data,
+            user_agent=ctx_user_agent.get() if include_user_agent else None,
+            data=sanitize_audit_metadata(data),
         )
         await self._post_event(webhook_url=webhook_url, payload=payload)
         self.logger.debug(

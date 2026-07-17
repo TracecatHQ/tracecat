@@ -20,6 +20,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, require_scope
@@ -2035,13 +2036,14 @@ class CaseCommentsService(BaseWorkspaceService):
         case_id: uuid.UUID,
         comment_id: uuid.UUID,
         parent_id: uuid.UUID | None,
-        content: str | None = None,
         delete_mode: Literal["soft", "hard"] | None = None,
         workflow: Workflow | None = None,
         wf_exec_id: str | None = None,
         workflow_status: CaseCommentWorkflowStatus | None = None,
-    ) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    ) -> dict[str, AuditMetadataValue]:
+        """Build identifier-only metadata for a case-comment audit event."""
+
+        data: dict[str, AuditMetadataValue] = {
             "case_id": str(case_id),
             "comment_id": str(comment_id),
             "parent_id": str(parent_id) if parent_id is not None else None,
@@ -2050,13 +2052,10 @@ class CaseCommentsService(BaseWorkspaceService):
             ),
             "is_reply": parent_id is not None,
         }
-        if content is not None:
-            data["content"] = content
         if delete_mode is not None:
             data["delete_mode"] = delete_mode
         if workflow is not None:
             data["workflow_id"] = str(workflow.id)
-            data["workflow_alias"] = workflow.alias
             data["is_workflow_comment"] = True
             data["uses_case_addons"] = True
         if wf_exec_id is not None:
@@ -2125,7 +2124,6 @@ class CaseCommentsService(BaseWorkspaceService):
                     "comment_id": str(comment_id),
                     "parent_id": str(parent_id) if parent_id is not None else None,
                     "workflow_id": str(workflow.id),
-                    "workflow_alias": workflow.alias,
                     "wf_exec_id": wf_exec_id,
                     "trigger_type": "case",
                 },
@@ -2152,7 +2150,7 @@ class CaseCommentsService(BaseWorkspaceService):
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
         status: AuditEventStatus,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         async with AuditService.with_session(
             role=self.role, session=self.session
@@ -2170,7 +2168,7 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         """Emit post-commit success audits without failing the mutation."""
         try:
@@ -2416,7 +2414,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=case.id,
             comment_id=comment_id,
             parent_id=params.parent_id,
-            content=params.content,
             workflow=workflow,
             wf_exec_id=wf_exec_id,
             workflow_status=workflow_status,
@@ -2566,7 +2563,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=comment.case_id,
             comment_id=comment.id,
             parent_id=comment.parent_id,
-            content=params.content,
         )
         await self._audit_comment_event(
             action="update",

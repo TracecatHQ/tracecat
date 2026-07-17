@@ -92,6 +92,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
+from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
@@ -1832,6 +1833,26 @@ async def _create_workflow_from_import_data(
         raise ToolError(str(exc)) from exc
 
 
+def _workflow_yaml_update_audit_details(
+    context: AuditCallContext,
+) -> AuditEventDetails:
+    update_params = cast(WorkflowUpdate, context.arguments["update_params"])
+    yaml_payload = cast(WorkflowYamlPayload | None, context.arguments["yaml_payload"])
+    changed_fields = set(update_params.model_dump(exclude_unset=True))
+    if yaml_payload is not None:
+        changed_fields.update(
+            field
+            for field in ("definition", "layout", "schedules", "case_trigger")
+            if getattr(yaml_payload, field) is not None
+        )
+    return AuditEventDetails(data={"changed_fields": sorted(changed_fields)})
+
+
+@audit_log(
+    resource_type="workflow",
+    action="update",
+    attempt_metadata=_workflow_yaml_update_audit_details,
+)
 async def _apply_workflow_yaml_update(
     *,
     role: Role,
@@ -3469,31 +3490,26 @@ async def update_workflow(
         if definition_yaml is not None:
             _ensure_inline_workflow_yaml_size(definition_yaml)
         update_params = WorkflowUpdate(**update_kwargs)
-
+        yaml_payload = (
+            _parse_workflow_yaml_payload(definition_yaml)
+            if definition_yaml is not None
+            else None
+        )
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            if definition_yaml is not None:
-                yaml_payload = _parse_workflow_yaml_payload(definition_yaml)
-                await _apply_workflow_yaml_update(
-                    role=role,
-                    service=svc,
-                    workflow=workflow,
-                    workflow_id=workflow_id,
-                    update_params=update_params,
-                    yaml_payload=yaml_payload,
-                    definition_yaml=definition_yaml,
-                    update_mode=update_mode,
-                )
-                mode = update_mode
-            else:
-                for key, value in update_params.model_dump(exclude_unset=True).items():
-                    setattr(workflow, key, value)
-                svc.session.add(workflow)
-                await svc.session.commit()
-                await svc.session.refresh(workflow)
-                mode = "metadata"
+            await _apply_workflow_yaml_update(
+                role=role,
+                service=svc,
+                workflow=workflow,
+                workflow_id=workflow_id,
+                update_params=update_params,
+                yaml_payload=yaml_payload,
+                definition_yaml=definition_yaml,
+                update_mode=update_mode,
+            )
+            mode = update_mode if definition_yaml is not None else "metadata"
 
             return WorkflowUpdateResponse(
                 message=f"Workflow {workflow_id} updated successfully",
@@ -4859,19 +4875,15 @@ async def update_webhook(
         update_params = WebhookUpdate(**update_kwargs)
 
         async with get_async_session_context_manager() as session:
-            webhook = await webhook_service.get_webhook(
-                session=session,
-                workspace_id=role.workspace_id,
-                workflow_id=workflow_id,
-            )
-            if webhook is None:
-                raise ToolError(f"Webhook not found for workflow {workflow_id}")
-
-            for key, value in update_params.model_dump(exclude_unset=True).items():
-                setattr(webhook, key, value)
-
-            session.add(webhook)
-            await session.commit()
+            try:
+                await webhook_service.update_webhook(
+                    role=role,
+                    session=session,
+                    workflow_id=workflow_id,
+                    params=update_params,
+                )
+            except TracecatNotFoundError as e:
+                raise ToolError(f"Webhook not found for workflow {workflow_id}") from e
         return MCPMessageResponse(
             message=f"Webhook for workflow {workflow_id} updated successfully"
         )
