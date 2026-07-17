@@ -590,10 +590,15 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     for entry in public_entries:
         assert entry.slug in private_by_slug
 
-    terraform_spec = private_by_slug["terraform-mcp"].connection_spec
-    if terraform_spec is not None:
-        assert terraform_spec.server_type == "stdio"
-        assert terraform_spec.requires_config is True
+    for slug in (
+        "splunk-mcp",
+        "hashicorp-vault-mcp",
+        "palo-alto-mcp",
+        "terraform-mcp",
+    ):
+        coming_soon = private_by_slug[slug]
+        assert coming_soon.status == "coming_soon"
+        assert coming_soon.connection_spec is None
 
     # jamf-mcp defaults to Jamf's hosted no-auth HTTP server; the local
     # stdio (device management) option survives alongside it.
