@@ -188,6 +188,100 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
     )
 
 
+class IntegrationConnectOverrides(BaseModel):
+    """Optional handshake config overrides supplied when (re)connecting.
+
+    When any field is provided on a connect request for a CONNECTED
+    authorization-code integration, the override rides the OAuth handshake and
+    is promoted onto the integration atomically only when the callback
+    succeeds. The live integration row is left untouched at connect time.
+
+    Scopes replace (not union) the current requested scopes when provided.
+    """
+
+    client_id: str | None = Field(
+        default=None,
+        description="OAuth client ID override for the provider",
+        min_length=1,
+    )
+    client_secret: SecretStr | None = Field(
+        default=None,
+        description="OAuth client secret override for the provider",
+        min_length=1,
+    )
+    authorization_endpoint: str | None = Field(
+        default=None,
+        description="OAuth authorization endpoint override. Must be HTTPS.",
+        min_length=8,
+    )
+    token_endpoint: str | None = Field(
+        default=None,
+        description="OAuth token endpoint override. Must be HTTPS.",
+        min_length=8,
+    )
+    scopes: list[str] | None = Field(
+        default=None,
+        description="OAuth scopes to request. Replaces existing scopes when set.",
+    )
+
+    @field_validator("authorization_endpoint", "token_endpoint", mode="before")
+    @classmethod
+    def _validate_https_endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "https":
+            raise ValueError("OAuth endpoints must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("OAuth endpoints must include a hostname")
+        return value
+
+    def has_overrides(self) -> bool:
+        """Whether any handshake override field was provided."""
+        return any(
+            value is not None
+            for value in (
+                self.client_id,
+                self.client_secret,
+                self.authorization_endpoint,
+                self.token_endpoint,
+                self.scopes,
+            )
+        )
+
+
+class PendingOAuthConfig(BaseModel):
+    """Handshake config overrides staged on the OAuth state row.
+
+    Persisted (encrypted) as a JSON blob and promoted onto the integration
+    atomically only when the OAuth callback succeeds. ``client_secret`` is a
+    plain string here because the whole blob is encrypted at rest on the state
+    row; it is never serialized in an API response.
+    """
+
+    scopes: list[str] | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
+
+    def has_values(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.scopes,
+                self.client_id,
+                self.client_secret,
+                self.authorization_endpoint,
+                self.token_endpoint,
+            )
+        )
+
+
 class IntegrationOAuthConnect(BaseModel):
     """Request model for connecting an integration."""
 

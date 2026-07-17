@@ -36,6 +36,7 @@ from tracecat.integrations.providers.base import (
 )
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
+    IntegrationConnectOverrides,
     IntegrationOAuthCallback,
     IntegrationOAuthConnect,
     IntegrationRead,
@@ -67,6 +68,7 @@ from tracecat.integrations.service import (
     IntegrationService,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
+    ReauthorizationRequiredError,
 )
 from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
@@ -286,6 +288,13 @@ async def oauth_callback(
     # Extract code_verifier before deleting state (needed for PKCE flows)
     code_verifier = oauth_state_db.code_verifier
 
+    # Read any staged handshake overrides before deleting the state row. These
+    # ride the handshake and are promoted onto the integration atomically only
+    # if the token exchange succeeds below.
+    pending_config = svc._decrypt_pending_config(
+        oauth_state_db.encrypted_pending_config
+    )
+
     # Delete the state now that it's been used
     await session.delete(oauth_state_db)
     await session.commit()
@@ -373,6 +382,11 @@ async def oauth_callback(
         if integration
         else None
     )
+    # Instantiate with the staged overrides (client creds/endpoints/scopes) so
+    # the token exchange uses the pending grant, not the live config.
+    provider_config = svc._apply_pending_config_to_provider_config(
+        base_config=provider_config, pending=pending_config
+    )
 
     try:
         if provider_impl.metadata.requires_config:
@@ -445,6 +459,7 @@ async def oauth_callback(
             scope=token_result.scope,
             authorization_endpoint=provider.authorization_endpoint,
             token_endpoint=provider.token_endpoint,
+            pending_config=pending_config,
         )
     except InsecureOAuthEndpointError as exc:
         logger.warning(
@@ -585,11 +600,17 @@ async def connect_provider(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     provider_info: ACProviderInfoDep,
+    overrides: IntegrationConnectOverrides | None = None,
 ) -> IntegrationOAuthConnect:
     """Initiate OAuth integration for the specified provider.
 
     Creates a secure state parameter stored in the database to prevent CSRF attacks.
     The state is validated on the callback to ensure it was issued by our server.
+
+    An optional ``overrides`` body carries handshake config changes (scopes,
+    client credentials, endpoints) for a connected integration. The overrides
+    ride the handshake and are promoted onto the integration atomically only on
+    callback success; the integration row is not mutated here.
     """
 
     if role.workspace_id is None or role.user_id is None:
@@ -604,6 +625,7 @@ async def connect_provider(
         return await svc.start_authorization_code_connect(
             provider_key=provider_info.key,
             provider_impl=provider_impl,
+            overrides=overrides,
         )
     except ProviderConfigurationRequiredError as exc:
         raise HTTPException(
@@ -810,6 +832,24 @@ async def update_integration(
             token_endpoint=params.token_endpoint,
             requested_scopes=params.scopes,
         )
+    except ReauthorizationRequiredError as exc:
+        logger.info(
+            "Rejected handshake config change on connected integration",
+            provider=provider_info.key,
+            workspace_id=role.workspace_id,
+            changed_fields=exc.changed_fields,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "message": (
+                    "Changing OAuth configuration on a connected integration "
+                    "requires reauthorization. Use Save & Reauthorize instead."
+                ),
+                "changed_fields": exc.changed_fields,
+            },
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint on provider update",

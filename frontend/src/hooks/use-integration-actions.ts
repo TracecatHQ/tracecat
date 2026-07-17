@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import type { OAuthGrantType } from "@/client"
+import type { IntegrationConnectOverrides, OAuthGrantType } from "@/client"
 import {
   integrationsConnectProvider,
   integrationsDisconnectIntegration,
@@ -45,15 +45,30 @@ function useInvalidateIntegrationQueries(workspaceId: string) {
 }
 
 /**
+ * Input for {@link useConnectProvider}. `overrides` optionally rides the OAuth
+ * handshake so credential/scope/endpoint changes are applied atomically once the
+ * callback succeeds (used by the "Save & Reauthorize" flow).
+ */
+export interface ConnectProviderInput extends Pick<ProviderRef, "providerId"> {
+  overrides?: IntegrationConnectOverrides
+}
+
+/**
  * Start an OAuth authorization flow for the given provider.
  *
  * On success the browser is redirected to the provider's auth URL — the
- * mutation never resolves visibly because navigation happens first.
+ * mutation never resolves visibly because navigation happens first. When
+ * `overrides` are supplied they are sent as the request body so any changed
+ * handshake fields are applied atomically after the callback completes.
  */
 export function useConnectProvider(workspaceId: string) {
   return useMutation({
-    mutationFn: async ({ providerId }: Pick<ProviderRef, "providerId">) =>
-      await integrationsConnectProvider({ providerId, workspaceId }),
+    mutationFn: async ({ providerId, overrides }: ConnectProviderInput) =>
+      await integrationsConnectProvider({
+        providerId,
+        workspaceId,
+        requestBody: overrides,
+      }),
     onSuccess: (result) => {
       window.location.href = result.auth_url
     },

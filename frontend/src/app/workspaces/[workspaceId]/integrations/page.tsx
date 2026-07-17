@@ -315,7 +315,13 @@ export default function IntegrationsPage() {
 
     lastHandledConnectRef.current = handleKey
 
-    if (provider.requires_config) {
+    // An already-connected integration reaching this flow means the user chose
+    // "Edit configuration"; open the config modal so they can reconfigure and,
+    // if needed, reauthorize — never fire a bare direct reconnect.
+    if (
+      provider.requires_config ||
+      provider.integration_status === "connected"
+    ) {
       handleOpenOAuthModal(provider.id, provider.grant_type)
       return
     }
@@ -611,6 +617,15 @@ export default function IntegrationsPage() {
           providerId={detailsProvider.providerId}
           grantType={detailsProvider.grantType}
           canUpdate={canMutateIntegrations}
+          onEditConfiguration={
+            canMutateIntegrations
+              ? () => {
+                  const target = detailsProvider
+                  setDetailsProvider(null)
+                  handleOpenOAuthModal(target.providerId, target.grantType)
+                }
+              : undefined
+          }
         />
       )}
       <ConfirmDestructiveDialog
