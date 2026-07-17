@@ -308,7 +308,11 @@ async def test_run_uses_fused_prepare_activity_with_patch_marker() -> None:
     assert activity_input.curr_run_id == expected_curr_run_id
     assert activity_input.user_prompt == "hello"
     timeout = execute_activity_mock.await_args.kwargs["start_to_close_timeout"]
-    assert timeout.total_seconds() == 300
+    assert timeout.total_seconds() == 900
+    retry_policy = execute_activity_mock.await_args.kwargs["retry_policy"]
+    # Retries stay on so a mixed-version rollout (NotFoundError from an old
+    # worker) or a transient infra error retries the idempotent prepare phase.
+    assert retry_policy.maximum_attempts == 5
 
     run_mock.assert_awaited_once()
     assert run_mock.await_args is not None

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -92,7 +92,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
-    from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.dsl.common import NON_RETRYABLE_ERROR_TYPES, RETRY_POLICIES
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
@@ -1143,11 +1143,24 @@ class DurableAgentWorkflow:
                     harness_type=HarnessType(self.harness_type),
                     continue_existing_session=args.continue_existing_session,
                 ),
-                # One ceiling for the whole phase. Tool compilation dominates
-                # (the legacy chain allowed 120s per scope) and MCP discovery
-                # carries its own internal timeouts.
-                start_to_close_timeout=timedelta(seconds=300),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                # One generous ceiling for the whole phase; hang detection
+                # comes from heartbeats instead (the activity heartbeats
+                # between steps and per compiled scope, and the legacy chain
+                # allowed 120s per scope, so 180s of silence means stuck).
+                start_to_close_timeout=timedelta(seconds=900),
+                heartbeat_timeout=timedelta(seconds=180),
+                # Not fail_fast: every genuine prepare failure raises
+                # ApplicationError(non_retryable=True) and still stops on the
+                # first attempt. Leaving retries on covers transient infra
+                # errors (the whole phase is idempotent) and, critically,
+                # mixed-version rollouts: a not-yet-updated worker fails this
+                # activity with a retryable NotFoundError, and the retry lands
+                # on an updated worker instead of terminally failing the turn.
+                retry_policy=RetryPolicy(
+                    maximum_attempts=5,
+                    initial_interval=timedelta(seconds=2),
+                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+                ),
             )
         except ActivityError as e:
             # Unwrap typed pre-stream failures (e.g. AgentToolDefinitionError)

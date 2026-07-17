@@ -1453,10 +1453,11 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
 
         run_agent_call_count += 1
         assert input.sdk_session_id == "child-sdk-session"
-        assert input.sdk_session_data == continuation_sdk_session_data
+        # Even if a stale load result carries legacy SDK JSONL, the workflow
+        # must not forward it: the executor loads SDK history from the DB.
+        assert input.sdk_session_data is None
         assert input.is_fork is False
         assert input.is_approval_continuation is True
-        assert '"type":"tool_result"' in input.sdk_session_data
         continuation_seen.set()
         return AgentExecutorResult(
             success=True,

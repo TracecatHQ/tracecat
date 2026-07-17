@@ -262,14 +262,17 @@ async def prepare_agent_turn_activity(
 
     # 1. Effective agent config (preset + overrides + custom provider).
     config = await _resolve_turn_config(input)
+    activity.heartbeat("resolved config")
 
     # 2. Session resume metadata.
     load_result = await load_session_activity(
         LoadSessionInput(role=input.role, session_id=input.session_id)
     )
+    activity.heartbeat("loaded session")
 
     # 3. Subagent topology (a resumed session's stored binding wins).
     agents_result = await _resolve_subagents(input, config, load_result)
+    activity.heartbeat("resolved subagents")
 
     # 4. Session row: create or update, pin curr_run_id, init stream buffer.
     create_result = await create_session_activity(
@@ -295,6 +298,7 @@ async def prepare_agent_turn_activity(
             f"Failed to create agent session: {create_result.error}",
             non_retryable=True,
         )
+    activity.heartbeat("session ready")
 
     # 5. Compile tool definitions for the root and every subagent scope.
     internal_tool_context = internal_tool_context_for(

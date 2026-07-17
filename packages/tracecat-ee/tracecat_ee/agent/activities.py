@@ -501,6 +501,12 @@ class AgentActivities:
                     f"Duplicate agent compile scope '{scope.scope}'",
                     non_retryable=True,
                 )
+            # Scope compilation (MCP discovery included) is the slow part of
+            # both this activity and the fused prepare activity that calls it
+            # in-process; heartbeat per scope so heartbeat timeouts can catch
+            # a hang. No-op when invoked outside an activity context (tests).
+            if activity.in_activity():
+                activity.heartbeat(f"compiling tool scope '{scope.scope}'")
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,
                 role=args.role,
