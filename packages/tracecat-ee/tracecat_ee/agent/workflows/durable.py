@@ -410,8 +410,6 @@ class PreparedTurn(BaseModel):
     compiled_run: CompiledAgentRun
     internal_tool_context: InternalToolContext | None = None
     sdk_session_id: str | None = None
-    # Legacy replay compatibility only; new executions never populate SDK JSONL.
-    sdk_session_data: str | None = None
     is_fork: bool = False
 
 
@@ -1327,8 +1325,7 @@ class DurableAgentWorkflow:
 
         if load_result is None:
             # Legacy command order for histories without the binding-preservation
-            # patch marker. sdk_session_data is replay compatibility only; new
-            # activity executions leave it unset.
+            # patch marker.
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
@@ -1348,7 +1345,6 @@ class DurableAgentWorkflow:
             compiled_run=compiled_run,
             internal_tool_context=internal_tool_context,
             sdk_session_id=load_result.sdk_session_id,
-            sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
         )
 
@@ -1403,7 +1399,6 @@ class DurableAgentWorkflow:
             allowed_actions=allowed_actions,
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=prepared.sdk_session_id,
-            sdk_session_data=prepared.sdk_session_data,
             is_fork=prepared.is_fork,
         )
 
@@ -1646,7 +1641,6 @@ class DurableAgentWorkflow:
                     allowed_actions=allowed_actions,
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
-                    sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )
