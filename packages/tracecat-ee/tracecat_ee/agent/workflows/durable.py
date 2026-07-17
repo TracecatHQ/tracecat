@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -92,7 +92,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
-    from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.dsl.common import NON_RETRYABLE_ERROR_TYPES, RETRY_POLICIES
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
@@ -116,10 +116,16 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
+    from tracecat_ee.agent.prepare import (
+        ROOT_AGENT_SCOPE,
+        PrepareAgentTurnInput,
+        PrepareAgentTurnResult,
+        internal_tool_context_for,
+        prepare_agent_turn_activity,
+    )
     from tracecat_ee.agent.types import AgentWorkflowID
 
 
-ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
@@ -138,6 +144,7 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
+FUSED_PREPARE_TURN_PATCH = "durable-agent-fused-prepare-turn-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,6 +394,23 @@ class CompiledAgentRun(BaseModel):
     @property
     def sandbox_subagents(self) -> list[SandboxSubagentConfig]:
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
+
+
+class PreparedTurn(BaseModel):
+    """Workflow-local output of the pre-executor prepare phase.
+
+    Everything ``_execute_agent_turns`` needs to dispatch the executor,
+    produced either by the fused prepare activity or, for pre-fuse histories,
+    by the legacy activity chain.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    config: AgentConfig
+    compiled_run: CompiledAgentRun
+    internal_tool_context: InternalToolContext | None = None
+    sdk_session_id: str | None = None
+    is_fork: bool = False
 
 
 class AgentWorkflowArgs(BaseModel):
@@ -881,10 +905,10 @@ class DurableAgentWorkflow:
             logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
 
         try:
-            cfg = await self._build_config(args)
+            prepared = await self._prepare_turn(args)
             # Success needs no write: last_error was already cleared at turn
             # start, and last_error is the only persisted run-outcome signal.
-            return await self._run_with_agent_executor(args, cfg)
+            return await self._execute_agent_turns(args, prepared)
         except ActivityError as e:
             # Pre-stream failure: persist last_error and stream it (the loopback
             # was not yet wired up to surface it inline).
@@ -1073,20 +1097,162 @@ class DurableAgentWorkflow:
     def validate_request_cancel(self, request: WorkflowCancelRequest) -> None:
         WorkflowCancelRequest.model_validate(request)
 
-    async def _run_with_agent_executor(
-        self, args: AgentWorkflowArgs, cfg: AgentConfig
-    ) -> AgentOutput:
-        """Run the agent through the executor activity.
+    async def _prepare_turn(self, args: AgentWorkflowArgs) -> PreparedTurn:
+        """Prepare everything the executor needs for this turn.
 
-        This path:
-        1. Resolves tool definitions from registry
-        2. Loads session history from DB (for resume)
-        3. Mints JWT/LLM gateway tokens
-        4. Calls run_agent_activity, which dispatches one runtime turn
-        5. Persists session history after execution
-        6. Handles approval requests
+        Covers agent config resolution, the session row, subagent topology,
+        tool compilation, and per-scope tokens. New executions run the whole
+        phase as one fused activity; histories recorded before the patch
+        marker replay the original activity chain.
         """
-        logger.info("Running agent executor", session_id=self.session_id)
+        if workflow.patched(FUSED_PREPARE_TURN_PATCH):
+            return await self._prepare_turn_fused(args)
+        return await self._prepare_turn_legacy(args)
+
+    async def _prepare_turn_fused(self, args: AgentWorkflowArgs) -> PreparedTurn:
+        """Run the pre-executor phase as a single activity round-trip.
+
+        The activity resolves the config, loads session resume metadata,
+        resolves subagents, upserts the session row, and compiles tool
+        definitions for every scope (see ``tracecat_ee.agent.prepare``).
+        Tokens are minted afterwards in the workflow because they embed
+        workflow identity.
+        """
+        # Persist the workflow-id UUID token used to start this execution so
+        # approval continuation can target the exact live workflow later.
+        curr_run_id = AgentWorkflowID.from_workflow_id(
+            workflow.info().workflow_id
+        ).session_id
+        try:
+            prepare_result = await workflow.execute_activity(
+                prepare_agent_turn_activity,
+                PrepareAgentTurnInput(
+                    role=self.role,
+                    session_id=self.session_id,
+                    curr_run_id=curr_run_id,
+                    user_prompt=args.agent_args.user_prompt,
+                    config=args.agent_args.config,
+                    preset_slug=args.agent_args.preset_slug,
+                    preset_version=args.agent_args.preset_version,
+                    agent_preset_id=args.agent_preset_id,
+                    agent_preset_version_id=args.agent_preset_version_id,
+                    title=args.title,
+                    entity_type=args.entity_type,
+                    entity_id=args.entity_id,
+                    tools=args.tools,
+                    harness_type=HarnessType(self.harness_type),
+                    continue_existing_session=args.continue_existing_session,
+                ),
+                # One generous ceiling for the whole phase; hang detection
+                # comes from heartbeats instead (the activity heartbeats
+                # between steps and per compiled scope, and the legacy chain
+                # allowed 120s per scope, so 180s of silence means stuck).
+                start_to_close_timeout=timedelta(seconds=900),
+                heartbeat_timeout=timedelta(seconds=180),
+                # Not fail_fast: every genuine prepare failure raises
+                # ApplicationError(non_retryable=True) and still stops on the
+                # first attempt. Leaving retries on covers transient infra
+                # errors (the whole phase is idempotent) and, critically,
+                # mixed-version rollouts: a not-yet-updated worker fails this
+                # activity with a retryable NotFoundError, and the retry lands
+                # on an updated worker instead of terminally failing the turn.
+                retry_policy=RetryPolicy(
+                    maximum_attempts=5,
+                    initial_interval=timedelta(seconds=2),
+                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+                ),
+            )
+        except ActivityError as e:
+            # Unwrap typed pre-stream failures (e.g. AgentToolDefinitionError)
+            # so run()'s error handling streams them like the legacy chain did.
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from e
+            raise
+
+        if prepare_result.sdk_session_id:
+            logger.info(
+                "Resuming from existing session",
+                sdk_session_id=prepare_result.sdk_session_id,
+                is_fork=prepare_result.is_fork,
+            )
+
+        internal_tool_context = internal_tool_context_for(
+            args.entity_type, args.entity_id
+        )
+        return PreparedTurn(
+            config=prepare_result.config,
+            compiled_run=self._compile_prepared_agent_run(
+                prepare_result, internal_tool_context=internal_tool_context
+            ),
+            internal_tool_context=internal_tool_context,
+            sdk_session_id=prepare_result.sdk_session_id,
+            is_fork=prepare_result.is_fork,
+        )
+
+    def _compile_prepared_agent_run(
+        self,
+        prepare_result: PrepareAgentTurnResult,
+        *,
+        internal_tool_context: InternalToolContext | None,
+    ) -> CompiledAgentRun:
+        """Mint per-scope MCP tokens and LLM routes for a prepared turn."""
+        root_spec = AgentScopeSpec(
+            name=ROOT_AGENT_SCOPE,
+            config=prepare_result.config,
+            internal_tool_context=internal_tool_context,
+        )
+        root_scope = CompiledAgentScope(
+            spec=root_spec,
+            build_result=prepare_result.root_build_result,
+            mcp_auth_token=self._mint_scope_mcp_token(
+                build_result=prepare_result.root_build_result,
+                internal_tool_context=internal_tool_context,
+            ),
+        )
+
+        compiled_subagents: list[CompiledSubagentScope] = []
+        llm_routes: dict[str, LLMRouteClaim] = {}
+        for subagent in prepare_result.subagents:
+            route_resolution = _llm_route_for_config(subagent.config)
+            scoped_route_model = _subagent_litellm_route_model(
+                subagent.resolved.alias, route_resolution.route_model
+            )
+            llm_routes[scoped_route_model] = route_resolution.claim
+            scope_spec = AgentScopeSpec(
+                name=subagent.resolved.alias,
+                config=subagent.config,
+                fail_on_mcp_discovery_error=True,
+            )
+            compiled_subagents.append(
+                CompiledSubagentScope(
+                    scope=CompiledAgentScope(
+                        spec=scope_spec,
+                        build_result=subagent.build_result,
+                        mcp_auth_token=self._mint_scope_mcp_token(
+                            build_result=subagent.build_result,
+                        ),
+                        model_route=scoped_route_model,
+                    ),
+                    resolved=subagent.resolved,
+                )
+            )
+
+        return CompiledAgentRun(
+            root=root_scope,
+            subagents=compiled_subagents,
+            registry_lock=prepare_result.root_build_result.registry_lock,
+            llm_routes=llm_routes,
+        )
+
+    async def _prepare_turn_legacy(self, args: AgentWorkflowArgs) -> PreparedTurn:
+        """Replay-only prepare phase for histories without FUSED_PREPARE_TURN_PATCH.
+
+        Pre-fuse executions recorded the prepare phase as a chain of individual
+        activities; this preserves that command sequence — including its older
+        nested patch markers — exactly. Do not extend this path: new behavior
+        belongs in _prepare_turn_fused / prepare_agent_turn_activity.
+        """
+        cfg = await self._build_config(args)
 
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
@@ -1172,8 +1338,7 @@ class DurableAgentWorkflow:
 
         if load_result is None:
             # Legacy command order for histories without the binding-preservation
-            # patch marker. sdk_session_data is replay compatibility only; new
-            # activity executions leave it unset.
+            # patch marker.
             load_result = await workflow.execute_activity(
                 load_session_activity,
                 LoadSessionInput(role=self.role, session_id=self.session_id),
@@ -1187,6 +1352,36 @@ class DurableAgentWorkflow:
                 sdk_session_id=load_result.sdk_session_id,
                 is_fork=load_result.is_fork,
             )
+
+        return PreparedTurn(
+            config=cfg,
+            compiled_run=compiled_run,
+            internal_tool_context=internal_tool_context,
+            sdk_session_id=load_result.sdk_session_id,
+            is_fork=load_result.is_fork,
+        )
+
+    async def _execute_agent_turns(
+        self, args: AgentWorkflowArgs, prepared: PreparedTurn
+    ) -> AgentOutput:
+        """Dispatch executor turns until the agent completes.
+
+        Each iteration runs one run_agent_activity turn. Approval requests
+        pause the loop, execute the approved/denied tools, reconcile the SDK
+        transcript, and resume the executor with a continuation turn.
+        """
+        logger.info("Running agent executor", session_id=self.session_id)
+
+        cfg = prepared.config
+        compiled_run = prepared.compiled_run
+        internal_tool_context = prepared.internal_tool_context
+        root_registry_lock = compiled_run.registry_lock
+        allowed_actions = compiled_run.root.tool_definitions
+        # The workflow-id UUID token for this execution (same value the prepare
+        # phase persisted as curr_run_id). workflow.info() is replay-safe.
+        curr_run_id = AgentWorkflowID.from_workflow_id(
+            workflow.info().workflow_id
+        ).session_id
 
         info = workflow.info()
         # Mint the LLM gateway token after compiling subagent routes. MCP tokens
@@ -1216,9 +1411,8 @@ class DurableAgentWorkflow:
             llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             subagents=compiled_run.sandbox_subagents,
-            sdk_session_id=load_result.sdk_session_id,
-            sdk_session_data=load_result.sdk_session_data,
-            is_fork=load_result.is_fork,
+            sdk_session_id=prepared.sdk_session_id,
+            is_fork=prepared.is_fork,
         )
 
         # Run the executor activity
@@ -1460,7 +1654,6 @@ class DurableAgentWorkflow:
                     allowed_actions=allowed_actions,
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
-                    sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )

@@ -14,6 +14,10 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsResult,
     BuildToolDefsResult,
 )
+from tracecat_ee.agent.prepare import (
+    PrepareAgentTurnInput,
+    PrepareAgentTurnResult,
+)
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tests.shared import to_data
@@ -146,6 +150,33 @@ def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
     return mock_build_tool_definitions
 
 
+def create_mock_prepare_turn_activity(
+    captured_inputs: list[PrepareAgentTurnInput] | None = None,
+) -> Callable[..., Any]:
+    @activity.defn(name="prepare_agent_turn_activity")
+    async def mock_prepare_agent_turn_activity(
+        input: PrepareAgentTurnInput,
+    ) -> PrepareAgentTurnResult:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        assert input.config is not None
+        return PrepareAgentTurnResult(
+            config=input.config,
+            root_build_result=BuildToolDefsResult(
+                tool_definitions={},
+                registry_lock=RegistryLock(
+                    origins={"tracecat_registry": "test-version"},
+                    actions={},
+                ),
+                user_mcp_claims=None,
+                allowed_internal_tools=None,
+            ),
+            subagents=[],
+        )
+
+    return mock_prepare_agent_turn_activity
+
+
 def create_mock_run_agent_activity(*, output: str) -> Callable[..., Any]:
     @activity.defn(name="run_agent_activity")
     async def mock_run_agent_activity(
@@ -199,6 +230,7 @@ class TestDSLAgentWiring:
             create_mock_load_session_activity(),
             create_mock_load_session_messages_activity(),
             create_mock_build_tool_definitions_activity(),
+            create_mock_prepare_turn_activity(),
         ):
             agent_activities = _replace_activity(agent_activities, replacement)
         agent_activities.append(
@@ -259,14 +291,17 @@ class TestDSLAgentWiring:
         agent_worker_factory: Callable[..., Worker],
     ) -> None:
         session_id = uuid.uuid4()
-        captured_inputs: list[CreateSessionInput] = []
+        # Session creation happens inside the fused prepare activity, so the
+        # session-reuse contract is asserted on the prepare input.
+        captured_inputs: list[PrepareAgentTurnInput] = []
 
         agent_activities = list(get_agent_worker_activities())
         for replacement in (
-            create_mock_create_session_activity(captured_inputs),
+            create_mock_create_session_activity(),
             create_mock_load_session_activity(),
             create_mock_load_session_messages_activity(),
             create_mock_build_tool_definitions_activity(),
+            create_mock_prepare_turn_activity(captured_inputs),
         ):
             agent_activities = _replace_activity(agent_activities, replacement)
         agent_activities.append(
@@ -319,4 +354,4 @@ class TestDSLAgentWiring:
         assert data["output"] == "dsl-agent-existing-session"
         assert len(captured_inputs) == 1
         assert captured_inputs[0].session_id == session_id
-        assert captured_inputs[0].require_existing is True
+        assert captured_inputs[0].continue_existing_session is True

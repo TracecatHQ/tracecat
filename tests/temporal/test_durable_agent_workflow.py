@@ -44,6 +44,11 @@ from tracecat_ee.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,
 )
+from tracecat_ee.agent.prepare import (
+    PrepareAgentTurnInput,
+    PrepareAgentTurnResult,
+    PreparedSubagent,
+)
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
@@ -60,11 +65,7 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
-from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
-from tracecat.agent.preset.resolver import (
-    ResolvedAgentsRuntimeConfig,
-    ResolvedSubagentConfig,
-)
+from tracecat.agent.preset.resolver import ResolvedSubagentConfig
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -85,7 +86,6 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
-    ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.tokens import UserMCPServerClaim
@@ -172,6 +172,25 @@ def create_mock_build_tool_definitions_activity(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
 ) -> Callable[..., Any]:
     """Create a mock build_agent_tool_definitions activity."""
+
+    @activity.defn(name="build_agent_tool_definitions")
+    async def mock_build_agent_tool_definitions(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        return BuildAgentToolDefsResult(
+            scopes={
+                scope.scope: create_mock_build_tool_defs_result(tool_definitions)
+                for scope in args.scopes
+            }
+        )
+
+    return mock_build_agent_tool_definitions
+
+
+def create_mock_build_tool_defs_result(
+    tool_definitions: dict[str, MCPToolDefinition] | None = None,
+) -> BuildToolDefsResult:
+    """Create deterministic compiled tool data shared by prepare/build mocks."""
     if tool_definitions is None:
         tool_definitions = {
             "core.http_request": MCPToolDefinition(
@@ -188,27 +207,67 @@ def create_mock_build_tool_definitions_activity(
             )
         }
 
-    # Create a mock registry lock for the tools
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
         actions=dict.fromkeys(tool_definitions.keys(), "tracecat_registry"),
     )
+    return BuildToolDefsResult(
+        tool_definitions=tool_definitions,
+        registry_lock=registry_lock,
+    )
 
-    @activity.defn(name="build_agent_tool_definitions")
-    async def mock_build_agent_tool_definitions(
-        args: BuildAgentToolDefsArgs,
-    ) -> BuildAgentToolDefsResult:
-        return BuildAgentToolDefsResult(
-            scopes={
-                scope.scope: BuildToolDefsResult(
-                    tool_definitions=tool_definitions,
-                    registry_lock=registry_lock,
+
+def create_mock_prepare_turn_activity(
+    tool_definitions: dict[str, MCPToolDefinition] | None = None,
+    *,
+    sdk_session_id: str | None = None,
+    is_fork: bool = False,
+    captured_inputs: list[PrepareAgentTurnInput] | None = None,
+    error: Exception | None = None,
+    root_build_result: BuildToolDefsResult | None = None,
+    subagents: list[PreparedSubagent] | None = None,
+    persist_session: bool = False,
+) -> Callable[..., Any]:
+    """Create a mock fused prepare activity for new workflow executions."""
+
+    @activity.defn(name="prepare_agent_turn_activity")
+    async def mock_prepare_agent_turn_activity(
+        input: PrepareAgentTurnInput,
+    ) -> PrepareAgentTurnResult:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        if error is not None:
+            raise error
+        assert input.config is not None
+        if persist_session:
+            create_result = await create_session_activity(
+                CreateSessionInput(
+                    role=input.role,
+                    session_id=input.session_id,
+                    require_existing=input.continue_existing_session,
+                    title=input.title,
+                    created_by=input.role.user_id,
+                    entity_type=input.entity_type,
+                    entity_id=input.entity_id,
+                    tools=input.tools,
+                    agent_preset_id=input.agent_preset_id,
+                    agent_preset_version_id=input.agent_preset_version_id,
+                    harness_type=input.harness_type,
+                    curr_run_id=input.curr_run_id,
+                    initial_user_prompt=input.user_prompt,
                 )
-                for scope in args.scopes
-            }
+            )
+            assert create_result.success
+        return PrepareAgentTurnResult(
+            config=input.config,
+            sdk_session_id=sdk_session_id,
+            is_fork=is_fork,
+            root_build_result=root_build_result
+            or create_mock_build_tool_defs_result(tool_definitions),
+            subagents=subagents or [],
         )
 
-    return mock_build_agent_tool_definitions
+    return mock_prepare_agent_turn_activity
 
 
 def create_mock_run_agent_activity(
@@ -284,6 +343,9 @@ def create_activities_with_mock_executor(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
     message_load_inputs: list[LoadSessionMessagesInput] | None = None,
     session_messages: list[ChatMessage] | None = None,
+    sdk_session_id: str | None = None,
+    is_fork: bool = False,
+    prepare_inputs: list[PrepareAgentTurnInput] | None = None,
 ) -> Sequence[Callable[..., Any]]:
     """Create a full activity list with mocked agent executor.
 
@@ -301,6 +363,12 @@ def create_activities_with_mock_executor(
         create_mock_load_session_messages_activity(
             captured_inputs=message_load_inputs,
             messages=session_messages,
+        ),
+        create_mock_prepare_turn_activity(
+            tool_definitions,
+            sdk_session_id=sdk_session_id,
+            is_fork=is_fork,
+            captured_inputs=prepare_inputs,
         ),
         create_mock_build_tool_definitions_activity(tool_definitions),
         create_mock_run_agent_activity(response_callback),
@@ -497,17 +565,6 @@ async def test_agent_workflow_streams_tool_definition_error(
     queue = f"test-agent-queue-{mock_session_id}"
     emitted_errors: list[EmitSessionErrorInputs] = []
 
-    @activity.defn(name="build_agent_tool_definitions")
-    async def mock_build_tool_definitions(
-        args: BuildAgentToolDefsArgs,
-    ) -> BuildAgentToolDefsResult:
-        del args
-        raise ApplicationError(
-            "Cannot request more than 100 tools",
-            type="AgentToolDefinitionError",
-            non_retryable=True,
-        )
-
     @activity.defn(name="emit_session_error")
     async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
         emitted_errors.append(args)
@@ -515,7 +572,14 @@ async def test_agent_workflow_streams_tool_definition_error(
     activities = [
         create_mock_create_session_activity(),
         create_mock_load_session_activity(),
-        mock_build_tool_definitions,
+        create_mock_prepare_turn_activity(
+            error=ApplicationError(
+                "Cannot request more than 100 tools",
+                type="AgentToolDefinitionError",
+                non_retryable=True,
+            )
+        ),
+        create_mock_build_tool_definitions_activity(),
         mock_emit_session_error,
     ]
 
@@ -723,60 +787,24 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         preset_id=child_preset_id,
         preset_version_id=latest_version_id,
     )
-    stored_binding = ResolvedAgentsConfig(enabled=True, subagents=[stored_ref])
     latest_agents_config = AgentSubagentsConfig(enabled=True, subagents=[latest_ref])
-    resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
-    create_inputs: list[CreateSessionInput] = []
+    prepare_inputs: list[PrepareAgentTurnInput] = []
     agent_inputs: list[AgentExecutorInput] = []
-
-    @activity.defn(name="load_session_activity")
-    async def mock_load_session_activity(
-        input: LoadSessionInput,
-    ) -> LoadSessionResult:
-        assert input.session_id == mock_session_id
-        return LoadSessionResult(
-            found=True,
-            sdk_session_id="sdk-session",
-            agents_binding=stored_binding,
-            has_resume_state=True,
-        )
-
-    @activity.defn(name="resolve_agents_config_activity")
-    async def mock_resolve_agents_config_activity(
-        input: ResolveAgentsConfigActivityInput,
-    ) -> ResolvedAgentsRuntimeConfig:
-        resolve_inputs.append(input)
-        assert input.follow_latest_versions is False
-        assert len(input.agents.subagents) == 1
-        resolved_ref = input.agents.subagents[0]
-        assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
-        assert resolved_ref.preset_version_id == stored_version_id
-
-        return ResolvedAgentsRuntimeConfig(
-            enabled=True,
-            subagents=[
-                ResolvedSubagentConfig(
-                    binding=stored_ref,
-                    description="Stored analyst",
-                    prompt="Complete the delegated analysis.",
-                    config=agent_config_to_payload(
-                        AgentConfig(
-                            model_name="claude-3-5-sonnet-20241022",
-                            model_provider="anthropic",
-                            actions=[],
-                        )
-                    ),
-                )
-            ],
-        )
-
-    @activity.defn(name="create_session_activity")
-    async def mock_create_session_activity(
-        input: CreateSessionInput,
-    ) -> CreateSessionResult:
-        create_inputs.append(input)
-        assert input.agents_binding == stored_binding
-        return CreateSessionResult(session_id=input.session_id, success=True)
+    child_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        actions=[],
+    )
+    prepared_subagent = PreparedSubagent(
+        resolved=ResolvedSubagentConfig(
+            binding=stored_ref,
+            description="Stored analyst",
+            prompt="Complete the delegated analysis.",
+            config=agent_config_to_payload(child_config),
+        ),
+        config=child_config,
+        build_result=create_mock_build_tool_defs_result({}),
+    )
 
     @activity.defn(name="run_agent_activity")
     async def mock_run_agent_activity(
@@ -799,13 +827,18 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
         entity_id=uuid.uuid4(),
+        continue_existing_session=True,
     )
 
     activities = [
-        mock_load_session_activity,
-        mock_resolve_agents_config_activity,
-        mock_create_session_activity,
+        create_mock_load_session_activity(),
+        create_mock_create_session_activity(),
         create_mock_load_session_messages_activity(),
+        create_mock_prepare_turn_activity(
+            sdk_session_id="sdk-session",
+            captured_inputs=prepare_inputs,
+            subagents=[prepared_subagent],
+        ),
         create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
         create_mock_execute_action_activity(),
@@ -827,13 +860,22 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
 
     assert result.session_id == mock_session_id
     assert result.output == {"status": "ok"}
-    assert len(resolve_inputs) == 1
-    assert resolve_inputs[0].agents.subagents == [stored_ref]
-    assert len(create_inputs) == 1
-    assert create_inputs[0].agents_binding == stored_binding
+    assert len(prepare_inputs) == 1
+    prepare_input = prepare_inputs[0]
+    assert prepare_input.session_id == mock_session_id
+    assert prepare_input.curr_run_id == mock_session_id
+    assert prepare_input.user_prompt == "Continue the existing session"
+    assert prepare_input.continue_existing_session is True
+    assert prepare_input.preset_slug is None
+    assert prepare_input.preset_version is None
+    assert prepare_input.agent_preset_id is None
+    assert prepare_input.agent_preset_version_id is None
+    assert prepare_input.config is not None
+    assert prepare_input.config.agents.subagents == [latest_ref]
     assert len(agent_inputs) == 1
     assert agent_inputs[0].sdk_session_id == "sdk-session"
     assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]
+    assert agent_inputs[0].subagents[0].description == "Stored analyst"
 
 
 @pytest.mark.anyio
@@ -994,31 +1036,32 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         fake_agent_stream_new,
     )
 
+    tool_result = BuildToolDefsResult(
+        tool_definitions={
+            "core.http_request": MCPToolDefinition(
+                name="core__http_request",
+                description="HTTP request",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "method": {"type": "string"},
+                    },
+                    "required": ["url", "method"],
+                    "additionalProperties": False,
+                },
+            )
+        },
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+    )
+
     @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
         args: BuildAgentToolDefsArgs,
     ) -> BuildAgentToolDefsResult:
-        tool_result = BuildToolDefsResult(
-            tool_definitions={
-                "core.http_request": MCPToolDefinition(
-                    name="core__http_request",
-                    description="HTTP request",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string"},
-                            "method": {"type": "string"},
-                        },
-                        "required": ["url", "method"],
-                        "additionalProperties": False,
-                    },
-                )
-            },
-            registry_lock=RegistryLock(
-                origins={"tracecat_registry": "test-version"},
-                actions={"core.http_request": "tracecat_registry"},
-            ),
-        )
         return BuildAgentToolDefsResult(
             scopes={scope.scope: tool_result for scope in args.scopes}
         )
@@ -1177,6 +1220,10 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             load_session_messages_activity,
             reconcile_tool_results_activity,
             finalize_turn_activity,
+            create_mock_prepare_turn_activity(
+                root_build_result=tool_result,
+                persist_session=True,
+            ),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1305,11 +1352,8 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     captured_run_inputs: list[RunActionInput] = []
     captured_pending_result_batches: list[list[Any]] = []
     captured_approval_decisions: list[Any] = []
+    prepare_inputs: list[PrepareAgentTurnInput] = []
 
-    parent_sdk_session_data = (
-        '{"type":"user","message":{"content":"parent prompt"}}\n'
-        '{"type":"assistant","message":{"content":[{"type":"text","text":"parent answer"}]}}\n'
-    )
     continuation_sdk_session_data = (
         '{"type":"user","message":{"content":"parent prompt"}}\n'
         '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_safe",'
@@ -1330,22 +1374,11 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         assert input.session_id == mock_session_id
         return CreateSessionResult(session_id=input.session_id, success=True)
 
-    load_session_call_count = 0
-
     @activity.defn(name="load_session_activity")
     async def mock_load_session_activity(
         input: LoadSessionInput,
     ) -> LoadSessionResult:
-        nonlocal load_session_call_count
         assert input.session_id == mock_session_id
-        load_session_call_count += 1
-        if load_session_call_count == 1:
-            return LoadSessionResult(
-                found=True,
-                sdk_session_id="parent-sdk-session",
-                sdk_session_data=parent_sdk_session_data,
-                is_fork=True,
-            )
         return LoadSessionResult(
             found=True,
             sdk_session_id="child-sdk-session",
@@ -1353,33 +1386,35 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             is_fork=False,
         )
 
+    tool_result = BuildToolDefsResult(
+        tool_definitions={
+            "core.http_request": MCPToolDefinition(
+                name="core__http_request",
+                description="HTTP request",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "method": {"type": "string"},
+                    },
+                    "required": ["url", "method"],
+                    "additionalProperties": False,
+                },
+            )
+        },
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+        tool_approvals={"core.http_request": True},
+    )
+
     @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
         args: BuildAgentToolDefsArgs,
     ) -> BuildAgentToolDefsResult:
         root_scope = next(scope for scope in args.scopes if scope.scope == "root")
         assert root_scope.tool_approvals == {"core.http_request": True}
-        tool_result = BuildToolDefsResult(
-            tool_definitions={
-                "core.http_request": MCPToolDefinition(
-                    name="core__http_request",
-                    description="HTTP request",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string"},
-                            "method": {"type": "string"},
-                        },
-                        "required": ["url", "method"],
-                        "additionalProperties": False,
-                    },
-                )
-            },
-            registry_lock=RegistryLock(
-                origins={"tracecat_registry": "test-version"},
-                actions={"core.http_request": "tracecat_registry"},
-            ),
-        )
         return BuildAgentToolDefsResult(
             scopes={scope.scope: tool_result for scope in args.scopes}
         )
@@ -1396,7 +1431,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         if run_agent_call_count == 0:
             run_agent_call_count += 1
             assert input.sdk_session_id == "parent-sdk-session"
-            assert input.sdk_session_data == parent_sdk_session_data
+            assert input.sdk_session_data is None
             assert input.is_fork is True
             assert input.is_approval_continuation is False
             return AgentExecutorResult(
@@ -1418,10 +1453,11 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
 
         run_agent_call_count += 1
         assert input.sdk_session_id == "child-sdk-session"
-        assert input.sdk_session_data == continuation_sdk_session_data
+        # Even if a stale load result carries legacy SDK JSONL, the workflow
+        # must not forward it: the executor loads SDK history from the DB.
+        assert input.sdk_session_data is None
         assert input.is_fork is False
         assert input.is_approval_continuation is True
-        assert '"type":"tool_result"' in input.sdk_session_data
         continuation_seen.set()
         return AgentExecutorResult(
             success=True,
@@ -1491,6 +1527,12 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             mock_create_session_activity,
             mock_load_session_activity,
             create_mock_load_session_messages_activity(),
+            create_mock_prepare_turn_activity(
+                sdk_session_id="parent-sdk-session",
+                is_fork=True,
+                captured_inputs=prepare_inputs,
+                root_build_result=tool_result,
+            ),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1545,6 +1587,10 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     assert result.session_id == mock_session_id
     assert result.output == {"status": "continued"}
     assert continuation_seen.is_set()
+    assert len(prepare_inputs) == 1
+    assert prepare_inputs[0].session_id == mock_session_id
+    assert prepare_inputs[0].config is not None
+    assert prepare_inputs[0].config.tool_approvals == {"core.http_request": True}
     assert [agent_input.is_fork for agent_input in captured_agent_inputs] == [
         True,
         False,
@@ -1617,27 +1663,28 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
             is_fork=False,
         )
 
+    tool_result = BuildToolDefsResult(
+        tool_definitions={
+            "mcp__Jira__getIssue": MCPToolDefinition(
+                name="mcp__Jira__getIssue",
+                description="Get an issue",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {"issue_key": {"type": "string"}},
+                    "required": ["issue_key"],
+                    "additionalProperties": False,
+                },
+            )
+        },
+        registry_lock=RegistryLock(origins={}, actions={}),
+        user_mcp_claims=[UserMCPServerClaim(name="Jira", id=integration_id)],
+        tool_approvals={"mcp.Jira.getIssue": True},
+    )
+
     @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
         args: BuildAgentToolDefsArgs,
     ) -> BuildAgentToolDefsResult:
-        tool_result = BuildToolDefsResult(
-            tool_definitions={
-                "mcp__Jira__getIssue": MCPToolDefinition(
-                    name="mcp__Jira__getIssue",
-                    description="Get an issue",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {"issue_key": {"type": "string"}},
-                        "required": ["issue_key"],
-                        "additionalProperties": False,
-                    },
-                )
-            },
-            registry_lock=RegistryLock(origins={}, actions={}),
-            user_mcp_claims=[UserMCPServerClaim(name="Jira", id=integration_id)],
-            tool_approvals={"mcp.Jira.getIssue": True},
-        )
         return BuildAgentToolDefsResult(
             scopes={scope.scope: tool_result for scope in args.scopes}
         )
@@ -1740,6 +1787,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
         create_mock_create_session_activity(),
         mock_load_session_activity,
         create_mock_load_session_messages_activity(),
+        create_mock_prepare_turn_activity(root_build_result=tool_result),
         mock_build_tool_definitions,
         mock_run_agent_activity,
         mock_record_approval_requests,
@@ -1791,34 +1839,23 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
+async def test_agent_workflow_replays_suspended_fused_prepare_history(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
     agent_config_with_approvals: AgentConfig,
 ) -> None:
-    """A suspended workflow with legacy SDK JSONL payloads should replay."""
+    """A suspended fused-prepare workflow should replay before and after resume."""
     queue = f"test-agent-queue-{mock_session_id}"
     approval_request_recorded = asyncio.Event()
     captured_agent_inputs: list[AgentExecutorInput] = []
-    legacy_sdk_session_data = (
-        '{"type":"user","message":{"content":"legacy prompt"}}\n'
-        '{"type":"assistant","message":{"content":[{"type":"text","text":"legacy"}]}}\n'
-    )
 
     @activity.defn(name="load_session_activity")
     async def mock_load_session_activity(
         input: LoadSessionInput,
     ) -> LoadSessionResult:
         assert input.session_id == mock_session_id
-        if len(captured_agent_inputs) == 0:
-            return LoadSessionResult(
-                found=True,
-                sdk_session_id="legacy-sdk-session",
-                sdk_session_data=legacy_sdk_session_data,
-                is_fork=False,
-            )
         return LoadSessionResult(
             found=True,
             sdk_session_id="legacy-sdk-session",
@@ -1833,7 +1870,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         captured_agent_inputs.append(input)
         if len(captured_agent_inputs) == 1:
             assert input.sdk_session_id == "legacy-sdk-session"
-            assert input.sdk_session_data == legacy_sdk_session_data
+            assert input.sdk_session_data is None
             assert input.is_approval_continuation is False
             return AgentExecutorResult(
                 success=True,
@@ -1884,6 +1921,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         create_mock_create_session_activity(),
         mock_load_session_activity,
         create_mock_load_session_messages_activity(),
+        create_mock_prepare_turn_activity(sdk_session_id="legacy-sdk-session"),
         create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
         create_mock_execute_action_activity(),
@@ -1922,10 +1960,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
 
     assert result.session_id == mock_session_id
     assert result.output == {"status": "continued"}
-    assert [input.sdk_session_data for input in captured_agent_inputs] == [
-        legacy_sdk_session_data,
-        None,
-    ]
+    assert [input.sdk_session_data for input in captured_agent_inputs] == [None, None]
 
 
 @pytest.mark.anyio
@@ -1974,31 +2009,32 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         fake_agent_stream_new,
     )
 
+    tool_result = BuildToolDefsResult(
+        tool_definitions={
+            "core.http_request": MCPToolDefinition(
+                name="core__http_request",
+                description="HTTP request",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "method": {"type": "string"},
+                    },
+                    "required": ["url", "method"],
+                    "additionalProperties": False,
+                },
+            )
+        },
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+    )
+
     @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
         args: BuildAgentToolDefsArgs,
     ) -> BuildAgentToolDefsResult:
-        tool_result = BuildToolDefsResult(
-            tool_definitions={
-                "core.http_request": MCPToolDefinition(
-                    name="core__http_request",
-                    description="HTTP request",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string"},
-                            "method": {"type": "string"},
-                        },
-                        "required": ["url", "method"],
-                        "additionalProperties": False,
-                    },
-                )
-            },
-            registry_lock=RegistryLock(
-                origins={"tracecat_registry": "test-version"},
-                actions={"core.http_request": "tracecat_registry"},
-            ),
-        )
         return BuildAgentToolDefsResult(
             scopes={scope.scope: tool_result for scope in args.scopes}
         )
@@ -2143,6 +2179,10 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             load_session_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
+            create_mock_prepare_turn_activity(
+                root_build_result=tool_result,
+                persist_session=True,
+            ),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,

@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
     import uvloop
     from tracecat_ee.agent.activities import AgentActivities
     from tracecat_ee.agent.approvals.service import ApprovalManager
+    from tracecat_ee.agent.prepare import prepare_agent_turn_activity
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
     from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
@@ -86,6 +87,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(resolve_agents_config_activity)
     activities.append(resolve_custom_model_provider_config_activity)
     activities.append(persist_stdio_mcp_connection_activity)
+    activities.append(prepare_agent_turn_activity)
     activities.extend(get_session_activities())
     return activities
 
