@@ -508,11 +508,7 @@ class BaseOAuthProvider(ABC):
             client_id=registration_response.client_id,
             client_secret=registration_response.client_secret,
             auth_method=auth_method,
-            registered_scopes=(
-                registration_response.scope.split()
-                if registration_response.scope
-                else None
-            ),
+            registered_scopes=registration_response.registered_scopes,
         )
 
     def _dynamic_registration_auth_method(self) -> str | None:
@@ -1246,11 +1242,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             client_id=registration_response.client_id,
             client_secret=registration_response.client_secret,
             auth_method=auth_method,
-            registered_scopes=(
-                registration_response.scope.split()
-                if registration_response.scope
-                else None
-            ),
+            registered_scopes=registration_response.registered_scopes,
         )
 
     def _get_token_endpoint_auth_method(self) -> str | None:

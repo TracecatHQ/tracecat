@@ -64,12 +64,15 @@ class DCRResponse(BaseModel):
             raise ValueError("Dynamic client registration did not return client_id")
         return client_id
 
-    @field_validator(
-        "client_secret", "token_endpoint_auth_method", "scope", mode="before"
-    )
+    @field_validator("client_secret", "token_endpoint_auth_method", mode="before")
     @classmethod
     def _optional_string(cls, value: object) -> str | None:
         return value if isinstance(value, str) and value else None
+
+    @property
+    def registered_scopes(self) -> list[str] | None:
+        """Return the echoed scope whitelist, preserving omitted versus empty."""
+        return self.scope.split() if self.scope is not None else None
 
 
 class _OAuthTokenWireResponse(BaseModel):

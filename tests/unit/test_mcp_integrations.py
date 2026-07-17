@@ -20,7 +20,7 @@ import httpx
 import pytest
 from authlib.integrations.base_client.errors import OAuthError
 from pydantic import SecretStr, TypeAdapter, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
@@ -4127,6 +4127,12 @@ class TestMCPProviderOAuth:
                 {"client_id": "dcr-client", "grant_types": grant_types}
             )
 
+    @pytest.mark.parametrize("scope", [42, ["read"]])
+    def test_dcr_response_rejects_malformed_scope(self, scope: object) -> None:
+        """Malformed DCR scope echoes cannot masquerade as an omitted echo."""
+        with pytest.raises(ValidationError):
+            DCRResponse.model_validate({"client_id": "dcr-client", "scope": scope})
+
     async def test_resolve_mcp_static_endpoints_have_empty_scopes_supported(
         self,
         integration_service: IntegrationService,
@@ -4941,13 +4947,16 @@ class TestMCPProviderOAuth:
         )
 
         async def fake_refresh(
-            *, integration: OAuthIntegration, refresh_token: str
+            _service: IntegrationService,
+            *,
+            integration: OAuthIntegration,
+            refresh_token: str,
         ) -> OAuthIntegration:
             _ = integration, refresh_token
             raise OAuthError(error="invalid_grant", description="session expired")
 
         monkeypatch.setattr(
-            integration_service, "_refresh_custom_mcp_integration", fake_refresh
+            IntegrationService, "_refresh_custom_mcp_integration", fake_refresh
         )
 
         result = await integration_service.refresh_token_if_needed(integration)
@@ -4955,32 +4964,33 @@ class TestMCPProviderOAuth:
         assert result.encrypted_refresh_token is None
         assert result.status == IntegrationStatus.REAUTH_REQUIRED
 
-    async def test_refresh_invalid_grant_keeps_concurrently_rotated_token(
+    async def test_refresh_stale_caller_keeps_concurrently_rotated_token(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A losing refresh must not clear a token rotated by a concurrent winner."""
+        """A stale caller observes the token persisted by a concurrent winner."""
         integration = await self._store_expired_mcp_integration(
             integration_service, session
         )
-
-        async def fake_refresh(
-            *, integration: OAuthIntegration, refresh_token: str
-        ) -> OAuthIntegration:
-            _ = refresh_token
-            # Simulate a concurrent refresh winning: a new token lands in the row
-            # before this attempt's invalid_grant (rotation reuse detection).
-            integration.encrypted_refresh_token = integration_service._encrypt_token(
-                "rotated-refresh-token"
+        # Keep the caller's ORM object stale while a winner persists a complete
+        # rotation. The refresh transaction must reload this row under its lock
+        # and skip presenting the old refresh token.
+        session.expunge(integration)
+        await session.execute(
+            update(OAuthIntegration)
+            .where(OAuthIntegration.id == integration.id)
+            .values(
+                encrypted_access_token=integration_service._encrypt_token(
+                    "rotated-access-token"
+                ),
+                encrypted_refresh_token=integration_service._encrypt_token(
+                    "rotated-refresh-token"
+                ),
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
-            await session.commit()
-            raise OAuthError(error="invalid_grant", description="reuse detected")
-
-        monkeypatch.setattr(
-            integration_service, "_refresh_custom_mcp_integration", fake_refresh
         )
+        await session.commit()
 
         result = await integration_service.refresh_token_if_needed(integration)
 
@@ -5003,13 +5013,16 @@ class TestMCPProviderOAuth:
         )
 
         async def fake_refresh(
-            *, integration: OAuthIntegration, refresh_token: str
+            _service: IntegrationService,
+            *,
+            integration: OAuthIntegration,
+            refresh_token: str,
         ) -> OAuthIntegration:
             _ = integration, refresh_token
             raise OAuthError(error="temporarily_unavailable", description="down")
 
         monkeypatch.setattr(
-            integration_service, "_refresh_custom_mcp_integration", fake_refresh
+            IntegrationService, "_refresh_custom_mcp_integration", fake_refresh
         )
 
         result = await integration_service.refresh_token_if_needed(integration)
@@ -5496,9 +5509,19 @@ class TestMCPProviderOAuth:
         assert provider.requested_scopes == ["offline_access"]
         assert auth_query["scope"] == ["offline_access"]
 
+    @pytest.mark.parametrize(
+        ("scope_echo", "expected_scopes", "expected_authorize_scope"),
+        [
+            ("read admin", ["read", "admin"], "read admin"),
+            ("", [], None),
+        ],
+    )
     async def test_mcp_provider_honors_dcr_scope_echo(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        scope_echo: str,
+        expected_scopes: list[str],
+        expected_authorize_scope: str | None,
     ) -> None:
         """Credential-less built-ins authorize with the registered scope whitelist."""
 
@@ -5548,7 +5571,7 @@ class TestMCPProviderOAuth:
             return DCRResponse(
                 client_id="narrowed-client",
                 token_endpoint_auth_method="none",
-                scope="read admin",
+                scope=scope_echo,
             )
 
         monkeypatch.setattr(
@@ -5566,8 +5589,10 @@ class TestMCPProviderOAuth:
         auth_url, _ = await provider.get_authorization_url(state="test-state")
 
         assert registration_payload["scope"] == "read offline_access"
-        assert provider.requested_scopes == ["read", "admin"]
-        assert parse_qs(urlparse(auth_url).query)["scope"] == ["read admin"]
+        assert provider.requested_scopes == expected_scopes
+        assert parse_qs(urlparse(auth_url).query).get("scope") == (
+            [expected_authorize_scope] if expected_authorize_scope is not None else None
+        )
 
     async def test_mcp_provider_sync_constructor_honors_dcr_scope_echo(
         self,
@@ -5884,6 +5909,7 @@ class TestMCPProviderOAuth:
         ("scope_echo", "expected_registered_scopes"),
         [
             ("read offline_access", ["read", "offline_access"]),
+            ("", []),
             (None, None),
         ],
     )
@@ -5914,6 +5940,8 @@ class TestMCPProviderOAuth:
         [
             # AS narrowed the registration: authorize with the registered set.
             ("read", ["read"]),
+            # An explicit empty echo means no scopes were registered.
+            ("", []),
             # AS omitted the scope echo: requested set used verbatim.
             (None, ["read", "write", "offline_access"]),
             # The registration response is authoritative, including added scopes.
@@ -5995,9 +6023,11 @@ class TestMCPProviderOAuth:
         assert result.oauth_connect is not None
         assert result.mcp_integration is not None
         auth_query = parse_qs(urlparse(result.oauth_connect.auth_url).query)
-        assert auth_query.get("scope") == [" ".join(expected_authorize_scopes)]
+        assert auth_query.get("scope") == (
+            [" ".join(expected_authorize_scopes)] if expected_authorize_scopes else None
+        )
 
-        # Item D: the effective scopes (incl. auto-added offline_access) persist.
+        # The effective registered scopes, including an explicit empty set, persist.
         oauth_integration = await integration_service.session.get(
             OAuthIntegration, result.mcp_integration.oauth_integration_id
         )

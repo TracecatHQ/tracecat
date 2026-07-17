@@ -1058,9 +1058,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         # RFC 7591 `scope` echoes the scopes the AS registered (its whitelist);
         # None when the response omits it.
-        registered_scopes = (
-            registration_response.scope.split() if registration_response.scope else None
-        )
+        registered_scopes = registration_response.registered_scopes
         self.logger.info(
             "Registered custom MCP OAuth client",
             registration_endpoint_host=urlparse(registration_endpoint).hostname,
