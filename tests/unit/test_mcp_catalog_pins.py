@@ -165,4 +165,4 @@ def test_unavailable_qa_integrations_are_coming_soon_without_specs() -> None:
     ):
         assert public_servers[slug]["status"] == "coming_soon"
         assert "connection_spec" not in private_servers[slug]
-        assert private_servers[slug]["research_notes"].startswith("Coming soon")
+        assert private_servers[slug]["_research"]["notes"].startswith("Coming soon")
