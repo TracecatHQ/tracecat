@@ -1,5 +1,6 @@
 import * as aiSdk from "@ai-sdk/react"
 import {
+  type QueryClient,
   type UseQueryResult,
   useMutation,
   useQuery,
@@ -7,10 +8,11 @@ import {
 } from "@tanstack/react-query"
 import {
   type ChatOnDataCallback,
+  type ChatStatus,
   DefaultChatTransport,
   type UIMessage,
 } from "ai"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentSessionCreate,
   type AgentSessionEntity,
@@ -483,6 +485,10 @@ export function useGetChatVercel({
       })
     },
     enabled: !!chatId,
+    // A remount must never render a stale cache snapshot as the final
+    // transcript: always refetch so the pane adopts the current server copy
+    // (e.g. after an approval was resolved from another surface).
+    refetchOnMount: "always",
   })
   return { chat, chatLoading, chatError }
 }
@@ -525,6 +531,34 @@ export function useRemoveSessionArtifact(workspaceId: string) {
     isRemovingArtifact: mutation.isPending,
     removeArtifactError: mutation.error,
   }
+}
+
+/**
+ * Refresh all queries whose data can change when a chat turn finishes.
+ */
+export function invalidateChatTurnQueries(
+  queryClient: QueryClient,
+  {
+    chatId,
+    workspaceId,
+  }: {
+    chatId?: string
+    workspaceId: string
+  }
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["chat", chatId, workspaceId, "vercel"],
+  })
+  queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+  // A completed turn can change a session's inbox status (e.g. an approval
+  // continuation moves a row from "Review required" to "Completed"). The inbox
+  // detail pane derives its status/approval state from these queries, so refresh
+  // them here too. Both are already polled, so this just makes the update
+  // prompt; it is a no-op when no inbox view is mounted to observe them.
+  queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+  queryClient.invalidateQueries({
+    queryKey: ["pending-approvals-count", workspaceId],
+  })
 }
 
 // Combined hook for chat functionality with Vercel AI SDK streaming
@@ -618,23 +652,9 @@ export function useVercelChat({
     },
     onFinish: () => {
       setLastError(null)
-      queryClient.invalidateQueries({
-        queryKey: ["chat", chatId, workspaceId, "vercel"],
-      })
-      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
-      // A completed turn can change a session's inbox status (e.g. an approval
-      // continuation moves a row from "Review required" to "Completed"). The
-      // inbox detail pane derives its status/approval state from these queries,
-      // so refresh them here too — otherwise the open pane keeps showing the
-      // stale "Approval required" card until a hard reload. Both are already
-      // polled, so this just makes the update prompt; it is a no-op when no
-      // inbox view is mounted to observe them.
-      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
-      queryClient.invalidateQueries({
-        queryKey: ["pending-approvals-count", workspaceId],
-      })
+      invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can
-      // commit after the invalidation above on fast turns, leaving the
+      // commit after the immediate invalidation on fast turns, leaving the
       // placeholder title ("Chat 1", ...) in the sidebar until the next
       // mutation. Re-check on a delay — the second point covers the titling
       // LLM call's 15s timeout. No-op when nothing is stale or mounted.
@@ -654,12 +674,76 @@ export function useVercelChat({
   }
 }
 
-// --- Approvals helpers (CE handshake) ----------------------------------------
+/**
+ * Identity signature of a transcript: message ids plus the id, type, state, and
+ * text of each part. Two transcripts with the same signature carry the same
+ * rendered content, so an unchanged signature means there is nothing to adopt.
+ */
+function transcriptSignature(messages: UIMessage[]): string {
+  return JSON.stringify(
+    messages.map((m) => [
+      m.id,
+      m.parts.map((p) => [
+        p.type,
+        "state" in p ? p.state : undefined,
+        "text" in p ? p.text : undefined,
+      ]),
+    ])
+  )
+}
 
-export type ApprovalCard = {
-  tool_call_id: string
-  tool_name: string
-  args?: unknown
+/** A message whose parts are all approval-request cards (nothing else). */
+function isApprovalCardMessage(m: UIMessage): boolean {
+  return (
+    m.parts.length > 0 &&
+    m.parts.every((p) => p.type === "data-approval-request")
+  )
+}
+
+/**
+ * Adopt the server transcript wholesale at quiescent boundaries.
+ *
+ * While a turn streams, useChat owns the transcript; the moment it goes
+ * quiescent (`ready`) we adopt the server copy WHOLESALE once it has caught up.
+ * Message ids differ between the DB serialization and the live stream, so
+ * merging is impossible by design — we replace, never merge.
+ *
+ * The backend guarantees this is always safe: an approval pause returns 204 on
+ * resume, DB history already includes the paused partial turn, and any
+ * continuation stream carries only the suffix. A normal turn can still finish
+ * before curr_run_id is cleared, though, making the immediate onFinish refetch
+ * omit the just-finished rows. Keep the longer live transcript until a later
+ * server snapshot catches up. Never adopt while streaming/submitted either.
+ */
+export function useAdoptServerTranscript({
+  status,
+  serverMessages,
+  liveMessages,
+  setMessages,
+}: {
+  status: ChatStatus
+  serverMessages: UIMessage[]
+  liveMessages: UIMessage[]
+  setMessages: (messages: UIMessage[]) => void
+}) {
+  const adoptedSignatureRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (status !== "ready") return
+    const serverSignature = transcriptSignature(serverMessages)
+    if (adoptedSignatureRef.current === serverSignature) return
+    if (transcriptSignature(liveMessages) === serverSignature) {
+      adoptedSignatureRef.current = serverSignature
+      return
+    }
+    // A resolved approval drops its card from the server transcript, so exclude
+    // approval-card-only messages from the finalize-race length guard.
+    const liveComparableLength = liveMessages.filter(
+      (m) => !isApprovalCardMessage(m)
+    ).length
+    if (serverMessages.length < liveComparableLength) return
+    adoptedSignatureRef.current = serverSignature
+    setMessages(serverMessages)
+  }, [status, serverMessages, liveMessages, setMessages])
 }
 
 /**
