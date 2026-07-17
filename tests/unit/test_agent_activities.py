@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
     AgentActivities,
@@ -585,7 +586,10 @@ class TestBuildToolDefinitionsActivity:
             lambda: _AsyncContext(),
         )
 
-        result = await AgentActivities().build_agent_tool_definitions(
+        # The activity heartbeats per scope, so run it inside a fake activity
+        # context where heartbeat() is a no-op.
+        result = await ActivityEnvironment().run(
+            AgentActivities().build_agent_tool_definitions,
             BuildAgentToolDefsArgs(
                 role=mock_role,
                 scopes=[
@@ -598,7 +602,7 @@ class TestBuildToolDefinitionsActivity:
                         tool_filters=ToolFilters(actions=["core.child"]),
                     ),
                 ],
-            )
+            ),
         )
 
         assert set(result.scopes) == {"root", "analyst"}

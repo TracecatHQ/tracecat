@@ -11,7 +11,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.auth.types import Role
 from tracecat.integrations.schemas import MCPToolStatus
 
 _LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
@@ -141,3 +144,56 @@ class AgentConfigPayload(BaseModel):
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
     builtin_skills: list[str] | None = Field(default=None)
+
+
+class InlineAgentSource(BaseModel):
+    """Inline configuration to resolve for one durable agent turn."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    kind: Literal["inline"] = Field(default="inline")
+    config: AgentConfigPayload
+
+
+class PresetAgentSource(BaseModel):
+    """Preset reference and supported overrides for one durable agent turn."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    kind: Literal["preset"] = Field(default="preset")
+    slug: str
+    version: int | None = Field(default=None)
+    preset_id: uuid.UUID | None = Field(default=None)
+    preset_version_id: uuid.UUID | None = Field(default=None)
+    actions: list[str] | None = Field(default=None)
+    instructions: str | None = Field(default=None)
+
+
+type AgentSource = Annotated[
+    InlineAgentSource | PresetAgentSource,
+    Discriminator("kind"),
+]
+
+
+class AgentTurnRequest(BaseModel):
+    """Unresolved, immutable request for one durable agent turn."""
+
+    # This payload is stored in Temporal history. Ignore stale keys so future
+    # contract cleanup does not make earlier executions undecodable.
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    role: Role
+    session_id: uuid.UUID
+    active_stream_id: uuid.UUID | None = Field(default=None)
+    user_prompt: str
+    source: AgentSource
+
+    title: str = Field(default="New Chat")
+    entity_type: AgentSessionEntity
+    entity_id: uuid.UUID
+    tools: list[str] | None = Field(default=None)
+    harness_type: HarnessType = Field(default=HarnessType.CLAUDE_CODE)
+    continue_existing_session: bool = Field(default=False)
+
+    max_requests: int | None = Field(default=None)
+    max_tool_calls: int | None = Field(default=None)

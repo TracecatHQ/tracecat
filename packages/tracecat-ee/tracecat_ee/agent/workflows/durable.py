@@ -89,6 +89,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
+    from tracecat.agent.workflow_schemas import AgentTurnRequest
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
@@ -423,6 +424,13 @@ class AgentWorkflowArgs(BaseModel):
 
     role: Role
     agent_args: RunAgentArgs
+    request: AgentTurnRequest | None = Field(
+        default=None,
+        description=(
+            "Reader-only next-generation turn contract. Legacy fields remain the "
+            "active workflow input until all workers can decode this shape."
+        ),
+    )
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
     entity_type: AgentSessionEntity = Field(
