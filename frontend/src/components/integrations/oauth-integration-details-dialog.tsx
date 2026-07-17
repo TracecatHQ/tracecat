@@ -84,6 +84,8 @@ export function OAuthIntegrationDetailsDialog({
 
   const providerName = provider?.metadata.name || providerId
   const isConnected = integration?.status === "connected"
+  const needsReauth = integration?.status === "reauth_required"
+  const hasConnection = isConnected || needsReauth
   const isExpired = integration?.is_expired ?? false
 
   const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
@@ -108,6 +110,13 @@ export function OAuthIntegrationDetailsDialog({
   }, [integration?.expires_at])
 
   const lastUpdatedRelative = formatRelative(integration?.updated_at)
+  let connectionStatusDescription = "Connected"
+  if (needsReauth) {
+    connectionStatusDescription =
+      "The access token expired. Reconnect to restore this integration."
+  } else if (lastUpdatedRelative) {
+    connectionStatusDescription = `Last updated ${lastUpdatedRelative}`
+  }
 
   if (!open) {
     return null
@@ -173,12 +182,12 @@ export function OAuthIntegrationDetailsDialog({
               <div className="flex flex-col">
                 <section className="space-y-3 px-6 py-5">
                   <h3 className="text-sm font-semibold">Connection</h3>
-                  {isConnected ? (
+                  {hasConnection ? (
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <span
                           className={
-                            isExpired
+                            needsReauth || isExpired
                               ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
                               : "flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"
                           }
@@ -190,7 +199,14 @@ export function OAuthIntegrationDetailsDialog({
                             <p className="truncate text-sm font-medium text-foreground">
                               {providerName}
                             </p>
-                            {isExpired ? (
+                            {needsReauth ? (
+                              <Badge
+                                variant="outline"
+                                className="h-4 border-amber-300 bg-amber-50 px-1.5 text-[10px] uppercase text-amber-700"
+                              >
+                                Reconnect required
+                              </Badge>
+                            ) : isExpired ? (
                               <Badge
                                 variant="outline"
                                 className="h-4 border-amber-300 bg-amber-50 px-1.5 text-[10px] uppercase text-amber-700"
@@ -200,9 +216,7 @@ export function OAuthIntegrationDetailsDialog({
                             ) : null}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {lastUpdatedRelative
-                              ? `Last updated ${lastUpdatedRelative}`
-                              : "Connected"}
+                            {connectionStatusDescription}
                           </p>
                         </div>
                       </div>
