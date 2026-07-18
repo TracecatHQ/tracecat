@@ -15,12 +15,15 @@ from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
 from tracecat.agent.executor.activity import (
+    _resolve_and_probe_stdio_config,
     probe_stdio_mcp_connection_activity,
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.mcp.stdio_probe_types import (
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPPersistInput,
     StdioMCPProbeInput,
+    StdioMCPProbeResult,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -393,6 +396,44 @@ class TestProbeStdioMCPConnectionActivity:
             stdio_command="python",
             stdio_args=["-m", "example"],
             timeout=30,
+        )
+
+    @pytest.mark.anyio
+    async def test_probe_uses_verification_timeout(
+        self,
+        mock_role: Role,
+    ) -> None:
+        """The activity passes the verification timeout to the sandbox probe."""
+        integrations_svc = MagicMock()
+        integrations_svc.validate_stdio_server_config.return_value = None
+        preset_svc = MagicMock()
+        preset_svc.role = mock_role
+        expected = StdioMCPProbeResult(
+            success=True,
+            message="Connected successfully — 0 tools available",
+        )
+
+        with patch(
+            "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as probe_stdio:
+            result = await _resolve_and_probe_stdio_config(
+                preset_svc=preset_svc,
+                integrations_svc=integrations_svc,
+                command="python",
+                args=["-m", "example"],
+                stdio_env=None,
+                mcp_integration_id=uuid.uuid4(),
+                mcp_integration_slug="test-stdio-server",
+            )
+
+        assert result is expected
+        probe_stdio.assert_awaited_once_with(
+            command="python",
+            args=["-m", "example"],
+            env=None,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
         )
 
     @pytest.mark.anyio

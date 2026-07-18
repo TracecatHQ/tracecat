@@ -37,7 +37,7 @@ def test_action_gateway_mounts_internal_routes() -> None:
     app = create_app()
     gateway_routes = _internal_route_keys(app)
 
-    assert api_routes <= gateway_routes
+    assert api_routes.isdisjoint(gateway_routes)
     assert ("/internal/health", "GET") in gateway_routes
     assert not any(
         path.startswith("/internal/capabilities") for path, _ in gateway_routes

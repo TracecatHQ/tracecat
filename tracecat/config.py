@@ -658,11 +658,6 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
 # === Action Gateway === #
-TRACECAT__ACTION_GATEWAY_ENABLED = env_bool(
-    "TRACECAT__ACTION_GATEWAY_ENABLED", default=True
-)
-"""Enable the executor-local action gateway for action SDK calls."""
-
 TRACECAT__ACTION_GATEWAY_SOCKET = (
     os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
     or "/var/run/tracecat/action-gateway.sock"
@@ -752,9 +747,9 @@ TRACECAT__LITELLM_BASE_URL = os.environ.get(
 """Internal base URL for the managed LiteLLM service."""
 
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
-    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
+    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 600.0
 )
-"""Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+"""Read timeout for the LLM socket proxy in seconds (default: 10 minutes)."""
 
 
 TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(

@@ -8,10 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tracecat.agent.mcp.stdio_probe import (
+    MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER,
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
     build_stdio_mcp_probe_workflow_id,
     probe_stdio_mcp_tools_in_sandbox,
     sanitize_stdio_probe_error,
 )
+from tracecat.sandbox.exceptions import SandboxTimeoutError
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 FAKE_MCP_SERVER = '''
 from fastmcp import FastMCP
@@ -204,6 +208,108 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
 
 @pytest.mark.anyio
+async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
+    """The probe can write a structured result before nsjail hard-stops it."""
+    sandbox_result = MagicMock(
+        success=True,
+        output={"tools": []},
+        error=None,
+        stderr="",
+    )
+    executor = MagicMock(execute=AsyncMock(return_value=sandbox_result))
+
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
+            return_value=executor,
+        ),
+    ):
+        await probe_stdio_mcp_tools_in_sandbox(
+            command="python",
+            args=["-m", "example"],
+            env=None,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+        )
+
+    config = executor.execute.await_args.args[1]
+    assert config.resources.cpu_seconds == (
+        MCP_STDIO_PROBE_TIMEOUT_CAP + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
+    )
+    assert config.resources.timeout_seconds == (
+        MCP_STDIO_PROBE_TIMEOUT_CAP + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
+    )
+
+
+@pytest.mark.anyio
+async def test_probe_returns_friendly_structured_timeout() -> None:
+    """The timeout code wins while retaining the sandbox diagnostic error."""
+    executor = MagicMock(
+        execute=AsyncMock(
+            return_value=SandboxResult(
+                success=False,
+                error_code=SandboxErrorCode.TIMEOUT,
+                error="Timed out after 45s while probing stdio MCP server",
+                stderr="",
+            )
+        )
+    )
+
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
+            return_value=executor,
+        ),
+    ):
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command="python",
+            args=["-m", "example"],
+            env=None,
+            timeout=45,
+        )
+
+    assert result.success is False
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 45s while probing stdio MCP server"
+
+
+@pytest.mark.anyio
+async def test_probe_returns_friendly_sandbox_timeout() -> None:
+    """An outer sandbox timeout uses the same actionable user error."""
+    executor = MagicMock(
+        execute=AsyncMock(side_effect=SandboxTimeoutError("internal detail"))
+    )
+
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
+            return_value=executor,
+        ),
+    ):
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command="python",
+            args=["-m", "example"],
+            env=None,
+            timeout=45,
+        )
+
+    assert result.success is False
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 45s while probing stdio MCP server"
+
+
+@pytest.mark.anyio
 async def test_probe_filters_unsupported_stdio_tool_names() -> None:
     """Probe results only persist tool names the runtime can expose."""
     with (
@@ -296,6 +402,33 @@ async def test_pid_fallback_reports_launch_failure(tmp_path: Path) -> None:
     assert result.success is False
     assert result.tools == []
     assert result.error is not None
+
+
+@pytest.mark.anyio
+async def test_pid_fallback_reports_friendly_timeout() -> None:
+    """The real probe script reports a timeout without sandbox diagnostics."""
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.pid_namespace_available",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command=sys.executable,
+            args=["-c", "import time; time.sleep(10)"],
+            env=None,
+            timeout=1,
+        )
+
+    assert result.success is False
+    assert result.message == "Connection to the MCP server timed out"
+    assert result.error == "Timed out after 1s while probing stdio MCP server"
+    assert "USERNS" not in result.error
 
 
 @pytest.mark.anyio

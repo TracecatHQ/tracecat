@@ -53,6 +53,18 @@ from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
+# SSE headers for Vercel AI SDK streaming responses from POST /messages.
+_VERCEL_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Transfer-Encoding": "chunked",
+    "Content-Encoding": "none",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=120",
+    "Pragma": "no-cache",
+    "X-Accel-Buffering": "no",  # Disable nginx buffering
+    "x-vercel-ai-ui-message-stream": "v1",
+}
+
 
 def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | None:
     """Stable assistant-bubble id for a turn, if the turn is known.
@@ -476,30 +488,53 @@ async def send_message(
                 agent_session=agent_session,
             )
 
+            is_first_prompt: bool | None = None
             if isinstance(request, ContinueRunRequest):
-                # Continuations resume the same workflow + per-turn stream. Reuse
-                # the existing stream id and follow only newly appended events;
-                # resuming from "0-0" would replay the approval request the active
-                # client already rendered before clicking approve/deny.
-                stream_id = agent_session.active_stream_id
+                turn_response = await svc.run_turn(
+                    session_id=session_id,
+                    request=request,
+                    active_stream_id=None,
+                )
+                rotated_stream_id = (
+                    turn_response.active_stream_id
+                    if turn_response is not None
+                    else None
+                )
+
+                run_id = (
+                    turn_response.curr_run_id
+                    if turn_response is not None
+                    else agent_session.curr_run_id
+                )
+                message_id = _bubble_id(session_id, run_id)
+
+                if rotated_stream_id is None:
+                    logger.info(
+                        "No-op continuation; returning finished stream",
+                        session_id=session_id,
+                    )
+                    return StreamingResponse(
+                        AgentStream.finished_sse(
+                            format="vercel", message_id=message_id
+                        ),
+                        media_type="text/event-stream",
+                        headers=_VERCEL_SSE_HEADERS,
+                    )
+
                 stream = await AgentStream.new(
                     session_id=session_id,
                     workspace_id=workspace_id,
-                    stream_id=stream_id,
+                    stream_id=rotated_stream_id,
                 )
-                start_id = "$"
             else:
-                # Mint the per-turn stream id at the HTTP layer (turn start) so the
-                # seed artifact and the worker producer both write to the same
-                # fresh per-turn key. No reset/reuse of a prior turn's buffer.
                 stream_id = uuid.uuid4()
                 stream = await AgentStream.new(
                     session_id=session_id,
                     workspace_id=workspace_id,
                     stream_id=stream_id,
                 )
-                start_id = "0-0"
-                if await svc.should_seed_initial_artifact(agent_session) and (
+                is_first_prompt = await svc.is_first_prompt_for_session(session_id)
+                if is_first_prompt and (
                     artifact := await svc.build_initial_artifact(agent_session)
                 ):
                     await svc.apply_artifact_side_effects(
@@ -508,19 +543,14 @@ async def send_message(
                     )
                     await stream.append(artifact_stream_event("upsert", artifact))
 
-            # Run session turn (spawns DurableAgentWorkflow)
-            try:
-                turn_response = await svc.run_turn(
-                    session_id=session_id,
-                    request=request,
-                    active_stream_id=stream_id,
-                )
-            except Exception as turn_exc:
-                if not isinstance(request, ContinueRunRequest):
-                    # Startup failed after we minted the stream: surface a terminal
-                    # frame so reconnecting clients don't hang, and clear pointers.
-                    # Non-continue turns always mint a fresh per-turn stream id.
-                    assert stream_id is not None
+                try:
+                    turn_response = await svc.run_turn(
+                        session_id=session_id,
+                        request=request,
+                        active_stream_id=stream_id,
+                        is_first_prompt=is_first_prompt,
+                    )
+                except Exception as turn_exc:
                     logger.warning(
                         "Failed to start agent turn",
                         session_id=session_id,
@@ -540,44 +570,30 @@ async def send_message(
                             session_id=session_id,
                             error=str(rollback_exc),
                         )
-                raise
+                    raise
 
-            # Build a bubble id stable for this turn. Prefer the run id returned by
-            # run_turn (new turns) — terminal cleanup may already have nulled the
-            # session row on a fast turn. Continuations return None and reuse the
-            # in-progress run id still pinned on the session row.
-            if turn_response is not None and turn_response.curr_run_id is not None:
-                run_id = turn_response.curr_run_id
-            else:
-                refreshed = await svc.get_session(session_id)
-                run_id = refreshed.curr_run_id if refreshed else None
-            message_id = _bubble_id(session_id, run_id)
+                if turn_response is None:
+                    raise RuntimeError(
+                        "New agent turn completed without a stream response"
+                    )
+                message_id = _bubble_id(session_id, turn_response.curr_run_id)
 
         logger.info(
             "Starting Vercel streaming session",
             session_id=session_id,
-            start_id=start_id,
+            start_id="0-0",
         )
 
         # Create stream and return with Vercel format
         return StreamingResponse(
             stream.sse(
                 http_request.is_disconnected,
-                last_id=start_id,
+                last_id="0-0",
                 format="vercel",
                 message_id=message_id,
             ),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "Transfer-Encoding": "chunked",
-                "Content-Encoding": "none",
-                "Connection": "keep-alive",
-                "Keep-Alive": "timeout=120",
-                "Pragma": "no-cache",
-                "X-Accel-Buffering": "no",  # Disable nginx buffering
-                "x-vercel-ai-ui-message-stream": "v1",
-            },
+            headers=_VERCEL_SSE_HEADERS,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -675,27 +691,23 @@ async def stream_session_events(
             role=role,
             agent_session=agent_session,
         )
-        active_stream_id = agent_session.active_stream_id
-        lifecycle, curr_run_id = await svc.get_turn_lifecycle(agent_session)
+        stream_state = await svc.get_stream_resume_state(agent_session)
 
-    message_id = _bubble_id(session_id, curr_run_id)
+    message_id = _bubble_id(session_id, stream_state.curr_run_id)
 
     # FAILED | TERMINATED (incl. failed-to-start) | CANCELLED: the workflow will
     # not produce a terminal frame, so emit one ourselves and let the client
     # refetch DB history.
-    if lifecycle in (TurnLifecycle.FAILED, TurnLifecycle.CANCELLED):
-        finished = await AgentStream.new(
-            session_id=session_id, workspace_id=workspace_id, stream_id=active_stream_id
-        )
+    if stream_state.lifecycle in (TurnLifecycle.FAILED, TurnLifecycle.CANCELLED):
         return StreamingResponse(
-            finished.finished_sse(format=format, message_id=message_id),
+            AgentStream.finished_sse(format=format, message_id=message_id),
             media_type="text/event-stream",
             headers=headers,
         )
 
     # No live run, or the run is already COMPLETED: nothing to attach to. The
     # canonical assistant message is in DB history; the client refetches.
-    if lifecycle is not TurnLifecycle.RUNNING:
+    if not stream_state.has_live_stream:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # RUNNING: join the per-turn Redis stream and always replay the whole active
@@ -706,7 +718,9 @@ async def stream_session_events(
     # (Cursor/frame-precise resume is intentionally not used here; revisit if we
     # reconcile committed partial rows with the live stream id.)
     stream = await AgentStream.new(
-        session_id=session_id, workspace_id=workspace_id, stream_id=active_stream_id
+        session_id=session_id,
+        workspace_id=workspace_id,
+        stream_id=stream_state.active_stream_id,
     )
     start_id = "0-0"
     resume_from: str | None = None

@@ -5,11 +5,12 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
+import orjson
 import pytest
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.stream.events import StreamDelta, StreamEnd
+from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamKeepAlive
 from tracecat.chat import tokens
 from tracecat.redis.client import RedisClient
 
@@ -74,6 +75,93 @@ async def test_min_entry_id_returns_oldest_or_none() -> None:
 
     client.xrange = AsyncMock(return_value=[])
     assert await stream.min_entry_id() is None
+
+
+@pytest.mark.anyio
+async def test_approval_continuation_marker_tracks_open_stream() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    previous_stream_id = uuid.uuid4()
+    marker = {
+        tokens.DATA_KEY: orjson.dumps(
+            {
+                "kind": "approval-continuation-start",
+                "submission_key": "approval-key",
+                "previous_stream_id": str(previous_stream_id),
+            }
+        )
+    }
+    client = SimpleNamespace(
+        xadd=AsyncMock(return_value="1-0"),
+        xrange=AsyncMock(return_value=[("1-0", marker)]),
+        xrevrange=AsyncMock(return_value=[("1-0", marker)]),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    await stream.mark_approval_continuation(
+        submission_key="approval-key",
+        previous_stream_id=previous_stream_id,
+    )
+
+    assert await stream.is_open_approval_continuation() is True
+    parsed_marker = await stream.approval_continuation_marker()
+    assert parsed_marker is not None
+    assert parsed_marker.previous_stream_id == previous_stream_id
+    assert parsed_marker.submission_key == "approval-key"
+    client.xadd.assert_awaited_once()
+    written_marker = orjson.loads(client.xadd.await_args.args[1][tokens.DATA_KEY])
+    assert written_marker == {
+        "kind": "approval-continuation-start",
+        "submission_key": "approval-key",
+        "previous_stream_id": str(previous_stream_id),
+    }
+
+    client.xrevrange = AsyncMock(
+        return_value=[("2-0", {tokens.DATA_KEY: b'{"[TURN_END]":1}'})]
+    )
+    assert await stream.is_open_approval_continuation() is False
+
+
+@pytest.mark.anyio
+async def test_stream_events_consumes_approval_continuation_marker() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace(
+        xread=AsyncMock(
+            return_value=[
+                (
+                    f"agent-stream:{workspace_id}:{session_id}",
+                    [
+                        (
+                            "1-0",
+                            {
+                                tokens.DATA_KEY: b'{"kind":"approval-continuation-start"}'
+                            },
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    assert len(events) == 1
+    assert isinstance(events[0], StreamKeepAlive)
 
 
 @pytest.mark.anyio

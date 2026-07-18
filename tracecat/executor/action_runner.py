@@ -314,12 +314,9 @@ class ActionRunner:
             sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             action_gateway_socket = action_gateway_socket_path()
-            if action_gateway_socket is not None:
-                sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
-                    ACTION_GATEWAY_SANDBOX_SOCKET
-                )
-            else:
-                sandbox_env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
+            sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
+                ACTION_GATEWAY_SANDBOX_SOCKET
+            )
 
             # Mint an executor token for SDK calls
             if role.workspace_id is None:
@@ -439,10 +436,7 @@ class ActionRunner:
             env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
-            if socket_path := action_gateway_socket_path():
-                env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(socket_path)
-            else:
-                env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
+            env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(action_gateway_socket_path())
 
         # Build PYTHONPATH with multiple registry paths (deterministic order)
         pythonpath_parts = [str(p) for p in registry_paths if p.exists()]

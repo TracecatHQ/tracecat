@@ -129,12 +129,15 @@ const integration: IntegrationRead = {
   is_expired: false,
 }
 
-function setupMocks(grantType: OAuthGrantType) {
+function setupMocks(
+  grantType: OAuthGrantType,
+  integrationOverrides: Partial<IntegrationRead> = {}
+) {
   mockUseIntegrationProvider.mockReturnValue({
     provider: { ...provider, grant_type: grantType },
     providerIsLoading: false,
     providerError: null,
-    integration,
+    integration: { ...integration, ...integrationOverrides },
     integrationIsLoading: false,
     integrationError: null,
   } as unknown as ReturnType<typeof useIntegrationProvider>)
@@ -156,8 +159,11 @@ function setupMocks(grantType: OAuthGrantType) {
   )
 }
 
-function renderDialog(grantType: OAuthGrantType) {
-  setupMocks(grantType)
+function renderDialog(
+  grantType: OAuthGrantType,
+  integrationOverrides: Partial<IntegrationRead> = {}
+) {
+  setupMocks(grantType, integrationOverrides)
 
   render(
     <OAuthIntegrationDetailsDialog
@@ -190,4 +196,25 @@ describe("OAuthIntegrationDetailsDialog", () => {
       screen.queryByRole("button", { name: /reauthorize/i })
     ).not.toBeInTheDocument()
   })
+
+  it.each<OAuthGrantType>(["authorization_code", "client_credentials"])(
+    "uses grant-type-neutral recovery guidance for %s providers",
+    (grantType) => {
+      renderDialog(grantType, {
+        status: "reauth_required",
+        is_expired: true,
+      })
+
+      expect(
+        screen.getByText(
+          "The access token expired. Reconnect to restore this integration."
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          "The access token expired and no refresh token is available. Reauthorize to restore this integration."
+        )
+      ).not.toBeInTheDocument()
+    }
+  )
 })

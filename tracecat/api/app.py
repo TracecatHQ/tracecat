@@ -34,16 +34,11 @@ from tracecat.agent.channels.management_router import (
 )
 from tracecat.agent.channels.router import router as agent_channels_router
 from tracecat.agent.folders.router import router as agent_folders_router
-from tracecat.agent.internal_router import router as internal_agent_router
-from tracecat.agent.preset.internal_router import (
-    router as internal_agent_preset_router,
-)
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.provider.router import router as agent_custom_provider_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
-from tracecat.agent.skill.internal_router import router as internal_agent_skill_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.agent.tags.definitions_router import (
     router as agent_tag_definitions_router,
@@ -82,32 +77,16 @@ from tracecat.authz.rbac.router import (
 )
 from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.authz.seeding import seed_all_system_data
-from tracecat.cases.attachments.internal_router import (
-    router as internal_case_attachments_router,
-)
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
 from tracecat.cases.durations.router import router as case_durations_router
-from tracecat.cases.internal_router import (
-    comments_router as internal_comments_router,
-)
-from tracecat.cases.internal_router import (
-    router as internal_cases_router,
-)
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
-from tracecat.cases.rows.internal_router import (
-    router as internal_case_rows_router,
-)
 from tracecat.cases.rows.router import router as case_rows_router
-from tracecat.cases.tag_definitions.internal_router import (
-    router as internal_case_tag_definitions_router,
-)
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
 )
-from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
@@ -117,9 +96,6 @@ from tracecat.db.engine import (
 )
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
-from tracecat.deduplicate.internal_router import (
-    router as internal_deduplicate_router,
-)
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
@@ -166,17 +142,12 @@ from tracecat.storage.blob import (
     configure_bucket_lifecycle,
     ensure_bucket_exists,
 )
-from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
-from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
-from tracecat.workflow.executions.internal_router import (
-    router as internal_workflows_router,
-)
 from tracecat.workflow.executions.router import (
     router as workflow_executions_router,
 )
@@ -599,21 +570,6 @@ def create_app(**kwargs) -> FastAPI:
         tags=["users"],
         dependencies=[Depends(authenticated_user_only)],
     )
-    # Internal routers
-    app.include_router(internal_agent_router)
-    app.include_router(internal_agent_preset_router)
-    app.include_router(internal_agent_skill_router)
-    app.include_router(internal_case_attachments_router)
-    app.include_router(internal_cases_router)
-    app.include_router(internal_deduplicate_router)
-    app.include_router(internal_case_rows_router)
-    app.include_router(internal_comments_router)
-    app.include_router(internal_case_tags_router)
-    app.include_router(internal_case_tag_definitions_router)
-    app.include_router(internal_tables_router)
-    app.include_router(internal_variables_router)
-    app.include_router(internal_workflows_router)
-
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),

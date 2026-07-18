@@ -334,17 +334,14 @@ class WorkerPool:
         work_dir: Path,
         socket_path: Path,
         env: dict[str, str],
-        action_gateway_socket: Path | None,
+        action_gateway_socket: Path,
     ) -> asyncio.subprocess.Process:
         """Spawn worker as direct subprocess (no nsjail sandbox)."""
         import sys
 
         # Socket path is the actual host path
         env["TRACECAT_WORKER_SOCKET"] = str(socket_path)
-        if action_gateway_socket is not None:
-            env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(action_gateway_socket)
-        else:
-            env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
+        env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(action_gateway_socket)
 
         cmd = [
             sys.executable,
@@ -369,15 +366,12 @@ class WorkerPool:
         work_dir: Path,
         socket_path: Path,
         env: dict[str, str],
-        action_gateway_socket: Path | None,
+        action_gateway_socket: Path,
     ) -> asyncio.subprocess.Process:
         """Spawn worker inside nsjail sandbox."""
         # Socket path inside sandbox
         env["TRACECAT_WORKER_SOCKET"] = "/work/task.sock"
-        if action_gateway_socket is not None:
-            env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(ACTION_GATEWAY_SANDBOX_SOCKET)
-        else:
-            env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
+        env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(ACTION_GATEWAY_SANDBOX_SOCKET)
 
         # Build nsjail config
         nsjail_config = self._build_nsjail_config(
@@ -413,11 +407,8 @@ class WorkerPool:
             "TRACECAT_WORKER_ID",
             "--env",
             "TRACECAT_WORKER_SOCKET",
-            *(
-                ["--env", "TRACECAT__ACTION_GATEWAY_SOCKET"]
-                if "TRACECAT__ACTION_GATEWAY_SOCKET" in env
-                else []
-            ),
+            "--env",
+            "TRACECAT__ACTION_GATEWAY_SOCKET",
             # Set PYTHONPATH explicitly for the sandbox Python
             "--env",
             f"PYTHONPATH={pythonpath}",
