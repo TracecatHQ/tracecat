@@ -20,6 +20,7 @@ from tracecat.executor.action_gateway.capabilities import (
     GATEWAY_CAPABILITIES,
     GATEWAY_DENIED_ROUTES,
     GATEWAY_EXEMPT_ROUTES,
+    GatewayActionRequirement,
     GatewayCapability,
     GatewayRouteKey,
     _agent_gateway_action_allowed,
@@ -168,13 +169,13 @@ def test_agent_gateway_grant_is_upper_bound_of_caller_scopes() -> None:
     caller_with_only_a = superuser.model_copy(
         update={"scopes": frozenset({"action:action.a:execute"})}
     )
+    action_a = GatewayActionRequirement(any_of=frozenset({"action.a"}))
+    action_b = GatewayActionRequirement(any_of=frozenset({"action.b"}))
 
-    assert _agent_gateway_action_allowed(superuser, frozenset({"action.a"}))
-    assert _agent_gateway_action_allowed(superuser, frozenset({"action.b"}))
-    assert _agent_gateway_action_allowed(caller_with_only_a, frozenset({"action.a"}))
-    assert not _agent_gateway_action_allowed(
-        caller_with_only_a, frozenset({"action.b"})
-    )
+    assert _agent_gateway_action_allowed(superuser, action_a)
+    assert _agent_gateway_action_allowed(superuser, action_b)
+    assert _agent_gateway_action_allowed(caller_with_only_a, action_a)
+    assert not _agent_gateway_action_allowed(caller_with_only_a, action_b)
 
 
 def test_agent_run_python_allows_configured_gateway_action(

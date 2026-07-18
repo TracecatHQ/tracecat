@@ -39,7 +39,6 @@ from tracecat.auth.executor_tokens import ExecutorTokenPayload, verify_executor_
 from tracecat.authz.controls import has_scope
 from tracecat.dsl.enums import PlatformAction
 
-GatewayActionResolver = Callable[[Request], Awaitable[frozenset[str]]]
 GatewayMethod = Literal["DELETE", "GET", "PATCH", "POST"]
 
 
@@ -48,6 +47,22 @@ class GatewayRouteKey(NamedTuple):
 
     method: GatewayMethod
     path: str
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayActionRequirement:
+    """Alternative base actions plus any cumulative action requirements."""
+
+    any_of: frozenset[str]
+    all_of: frozenset[str] = frozenset()
+
+    @property
+    def actions(self) -> frozenset[str]:
+        """Return every action referenced by this requirement."""
+        return self.any_of | self.all_of
+
+
+GatewayActionResolver = Callable[[Request], Awaitable[GatewayActionRequirement]]
 
 
 def gateway_route_key(method: str, path: str) -> GatewayRouteKey | None:
@@ -94,38 +109,68 @@ async def _request_json_object(request: Request) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-async def _resolve_run_agent_action(request: Request) -> frozenset[str]:
+async def _resolve_run_agent_action(request: Request) -> GatewayActionRequirement:
     """Distinguish an ad-hoc Agent configuration from a stored preset run."""
     payload = await _request_json_object(request)
     if payload.get("preset_slug"):
-        return frozenset({"ai.preset_agent"})
-    return frozenset({"ai.agent"})
+        return GatewayActionRequirement(any_of=frozenset({"ai.preset_agent"}))
+    return GatewayActionRequirement(any_of=frozenset({"ai.agent"}))
 
 
-async def _resolve_get_case_action(request: Request) -> frozenset[str]:
+async def _resolve_get_case_action(request: Request) -> GatewayActionRequirement:
     """Treat linked rows as a separate capability from base case details."""
     include_rows = request.query_params.get("include_rows")
     if include_rows is None or include_rows.lower() in {"false", "0", "off", "no"}:
-        return frozenset({"core.cases.get_case"})
-    return frozenset({"core.cases.get_linked_case_rows"})
+        return GatewayActionRequirement(any_of=frozenset({"core.cases.get_case"}))
+    return GatewayActionRequirement(
+        any_of=frozenset({"core.cases.get_linked_case_rows"})
+    )
 
 
-async def _resolve_create_comment_action(request: Request) -> frozenset[str]:
+def _case_collection_requirement(
+    request: Request, base_action: str
+) -> GatewayActionRequirement:
+    """Require linked-row access in addition to the collection operation."""
+    include_rows = request.query_params.get("include_rows")
+    all_of = (
+        frozenset({"core.cases.get_linked_case_rows"})
+        if include_rows is not None
+        and include_rows.lower() not in {"false", "0", "off", "no"}
+        else frozenset()
+    )
+    return GatewayActionRequirement(any_of=frozenset({base_action}), all_of=all_of)
+
+
+async def _resolve_list_cases_action(request: Request) -> GatewayActionRequirement:
+    """Bound optional list hydration by the linked-row action grant."""
+    return _case_collection_requirement(request, "core.cases.list_cases")
+
+
+async def _resolve_search_cases_action(request: Request) -> GatewayActionRequirement:
+    """Bound optional search hydration by the linked-row action grant."""
+    return _case_collection_requirement(request, "core.cases.search_cases")
+
+
+async def _resolve_create_comment_action(request: Request) -> GatewayActionRequirement:
     """Require the general comment capability for top-level comments."""
     payload = await _request_json_object(request)
     if payload.get("parent_id") is None:
-        return frozenset({"core.cases.create_comment"})
+        return GatewayActionRequirement(any_of=frozenset({"core.cases.create_comment"}))
     # The general create action also accepts a parent ID, so either configured
     # action legitimately represents a reply.
-    return frozenset({"core.cases.create_comment", "core.cases.reply_to_comment"})
+    return GatewayActionRequirement(
+        any_of=frozenset({"core.cases.create_comment", "core.cases.reply_to_comment"})
+    )
 
 
-async def _resolve_table_lookup_action(request: Request) -> frozenset[str]:
+async def _resolve_table_lookup_action(request: Request) -> GatewayActionRequirement:
     """Prevent a single-row lookup grant from expanding to an arbitrary batch."""
     payload = await _request_json_object(request)
     if payload.get("limit") == 1:
-        return frozenset({"core.table.lookup", "core.table.lookup_many"})
-    return frozenset({"core.table.lookup_many"})
+        return GatewayActionRequirement(
+            any_of=frozenset({"core.table.lookup", "core.table.lookup_many"})
+        )
+    return GatewayActionRequirement(any_of=frozenset({"core.table.lookup_many"}))
 
 
 # Values identify registry actions whose implementation legitimately reaches the
@@ -206,9 +251,17 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
         "/internal/agent/skills/{skill_id}",
         frozenset({"ai.skill.archive_skill"}),
     ),
-    GatewayCapability("GET", "/internal/cases", frozenset({"core.cases.list_cases"})),
     GatewayCapability(
-        "GET", "/internal/cases/search", frozenset({"core.cases.search_cases"})
+        "GET",
+        "/internal/cases",
+        frozenset({"core.cases.list_cases", "core.cases.get_linked_case_rows"}),
+        resolver=_resolve_list_cases_action,
+    ),
+    GatewayCapability(
+        "GET",
+        "/internal/cases/search",
+        frozenset({"core.cases.search_cases", "core.cases.get_linked_case_rows"}),
+        resolver=_resolve_search_cases_action,
     ),
     GatewayCapability(
         "GET",
@@ -550,42 +603,42 @@ def _request_route_key(request: Request) -> GatewayRouteKey | None:
 async def resolve_gateway_actions(
     request: Request,
     route_key: GatewayRouteKey,
-) -> frozenset[str] | None:
+) -> GatewayActionRequirement | None:
     """Resolve the concrete registry operation represented by this request."""
     capability = GATEWAY_CAPABILITIES.get(route_key)
     if capability is None:
         return None
     if capability.resolver is None:
-        return capability.actions
+        return GatewayActionRequirement(any_of=capability.actions)
 
-    resolved_actions = await capability.resolver(request)
-    if not resolved_actions <= capability.actions:
+    requirement = await capability.resolver(request)
+    if not requirement.actions <= capability.actions:
         return None
-    return resolved_actions
+    return requirement
 
 
 def _agent_gateway_action_allowed(
     claims: ExecutorTokenPayload,
-    required_actions: frozenset[str] | None,
+    requirement: GatewayActionRequirement | None,
 ) -> bool:
-    """Require one concrete action to pass both authorization bounds.
+    """Require each action constraint to pass both authorization bounds.
 
-    ``required_actions`` is a set of equivalent candidates for one concrete
-    endpoint operation. It is not a set of cumulative permissions: one action
-    must be present in the signed Agent grant *and* allowed by the signed caller
-    Role scopes.
+    ``any_of`` contains equivalent candidates for the concrete endpoint operation;
+    one must pass. Every action in ``all_of`` must also pass when request parameters
+    cross an additional privilege boundary.
     """
-    if (
-        claims.scopes is None
-        or claims.allowed_actions is None
-        or required_actions is None
-    ):
+    scopes = claims.scopes
+    allowed_actions = claims.allowed_actions
+    if scopes is None or allowed_actions is None or requirement is None:
         return False
 
-    return any(
-        action in claims.allowed_actions
-        and has_scope(claims.scopes, f"action:{action}:execute")
-        for action in required_actions
+    def action_allowed(action: str) -> bool:
+        return action in allowed_actions and has_scope(
+            scopes, f"action:{action}:execute"
+        )
+
+    return any(action_allowed(action) for action in requirement.any_of) and all(
+        action_allowed(action) for action in requirement.all_of
     )
 
 
@@ -618,16 +671,17 @@ async def enforce_agent_action_capability(request: Request) -> None:
     ):
         return
 
-    required_actions = (
+    requirement = (
         await resolve_gateway_actions(request, route_key)
         if route_key is not None
         else None
     )
-    if _agent_gateway_action_allowed(claims, required_actions):
+    if _agent_gateway_action_allowed(claims, requirement):
         return
 
     required_scopes = [
-        f"action:{action}:execute" for action in sorted(required_actions or ())
+        f"action:{action}:execute"
+        for action in sorted(requirement.actions if requirement is not None else ())
     ]
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
