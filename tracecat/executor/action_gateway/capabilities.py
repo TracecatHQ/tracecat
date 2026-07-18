@@ -62,7 +62,7 @@ class GatewayActionRequirement:
         return self.any_of | self.all_of
 
 
-GatewayActionResolver = Callable[[Request], Awaitable[GatewayActionRequirement]]
+GatewayActionResolver = Callable[[Request], Awaitable[GatewayActionRequirement | None]]
 
 
 def gateway_route_key(method: str, path: str) -> GatewayRouteKey | None:
@@ -109,12 +109,39 @@ async def _request_json_object(request: Request) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-async def _resolve_run_agent_action(request: Request) -> GatewayActionRequirement:
-    """Distinguish an ad-hoc Agent configuration from a stored preset run."""
+async def _resolve_run_agent_action(
+    request: Request,
+) -> GatewayActionRequirement | None:
+    """Bound a child Agent run by the parent execution grant.
+
+    A stored preset's toolset is trusted server-side configuration, so the
+    ``ai.preset_agent`` grant alone covers it. An ad-hoc configuration is
+    attacker-writable from ``run_python``: every requested child action must
+    itself be granted, and raw MCP server configs are denied because no
+    registry-action grant can represent external tools (the ``ai.agent``
+    action only exposes saved workspace MCP integrations).
+    """
     payload = await _request_json_object(request)
     if payload.get("preset_slug"):
         return GatewayActionRequirement(any_of=frozenset({"ai.preset_agent"}))
-    return GatewayActionRequirement(any_of=frozenset({"ai.agent"}))
+
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        # The endpoint rejects config-less ad-hoc runs; nothing extra to grant.
+        return GatewayActionRequirement(any_of=frozenset({"ai.agent"}))
+    if config.get("mcp_servers"):
+        return None
+
+    actions = config.get("actions")
+    if actions is None:
+        return GatewayActionRequirement(any_of=frozenset({"ai.agent"}))
+    if not isinstance(actions, list) or not all(
+        isinstance(action, str) for action in actions
+    ):
+        return None
+    return GatewayActionRequirement(
+        any_of=frozenset({"ai.agent"}), all_of=frozenset(actions)
+    )
 
 
 async def _resolve_get_case_action(request: Request) -> GatewayActionRequirement:
@@ -624,7 +651,12 @@ async def resolve_gateway_actions(
         return GatewayActionRequirement(any_of=capability.actions)
 
     requirement = await capability.resolver(request)
-    if not requirement.actions <= capability.actions:
+    if requirement is None:
+        return None
+    # ``any_of`` alternatives must stay within the declared capability set.
+    # ``all_of`` may reference arbitrary request-selected actions: each one
+    # only adds a constraint, so a resolver can never expand access with it.
+    if not requirement.any_of <= capability.actions:
         return None
     return requirement
 

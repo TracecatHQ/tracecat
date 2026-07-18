@@ -100,6 +100,55 @@ async def test_capability_resolver_cannot_expand_declared_actions(
 
 
 @pytest.mark.anyio
+async def test_capability_resolver_may_add_restrictive_all_of_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``all_of`` may reference actions outside the declared set: it only narrows."""
+    route_key = GatewayRouteKey("POST", "/internal/test")
+
+    async def resolver(_request: Request) -> GatewayActionRequirement:
+        return _requirement("action.a", all_of=("action.b",))
+
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        route_key,
+        GatewayCapability(
+            method="POST",
+            path="/internal/test",
+            actions=frozenset({"action.a"}),
+            resolver=resolver,
+        ),
+    )
+
+    resolved = await resolve_gateway_actions(_json_request({}), route_key)
+    assert resolved == _requirement("action.a", all_of=("action.b",))
+
+
+@pytest.mark.anyio
+async def test_capability_resolver_can_deny(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resolver returning ``None`` fails closed."""
+    route_key = GatewayRouteKey("POST", "/internal/test")
+
+    async def resolver(_request: Request) -> GatewayActionRequirement | None:
+        return None
+
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        route_key,
+        GatewayCapability(
+            method="POST",
+            path="/internal/test",
+            actions=frozenset({"action.a"}),
+            resolver=resolver,
+        ),
+    )
+
+    assert await resolve_gateway_actions(_json_request({}), route_key) is None
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("query_string", "expected_actions", "allowed"),
     [
@@ -416,6 +465,136 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("config", "expected_actions", "allowed"),
+    [
+        pytest.param(
+            {"actions": ["core.cases.get_case"]},
+            _requirement("ai.agent", all_of=("core.cases.get_case",)),
+            True,
+            id="child-actions-within-grant",
+        ),
+        pytest.param(
+            {"actions": ["core.cases.get_case", "core.cases.delete_case"]},
+            _requirement(
+                "ai.agent",
+                all_of=("core.cases.get_case", "core.cases.delete_case"),
+            ),
+            False,
+            id="child-action-outside-grant",
+        ),
+        pytest.param(
+            {"actions": []},
+            _requirement("ai.agent"),
+            True,
+            id="empty-actions-outer-only",
+        ),
+        pytest.param(
+            {"model_name": "gpt", "model_provider": "openai"},
+            _requirement("ai.agent"),
+            True,
+            id="absent-actions-outer-only",
+        ),
+        pytest.param(
+            {"actions": ["core.cases.get_case"], "namespaces": ["core.cases"]},
+            _requirement("ai.agent", all_of=("core.cases.get_case",)),
+            True,
+            id="namespaces-only-narrow",
+        ),
+        pytest.param(
+            {"actions": ["core.cases.get_case"], "mcp_servers": [{"url": "x"}]},
+            None,
+            False,
+            id="raw-http-mcp-denied",
+        ),
+        pytest.param(
+            {"actions": "core.cases.get_case"},
+            None,
+            False,
+            id="malformed-actions-string",
+        ),
+        pytest.param(
+            {"actions": {"core.cases.get_case": True}},
+            None,
+            False,
+            id="malformed-actions-dict",
+        ),
+        pytest.param(
+            {"actions": ["core.cases.get_case", 1]},
+            None,
+            False,
+            id="malformed-actions-mixed-list",
+        ),
+    ],
+)
+async def test_ad_hoc_child_agent_actions_are_bounded_by_parent_grant(
+    config: dict[str, Any],
+    expected_actions: GatewayActionRequirement | None,
+    allowed: bool,
+) -> None:
+    """A run_python script cannot grant a child agent actions the parent lacks."""
+    claims = _claims("ai.agent", "core.cases.get_case")
+    request = _json_request({"config": config, "user_prompt": "hello"})
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/agent/run"),
+    )
+
+    assert required_actions == expected_actions
+    assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+async def test_child_agent_action_needs_caller_scope_not_just_grant() -> None:
+    """A granted child action still fails without the caller's execute scope."""
+    claims = ExecutorTokenPayload(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset({"action:ai.agent:execute"}),
+        allowed_actions=frozenset(
+            {"core.script.run_python", "ai.agent", "core.cases.get_case"}
+        ),
+        action="core.script.run_python",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+    request = _json_request(
+        {"config": {"actions": ["core.cases.get_case"]}, "user_prompt": "hello"}
+    )
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/agent/run"),
+    )
+
+    assert required_actions == _requirement("ai.agent", all_of=("core.cases.get_case",))
+    assert not _agent_gateway_action_allowed(claims, required_actions)
+
+
+@pytest.mark.anyio
+async def test_preset_run_ignores_hostile_ad_hoc_config() -> None:
+    """A preset run resolves to ai.preset_agent regardless of a hostile config."""
+    request = _json_request(
+        {
+            "preset_slug": "example",
+            "config": {
+                "actions": ["core.cases.delete_case"],
+                "mcp_servers": [{"url": "x"}],
+            },
+            "user_prompt": "hello",
+        }
+    )
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/agent/run"),
+    )
+
+    assert required_actions == _requirement("ai.preset_agent")
 
 
 @pytest.mark.anyio
