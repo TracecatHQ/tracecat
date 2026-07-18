@@ -9,6 +9,14 @@ definition:
   doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.findings/list
   namespace: tools.google_scc
   name: list_findings
+  secrets:
+    - type: oauth
+      provider_id: google
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional: true
   expects:
     scope:
       type: str

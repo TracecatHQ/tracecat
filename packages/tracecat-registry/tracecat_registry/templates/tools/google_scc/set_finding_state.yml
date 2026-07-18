@@ -6,6 +6,14 @@ definition:
   doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.findings/setState
   namespace: tools.google_scc
   name: set_finding_state
+  secrets:
+    - type: oauth
+      provider_id: google
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional: true
   expects:
     finding_name:
       type: str
