@@ -568,10 +568,14 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
     GatewayCapability(
         "POST", "/internal/workflows/run", frozenset({"core.workflow.run"})
     ),
+    # ``core.workflow.execute`` is intentionally not an alternative grant here:
+    # the endpoint reads any workspace execution by ID, and the gateway cannot
+    # bound an execute-only script to the executions it started itself. Scripts
+    # using ``wait_strategy="wait"`` need ``core.workflow.get_status`` granted.
     GatewayCapability(
         "GET",
         "/internal/workflows/executions/{execution_id:path}",
-        frozenset({"core.workflow.execute", "core.workflow.get_status"}),
+        frozenset({"core.workflow.get_status"}),
     ),
 )
 

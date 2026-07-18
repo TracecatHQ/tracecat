@@ -361,7 +361,7 @@ async def test_comment_grant_is_bounded_by_parent_id(
 )
 async def test_single_row_lookup_grant_is_bounded_by_limit(
     limit: int | None,
-    expected_actions: frozenset[str],
+    expected_actions: GatewayActionRequirement,
     allowed: bool,
 ) -> None:
     claims = _claims("core.table.lookup")
@@ -403,7 +403,7 @@ async def test_single_row_lookup_grant_is_bounded_by_limit(
 )
 async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
     payload: dict[str, Any],
-    expected_actions: frozenset[str],
+    expected_actions: GatewayActionRequirement,
     allowed: bool,
 ) -> None:
     claims = _claims("ai.agent")
@@ -416,6 +416,23 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+async def test_workflow_execution_status_requires_get_status_grant() -> None:
+    """An execute-only grant must not read arbitrary workspace executions."""
+    required_actions = await resolve_gateway_actions(
+        _json_request({}),
+        GatewayRouteKey("GET", "/internal/workflows/executions/{execution_id:path}"),
+    )
+
+    assert required_actions == _requirement("core.workflow.get_status")
+    assert not _agent_gateway_action_allowed(
+        _claims("core.workflow.execute"), required_actions
+    )
+    assert _agent_gateway_action_allowed(
+        _claims("core.workflow.get_status"), required_actions
+    )
 
 
 @pytest.mark.anyio
