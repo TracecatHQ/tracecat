@@ -127,10 +127,10 @@ async def _resolve_get_case_action(request: Request) -> GatewayActionRequirement
     )
 
 
-def _case_collection_requirement(
+def _case_action_requirement(
     request: Request, base_action: str
 ) -> GatewayActionRequirement:
-    """Require linked-row access in addition to the collection operation."""
+    """Require linked-row access in addition to the base case operation."""
     include_rows = request.query_params.get("include_rows")
     all_of = (
         frozenset({"core.cases.get_linked_case_rows"})
@@ -143,12 +143,17 @@ def _case_collection_requirement(
 
 async def _resolve_list_cases_action(request: Request) -> GatewayActionRequirement:
     """Bound optional list hydration by the linked-row action grant."""
-    return _case_collection_requirement(request, "core.cases.list_cases")
+    return _case_action_requirement(request, "core.cases.list_cases")
 
 
 async def _resolve_search_cases_action(request: Request) -> GatewayActionRequirement:
     """Bound optional search hydration by the linked-row action grant."""
-    return _case_collection_requirement(request, "core.cases.search_cases")
+    return _case_action_requirement(request, "core.cases.search_cases")
+
+
+async def _resolve_update_case_action(request: Request) -> GatewayActionRequirement:
+    """Bound optional update-response hydration by the linked-row action grant."""
+    return _case_action_requirement(request, "core.cases.update_case")
 
 
 async def _resolve_create_comment_action(request: Request) -> GatewayActionRequirement:
@@ -274,7 +279,10 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
         "POST", "/internal/cases/simple", frozenset({"core.cases.create_case"})
     ),
     GatewayCapability(
-        "PATCH", "/internal/cases/{case_id}", frozenset({"core.cases.update_case"})
+        "PATCH",
+        "/internal/cases/{case_id}",
+        frozenset({"core.cases.update_case", "core.cases.get_linked_case_rows"}),
+        resolver=_resolve_update_case_action,
     ),
     GatewayCapability(
         "PATCH",

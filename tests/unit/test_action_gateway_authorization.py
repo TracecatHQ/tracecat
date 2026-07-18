@@ -156,6 +156,11 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
             "core.cases.search_cases",
             id="search",
         ),
+        pytest.param(
+            GatewayRouteKey("PATCH", "/internal/cases/{case_id}"),
+            "core.cases.update_case",
+            id="update",
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -185,7 +190,7 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
         ),
     ],
 )
-async def test_case_collection_grant_is_bounded_by_row_hydration(
+async def test_case_action_grant_is_bounded_by_row_hydration(
     route_key: GatewayRouteKey,
     base_action: str,
     query_string: bytes,
@@ -200,7 +205,7 @@ async def test_case_collection_grant_is_bounded_by_row_hydration(
     request = Request(
         {
             "type": "http",
-            "method": "GET",
+            "method": route_key.method,
             "path": route_key.path,
             "query_string": query_string,
             "headers": [],
