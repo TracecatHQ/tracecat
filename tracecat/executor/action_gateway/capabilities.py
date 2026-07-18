@@ -372,7 +372,7 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
     GatewayCapability(
         "GET",
         "/internal/cases/{case_id}/attachments/{attachment_id}",
-        frozenset({"core.cases.get_attachment"}),
+        frozenset({"core.cases.get_attachment_download_url"}),
     ),
     GatewayCapability(
         "GET",

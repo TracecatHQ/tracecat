@@ -144,6 +144,63 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("route_key", "granted_action", "required_action", "allowed"),
+    [
+        pytest.param(
+            GatewayRouteKey(
+                "GET", "/internal/cases/{case_id}/attachments/{attachment_id}"
+            ),
+            "core.cases.get_attachment",
+            "core.cases.get_attachment_download_url",
+            False,
+            id="metadata-grant-cannot-get-download-info",
+        ),
+        pytest.param(
+            GatewayRouteKey(
+                "GET", "/internal/cases/{case_id}/attachments/{attachment_id}"
+            ),
+            "core.cases.get_attachment_download_url",
+            "core.cases.get_attachment_download_url",
+            True,
+            id="download-url-grant-can-get-download-info",
+        ),
+        pytest.param(
+            GatewayRouteKey(
+                "GET",
+                "/internal/cases/{case_id}/attachments/{attachment_id}/metadata",
+            ),
+            "core.cases.get_attachment",
+            "core.cases.get_attachment",
+            True,
+            id="metadata-grant-can-get-metadata",
+        ),
+    ],
+)
+async def test_attachment_grant_separates_metadata_from_download_info(
+    route_key: GatewayRouteKey,
+    granted_action: str,
+    required_action: str,
+    allowed: bool,
+) -> None:
+    claims = _claims(granted_action)
+    request = Request(
+        {
+            "type": "http",
+            "method": route_key.method,
+            "path": route_key.path,
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    requirement = await resolve_gateway_actions(request, route_key)
+
+    assert requirement == _requirement(required_action)
+    assert _agent_gateway_action_allowed(claims, requirement) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("route_key", "base_action"),
     [
         pytest.param(
