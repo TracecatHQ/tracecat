@@ -17,10 +17,14 @@ from tracecat.executor.action_gateway.app import (
     validation_exception_handler,
 )
 from tracecat.executor.action_gateway.capabilities import (
-    GATEWAY_ACTIONS_BY_ENDPOINT,
+    GATEWAY_CAPABILITIES,
+    GATEWAY_DENIED_ROUTES,
+    GATEWAY_EXEMPT_ROUTES,
+    GatewayCapability,
+    GatewayRouteKey,
     _agent_gateway_action_allowed,
-    endpoint_key,
     enforce_agent_action_capability,
+    gateway_route_key,
 )
 
 
@@ -38,6 +42,16 @@ def _internal_route_keys(app: FastAPI) -> set[tuple[str, str]]:
         for route_key in _route_keys(app)
         if route_key[0].startswith("/internal")
     }
+
+
+def _gateway_route_keys(app: FastAPI) -> set[GatewayRouteKey]:
+    keys: set[GatewayRouteKey] = set()
+    for route in iter_effective_api_routes(app):
+        for method in route.methods:
+            key = gateway_route_key(method, route.path)
+            assert key is not None, f"Unsupported Action Gateway method: {method}"
+            keys.add(key)
+    return keys
 
 
 def test_action_gateway_mounts_internal_routes() -> None:
@@ -169,14 +183,18 @@ def test_agent_run_python_allows_configured_gateway_action(
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
 
-    @app.get("/internal/cases")
     async def list_cases() -> dict[str, bool]:
         return {"ok": True}
 
+    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
     monkeypatch.setitem(
-        GATEWAY_ACTIONS_BY_ENDPOINT,
-        endpoint_key(list_cases),
-        frozenset({"core.cases.list_cases"}),
+        GATEWAY_CAPABILITIES,
+        GatewayRouteKey("GET", "/internal/cases"),
+        GatewayCapability(
+            method="GET",
+            path="/internal/cases",
+            actions=frozenset({"core.cases.list_cases"}),
+        ),
     )
 
     token = mint_executor_token(
@@ -197,6 +215,44 @@ def test_agent_run_python_allows_configured_gateway_action(
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_agent_route_capability_does_not_follow_endpoint_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+
+    async def list_cases() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
+    app.add_api_route("/internal/cases", list_cases, methods=["POST"])
+    app.add_api_route("/internal/cases-alias", list_cases, methods=["GET"])
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        GatewayRouteKey("GET", "/internal/cases"),
+        GatewayCapability(
+            method="GET",
+            path="/internal/cases",
+            actions=frozenset({"core.cases.list_cases"}),
+        ),
+    )
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset({"*"}),
+        allowed_actions=frozenset({"core.script.run_python", "core.cases.list_cases"}),
+        action="core.script.run_python",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestClient(app) as client:
+        assert client.get("/internal/cases", headers=headers).status_code == 200
+        assert client.post("/internal/cases", headers=headers).status_code == 403
+        assert client.get("/internal/cases-alias", headers=headers).status_code == 403
 
 
 def test_agent_run_python_denies_unmapped_gateway_route(
@@ -229,12 +285,25 @@ def test_agent_run_python_denies_unmapped_gateway_route(
     assert response.status_code == 403
 
 
-def test_gateway_action_declarations_match_mounted_endpoints() -> None:
+def test_gateway_action_declarations_cover_mounted_routes() -> None:
     app = create_app()
-    effective_endpoints = {
-        endpoint_key(route.endpoint)
-        for route in iter_effective_api_routes(app)
-        if route.endpoint is not None
-    }
+    effective_routes = _gateway_route_keys(app)
+    mapped_routes = GATEWAY_CAPABILITIES.keys()
 
-    assert GATEWAY_ACTIONS_BY_ENDPOINT.keys() <= effective_endpoints
+    assert mapped_routes.isdisjoint(GATEWAY_DENIED_ROUTES)
+    assert mapped_routes.isdisjoint(GATEWAY_EXEMPT_ROUTES)
+    assert GATEWAY_DENIED_ROUTES.isdisjoint(GATEWAY_EXEMPT_ROUTES)
+    assert (
+        mapped_routes | GATEWAY_DENIED_ROUTES | GATEWAY_EXEMPT_ROUTES
+        == effective_routes
+    )
+
+
+def test_all_action_gateway_routes_enforce_agent_capabilities() -> None:
+    app = create_app()
+
+    for route in iter_effective_api_routes(app):
+        dependency_calls = {
+            dependency.call for dependency in route.dependant.dependencies
+        }
+        assert enforce_agent_action_capability in dependency_calls, route.path

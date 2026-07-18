@@ -2,27 +2,19 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import pytest
 from starlette.requests import Request
 
-from tracecat.agent.internal_router import run_agent_endpoint
 from tracecat.auth.executor_tokens import ExecutorTokenPayload
-from tracecat.cases.internal_router import (
-    create_comment,
-    create_comment_simple,
-    get_case,
-)
 from tracecat.executor.action_gateway.capabilities import (
+    GATEWAY_CAPABILITIES,
+    GatewayCapability,
+    GatewayRouteKey,
     _agent_gateway_action_allowed,
+    _index_capabilities,
     resolve_gateway_actions,
-)
-from tracecat.tables.internal_router import lookup_rows
-from tracecat.variables.internal_router import (
-    get_variable_by_name,
-    get_variable_value,
 )
 
 
@@ -66,6 +58,40 @@ def test_agent_run_python_cannot_use_unconfigured_action_as_superuser() -> None:
     )
 
 
+def test_duplicate_capability_declarations_are_rejected() -> None:
+    capability = GatewayCapability(
+        method="GET",
+        path="/internal/test",
+        actions=frozenset({"action.a"}),
+    )
+
+    with pytest.raises(ValueError, match="Duplicate Action Gateway capability"):
+        _index_capabilities((capability, capability))
+
+
+@pytest.mark.anyio
+async def test_capability_resolver_cannot_expand_declared_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    route_key = GatewayRouteKey("POST", "/internal/test")
+
+    async def resolver(_request: Request) -> frozenset[str]:
+        return frozenset({"action.b"})
+
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        route_key,
+        GatewayCapability(
+            method="POST",
+            path="/internal/test",
+            actions=frozenset({"action.a"}),
+            resolver=resolver,
+        ),
+    )
+
+    assert await resolve_gateway_actions(_json_request({}), route_key) is None
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("query_string", "expected_actions", "allowed"),
@@ -100,7 +126,10 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
         }
     )
 
-    required_actions = await resolve_gateway_actions(request, get_case)
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("GET", "/internal/cases/{case_id}"),
+    )
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
@@ -108,10 +137,16 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "endpoint",
+    "route_key",
     [
-        pytest.param(create_comment, id="api-response"),
-        pytest.param(create_comment_simple, id="udf-response"),
+        pytest.param(
+            GatewayRouteKey("POST", "/internal/cases/{case_id}/comments"),
+            id="api-response",
+        ),
+        pytest.param(
+            GatewayRouteKey("POST", "/internal/cases/{case_id}/comments/simple"),
+            id="udf-response",
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -148,7 +183,7 @@ async def test_get_case_grant_is_bounded_by_requested_detail(
     ],
 )
 async def test_comment_grant_is_bounded_by_parent_id(
-    endpoint: Callable[..., Any],
+    route_key: GatewayRouteKey,
     payload: dict[str, Any],
     granted_action: str,
     expected_actions: frozenset[str],
@@ -157,7 +192,7 @@ async def test_comment_grant_is_bounded_by_parent_id(
     claims = _claims(granted_action)
     request = _json_request(payload)
 
-    required_actions = await resolve_gateway_actions(request, endpoint)
+    required_actions = await resolve_gateway_actions(request, route_key)
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
@@ -196,7 +231,10 @@ async def test_single_row_lookup_grant_is_bounded_by_limit(
         payload["limit"] = limit
     request = _json_request(payload)
 
-    required_actions = await resolve_gateway_actions(request, lookup_rows)
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/tables/{table_name}/lookup"),
+    )
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
@@ -228,7 +266,10 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
     claims = _claims("ai.agent")
     request = _json_request(payload)
 
-    required_actions = await resolve_gateway_actions(request, run_agent_endpoint)
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/agent/run"),
+    )
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
@@ -236,22 +277,22 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("endpoint", "path"),
+    ("route_key", "path"),
     [
         pytest.param(
-            get_variable_by_name,
+            GatewayRouteKey("GET", "/internal/variables/{variable_name}"),
             "/internal/variables/config",
             id="variable-metadata",
         ),
         pytest.param(
-            get_variable_value,
+            GatewayRouteKey("GET", "/internal/variables/{variable_name}/value"),
             "/internal/variables/config/value",
             id="variable-value",
         ),
     ],
 )
 async def test_run_python_grant_does_not_imply_unmapped_variable_access(
-    endpoint: Callable[..., Any],
+    route_key: GatewayRouteKey,
     path: str,
 ) -> None:
     """Keep script execution separate from non-registry SDK capabilities."""
@@ -266,7 +307,7 @@ async def test_run_python_grant_does_not_imply_unmapped_variable_access(
         }
     )
 
-    required_actions = await resolve_gateway_actions(request, endpoint)
+    required_actions = await resolve_gateway_actions(request, route_key)
 
     assert required_actions is None
     assert not _agent_gateway_action_allowed(claims, required_actions)
