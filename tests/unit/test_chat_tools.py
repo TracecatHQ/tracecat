@@ -1,5 +1,8 @@
 import uuid
 
+from tracecat.agent.mcp.internal_tools import (
+    AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.tools import (
@@ -61,6 +64,8 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.workflow.publish",
         "core.workflow.run",
         "core.workflow.execute",
+        "internal.agent.search_sessions",
+        "internal.agent.read_session_window",
     ]
 
 
@@ -79,14 +84,16 @@ def test_workspace_chat_default_tools_exclude_agent_actions_without_entitlement(
 
 def test_scope_filter_strips_all_tools_without_action_execute() -> None:
     # A role that can start chat (agent:execute) but holds no action:*:execute
-    # must not be offered ANY tool -- otherwise agent:execute would let the agent
-    # run actions (create agents, edit workflows, delete cases) the user cannot.
+    # must not be offered ANY registry action -- otherwise agent:execute would
+    # let the agent run actions (create agents, edit workflows, delete cases)
+    # the user cannot. Session-recall internal tools are exempt: they are not
+    # registry actions and only read the caller's own past sessions.
     tools = get_default_tools(AgentSessionEntity.WORKSPACE_CHAT.value)
     filtered = filter_workspace_chat_tools_for_scopes(
         tools, role=_role("agent:execute")
     )
 
-    assert filtered == []
+    assert filtered == AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES
 
 
 def test_scope_filter_action_wildcard_keeps_everything() -> None:
@@ -121,11 +128,15 @@ def test_scope_filter_specific_action_scope_keeps_only_that_tool() -> None:
         role=_role("agent:execute", "action:core.workflow.edit_workflow:execute"),
     )
 
-    assert filtered == ["core.workflow.edit_workflow"]
+    assert filtered == [
+        "core.workflow.edit_workflow",
+        *AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+    ]
 
 
 def test_scope_filter_none_scopes_strips_all_tools() -> None:
-    # An unresolved/empty scope set denies every tool, matching the executor.
+    # An unresolved/empty scope set denies every registry action, matching the
+    # executor. Session-recall internal tools survive (see above).
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -137,7 +148,7 @@ def test_scope_filter_none_scopes_strips_all_tools() -> None:
     tools = get_default_tools(AgentSessionEntity.WORKSPACE_CHAT.value)
     filtered = filter_workspace_chat_tools_for_scopes(tools, role=role)
 
-    assert filtered == []
+    assert filtered == AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES
 
 
 def test_scope_filter_superuser_wildcard_keeps_everything() -> None:

@@ -1,5 +1,8 @@
 # Store default tools for each entity type
-from tracecat.agent.mcp.internal_tools import BUILDER_INTERNAL_TOOL_NAMES
+from tracecat.agent.mcp.internal_tools import (
+    AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+    BUILDER_INTERNAL_TOOL_NAMES,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
@@ -50,6 +53,7 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
 WORKSPACE_CHAT_DEFAULT_TOOLS = [
     *WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS,
     *WORKSPACE_CHAT_BASE_DEFAULT_TOOLS,
+    *AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
 ]
 
 TOOL_DEFAULTS = {
@@ -59,6 +63,7 @@ TOOL_DEFAULTS = {
         "core.cases.update_case",
         "core.cases.create_comment",
         "core.cases.list_comments",
+        *AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
     ],
     AgentSessionEntity.AGENT_PRESET: [],
     AgentSessionEntity.AGENT_PRESET_BUILDER: BUILDER_INTERNAL_TOOL_NAMES,
@@ -103,7 +108,15 @@ def filter_workspace_chat_tools_for_scopes(
     bypass and wildcard grants (``action:*:execute``, ``action:core.*:execute``).
     """
     granted = role.scopes or frozenset()
-    return [tool for tool in tools if has_scope(granted, f"action:{tool}:execute")]
+    return [
+        tool
+        for tool in tools
+        # Internal tools are not registry actions and carry no action scope.
+        # Only the generally-available recall set may pass; privileged internal
+        # tools (e.g. builder tools) are granted by entity type, not requested.
+        if tool in AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES
+        or has_scope(granted, f"action:{tool}:execute")
+    ]
 
 
 def get_default_tools(

@@ -20,9 +20,10 @@ from tracecat.agent.common.types import (
     is_http_mcp_server,
 )
 from tracecat.agent.mcp.internal_tools import (
+    AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
-    get_builder_internal_tool_definitions,
+    get_internal_tool_definitions,
 )
 from tracecat.agent.mcp.utils import (
     REGISTRY_MCP_SERVER_NAME,
@@ -234,8 +235,16 @@ class AgentActivities:
             and args.internal_tool_context.entity_type == "agent_preset_builder"
         )
 
-        # For builder sessions, add bundled actions to the tool filters
-        actions_to_build = list(args.tool_filters.actions or [])
+        # For builder sessions, add bundled actions to the tool filters.
+        # Internal tools are compiled separately below; they are not registry
+        # actions and must not be passed to build_agent_tools.
+        requested_actions = list(args.tool_filters.actions or [])
+        requested_internal_tools = [
+            action for action in requested_actions if action.startswith("internal.")
+        ]
+        actions_to_build = [
+            action for action in requested_actions if not action.startswith("internal.")
+        ]
         if is_builder:
             # Add bundled registry actions for builder (core.table.*, tools.exa.*)
             for action in BUILDER_BUNDLED_ACTIONS:
@@ -264,17 +273,44 @@ class AgentActivities:
                 parameters_json_schema=tool.parameters_json_schema,
             )
 
-        # Add internal tools for builder assistant
-        allowed_internal_tools: list[str] | None = None
+        internal_definitions = get_internal_tool_definitions()
+        allowed_internal_tools: list[str] = []
         if is_builder:
-            # Add builder internal tools to definitions
-            internal_defs = get_builder_internal_tool_definitions()
-            defs.update(internal_defs)
-            allowed_internal_tools = list(BUILDER_INTERNAL_TOOL_NAMES)
+            allowed_internal_tools.extend(BUILDER_INTERNAL_TOOL_NAMES)
+
+        for tool_name in requested_internal_tools:
+            if tool_name not in internal_definitions:
+                raise ApplicationError(
+                    f"Unknown internal tool: {tool_name}",
+                    type="AgentToolDefinitionError",
+                    non_retryable=True,
+                )
+            # Builder tools are privileged: sessions may only request internal
+            # tools from the generally-available recall set; anything else must
+            # come from the entity-based grant above (builder sessions).
+            if (
+                tool_name not in allowed_internal_tools
+                and tool_name not in AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES
+            ):
+                raise ApplicationError(
+                    f"Internal tool not permitted for this session: {tool_name}",
+                    type="AgentToolDefinitionError",
+                    non_retryable=True,
+                )
+            if tool_name not in allowed_internal_tools:
+                allowed_internal_tools.append(tool_name)
+
+        if allowed_internal_tools:
+            defs.update(
+                {
+                    tool_name: internal_definitions[tool_name]
+                    for tool_name in allowed_internal_tools
+                }
+            )
             logger.info(
-                "Added builder internal tools",
-                tool_count=len(internal_defs),
-                tools=list(internal_defs.keys()),
+                "Added internal tools",
+                tool_count=len(allowed_internal_tools),
+                tools=allowed_internal_tools,
             )
 
         # Discover user MCP tools if configured
@@ -469,7 +505,7 @@ class AgentActivities:
             tool_definitions=defs,
             registry_lock=registry_lock,
             user_mcp_claims=user_mcp_claims,
-            allowed_internal_tools=allowed_internal_tools,
+            allowed_internal_tools=allowed_internal_tools or None,
             tool_approvals=effective_tool_approvals or None,
         )
 

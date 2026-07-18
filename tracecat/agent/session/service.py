@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import (
+    ColumnElement,
     and_,
     case,
     column,
@@ -67,6 +68,14 @@ from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
+    SessionSearchResult,
+    SessionWindow,
+    SessionWindowMessage,
+)
+from tracecat.agent.session.search import (
+    compact_window_text,
+    extract_search_text_from_history_content,
+    infer_message_role,
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
@@ -185,6 +194,24 @@ def _finalize_auto_title_task(
         )
 
 
+# Recall (session search / window reads) must only surface rows the UI
+# timeline shows; INTERNAL rows (continuation prompts, interrupt artifacts)
+# and approval bubbles stay hidden.
+_RECALL_VISIBLE_KINDS = (
+    MessageKind.CHAT_MESSAGE.value,
+    MessageKind.COMPACTION.value,
+    MessageKind.CANCELLED.value,
+)
+
+
+def _dedupe_tool_names(tools: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    for tool in tools:
+        if tool not in deduped:
+            deduped.append(tool)
+    return deduped
+
+
 @dataclass
 class SessionHistoryData:
     """Data structure for session history loaded from DB."""
@@ -273,7 +300,7 @@ class AgentSessionService(BaseWorkspaceService):
         """
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
         extras = agent_session.tools or []
-        merged = list(dict.fromkeys([*defaults, *extras]))
+        merged = _dedupe_tool_names([*defaults, *extras])
         # Chat tools execute under the executor service principal, which the
         # internal API routes authorize against the service allowlist rather than
         # the chat user's RBAC. Enforce the caller's action scopes here -- the
@@ -296,6 +323,344 @@ class AgentSessionService(BaseWorkspaceService):
             return None
         return await agent_svc.presets.resolve_mcp_integration_refs(
             agent_session.mcp_integrations
+        )
+
+    def _recall_visibility_clause(self) -> ColumnElement[bool]:
+        """Restrict session recall to sessions the caller can already list.
+
+        Mirrors the sessions list API: user roles see their own sessions,
+        creator-less roles (e.g. workflow-initiated) see creator-less sessions.
+        """
+        if self.role.user_id is not None:
+            return AgentSession.created_by == self.role.user_id
+        return AgentSession.created_by.is_(None)
+
+    async def _load_session_lineage_maps(
+        self,
+    ) -> tuple[dict[uuid.UUID, uuid.UUID | None], dict[uuid.UUID, list[uuid.UUID]]]:
+        stmt = select(AgentSession.id, AgentSession.parent_session_id).where(
+            AgentSession.workspace_id == self.workspace_id
+        )
+        result = await self.session.execute(stmt)
+        parent_by_id: dict[uuid.UUID, uuid.UUID | None] = {}
+        children_by_id: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for session_id, parent_session_id in result.tuples().all():
+            parent_by_id[session_id] = parent_session_id
+            if parent_session_id is not None:
+                children_by_id.setdefault(parent_session_id, []).append(session_id)
+        return parent_by_id, children_by_id
+
+    @classmethod
+    def _lineage_ids(
+        cls,
+        session_id: uuid.UUID,
+        parent_by_id: dict[uuid.UUID, uuid.UUID | None],
+        children_by_id: dict[uuid.UUID, list[uuid.UUID]],
+    ) -> set[uuid.UUID]:
+        """Return the whole fork tree containing ``session_id``.
+
+        Walks down from the resolved root so sibling forks are included,
+        keeping current-lineage exclusion aligned with the root-based dedupe.
+        """
+        lineage: set[uuid.UUID] = set()
+        stack = [cls._root_session_id(session_id, parent_by_id)]
+        while stack:
+            node_id = stack.pop()
+            if node_id in lineage:
+                continue
+            lineage.add(node_id)
+            stack.extend(children_by_id.get(node_id, []))
+        lineage.add(session_id)
+        return lineage
+
+    @staticmethod
+    def _root_session_id(
+        session_id: uuid.UUID,
+        parent_by_id: dict[uuid.UUID, uuid.UUID | None],
+    ) -> uuid.UUID:
+        root_id = session_id
+        seen = {session_id}
+        while parent_id := parent_by_id.get(root_id):
+            if parent_id in seen:
+                break
+            seen.add(parent_id)
+            root_id = parent_id
+        return root_id
+
+    async def search_session_messages(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        entity_type: AgentSessionEntity | None = None,
+        exclude_session_id: uuid.UUID | None = None,
+    ) -> list[SessionSearchResult]:
+        """Search workspace agent-session history using PostgreSQL FTS."""
+        query = query.strip()
+        if not query:
+            return []
+
+        limit = max(1, min(limit, 25))
+        parent_by_id, children_by_id = await self._load_session_lineage_maps()
+        exclude_ids: set[uuid.UUID] = set()
+        if exclude_session_id is not None:
+            exclude_ids = self._lineage_ids(
+                exclude_session_id,
+                parent_by_id,
+                children_by_id,
+            )
+
+        tsquery = func.websearch_to_tsquery("english", query)
+        rank = func.ts_rank(AgentSessionHistory.search_tsv, tsquery).label("rank")
+        snippet = func.ts_headline(
+            "english",
+            AgentSessionHistory.search_text,
+            tsquery,
+            "StartSel=>>>, StopSel=<<<, MaxWords=40, MinWords=10, "
+            'MaxFragments=2, FragmentDelimiter=" ... "',
+        ).label("snippet")
+        # Rank hits per session so one chatty session cannot fill the scan
+        # window and starve other matching sessions before the lineage dedupe.
+        per_session_rank = (
+            func.row_number()
+            .over(
+                partition_by=AgentSessionHistory.session_id,
+                order_by=(
+                    rank.desc(),
+                    AgentSessionHistory.created_at.desc(),
+                    AgentSessionHistory.surrogate_id.desc(),
+                ),
+            )
+            .label("per_session_rank")
+        )
+        inner = (
+            select(
+                AgentSessionHistory.session_id,
+                AgentSessionHistory.surrogate_id,
+                AgentSessionHistory.created_at.label("message_created_at"),
+                AgentSession.title.label("session_title"),
+                AgentSession.entity_type,
+                AgentSession.entity_id,
+                rank,
+                snippet,
+                per_session_rank,
+            )
+            .join(AgentSession, AgentSession.id == AgentSessionHistory.session_id)
+            .where(
+                AgentSession.workspace_id == self.workspace_id,
+                self._recall_visibility_clause(),
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                # Mirror list_messages: rows from a session's live turn are
+                # durability-only until the turn finalizes; hide them here too.
+                or_(
+                    AgentSession.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id != AgentSession.curr_run_id,
+                ),
+                AgentSessionHistory.search_text.is_not(None),
+                AgentSessionHistory.search_tsv.op("@@")(tsquery),
+            )
+        )
+        if entity_type is not None:
+            inner = inner.where(AgentSession.entity_type == entity_type.value)
+        if exclude_ids:
+            inner = inner.where(AgentSessionHistory.session_id.notin_(exclude_ids))
+
+        ranked = inner.subquery()
+        stmt = (
+            select(ranked)
+            .where(ranked.c.per_session_rank == 1)
+            .order_by(
+                ranked.c.rank.desc(),
+                ranked.c.message_created_at.desc(),
+                ranked.c.surrogate_id.desc(),
+            )
+        )
+
+        # Root-lineage dedupe happens in Python, so page through best-per-session
+        # hits until enough distinct lineages are found; otherwise one fork tree
+        # with many sibling sessions could fill a single fixed scan window.
+        page_size = min(max(limit * 4, 25), 100)
+        max_pages = 5
+        results_by_root: dict[uuid.UUID, SessionSearchResult] = {}
+        for page in range(max_pages):
+            result = await self.session.execute(
+                stmt.offset(page * page_size).limit(page_size)
+            )
+            rows = result.mappings().all()
+            for row in rows:
+                session_id = row["session_id"]
+                root_id = self._root_session_id(session_id, parent_by_id)
+                if root_id in results_by_root:
+                    continue
+                if not row["snippet"]:
+                    continue
+                results_by_root[root_id] = SessionSearchResult(
+                    session_id=session_id,
+                    session_title=row["session_title"],
+                    entity_type=AgentSessionEntity(row["entity_type"]),
+                    entity_id=row["entity_id"],
+                    surrogate_id=row["surrogate_id"],
+                    snippet=row["snippet"],
+                    message_created_at=row["message_created_at"],
+                    rank=float(row["rank"] or 0.0),
+                )
+                if len(results_by_root) >= limit:
+                    break
+            if len(results_by_root) >= limit or len(rows) < page_size:
+                break
+
+        return list(results_by_root.values())
+
+    @staticmethod
+    def _history_content_fallback(content: dict[str, Any]) -> str | None:
+        try:
+            return orjson.dumps(content, option=orjson.OPT_SORT_KEYS).decode()
+        except Exception:
+            try:
+                return repr(content)
+            except Exception:
+                return None
+
+    def _window_message_from_history(
+        self,
+        entry: AgentSessionHistory,
+    ) -> SessionWindowMessage:
+        text = entry.search_text or self._history_content_fallback(entry.content)
+        return SessionWindowMessage(
+            role=infer_message_role(entry.content, kind=entry.kind),
+            kind=entry.kind,
+            text=compact_window_text(text),
+            surrogate_id=entry.surrogate_id,
+            created_at=entry.created_at,
+        )
+
+    async def get_session_window(
+        self,
+        session_id: uuid.UUID,
+        *,
+        anchor_surrogate_id: int,
+        window: int = 5,
+        exclude_session_id: uuid.UUID | None = None,
+    ) -> SessionWindow:
+        """Return a compact message window around a session-history anchor."""
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        visible = (
+            agent_session.created_by == self.role.user_id
+            if self.role.user_id is not None
+            else agent_session.created_by is None
+        )
+        if not visible:
+            # Not-found rather than forbidden: don't leak session existence.
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        parent_by_id, children_by_id = await self._load_session_lineage_maps()
+        if exclude_session_id is not None:
+            exclude_ids = self._lineage_ids(
+                exclude_session_id,
+                parent_by_id,
+                children_by_id,
+            )
+            if session_id in exclude_ids:
+                raise TracecatValidationError(
+                    "Cannot read this session window: this is your active session - "
+                    "its messages are already in context."
+                )
+
+        window = max(1, min(window, 20))
+        # Mirror list_messages: while a turn is live, the active run's partial
+        # rows are durability-only and hidden from the timeline; hide them from
+        # recall windows and boundary counts as well. Read the live run pointer
+        # inline (scalar subquery) rather than snapshotting it in Python, so a
+        # turn starting or finalizing between queries cannot skew the window.
+        live_run_id = (
+            select(AgentSession.curr_run_id)
+            .where(AgentSession.id == session_id)
+            .scalar_subquery()
+        )
+        hide_active_turn = or_(
+            live_run_id.is_(None),
+            AgentSessionHistory.curr_run_id.is_(None),
+            AgentSessionHistory.curr_run_id != live_run_id,
+        )
+        before_stmt = (
+            select(AgentSessionHistory)
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
+            )
+            .order_by(AgentSessionHistory.surrogate_id.desc())
+            .limit(window)
+        )
+        before_result = await self.session.execute(before_stmt)
+        before_entries = list(reversed(before_result.scalars().all()))
+
+        after_stmt = (
+            select(AgentSessionHistory)
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id > anchor_surrogate_id,
+            )
+            .order_by(AgentSessionHistory.surrogate_id)
+            .limit(window)
+        )
+        after_result = await self.session.execute(after_stmt)
+        after_entries = list(after_result.scalars().all())
+
+        if before_entries:
+            messages_before_stmt = select(func.count()).where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id < before_entries[0].surrogate_id,
+            )
+        else:
+            messages_before_stmt = select(func.count()).where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
+            )
+        messages_before = await self.session.scalar(messages_before_stmt)
+
+        if after_entries:
+            messages_after_stmt = select(func.count()).where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id > after_entries[-1].surrogate_id,
+            )
+        else:
+            messages_after_stmt = select(func.count()).where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
+                AgentSessionHistory.surrogate_id > anchor_surrogate_id,
+            )
+        messages_after = await self.session.scalar(messages_after_stmt)
+
+        return SessionWindow(
+            session_id=agent_session.id,
+            session_title=agent_session.title,
+            anchor_surrogate_id=anchor_surrogate_id,
+            messages=[
+                self._window_message_from_history(entry)
+                for entry in [*before_entries, *after_entries]
+            ],
+            messages_before=int(messages_before or 0),
+            messages_after=int(messages_after or 0),
         )
 
     async def _validate_session_mcp_integrations(
@@ -955,6 +1320,7 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=session_id,
                 workspace_id=self.workspace_id,
                 content=content,
+                search_text=extract_search_text_from_history_content(content),
                 kind=MessageKind.CANCELLED.value,
                 curr_run_id=curr_run_id
                 if curr_run_id is not None
@@ -2141,6 +2507,12 @@ class AgentSessionService(BaseWorkspaceService):
 
         if session_entity is AgentSessionEntity.CASE:
             entity_instructions = await self._entity_to_prompt(agent_session)
+            default_case_tools = await self._get_default_tools(AgentSessionEntity.CASE)
+            case_internal_tools = [
+                tool
+                for tool in [*default_case_tools, *(agent_session.tools or [])]
+                if tool.startswith("internal.")
+            ]
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
@@ -2151,17 +2523,31 @@ class AgentSessionService(BaseWorkspaceService):
                         if preset_config.instructions
                         else entity_instructions
                     )
-                    config = replace(preset_config, instructions=combined_instructions)
+                    actions = (
+                        _dedupe_tool_names(
+                            [*(preset_config.actions or []), *case_internal_tools]
+                        )
+                        if case_internal_tools
+                        else preset_config.actions
+                    )
+                    config = replace(
+                        preset_config,
+                        instructions=combined_instructions,
+                        actions=actions,
+                    )
                     yield config
             else:
                 # Case chat without preset uses the org's default model
                 async with agent_svc.with_model_config() as model_config:
+                    actions = _dedupe_tool_names(
+                        [*(agent_session.tools or []), *case_internal_tools]
+                    )
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
-                        actions=agent_session.tools,
+                        actions=actions,
                     )
         elif session_entity is AgentSessionEntity.AGENT_PRESET:
             async with agent_svc.with_preset_config(
@@ -2226,6 +2612,21 @@ class AgentSessionService(BaseWorkspaceService):
                         if preset_config.actions is not None
                         else None
                     )
+                    workspace_chat_internal_tools = [
+                        tool
+                        for tool in (
+                            await self._resolve_workspace_chat_actions(agent_session)
+                            or []
+                        )
+                        if tool.startswith("internal.")
+                    ]
+                    if workspace_chat_internal_tools:
+                        scoped_actions = _dedupe_tool_names(
+                            [
+                                *(scoped_actions or []),
+                                *workspace_chat_internal_tools,
+                            ]
+                        )
                     config = replace(
                         preset_config,
                         instructions=combined_instructions,
@@ -2720,6 +3121,7 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=session_id,
                 workspace_id=self.workspace_id,
                 content=entry_content,
+                search_text=extract_search_text_from_history_content(entry_content),
                 kind=MessageKind.CHAT_MESSAGE.value,
                 curr_run_id=session.curr_run_id,
             )

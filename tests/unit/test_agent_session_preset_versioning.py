@@ -8,6 +8,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tracecat.agent.mcp.internal_tools import (
+    AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+)
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -681,8 +684,13 @@ async def test_workspace_chat_preset_config_scope_filters_actions() -> None:
         )
         async with service._build_agent_config(agent_session) as resolved:
             # Only the one action the user is scoped for survives; the privileged
-            # workflow-edit and case-delete tools are stripped.
-            assert resolved.actions == ["core.workflow.get_workflow"]
+            # workflow-edit and case-delete tools are stripped. Session-recall
+            # internal tools are always merged in -- they are not registry
+            # actions and only read the caller's own past sessions.
+            assert resolved.actions == [
+                "core.workflow.get_workflow",
+                *AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+            ]
             # Instructions still combine preset + entity context.
             assert resolved.instructions == "preset instructions\n\nentity instructions"
 
@@ -730,4 +738,7 @@ async def test_workspace_chat_preset_config_superuser_keeps_all_actions() -> Non
             with_preset_config=_fake_with_preset_config
         )
         async with service._build_agent_config(agent_session) as resolved:
-            assert resolved.actions == actions
+            assert resolved.actions == [
+                *actions,
+                *AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES,
+            ]
