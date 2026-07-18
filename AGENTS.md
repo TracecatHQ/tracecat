@@ -193,6 +193,11 @@ just gen-functions
   attribution is product behavior for user-initiated sync PRs.
 - Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 - Never add methods to `tracecat/db/models.py`; keep database models minimal.
+- Never use untyped dictionaries unless there is a compelling reason. Model
+  structured data with a dataclass or Pydantic model as appropriate; if
+  dictionary semantics are required, prefer `TypedDict`. Any unavoidable
+  untyped-dictionary exception must include a clear nearby explanation of why
+  the typed alternatives are unsuitable.
 - Never branch on exception or error-message strings to choose behavior, status
   codes, or retry policy. Use explicit exception types, machine-readable error
   codes in exception details, or structured error objects instead.

@@ -77,6 +77,15 @@ _ANTHROPIC_ONLY_FIELDS = (
 )
 
 
+def _format_timeout_duration(seconds: float) -> str:
+    if seconds >= 60 and seconds % 60 == 0:
+        minutes = seconds / 60
+        unit = "minute" if minutes == 1 else "minutes"
+        return f"{minutes:g} {unit}"
+    unit = "second" if seconds == 1 else "seconds"
+    return f"{seconds:g} {unit}"
+
+
 class ParsedRequest(TypedDict):
     method: str
     path: str
@@ -950,20 +959,33 @@ class LLMSocketProxy:
             # the proxy layer and RuntimeError from upstream provider errors
             # (e.g. _raise_stream_http_error on 4xx/5xx).
             if is_streaming_response and not writer.is_closing():
-                status_code = getattr(exc, "status_code", 502)
-                detail = (
-                    str(exc.detail)
-                    if isinstance(exc, HTTPException)
-                    else str(exc)[:512]
-                )
+                if isinstance(exc, httpx.ReadTimeout):
+                    status_code = 504
+                    timeout_duration = _format_timeout_duration(
+                        app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT
+                    )
+                    detail = (
+                        f"Model response timed out after {timeout_duration} "
+                        "without receiving data. Please retry the agent execution."
+                    )
+                    surfaced_error = detail
+                else:
+                    status_code = getattr(exc, "status_code", 502)
+                    detail = (
+                        str(exc.detail)
+                        if isinstance(exc, HTTPException)
+                        else str(exc)[:512]
+                    )
+                    surfaced_error = f"LiteLLM stream failed: {detail}"
                 logger.warning(
                     "Stream error after headers sent, emitting SSE error event",
                     status_code=status_code,
                     detail=detail,
+                    error_type=type(exc).__name__,
                     trace_request_id=trace_request_id,
                 )
                 if path is not None and not _is_non_critical_path(path):
-                    self._emit_error(f"LiteLLM stream failed: {detail}")
+                    self._emit_error(surfaced_error)
                 error_payload = orjson.dumps(
                     {
                         "type": "error",

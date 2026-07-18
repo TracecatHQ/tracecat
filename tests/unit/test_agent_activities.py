@@ -24,6 +24,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentScopeToolDefsArgs,
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
+    EmitSessionDoneInputs,
 )
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -960,6 +961,7 @@ class TestCreateSessionActivity:
         mock_service.auto_title_session_on_first_prompt.assert_awaited_once_with(
             mock_agent_session,
             "Investigate login failures",
+            expected_title=mock_agent_session.title,
         )
 
     @pytest.mark.anyio
@@ -1222,6 +1224,38 @@ class TestRunAgentActivity:
 
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+
+    @pytest.mark.anyio
+    async def test_emit_session_done_pushes_done_to_active_stream(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace_id = mock_role.workspace_id or uuid.uuid4()
+        active_stream_id = uuid.uuid4()
+        stream = SimpleNamespace(done=AsyncMock())
+        stream_new = AsyncMock(return_value=stream)
+        monkeypatch.setattr(
+            "tracecat_ee.agent.activities.AgentStream.new",
+            stream_new,
+        )
+
+        await AgentActivities().emit_session_done(
+            EmitSessionDoneInputs(
+                role=mock_role,
+                session_id=mock_session_id,
+                workspace_id=workspace_id,
+                active_stream_id=active_stream_id,
+            )
+        )
+
+        stream_new.assert_awaited_once_with(
+            session_id=mock_session_id,
+            workspace_id=workspace_id,
+            stream_id=active_stream_id,
+        )
+        stream.done.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(

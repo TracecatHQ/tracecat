@@ -24,7 +24,12 @@ from tracecat.sandbox.networking import (
     write_pasta_network_files,
 )
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxErrorCode,
+    SandboxResult,
+)
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
 """Path visible inside run_python nsjail for executor-owned SDK calls."""
@@ -502,6 +507,11 @@ class NsjailExecutor:
                     stdout=result_data.get("stdout", stdout),
                     stderr=result_data.get("stderr", stderr),
                     error=result_data.get("error"),
+                    error_code=(
+                        SandboxErrorCode(error_code)
+                        if (error_code := result_data.get("error_code"))
+                        else None
+                    ),
                     exit_code=process.returncode,
                     execution_time_ms=execution_time_ms,
                 )

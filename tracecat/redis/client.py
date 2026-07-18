@@ -414,6 +414,34 @@ class RedisClient:
             await self._reset_connection()
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def xrevrange(
+        self,
+        stream_key: str,
+        max_id: str = "+",
+        min_id: str = "-",
+        count: int | None = None,
+    ) -> list[tuple[str, dict[str, str]]]:
+        """Read a range of stream entries in reverse order."""
+        try:
+            client = await self._get_client()
+            result = await client.xrevrange(
+                name=stream_key, max=max_id, min=min_id, count=count
+            )
+            return result
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to read reverse range from Redis stream",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
     async def ping(self) -> bool:
         """Check if Redis connection is alive."""
         try:

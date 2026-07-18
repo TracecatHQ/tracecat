@@ -4568,7 +4568,11 @@ export type IntegrationReadMinimal = {
 /**
  * Status of an integration.
  */
-export type IntegrationStatus = "not_configured" | "configured" | "connected"
+export type IntegrationStatus =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
 
 /**
  * Response for testing integration connection.
@@ -4932,7 +4936,12 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
-  state: "not_configured" | "configured" | "connected" | "error"
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
@@ -4942,7 +4951,12 @@ export type MCPIntegrationRead = {
   updated_at: string
 }
 
-export type state = "not_configured" | "configured" | "connected" | "error"
+export type state =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
+  | "error"
 
 export type MCPIntegrationTestConnectionRequest =
   | MCPHttpIntegrationTestConnectionRequest
@@ -5634,7 +5648,12 @@ export type PlatformMCPCatalogRead = {
    * Whether this platform MCP catalog row is locked by entitlement.
    */
   locked: boolean
-  state: "not_configured" | "configured" | "connected" | "error"
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
   mcp_integration_id: string | null
   mcp_server_type?: MCPServerType | null
   mcp_auth_type?: MCPAuthType | null

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import uuid
+from collections import Counter
+from math import ceil
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -26,6 +29,7 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
+from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
     SECRET_METADATA_RESOURCE_ADAPTER,
@@ -53,8 +57,10 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceSyncService, _table_names
 from tracecat.workspace_sync.transport import (
+    _GITHUB_TREE_CHUNK_SIZE,
     GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
+    _git_blob_sha,
     unsupported_transport,
 )
 from tracecat.workspace_sync.workflow import (
@@ -1621,6 +1627,11 @@ async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
     assert result.pr_url is None
     assert repo.created_refs == [("refs/heads/sync/agents-1", "a" * 40)]
     assert repo.compare_calls == [("main", "sync/agents-1")]
+    assert repo.call_counts["get_contents"] == 0
+    assert repo.call_counts["create_git_blob"] == 0
+    assert repo.call_counts["get_git_tree"] == 1
+    assert repo.call_counts["create_git_tree"] == 0
+    assert repo.call_counts["ref.edit"] == 0
     repo.create_pull.assert_not_called()
 
 
@@ -1684,7 +1695,7 @@ async def test_github_write_files_uses_tree_sha_for_stale_path_scan(
     files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
     repo = _FakeGitHubRepo(
         files={
-            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            MANIFEST_FILENAME: "{}\n",
             "workflows/stale/definition.yml": "version: 1\n",
         },
         branch_exists=True,
@@ -1702,6 +1713,462 @@ async def test_github_write_files_uses_tree_sha_for_stale_path_scan(
     assert result.status is PushStatus.COMMITTED
     assert repo.get_git_tree_calls == [f"tree-{'a' * 40}"]
     assert len(repo.trees) == 1
+    assert [
+        cast(Any, element)._identity["path"] for element in repo.trees[0].elements
+    ] == [MANIFEST_FILENAME, "workflows/stale/definition.yml"]
+    assert repo.final_files == files
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_sha"),
+    [
+        pytest.param(
+            "",
+            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+            id="empty",
+        ),
+        pytest.param(
+            "hello\n",
+            "ce013625030ba8dba906f756967f9e9ca394464a",
+            id="ascii",
+        ),
+        pytest.param(
+            "café ☕\n",
+            "df113425d6f29a3f8cfb2ca897bebf8703e56d20",
+            id="multibyte_utf8",
+        ),
+    ],
+)
+def test_git_blob_sha_matches_git_hash_object(content: str, expected_sha: str) -> None:
+    assert _git_blob_sha(content) == expected_sha
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("unchanged_file_count", "expected_tree_entry_count"),
+    [
+        pytest.param(0, 807, id="all_files_changed"),
+        pytest.param(657, 150, id="only_150_files_changed"),
+    ],
+)
+async def test_github_write_files_builds_complete_tree_delta_for_large_projection(
+    workspace_sync_service: WorkspaceSyncService,
+    unchanged_file_count: int,
+    expected_tree_entry_count: int,
+) -> None:
+    files = {
+        f"workflows/generated-{index:04d}/definition.yml": (
+            f"version: 1\nid: generated-{index:04d}\n"
+        )
+        for index in range(806)
+    }
+    files[MANIFEST_FILENAME] = canonical_json_text(WorkspaceManifest())
+    unchanged_paths = set(sorted(files)[:unchanged_file_count])
+    repo = _FakeGitHubRepo(
+        files={path: files[path] for path in unchanged_paths},
+        branch_exists=True,
+        ahead_by=0,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+    )
+
+    expected_changed_paths = set(files) - unchanged_paths
+    assert result.status is PushStatus.COMMITTED
+    assert len(files) == 807
+    assert len(expected_changed_paths) == expected_tree_entry_count
+    assert repo.call_counts["get_contents"] == 0
+    assert repo.call_counts["create_git_blob"] == 0
+    assert repo.call_counts["get_git_tree"] == 1
+    assert repo.call_counts["create_git_tree"] == ceil(
+        expected_tree_entry_count / _GITHUB_TREE_CHUNK_SIZE
+    )
+    assert repo.call_counts["ref.edit"] == 1
+    assert len(repo.trees) == ceil(expected_tree_entry_count / _GITHUB_TREE_CHUNK_SIZE)
+    inline_entries = [
+        cast(Any, element)._identity for tree in repo.trees for element in tree.elements
+    ]
+    assert {entry["path"] for entry in inline_entries} == expected_changed_paths
+    assert [entry["path"] for entry in inline_entries] == sorted(expected_changed_paths)
+    assert all("content" in entry and "sha" not in entry for entry in inline_entries)
+    assert unchanged_paths.isdisjoint(entry["path"] for entry in inline_entries)
+    assert repo.final_files == files
+
+
+@pytest.mark.anyio
+async def test_github_write_files_truncated_tree_rewrites_all_and_skips_deletions(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    sync_logger = Mock()
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        "workflows/current/definition.yml": "version: 1\n",
+    }
+    stale_path = "workflows/stale/definition.yml"
+    repo = _FakeGitHubRepo(
+        files={**files, stale_path: "version: 1\n"},
+        branch_exists=True,
+        ahead_by=0,
+        tree_truncated=True,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+        delete_missing_paths_under=("workflows",),
+        logger=sync_logger,
+    )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["get_git_tree"] == 1
+    assert repo.call_counts["create_git_tree"] == 1
+    identities = [cast(Any, element)._identity for element in repo.trees[0].elements]
+    assert {identity["path"] for identity in identities} == set(files)
+    assert all(
+        "content" in identity and "sha" not in identity for identity in identities
+    )
+    assert repo.final_files == {**files, stale_path: "version: 1\n"}
+    sync_logger.warning.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_github_write_files_retries_403_with_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=403,
+        data={"message": "Request blocked"},
+        headers={"Retry-After": "0.25"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=[retry_error],
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    sleep.assert_awaited_once_with(0.25)
+    assert repo.call_counts["create_git_tree"] == 2
+    assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
+async def test_github_write_files_retries_429_with_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=429,
+        data={"message": "Too many requests"},
+        headers={"Retry-After": "0.25"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=[retry_error],
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    sleep.assert_awaited_once_with(0.25)
+    assert repo.call_counts["create_git_tree"] == 2
+    assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
+async def test_github_write_files_retries_branch_creation_with_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=403,
+        data={"message": "Request blocked"},
+        headers={"Retry-After": "0.25"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=False,
+        ahead_by=0,
+        create_git_ref_errors=[retry_error],
+    )
+
+    with patch(
+        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    sleep.assert_awaited_once_with(0.25)
+    assert repo.call_counts["create_git_ref"] == 2
+    assert len(repo.created_refs) == 1
+    assert repo.call_counts["ref.edit"] == 1
+
+
+@pytest.mark.anyio
+async def test_github_write_files_reraises_nonpositive_retry_after(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_error = GithubException(
+        status=403,
+        data={"message": "Request blocked"},
+        headers={"Retry-After": "0"},
+    )
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=[retry_error],
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep,
+        pytest.raises(GitHubAppError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    sleep.assert_not_awaited()
+    assert repo.call_counts["create_git_tree"] == 1
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_github_write_files_splits_tree_chunks_by_payload_size(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        "workflows/a/definition.yml": "a" * 300,
+        "workflows/b/definition.yml": "b" * 300,
+        "workflows/c/definition.yml": "c" * 300,
+    }
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    # Every element stays under the 700-byte cap individually (manifest ~525,
+    # workflow entries ~387 serialized), but no two fit a chunk together, so
+    # the packer must emit one chunk per element despite the 128-entry limit.
+    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 700):
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["create_git_blob"] == 0
+    assert repo.call_counts["create_git_tree"] == 4
+    assert all(len(tree.elements) == 1 for tree in repo.trees)
+    assert repo.final_files == files
+
+
+@pytest.mark.anyio
+async def test_github_write_files_uploads_oversized_entries_as_blobs(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        "workflows/big/definition.yml": "x" * 2000,
+        "workflows/small/definition.yml": "version: 1\n",
+    }
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    # Only the big file's inline entry serializes past the 1000-byte cap
+    # (manifest ~525, small ~103), so it alone must ship through the blob
+    # endpoint and appear in the tree as a SHA reference.
+    with patch("tracecat.workspace_sync.transport._GITHUB_TREE_CHUNK_MAX_BYTES", 1000):
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            create_pr=False,
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.call_counts["create_git_blob"] == 1
+    assert repo.blobs == [("x" * 2000, "utf-8")]
+    identities = [
+        cast(Any, element)._identity for tree in repo.trees for element in tree.elements
+    ]
+    big_identity = next(
+        identity
+        for identity in identities
+        if identity["path"] == "workflows/big/definition.yml"
+    )
+    assert "content" not in big_identity
+    assert big_identity["sha"] == "blob-1"
+    assert repo.final_files == files
+
+
+@pytest.mark.anyio
+async def test_github_write_files_logs_pygithub_payload_size_per_chunk(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    sync_logger = Mock()
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        **{
+            f"workflows/generated-{index:04d}/definition.yml": "version: 1\n"
+            for index in range(_GITHUB_TREE_CHUNK_SIZE)
+        },
+    }
+
+    await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+        logger=sync_logger,
+    )
+
+    tree_log = next(
+        call
+        for call in sync_logger.info.call_args_list
+        if call.args and call.args[0] == "Creating GitHub workspace sync tree"
+    )
+    # PyGithub's Requester serializes with json.dumps default separators; the
+    # logged size must match that framing, not a compact serialization.
+    expected_payload_sizes = [
+        len(
+            json.dumps(
+                {
+                    "base_tree": f"tree-{'a' * 40}",
+                    "tree": [cast(Any, element)._identity for element in tree.elements],
+                }
+            ).encode("utf-8")
+        )
+        for tree in repo.trees
+    ]
+    assert tree_log.kwargs["max_tree_payload_size_bytes"] == max(expected_payload_sizes)
+    chunk_logs = [
+        call
+        for call in sync_logger.info.call_args_list
+        if call.args and call.args[0] == "Created GitHub workspace sync tree chunk"
+    ]
+    assert [call.kwargs["tree_payload_size_bytes"] for call in chunk_logs] == (
+        expected_payload_sizes
+    )
+
+
+@pytest.mark.anyio
+async def test_github_write_files_retry_budget_exhaustion_reraises(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    retry_errors = [
+        GithubException(
+            status=403,
+            data={"message": "Request blocked"},
+            headers={"Retry-After": "0.6"},
+        )
+        for _ in range(3)
+    ]
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        create_git_tree_errors=retry_errors,
+    )
+
+    with (
+        patch("tracecat.workspace_sync.transport._GITHUB_RETRY_BUDGET_SECONDS", 1.0),
+        patch(
+            "tracecat.workspace_sync.transport.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as sleep,
+        pytest.raises(GitHubAppError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            create_pr=False,
+        )
+
+    # The first Retry-After (0.6) fits the 1.0 budget; the second (0.6) exceeds
+    # the remaining 0.4 and re-raises without a truncated sleep or early retry.
+    assert [call.args[0] for call in sleep.await_args_list] == pytest.approx([0.6])
+    assert repo.call_counts["create_git_tree"] == 2
+    assert repo.call_counts["create_git_commit"] == 0
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_github_write_files_logs_rate_limit_response_headers(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    sync_logger = Mock()
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+        get_git_tree_error=GithubException(
+            status=403,
+            data={"message": "Request blocked"},
+            headers={
+                "X-GitHub-Request-Id": "request-id",
+                "Retry-After": "60",
+                "X-RateLimit-Remaining": "4999",
+                "X-RateLimit-Resource": "core",
+            },
+        ),
+    )
+
+    with pytest.raises(GitHubAppError):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+            logger=sync_logger,
+        )
+
+    error_log = sync_logger.error.call_args
+    assert error_log.args == ("GitHub workspace sync request failed",)
+    assert error_log.kwargs["stage"] == "read_target_tree"
+    assert error_log.kwargs["github_endpoint"].endswith("/git/trees/{sha}")
+    assert error_log.kwargs["github_status"] == 403
+    assert error_log.kwargs["github_request_id"] == "request-id"
+    assert error_log.kwargs["github_retry_after"] == "60"
+    assert error_log.kwargs["github_rate_limit_headers"] == {
+        "x-ratelimit-remaining": "4999",
+        "x-ratelimit-resource": "core",
+    }
 
 
 @pytest.mark.anyio
@@ -1799,6 +2266,7 @@ async def _write_files_with_fake_repo(
     branch: str = "sync/agents-1",
     create_pr: bool = True,
     delete_missing_paths_under: tuple[str, ...] = (),
+    logger: Mock | None = None,
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -1810,6 +2278,8 @@ async def _write_files_with_fake_repo(
         session=service.session,
         role=service.role,
     )
+    if logger is not None:
+        transport.logger = logger
     with patch(
         "tracecat.workspace_sync.transport.GitHubAppService",
         return_value=gh_service,
@@ -1834,13 +2304,23 @@ class _FakeGitHubRepo:
         branch_exists: bool,
         ahead_by: int,
         existing_pr: object | None = None,
+        get_git_tree_error: GithubException | None = None,
+        create_git_tree_errors: list[GithubException] | None = None,
+        create_git_ref_errors: list[GithubException] | None = None,
+        tree_truncated: bool = False,
     ) -> None:
-        self._files = files
+        self._files = dict(files)
         self._branch_exists = branch_exists
         self._ahead_by = ahead_by
         self._existing_pr = existing_pr
+        self._get_git_tree_error = get_git_tree_error
+        self._create_git_tree_errors = list(create_git_tree_errors or ())
+        self._create_git_ref_errors = list(create_git_ref_errors or ())
+        self._blob_contents: dict[str, str] = {}
+        self._tree_truncated = tree_truncated
         self.created_refs: list[tuple[str, str]] = []
         self.compare_calls: list[tuple[str, str]] = []
+        self.call_counts: Counter[str] = Counter()
         self.create_pull = Mock(
             return_value=SimpleNamespace(
                 html_url="https://github.com/TracecatHQ/sync/pull/8",
@@ -1848,50 +2328,96 @@ class _FakeGitHubRepo:
             )
         )
         self.blobs: list[tuple[str, str]] = []
-        self.trees: list[object] = []
+        self.trees: list[SimpleNamespace] = []
         self.commits: list[object] = []
         self.get_git_tree_calls: list[str] = []
+        self._tree_files: dict[str, dict[str, str]] = {}
+        self._commits_by_sha: dict[str, SimpleNamespace] = {}
+        self._ref = _FakeGitRef(self, "heads/sync/agents-1")
+
+    @property
+    def final_files(self) -> dict[str, str]:
+        return dict(self._files)
 
     def get_branch(self, name: str):
+        self.call_counts["get_branch"] += 1
         if name == "main" or self._branch_exists:
             return SimpleNamespace(commit=SimpleNamespace(sha="a" * 40))
         raise GithubException(status=404, data={"message": "Not Found"})
 
     def create_git_ref(self, *, ref: str, sha: str) -> None:
+        self.call_counts["create_git_ref"] += 1
+        if self._create_git_ref_errors:
+            raise self._create_git_ref_errors.pop(0)
         self.created_refs.append((ref, sha))
         self._branch_exists = True
 
     def get_contents(self, path: str, *, ref: str):
+        self.call_counts["get_contents"] += 1
         if path not in self._files:
             raise GithubException(status=404, data={"message": "Not Found"})
         encoded = base64.b64encode(self._files[path].encode()).decode()
         return SimpleNamespace(content=encoded)
 
     def compare(self, base: str, head: str):
+        self.call_counts["compare"] += 1
         self.compare_calls.append((base, head))
         return SimpleNamespace(ahead_by=self._ahead_by)
 
     def get_git_commit(self, sha: str):
-        return SimpleNamespace(tree=SimpleNamespace(sha=f"tree-{sha}"))
+        self.call_counts["get_git_commit"] += 1
+        tree_sha = f"tree-{sha}"
+        self._tree_files.setdefault(tree_sha, dict(self._files))
+        return SimpleNamespace(tree=SimpleNamespace(sha=tree_sha))
 
     def get_git_tree(self, *, sha: str, recursive: bool):
+        self.call_counts["get_git_tree"] += 1
         self.get_git_tree_calls.append(sha)
+        if self._get_git_tree_error is not None:
+            raise self._get_git_tree_error
+        tree_files = self._tree_files.get(sha, self._files)
         return SimpleNamespace(
             tree=[
-                SimpleNamespace(path=path, type="blob") for path in sorted(self._files)
-            ]
+                SimpleNamespace(path=path, sha=_git_blob_sha(content), type="blob")
+                for path, content in sorted(tree_files.items())
+            ],
+            truncated=self._tree_truncated,
         )
 
     def create_git_blob(self, content: str, encoding: str):
+        self.call_counts["create_git_blob"] += 1
         self.blobs.append((content, encoding))
-        return SimpleNamespace(sha=f"blob-{len(self.blobs)}")
+        sha = f"blob-{len(self.blobs)}"
+        self._blob_contents[sha] = content
+        return SimpleNamespace(sha=sha)
 
     def create_git_tree(self, elements: list[object], *, base_tree: object):
-        tree = SimpleNamespace(elements=elements, base_tree=base_tree)
+        self.call_counts["create_git_tree"] += 1
+        if self._create_git_tree_errors:
+            raise self._create_git_tree_errors.pop(0)
+        base_tree_sha = cast(Any, base_tree).sha
+        tree_files = dict(self._tree_files[base_tree_sha])
+        for element in elements:
+            identity = cast(Any, element)._identity
+            path = identity["path"]
+            if "content" in identity:
+                assert "sha" not in identity
+                tree_files[path] = identity["content"]
+            elif identity["sha"] is None:
+                tree_files.pop(path, None)
+            else:
+                tree_files[path] = self._blob_contents[identity["sha"]]
+        tree = SimpleNamespace(
+            sha=f"tree-{len(self.trees) + 1}",
+            elements=elements,
+            base_tree=base_tree,
+        )
+        self._tree_files[tree.sha] = tree_files
         self.trees.append(tree)
         return tree
 
     def create_git_commit(self, message: str, tree: object, parents: list[object]):
+        self.call_counts["create_git_commit"] += 1
         commit = SimpleNamespace(
             sha=f"commit-{len(self.commits) + 1}",
             message=message,
@@ -1899,24 +2425,32 @@ class _FakeGitHubRepo:
             parents=parents,
         )
         self.commits.append(commit)
+        self._commits_by_sha[commit.sha] = commit
         return commit
 
     def get_git_ref(self, ref: str):
-        return _FakeGitRef(ref)
+        self.call_counts["get_git_ref"] += 1
+        self._ref.ref = ref
+        return self._ref
 
     def get_pulls(self, *, state: str, head: str, base: str):
+        self.call_counts["get_pulls"] += 1
         if self._existing_pr is None:
             return iter(())
         return iter((self._existing_pr,))
 
 
 class _FakeGitRef:
-    def __init__(self, ref: str) -> None:
+    def __init__(self, repo: _FakeGitHubRepo, ref: str) -> None:
+        self._repo = repo
         self.ref = ref
         self.edits: list[str] = []
 
     def edit(self, *, sha: str) -> None:
+        self._repo.call_counts["ref.edit"] += 1
         self.edits.append(sha)
+        commit = self._repo._commits_by_sha[sha]
+        self._repo._files = dict(self._repo._tree_files[cast(Any, commit.tree).sha])
 
 
 class _FakeGitHubReadRepo:

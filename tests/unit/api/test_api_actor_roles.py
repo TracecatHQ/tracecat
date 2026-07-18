@@ -505,10 +505,19 @@ def test_delete_organization_route_remains_user_only() -> None:
     assert delete_organization_role == organization_router.OrgUserRole
 
 
-def test_org_settings_routes_remain_user_only() -> None:
+def test_git_settings_routes_accept_org_actors() -> None:
     endpoints = [
         settings_router.get_git_settings,
         settings_router.update_git_settings,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == settings_router.OrgActorRole
+
+
+def test_non_git_org_settings_routes_remain_user_only() -> None:
+    endpoints = [
         settings_router.get_saml_settings,
         settings_router.update_saml_settings,
         settings_router.get_app_settings,
@@ -552,6 +561,15 @@ def test_github_manifest_flow_routes_remain_user_only() -> None:
     endpoints = [
         (vcs_router.get_github_app_manifest, "_role"),
         (vcs_router.github_app_install_callback, "role"),
+    ]
+
+    for endpoint, role_param in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)[role_param]
+        assert role == vcs_router.OrgUserRole
+
+
+def test_vcs_credential_routes_accept_org_actors() -> None:
+    endpoints = [
         (vcs_router.save_github_app_credentials, "role"),
         (vcs_router.delete_github_app_credentials, "role"),
         (vcs_router.get_github_app_credentials_status, "role"),
@@ -562,7 +580,7 @@ def test_github_manifest_flow_routes_remain_user_only() -> None:
 
     for endpoint, role_param in endpoints:
         role = get_type_hints(endpoint, include_extras=True)[role_param]
-        assert role == vcs_router.OrgUserRole
+        assert role == vcs_router.OrgActorRole
 
 
 def test_draft_workflow_execution_route_remains_user_only() -> None:

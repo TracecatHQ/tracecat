@@ -93,10 +93,16 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     agent_session = _build_session(role_with_user, session_id=session_id)
 
     temporal_client = AsyncMock()
+    first_prompt_check = AsyncMock()
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
+        patch.object(
+            service,
+            "is_first_prompt_for_session",
+            first_prompt_check,
+        ),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
@@ -107,9 +113,11 @@ async def test_run_turn_stamps_tracecat_search_attributes(
         response = await service.run_turn(
             session_id=session_id,
             request=cast(ChatRequest, BasicChatRequest(message="hello world")),
+            is_first_prompt=False,
         )
 
     assert response is not None
+    first_prompt_check.assert_not_awaited()
     temporal_client.start_workflow.assert_awaited_once()
     kwargs = temporal_client.start_workflow.await_args.kwargs
     search_attributes = kwargs["search_attributes"]
@@ -153,6 +161,7 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
         _ = await service.run_turn(
             session_id=session_id,
             request=cast(ChatRequest, BasicChatRequest(message="hello world")),
+            is_first_prompt=False,
         )
 
     kwargs = temporal_client.start_workflow.await_args.kwargs

@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import EntitlementRequired
@@ -140,7 +140,7 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
     request: GitHubAppCredentialsRequest,
 ) -> GitHubAppCredentialsSaveResponse:
     """Save GitHub App credentials (register new or update existing)."""
@@ -193,7 +193,7 @@ async def save_github_app_credentials(
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> None:
     """Delete GitHub App credentials."""
     try:
@@ -219,7 +219,7 @@ async def delete_github_app_credentials(
 async def get_github_app_credentials_status(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> GitHubAppCredentialsStatus:
     """Get the status of GitHub App credentials."""
     # Organization-level operation, no specific checks needed since this is org VCS
@@ -249,7 +249,7 @@ async def get_github_app_credentials_status(
 async def save_gitlab_token_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
     request: GitLabTokenCredentialsRequest,
 ) -> GitLabTokenCredentialsSaveResponse:
     """Save GitLab token credentials (create if new or update existing)."""
@@ -290,7 +290,7 @@ async def save_gitlab_token_credentials(
 async def delete_gitlab_token_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> None:
     """Delete GitLab token credentials."""
     try:
@@ -317,7 +317,7 @@ async def delete_gitlab_token_credentials(
 async def get_gitlab_token_credentials_status(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> GitLabTokenCredentialsStatus:
     """Get the status of GitLab token credentials."""
     try:

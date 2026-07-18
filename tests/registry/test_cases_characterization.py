@@ -16,8 +16,8 @@ import base64
 import uuid
 from typing import Any, cast, get_args
 
+import httpx
 import pytest
-import respx
 import sqlalchemy as sa
 from httpx import ASGITransport
 from pydantic import TypeAdapter
@@ -59,7 +59,6 @@ from tracecat_registry.sdk.exceptions import (
 )
 
 from tracecat import config
-from tracecat.api.app import app
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
     OrgUserRole,
@@ -80,11 +79,14 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import User, Workspace
+from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
 # This prevents deadlocks when concurrent tests create workspace-scoped tables
 # with FK constraints to the same parent table.
 _CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
+_ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
+app = create_action_gateway_app()
 
 
 def _case_items(
@@ -113,6 +115,7 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
 async def cases_ctx(
     cases_test_role: Role,
     session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Set up the ctx_role and registry context for case UDF tests.
 
@@ -121,8 +124,10 @@ async def cases_ctx(
     because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
     the referenced table, and concurrent schema creations can deadlock.
 
-    Uses SDK path with respx mock to route HTTP calls to the FastAPI app.
+    Routes SDK calls through the Action Gateway ASGI app.
     """
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "enabled")
+
     # Acquire advisory lock to serialize schema creation across concurrent tests
     await session.execute(
         sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")
@@ -149,17 +154,16 @@ async def cases_ctx(
         run_id="test-run-id",
         wf_exec_id=wf_exec_id,
         environment="default",
-        api_url=config.TRACECAT__API_URL,
         token=executor_token,
     )
     set_context(registry_ctx)
+    monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", _ACTION_GATEWAY_SOCKET)
 
-    # Set up respx mock to route SDK HTTP calls to the FastAPI app
-    respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
-    respx_mock.start()
-    respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
-        side_effect=ASGITransport(app).handle_async_request
-    )
+    def create_gateway_transport(*, uds: str) -> ASGITransport:
+        assert uds == _ACTION_GATEWAY_SOCKET
+        return ASGITransport(app=app)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_gateway_transport)
 
     # Override role dependencies to use our test role
     def override_role():
@@ -190,7 +194,6 @@ async def cases_ctx(
     finally:
         ctx_role.reset(token)
         clear_context()
-        respx_mock.stop()
         app.dependency_overrides.clear()
 
 

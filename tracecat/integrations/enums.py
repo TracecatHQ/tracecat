@@ -10,6 +10,8 @@ class IntegrationStatus(StrEnum):
     """The integration is configured but not connected."""
     CONNECTED = "connected"
     """The integration is connected."""
+    REAUTH_REQUIRED = "reauth_required"
+    """The stored token expired with no usable refresh token; reconnect to restore."""
 
 
 class OAuthGrantType(StrEnum):

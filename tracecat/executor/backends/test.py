@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
 from tracecat_registry.context import RegistryContext, set_context
+from tracecat_registry.sdk.client import TracecatClient
 
 from tracecat import config
 from tracecat.contexts import (
@@ -31,6 +32,7 @@ from tracecat.contexts import (
     ctx_run,
     ctx_session_id,
 )
+from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
@@ -188,6 +190,11 @@ class TestBackend(ExecutorBackend):
             environment=input.run_context.environment,
             api_url=config.TRACECAT__API_URL,
             token=resolved_context.executor_token,
+            _client=TracecatClient(
+                action_gateway_socket=str(action_gateway_socket_path()),
+                token=resolved_context.executor_token,
+                workspace_id=resolved_context.workspace_id,
+            ),
         )
         set_context(registry_ctx)
 
