@@ -90,6 +90,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
+    from tracecat.authz.scopes import backfill_legacy_role_scopes
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
@@ -1214,7 +1215,18 @@ class DurableAgentWorkflow:
         # preserving partitioned outputs for scope-specific tokens and tools.
         execution_grant_enabled = workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
         if execution_grant_enabled:
-            self._execution_scopes = self.role.scopes
+            execution_scopes = self.role.scopes
+            if execution_scopes is None:
+                # A pre-RBAC parent DSL/schedule role can deserialize with no
+                # scope snapshot. Reconstruct it from the role's legacy fields
+                # (pure, deterministic — replay-safe) so this new Agent grant is
+                # enforced, rather than misclassified as a legacy history where
+                # ``scopes=None`` disables the run_python toolset ceiling.
+                execution_scopes = backfill_legacy_role_scopes(self.role).scopes
+            # Never propagate ``None`` on the patched branch: an unresolvable
+            # legacy role fails closed to an empty scope set (deny-all), not the
+            # overloaded legacy sentinel.
+            self._execution_scopes = execution_scopes or frozenset()
         compiled_run = await self._compile_agent_run(
             cfg=cfg,
             subagents=agents_result.subagents,

@@ -49,6 +49,11 @@ def _build_registry_lock() -> RegistryLock:
             id="scoped-agent",
         ),
         pytest.param(None, None, id="legacy-pre-patch-agent"),
+        pytest.param(
+            frozenset(),
+            frozenset({"core.http_request"}),
+            id="scopeless-new-agent-not-legacy",
+        ),
     ],
 )
 async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(

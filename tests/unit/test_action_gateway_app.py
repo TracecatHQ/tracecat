@@ -223,6 +223,51 @@ def test_agent_run_python_allows_configured_gateway_action(
     assert response.json() == {"ok": True}
 
 
+def test_empty_scopes_run_python_is_enforced_not_treated_as_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A new scopeless agent grant (scopes=frozenset()) still hits the ceiling.
+
+    Only ``allowed_actions is None`` marks a legacy pre-grant history; an empty
+    scope set is a genuine (deny-all) caller bound, so the toolset ceiling must
+    still be evaluated rather than skipped.
+    """
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+
+    async def list_cases() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        GatewayRouteKey("GET", "/internal/cases"),
+        GatewayCapability(
+            method="GET",
+            path="/internal/cases",
+            actions=frozenset({"core.cases.list_cases"}),
+        ),
+    )
+
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset(),
+        allowed_actions=frozenset({"core.script.run_python"}),
+        action="core.script.run_python",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/internal/cases", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
+
+
 def test_registry_template_run_python_skips_agent_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
