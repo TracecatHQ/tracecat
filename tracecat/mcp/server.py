@@ -510,7 +510,8 @@ async def _build_integrations_inventory(role: Role) -> IntegrationsInventoryResp
         status_rank = {
             IntegrationStatus.NOT_CONFIGURED: 0,
             IntegrationStatus.CONFIGURED: 1,
-            IntegrationStatus.CONNECTED: 2,
+            IntegrationStatus.REAUTH_REQUIRED: 2,
+            IntegrationStatus.CONNECTED: 3,
         }
         existing: dict[tuple[str, OAuthGrantType], Any] = {}
         for integration in integrations:

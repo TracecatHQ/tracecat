@@ -456,9 +456,9 @@ class TestInvalidPatchApplicationRaisesToolError:
 class TestInternalRouterCoversSdkPaths:
     """The internal router must expose every path the workflows SDK calls.
 
-    ``TracecatClient`` normalizes the SDK base URL under ``/internal``, so any
-    SDK method whose path is missing from the internal router 404s when a
-    registry action invokes it. These assertions lock the webhook and
+    ``TracecatClient`` sends SDK paths to the Action Gateway under ``/internal``,
+    so any missing route 404s when a registry action invokes it. These
+    assertions lock the webhook and
     case-trigger routes (added alongside the chat tools that drive them) into
     the router so the SDK<->route contract can't silently drift.
     """

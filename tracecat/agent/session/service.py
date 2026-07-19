@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import copy
 import hashlib
@@ -9,6 +10,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -30,7 +32,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
+from temporalio.client import (
+    WorkflowUpdateRPCTimeoutOrCancelledError,
+)
 from temporalio.common import Priority, TypedSearchAttributes
+from temporalio.service import RPCError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_ee.workspace_chat.skills import (
     BUILTIN_WORKSPACE_CHAT_SKILLS,
@@ -68,17 +74,18 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     TurnLifecycleResult,
 )
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
-from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
-from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -113,7 +120,6 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -126,10 +132,57 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
+    from tracecat_ee.agent.approvals.service import ApprovalMap
+
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
-APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _auto_title_session(
+    *,
+    session_id: uuid.UUID,
+    user_prompt: str,
+    expected_title: str,
+    role: Role,
+) -> None:
+    """Best-effort auto-title using a fresh database session.
+
+    Expected generation errors are handled inside
+    ``auto_title_session_on_first_prompt``; anything else propagates to the
+    task's done callback so programming/database faults surface in logs.
+    """
+    async with AgentSessionService.with_session(role=role) as service:
+        agent_session = await service.get_session(session_id)
+        if agent_session is None:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(session_id),
+                prompt_length=len(user_prompt.strip()),
+                reason="session_not_found",
+            )
+            return
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            user_prompt,
+            expected_title=expected_title,
+        )
+
+
+def _finalize_auto_title_task(
+    task: asyncio.Task[None], *, session_id: uuid.UUID
+) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        logger.error(
+            "session_auto_title_failure",
+            session_id=str(session_id),
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
 
 
 @dataclass
@@ -139,6 +192,33 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+@dataclass(frozen=True)
+class StreamResumeState:
+    """Transport-neutral state for deciding whether a session stream is live."""
+
+    lifecycle: TurnLifecycle
+    curr_run_id: uuid.UUID | None
+    active_stream_id: uuid.UUID | None
+    has_live_stream: bool
+
+
+@dataclass(frozen=True)
+class ApprovalContinuationAttempt:
+    """A persisted, retryable approval-continuation stream attempt."""
+
+    stream: AgentStream
+    stream_id: uuid.UUID
+    previous_stream_id: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class _ValidatedContinuation:
+    """Approvals resolved from a validated continuation request."""
+
+    approval_map: ApprovalMap
+    decision_metadata: dict[str, dict[str, Any]]
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1072,7 +1152,7 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
+    async def is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
         """Check whether this session has any persisted local history yet."""
         stmt = (
             select(AgentSessionHistory.id)
@@ -1084,10 +1164,6 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
-
-    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
-        """Return whether the session should receive its initial artifact seed."""
-        return await self._is_first_prompt_for_session(agent_session.id)
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
@@ -1103,62 +1179,18 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
-    async def claim_external_channel_approval_sink(
-        self,
-        *,
-        session_id: uuid.UUID,
-        source: Literal["inbox", "slack"],
-    ) -> Literal["inbox", "slack"]:
-        """Legacy no-op sink claim kept for backwards compatibility.
-
-        External-channel approvals are no longer source-locked. Decisions can be
-        submitted from Slack or inbox; first accepted continuation wins.
-        """
-        stmt = select(AgentSession).where(
-            AgentSession.id == session_id,
-            AgentSession.workspace_id == self.workspace_id,
+    async def _pending_approval_tool_call_ids(self, session_id: uuid.UUID) -> set[str]:
+        """Return pending approval tool-call IDs for one session."""
+        stmt = select(Approval.tool_call_id).where(
+            Approval.workspace_id == self.workspace_id,
+            Approval.session_id == session_id,
+            Approval.status == ApprovalStatus.PENDING,
         )
         result = await self.session.execute(stmt)
-        agent_session = result.scalar_one_or_none()
-        if agent_session is None:
-            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        return source
-
-    async def _emit_noop_continuation_done(
-        self,
-        *,
-        session_id: uuid.UUID,
-        active_stream_id: uuid.UUID | None,
-    ) -> None:
-        """Emit an end marker so duplicate/no-op continuations don't hang SSE clients."""
-        if self.workspace_id is None:
-            return
-        try:
-            redis_client = await get_redis_client()
-            await redis_client.xadd(
-                StreamKey(
-                    workspace_id=self.workspace_id,
-                    session_id=session_id,
-                    stream_id=active_stream_id,
-                ),
-                {
-                    tokens.DATA_KEY: orjson.dumps(
-                        {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
-                        default=str,
-                    ).decode()
-                },
-                maxlen=10000,
-                approximate=True,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to emit no-op continuation done marker",
-                session_id=str(session_id),
-                error=str(exc),
-            )
+        return set(result.scalars().all())
 
     @staticmethod
-    def _approval_dedup_key(
+    def _approval_submission_key(
         *,
         workspace_id: uuid.UUID,
         session_id: uuid.UUID,
@@ -1170,15 +1202,177 @@ class AgentSessionService(BaseWorkspaceService):
         ).hexdigest()[:16]
         return f"agent-approval-submit:{workspace_id}:{session_id}:{run_id}:{digest}"
 
+    async def _existing_approval_continuation_attempt(
+        self,
+        agent_session: AgentSession,
+        *,
+        submission_key: str,
+    ) -> ApprovalContinuationAttempt | None:
+        """Return the installed attempt for this approval submission, if any."""
+        stream_id = agent_session.active_stream_id
+        if stream_id is None:
+            return None
+
+        stream = await AgentStream.new(
+            session_id=agent_session.id,
+            workspace_id=self.workspace_id,
+            stream_id=stream_id,
+        )
+        marker = await stream.approval_continuation_marker()
+        if marker is None or marker.submission_key != submission_key:
+            return None
+        return ApprovalContinuationAttempt(
+            stream=stream,
+            stream_id=stream_id,
+            previous_stream_id=marker.previous_stream_id,
+        )
+
+    async def _prepare_approval_continuation_attempt(
+        self,
+        *,
+        agent_session: AgentSession,
+        curr_run_id: uuid.UUID,
+        submission_key: str,
+    ) -> ApprovalContinuationAttempt:
+        """Reuse an installed attempt or atomically install a fresh stream."""
+        if attempt := await self._existing_approval_continuation_attempt(
+            agent_session,
+            submission_key=submission_key,
+        ):
+            return attempt
+
+        previous_stream_id = agent_session.active_stream_id
+        stream_id = uuid.uuid4()
+        stream = await AgentStream.new(
+            session_id=agent_session.id,
+            workspace_id=self.workspace_id,
+            stream_id=stream_id,
+        )
+        await stream.mark_approval_continuation(
+            submission_key=submission_key,
+            previous_stream_id=previous_stream_id,
+        )
+
+        previous_stream_filter = (
+            AgentSession.active_stream_id.is_(None)
+            if previous_stream_id is None
+            else AgentSession.active_stream_id == previous_stream_id
+        )
+        stmt = (
+            update(AgentSession)
+            .where(
+                AgentSession.id == agent_session.id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.curr_run_id == curr_run_id,
+                previous_stream_filter,
+            )
+            .values(active_stream_id=stream_id)
+            .returning(AgentSession.active_stream_id)
+        )
+        try:
+            result = await self.session.execute(stmt)
+            installed_stream_id = result.scalar_one_or_none()
+            await self.session.commit()
+        except SQLAlchemyError:
+            await self.session.rollback()
+            raise
+        if installed_stream_id == stream_id:
+            agent_session.active_stream_id = stream_id
+            return ApprovalContinuationAttempt(
+                stream=stream,
+                stream_id=stream_id,
+                previous_stream_id=previous_stream_id,
+            )
+
+        # Another request won the compare-and-swap. This candidate was never
+        # published, so remove it and reuse the installed attempt instead.
+        with contextlib.suppress(Exception):
+            await stream.clear_buffer()
+        await self.session.refresh(agent_session)
+        if attempt := await self._existing_approval_continuation_attempt(
+            agent_session,
+            submission_key=submission_key,
+        ):
+            return attempt
+        raise TracecatConflictError(
+            "Approval continuation changed while decisions were being submitted"
+        )
+
+    async def _rollback_rejected_approval_continuation(
+        self,
+        *,
+        agent_session: AgentSession,
+        curr_run_id: uuid.UUID,
+        attempt: ApprovalContinuationAttempt,
+    ) -> None:
+        """Close a rejected attempt and compare-and-restore its prior pointer."""
+        try:
+            await attempt.stream.done()
+        except Exception as exc:
+            logger.warning(
+                "Failed to close rejected approval continuation stream",
+                session_id=str(agent_session.id),
+                stream_id=str(attempt.stream_id),
+                error=str(exc),
+            )
+
+        stmt = (
+            update(AgentSession)
+            .where(
+                AgentSession.id == agent_session.id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.curr_run_id == curr_run_id,
+                AgentSession.active_stream_id == attempt.stream_id,
+            )
+            .values(active_stream_id=attempt.previous_stream_id)
+            .returning(AgentSession.id)
+        )
+        try:
+            result = await self.session.execute(stmt)
+            restored_session_id = result.scalar_one_or_none()
+            await self.session.commit()
+            if restored_session_id is None:
+                await self.session.refresh(agent_session)
+                logger.info(
+                    "Skipped stale approval continuation rollback",
+                    session_id=str(agent_session.id),
+                    stream_id=str(attempt.stream_id),
+                    active_stream_id=str(agent_session.active_stream_id),
+                )
+            else:
+                agent_session.active_stream_id = attempt.previous_stream_id
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.warning(
+                "Failed to restore stream pointer after rejected approval continuation",
+                session_id=str(agent_session.id),
+                stream_id=str(attempt.stream_id),
+                error=str(exc),
+            )
+
     async def auto_title_session_on_first_prompt(
         self,
         agent_session: AgentSession,
         user_prompt: str,
+        *,
+        expected_title: str,
     ) -> None:
         """Best-effort auto-title on first prompt via direct PydanticAI call."""
         prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
-        old_title = agent_session.title
+        old_title = expected_title
+
+        if agent_session.title != expected_title:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(agent_session.title),
+                reason="title_changed_since_scheduling",
+            )
+            return
 
         if not prompt:
             logger.info(
@@ -1189,18 +1383,6 @@ class AgentSessionService(BaseWorkspaceService):
                 old_title_length=len(old_title),
                 new_title_length=0,
                 reason="empty_prompt",
-            )
-            return
-
-        if not await self._is_first_prompt_for_session(agent_session.id):
-            logger.info(
-                "session_auto_title_skip",
-                session_id=str(agent_session.id),
-                entity_type=entity_type,
-                prompt_length=len(prompt),
-                old_title_length=len(old_title),
-                new_title_length=0,
-                reason="not_first_prompt",
             )
             return
 
@@ -1270,16 +1452,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return
 
-        history_exists = (
-            select(AgentSessionHistory.id)
-            .where(
-                AgentSessionHistory.workspace_id == self.workspace_id,
-                AgentSessionHistory.session_id == agent_session.id,
-            )
-            .limit(1)
-            .exists()
-        )
-
         try:
             result = await self.session.execute(
                 update(AgentSession)
@@ -1287,7 +1459,6 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSession.id == agent_session.id,
                     AgentSession.workspace_id == self.workspace_id,
                     AgentSession.title == old_title,
-                    ~history_exists,
                 )
                 .values(title=new_title)
                 .returning(AgentSession.id)
@@ -1341,6 +1512,7 @@ class AgentSessionService(BaseWorkspaceService):
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
         *,
         active_stream_id: uuid.UUID | None = None,
+        is_first_prompt: bool | None = None,
     ) -> ChatResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
@@ -1353,10 +1525,15 @@ class AgentSessionService(BaseWorkspaceService):
                 into the workflow input and onto the session row so the producer
                 and reader share the same per-turn Redis key. Defaults to a freshly
                 minted id for callers that don't manage their own stream.
+            is_first_prompt: Whether the session had no history before this turn.
+                When omitted, the service queries history for direct callers.
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
-            ChatResponse if starting a new turn, None if continuing.
+            ChatResponse when starting a new turn or continuing with approvals
+            (the continuation response carries the rotated ``active_stream_id``).
+            None only for a no-op continuation whose approvals are already
+            resolved.
 
         Raises:
             TracecatNotFoundError: If the session is not found.
@@ -1411,8 +1588,15 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
-        if user_prompt is not None:
-            await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
+        # Titling eligibility must be decided before the workflow spawns: the
+        # executor streams history rows mid-turn, so checking afterwards would
+        # race. Placeholder titles ("Chat 1", "Slack thread", ...) vary by
+        # surface, so first-prompt history is the signal, not the title text.
+        if is_first_prompt is None:
+            is_first_prompt = await self.is_first_prompt_for_session(session_id)
+        should_auto_title = user_prompt is not None and is_first_prompt
+        # Snapshot here so the detached task cannot overwrite a mid-flight rename.
+        expected_title = agent_session.title
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
@@ -1495,6 +1679,22 @@ class AgentSessionService(BaseWorkspaceService):
                 ),
             )
 
+            # Spawn after the workflow starts so a rejected/failed turn never
+            # renames the session.
+            if should_auto_title and user_prompt is not None:
+                task = asyncio.create_task(
+                    _auto_title_session(
+                        session_id=session_id,
+                        user_prompt=user_prompt,
+                        expected_title=expected_title,
+                        role=self.role,
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(
+                    partial(_finalize_auto_title_task, session_id=session_id)
+                )
+
         # Return ChatResponse with session_id for streaming. Surface run_id so the
         # HTTP layer builds the stable bubble id from the value we just minted
         # rather than re-reading curr_run_id, which finalize_turn may clear before
@@ -1515,7 +1715,6 @@ class AgentSessionService(BaseWorkspaceService):
         reconnecting client gets a terminal frame instead of hanging.
         """
         from temporalio.client import WorkflowExecutionStatus
-        from temporalio.service import RPCError
         from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
@@ -1557,6 +1756,48 @@ class AgentSessionService(BaseWorkspaceService):
                 # FAILED | TERMINATED | TIMED_OUT
                 return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
+    async def _is_attachable_continuation(self, agent_session: AgentSession) -> bool:
+        """Probe whether the active stream is an open approval continuation.
+
+        Approval-paused runs are still RUNNING in Temporal. A freshly rotated
+        continuation is the exception: its marker is written before the stream ID
+        is committed, so reconnects can safely wait on it while decisions finish
+        committing.
+        """
+        if agent_session.active_stream_id is None:
+            return False
+        try:
+            stream = await AgentStream.new(
+                session_id=agent_session.id,
+                workspace_id=self.workspace_id,
+                stream_id=agent_session.active_stream_id,
+            )
+            return await stream.is_open_approval_continuation()
+        except Exception as exc:
+            logger.warning(
+                "Failed to inspect approval continuation stream",
+                session_id=str(agent_session.id),
+                stream_id=str(agent_session.active_stream_id),
+                error=str(exc),
+            )
+            return False
+
+    async def get_stream_resume_state(
+        self, agent_session: AgentSession
+    ) -> StreamResumeState:
+        """Resolve whether the session has a live stream a client can attach to."""
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        has_live_stream = lifecycle is TurnLifecycle.RUNNING
+        if has_live_stream and await self.has_pending_approvals(agent_session.id):
+            has_live_stream = await self._is_attachable_continuation(agent_session)
+
+        return StreamResumeState(
+            lifecycle=lifecycle,
+            curr_run_id=curr_run_id,
+            active_stream_id=agent_session.active_stream_id,
+            has_live_stream=has_live_stream,
+        )
+
     async def validate_turn_request(
         self,
         session_id: uuid.UUID,
@@ -1584,59 +1825,34 @@ class AgentSessionService(BaseWorkspaceService):
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
 
-    async def _continue_with_approvals(
+    def _validate_continuation_decisions(
         self,
-        session_id: uuid.UUID,
+        *,
         request: ContinueRunRequest,
-    ) -> None:
-        """Continue an agent workflow by submitting approval decisions.
-
-        Uses Temporal's workflow update mechanism to signal the waiting workflow
-        with the approval decisions.
-
-        Args:
-            session_id: The ID of the agent session to continue.
-            request: The continuation request containing approval decisions.
+        pending_tool_call_ids: set[str],
+    ) -> _ValidatedContinuation:
+        """Validate decisions against the pending set and build the ApprovalMap.
 
         Raises:
-            TracecatNotFoundError: If no active session exists.
+            ValueError: On duplicate submitted IDs or any mismatch with the
+                pending tool-call-id set.
         """
-        from tracecat_ee.agent.approvals.service import ApprovalMap
-        from tracecat_ee.agent.types import AgentWorkflowID
-        from tracecat_ee.agent.workflows.durable import (
-            DurableAgentWorkflow,
-            WorkflowApprovalSubmission,
-        )
 
-        agent_session = await self.get_session(session_id)
-        if agent_session is None:
-            raise TracecatNotFoundError(
-                f"No active agent session found with ID {session_id}"
-            )
-        curr_run_id = agent_session.curr_run_id
-        if curr_run_id is None:
-            raise TracecatNotFoundError(
-                f"No active workflow run for session {session_id}"
+        source = request.source
+        submitted_tool_call_ids = [
+            decision.tool_call_id for decision in request.decisions
+        ]
+        submitted_tool_call_id_set = set(submitted_tool_call_ids)
+        if len(submitted_tool_call_ids) != len(submitted_tool_call_id_set):
+            raise ValueError("Approval decisions contain duplicate tool call IDs")
+        if submitted_tool_call_id_set != pending_tool_call_ids:
+            missing = sorted(pending_tool_call_ids - submitted_tool_call_id_set)
+            unexpected = sorted(submitted_tool_call_id_set - pending_tool_call_ids)
+            raise ValueError(
+                "Approval decisions do not match pending tool calls"
+                f" (missing={missing}, unexpected={unexpected})"
             )
 
-        source: Literal["inbox", "slack"] = request.source
-
-        # Idempotency path: if approvals are already resolved, accept duplicate
-        # submissions as a no-op (cross-surface races Slack <-> inbox).
-        if not await self.has_pending_approvals(session_id):
-            logger.info(
-                "Ignoring approval continuation without pending approvals",
-                session_id=str(session_id),
-                run_id=str(curr_run_id),
-                source=source,
-            )
-            await self._emit_noop_continuation_done(
-                session_id=session_id,
-                active_stream_id=agent_session.active_stream_id,
-            )
-            return None
-
-        # Build ApprovalMap from the request decisions
         approval_map: ApprovalMap = {}
         decision_metadata: dict[str, dict[str, Any]] = {}
         for decision in request.decisions:
@@ -1665,85 +1881,154 @@ class AgentSessionService(BaseWorkspaceService):
                 merged_metadata["source"] = source
             decision_metadata[decision.tool_call_id] = merged_metadata
 
-        # First decision submission wins per (session, run, pending tool-set).
-        dedup_client = None
-        dedup_key: str | None = None
-        if self.workspace_id is not None:
-            dedup_key = self._approval_dedup_key(
-                workspace_id=self.workspace_id,
-                session_id=session_id,
-                run_id=curr_run_id,
-                tool_call_ids=tuple(approval_map.keys()),
-            )
-            try:
-                dedup_client = await get_redis_client()
-                inserted = await dedup_client.set_if_not_exists(
-                    dedup_key,
-                    source,
-                    expire_seconds=APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS,
-                )
-                if not inserted:
-                    logger.info(
-                        "Skipping duplicate approval continuation submission",
-                        session_id=str(session_id),
-                        run_id=str(curr_run_id),
-                        source=source,
-                        dedup_key=dedup_key,
-                    )
-                    await self._emit_noop_continuation_done(
-                        session_id=session_id,
-                        active_stream_id=agent_session.active_stream_id,
-                    )
-                    return None
-            except Exception as exc:
-                logger.warning(
-                    "Approval continuation dedup unavailable; proceeding best-effort",
-                    session_id=str(session_id),
-                    run_id=str(curr_run_id),
-                    source=source,
-                    error=str(exc),
-                )
-
-        # Get workflow handle using curr_run_id
-        client = await get_temporal_client()
-        workflow_id = AgentWorkflowID(curr_run_id)
-
-        logger.info(
-            "Submitting approval decisions to workflow",
-            workflow_id=str(workflow_id),
-            session_id=str(session_id),
-            run_id=str(curr_run_id),
-            num_decisions=len(approval_map),
+        return _ValidatedContinuation(
+            approval_map=approval_map,
+            decision_metadata=decision_metadata,
         )
 
-        handle = client.get_workflow_handle_for(
-            DurableAgentWorkflow.run,
-            str(workflow_id),
+    async def _submit_approval_update(
+        self,
+        *,
+        agent_session: AgentSession,
+        curr_run_id: uuid.UUID,
+        attempt: ApprovalContinuationAttempt,
+        validated: _ValidatedContinuation,
+        handle: Any,
+    ) -> None:
+        """Submit the Temporal update, preserving the attempt on ambiguous failure.
+
+        Ambiguous transport failures leave the attempt intact so a retry reuses
+        the same Temporal update id; definitive rejections roll it back.
+        """
+        from tracecat_ee.agent.workflows.durable import (
+            DurableAgentWorkflow,
+            WorkflowApprovalSubmission,
         )
 
         try:
             await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
                 WorkflowApprovalSubmission(
-                    approvals=approval_map,
+                    approvals=validated.approval_map,
                     approved_by=self.role.user_id,
-                    decision_metadata=decision_metadata or None,
+                    decision_metadata=validated.decision_metadata or None,
+                    new_stream_id=attempt.stream_id,
                 ),
+                id=f"set-approvals:{attempt.stream_id}",
             )
-        except Exception:
-            # Allow retriable failures to be resubmitted by clearing dedup marker.
-            if dedup_client is not None and dedup_key is not None:
-                with contextlib.suppress(Exception):
-                    await dedup_client.delete(dedup_key)
+        except BaseException as exc:
+            if isinstance(exc, Exception) and not isinstance(
+                exc,
+                (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError),
+            ):
+                await self._rollback_rejected_approval_continuation(
+                    agent_session=agent_session,
+                    curr_run_id=curr_run_id,
+                    attempt=attempt,
+                )
             raise
+
+    async def _continue_with_approvals(
+        self,
+        session_id: uuid.UUID,
+        request: ContinueRunRequest,
+    ) -> ChatResponse | None:
+        """Continue an agent workflow by submitting approval decisions.
+
+        Two idempotency layers converge concurrent submissions (Slack <->
+        inbox): the DB CAS on ``active_stream_id`` picks a single winning rotated
+        stream, and the Temporal update id ``set-approvals:{stream_id}`` dedups
+        server-side so duplicate submitters get the same result.
+
+        Raises:
+            TracecatNotFoundError: If no active session exists.
+        """
+        from tracecat_ee.agent.types import AgentWorkflowID
+        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(
+                f"No active agent session found with ID {session_id}"
+            )
+        curr_run_id = agent_session.curr_run_id
+        if curr_run_id is None:
+            raise TracecatNotFoundError(
+                f"No active workflow run for session {session_id}"
+            )
+
+        source: Literal["inbox", "slack"] = request.source
+
+        # Idempotency path: if approvals are already resolved, accept duplicate
+        # submissions as a no-op (cross-surface races Slack <-> inbox).
+        pending_tool_call_ids = await self._pending_approval_tool_call_ids(session_id)
+        if not pending_tool_call_ids:
+            logger.info(
+                "Ignoring approval continuation without pending approvals",
+                session_id=str(session_id),
+                run_id=str(curr_run_id),
+                source=source,
+            )
+            return None
+
+        validated = self._validate_continuation_decisions(
+            request=request,
+            pending_tool_call_ids=pending_tool_call_ids,
+        )
+
+        # Resolve the workflow handle first. These operations do not mutate
+        # continuation state, so failures here should not suppress a later retry.
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(curr_run_id)
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run,
+            str(workflow_id),
+        )
+
+        logger.info(
+            "Submitting approval decisions to workflow",
+            workflow_id=str(workflow_id),
+            session_id=str(session_id),
+            run_id=str(curr_run_id),
+            num_decisions=len(validated.approval_map),
+        )
+
+        # Install the retryable stream; the database CAS converges concurrent
+        # setup on a single winning rotated stream. Duplicate submitters reuse
+        # the installed attempt (marker match) and its Temporal update id.
+        submission_key = self._approval_submission_key(
+            workspace_id=self.workspace_id,
+            session_id=session_id,
+            run_id=curr_run_id,
+            tool_call_ids=tuple(validated.approval_map.keys()),
+        )
+        attempt = await self._prepare_approval_continuation_attempt(
+            agent_session=agent_session,
+            curr_run_id=curr_run_id,
+            submission_key=submission_key,
+        )
+
+        await self._submit_approval_update(
+            agent_session=agent_session,
+            curr_run_id=curr_run_id,
+            attempt=attempt,
+            validated=validated,
+            handle=handle,
+        )
 
         logger.info(
             "Approval decisions submitted successfully",
             workflow_id=str(workflow_id),
             session_id=str(session_id),
+            new_stream_id=str(attempt.stream_id),
         )
 
-        return None
+        return ChatResponse(
+            stream_url=f"/api/agent/sessions/{session_id}/stream",
+            chat_id=session_id,
+            active_stream_id=attempt.stream_id,
+            curr_run_id=curr_run_id,
+        )
 
     async def request_cancel(
         self,
@@ -2064,6 +2349,61 @@ class AgentSessionService(BaseWorkspaceService):
     # Message Retrieval
     # =========================================================================
 
+    async def _visible_history_entries(
+        self,
+        *,
+        session_ids: Sequence[uuid.UUID],
+        current_run_id: uuid.UUID | None,
+        approval_tool_call_ids: set[str],
+        include_active: bool,
+    ) -> list[AgentSessionHistory]:
+        """Query the history rows visible to this message read."""
+        approval_boundary: int | None = None
+        if not include_active and current_run_id is not None and approval_tool_call_ids:
+            boundary_stmt = (
+                select(
+                    AgentSessionHistory.surrogate_id,
+                    AgentSessionHistory.content,
+                )
+                .where(
+                    AgentSessionHistory.session_id.in_(session_ids),
+                    AgentSessionHistory.curr_run_id == current_run_id,
+                )
+                .order_by(AgentSessionHistory.surrogate_id.desc())
+            )
+            result = await self.session.execute(boundary_stmt)
+            for surrogate_id, content in result.tuples():
+                inner_message = (content.get("message") or content) if content else {}
+                if any(
+                    tool_use.get("id") in approval_tool_call_ids
+                    for tool_use in self._extract_tool_uses_from_message(inner_message)
+                ):
+                    approval_boundary = surrogate_id
+                    break
+
+        stmt = (
+            select(AgentSessionHistory)
+            .where(AgentSessionHistory.session_id.in_(session_ids))
+            .order_by(AgentSessionHistory.surrogate_id)
+        )
+        if not include_active and current_run_id is not None:
+            visible = or_(
+                AgentSessionHistory.curr_run_id.is_(None),
+                AgentSessionHistory.curr_run_id != current_run_id,
+            )
+            if approval_boundary is not None:
+                visible = or_(
+                    visible,
+                    and_(
+                        AgentSessionHistory.curr_run_id == current_run_id,
+                        AgentSessionHistory.surrogate_id <= approval_boundary,
+                    ),
+                )
+            stmt = stmt.where(visible)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_messages(
         self,
         session_id: uuid.UUID,
@@ -2101,47 +2441,42 @@ class AgentSessionService(BaseWorkspaceService):
         if agent_session and agent_session.parent_session_id:
             session_ids.insert(0, agent_session.parent_session_id)
 
-        # Fetch all history entries (both chat-message and internal)
-        # Internal entries are needed for tool result enrichment in the adapter
-        all_history_stmt = (
-            select(AgentSessionHistory)
-            .where(AgentSessionHistory.session_id.in_(session_ids))
-            .order_by(AgentSessionHistory.surrogate_id)
+        approval_result = await self.session.execute(
+            select(Approval).where(Approval.session_id.in_(session_ids))
         )
-        # While a turn is live (curr_run_id set), the active run's partial rows
-        # are durability-only - the live assistant streams from Redis. Hide them
-        # here so the active assistant has exactly one source (no dedupe). The
-        # gate is the cheap curr_run_id pointer; terminal nulls it (see
-        # finish/fail paths), at which point the final rows become visible.
-        if not include_active and agent_session.curr_run_id is not None:
-            all_history_stmt = all_history_stmt.where(
-                or_(
-                    AgentSessionHistory.curr_run_id.is_(None),
-                    AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
-                )
-            )
-        all_history_result = await self.session.execute(all_history_stmt)
-        all_entries = list(all_history_result.scalars().all())
-
-        # Fetch approvals for this session and parent session (for forked sessions)
-        approval_stmt = select(Approval).where(Approval.session_id.in_(session_ids))
-        approval_result = await self.session.execute(approval_stmt)
-        approvals = approval_result.scalars().all()
-        approval_by_tool_id: dict[str, Approval] = {
-            a.tool_call_id: a for a in approvals
+        approval_by_tool_id = {
+            approval.tool_call_id: approval
+            for approval in approval_result.scalars().all()
         }
+        entries = await self._visible_history_entries(
+            session_ids=session_ids,
+            current_run_id=agent_session.curr_run_id,
+            approval_tool_call_ids=set(approval_by_tool_id),
+            include_active=include_active,
+        )
 
-        # Build timeline with interleaved approvals
-        # Process both chat-message and internal entries in order
-        # Internal entries contain tool results that the adapter will extract
+        return self._render_history_entries(
+            entries,
+            approvals_by_tool_id=approval_by_tool_id,
+            kinds=kinds,
+        )
+
+    def _render_history_entries(
+        self,
+        entries: Sequence[AgentSessionHistory],
+        *,
+        approvals_by_tool_id: dict[str, Approval],
+        kinds: Sequence[MessageKind] | None,
+    ) -> list[ChatMessage]:
+        """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
         internal_uuids: set[str] = set()
-        for entry in all_entries:
+
+        for entry in entries:
             content = entry.content
             if not content:
                 continue
 
-            # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
                 if line_uuid := session_line_uuid(content):
                     internal_uuids.add(line_uuid)
@@ -2152,19 +2487,12 @@ class AgentSessionService(BaseWorkspaceService):
                     internal_uuids.add(line_uuid)
                 continue
 
-            # Handle compaction entries: these are badges showing when compaction happened
             if entry.kind == MessageKind.COMPACTION.value:
                 kind = MessageKind.COMPACTION
-
-                # Filter by kinds if specified
                 if kinds and kind not in kinds:
                     continue
 
-                # Compaction badge data: extract metadata from the system message
-                # The system compact_boundary message has compactMetadata at the top level
                 compaction_data: dict[str, Any] = {"phase": "completed"}
-
-                # Extract pre_tokens from compactMetadata if available
                 compact_metadata = content.get("compactMetadata")
                 if isinstance(compact_metadata, dict):
                     pre_tokens = compact_metadata.get("preTokens")
@@ -2180,12 +2508,8 @@ class AgentSessionService(BaseWorkspaceService):
                 )
                 continue
 
-            # Handle cancelled markers: divider rows showing where the user
-            # stopped an in-flight turn.
             if entry.kind == MessageKind.CANCELLED.value:
                 kind = MessageKind.CANCELLED
-
-                # Filter by kinds if specified
                 if kinds and kind not in kinds:
                     continue
 
@@ -2202,9 +2526,6 @@ class AgentSessionService(BaseWorkspaceService):
                     "reason": reason if isinstance(reason, str) else None,
                 }
                 if tool_call_ids:
-                    # Structured interrupt metadata for the UI: tool calls
-                    # aborted by this interrupt. Omitted when empty to match
-                    # the marker row's write-side shape.
                     cancelled_payload["tool_call_ids"] = tool_call_ids
                 messages.append(
                     ChatMessage(
@@ -2215,56 +2536,42 @@ class AgentSessionService(BaseWorkspaceService):
                 )
                 continue
 
-            # Skip non-message entries (e.g., system metadata)
             msg_type = content.get("type")
             if msg_type not in ("user", "assistant"):
                 continue
-
-            # Standard chat messages
-            kind = MessageKind.CHAT_MESSAGE
-
-            # Filter by kinds if specified
-            if kinds and kind not in kinds:
+            if kinds and MessageKind.CHAT_MESSAGE not in kinds:
                 continue
 
-            # Extract the inner message from JSONL envelope
-            inner_message = content.get("message")
-            if not inner_message:
-                inner_message = content
-
-            # Strip internal proxy metadata before returning persisted tool inputs.
+            inner_message = content.get("message") or content
             sanitized_message = sanitize_message_tool_inputs(inner_message)
-
-            # Deserialize the content using Claude SDK TypeAdapter
             message = ClaudeSDKMessageTA.validate_python(sanitized_message)
             messages.append(ChatMessage(id=str(entry.id), message=message))
 
-            # For assistant messages, check for tool calls needing approval bubbles
-            if msg_type == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(sanitized_message)
-                for tool_use in tool_uses:
-                    tool_use_id = tool_use.get("id")
-                    if tool_use_id and (
-                        approval := approval_by_tool_id.get(tool_use_id)
-                    ):
-                        # Insert approval-request bubble
-                        approval_read = ApprovalRead.model_validate(approval)
-                        messages.append(
-                            ChatMessage(
-                                id=str(approval.id),
-                                kind=MessageKind.APPROVAL_REQUEST,
-                                approval=approval_read,
-                            )
+            if msg_type != "assistant":
+                continue
+            for tool_use in self._extract_tool_uses_from_message(sanitized_message):
+                tool_use_id = tool_use.get("id")
+                if not tool_use_id or not (
+                    approval := approvals_by_tool_id.get(tool_use_id)
+                ):
+                    continue
+
+                approval_read = ApprovalRead.model_validate(approval)
+                messages.append(
+                    ChatMessage(
+                        id=str(approval.id),
+                        kind=MessageKind.APPROVAL_REQUEST,
+                        approval=approval_read,
+                    )
+                )
+                if approval.status != ApprovalStatus.PENDING:
+                    messages.append(
+                        ChatMessage(
+                            id=f"{approval.id}-decision",
+                            kind=MessageKind.APPROVAL_DECISION,
+                            approval=approval_read,
                         )
-                        # If decided, also insert decision bubble
-                        if approval.status != ApprovalStatus.PENDING:
-                            messages.append(
-                                ChatMessage(
-                                    id=f"{approval.id}-decision",
-                                    kind=MessageKind.APPROVAL_DECISION,
-                                    approval=approval_read,
-                                )
-                            )
+                    )
 
         return messages
 

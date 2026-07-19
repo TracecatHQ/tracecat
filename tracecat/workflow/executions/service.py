@@ -1604,7 +1604,12 @@ class WorkflowExecutionsService:
             )
 
         logger.info(
-            f"Executing DSL workflow: {dsl.title}",
+            "Executing DSL workflow",
+            wf_exec_id=wf_exec_id,
+            workflow_id=wf_id,
+        )
+        logger.debug(
+            "DSL workflow execution details",
             role=self.role,
             wf_exec_id=wf_exec_id,
             run_config=dsl.config,
@@ -1613,6 +1618,7 @@ class WorkflowExecutionsService:
             execution_type=execution_type,
             registry_lock=registry_lock,
             stored_type=trigger_inputs_ref.type if trigger_inputs_ref else "<none>",
+            workflow_id=wf_id,
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
@@ -1754,7 +1760,12 @@ class WorkflowExecutionsService:
         start_timeout = min(dispatch_timeout_seconds, 30.0)
 
         logger.info(
-            f"Starting DSL workflow: {dsl.title}",
+            "Starting DSL workflow",
+            wf_exec_id=wf_exec_id,
+            workflow_id=wf_id,
+        )
+        logger.debug(
+            "DSL workflow start details",
             role=self.role,
             wf_exec_id=wf_exec_id,
             run_config=dsl.config,

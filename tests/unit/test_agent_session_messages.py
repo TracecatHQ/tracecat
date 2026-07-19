@@ -65,8 +65,8 @@ async def test_list_messages_preserves_compaction_metadata() -> None:
     service.get_session = AsyncMock(return_value=agent_session)
     service.session.execute = AsyncMock(
         side_effect=[
-            _mock_scalar_result([compaction_entry]),
             _mock_scalar_result([]),
+            _mock_scalar_result([compaction_entry]),
         ]
     )
 
@@ -96,8 +96,8 @@ async def test_list_messages_maps_cancelled_marker() -> None:
     service.get_session = AsyncMock(return_value=agent_session)
     service.session.execute = AsyncMock(
         side_effect=[
-            _mock_scalar_result([cancelled_entry]),
             _mock_scalar_result([]),
+            _mock_scalar_result([cancelled_entry]),
         ]
     )
 
@@ -329,8 +329,8 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
     service.get_session = AsyncMock(return_value=agent_session)
     service.session.execute = AsyncMock(
         side_effect=[
-            _mock_scalar_result(entries),
             _mock_scalar_result([]),
+            _mock_scalar_result(entries),
         ]
     )
 

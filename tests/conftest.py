@@ -81,6 +81,9 @@ TEST_ORG_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 # Worker-specific configuration for pytest-xdist parallel execution
 # Get xdist worker ID, defaults to "master" if not using xdist
 WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+ACTION_GATEWAY_TEST_SOCKET = (
+    Path("/tmp") / f"tracecat-action-gateway-{os.getpid()}-{WORKER_ID}.sock"
+)
 
 # Generate worker-specific port offsets
 # master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
@@ -1225,6 +1228,15 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
+    monkeysession.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(ACTION_GATEWAY_TEST_SOCKET),
+    )
+    monkeysession.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(ACTION_GATEWAY_TEST_SOCKET),
+    )
     # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
     if not IN_DOCKER:
         monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
@@ -1856,15 +1868,21 @@ def threadpool() -> Iterator[ThreadPoolExecutor]:
 
 @pytest.fixture(scope="function")
 async def executor_backend() -> AsyncGenerator[ExecutorBackend, None]:
-    """Initialize executor backend once per test function."""
+    """Initialize the executor backend and its worker-owned action gateway."""
+    from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.backends import (
         initialize_executor_backend,
         shutdown_executor_backend,
     )
 
-    backend = await initialize_executor_backend()
-    yield backend
-    await shutdown_executor_backend()
+    action_gateway = ActionGateway(socket_path=ACTION_GATEWAY_TEST_SOCKET)
+    await action_gateway.start()
+    try:
+        backend = await initialize_executor_backend()
+        yield backend
+    finally:
+        await shutdown_executor_backend()
+        await action_gateway.stop()
 
 
 @pytest.fixture(scope="function")
