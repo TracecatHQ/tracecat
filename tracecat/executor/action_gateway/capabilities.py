@@ -27,7 +27,7 @@ endpoint has such a parameter-dependent privilege boundary.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, NamedTuple
@@ -40,6 +40,10 @@ from tracecat.authz.controls import has_scope
 from tracecat.dsl.enums import PlatformAction
 
 GatewayMethod = Literal["DELETE", "GET", "PATCH", "POST"]
+
+# ``request.state`` slot holding the verified ``run_python`` grant so the agent
+# run endpoint can bound a resolved preset toolset it authorizes as a whole.
+_RUN_PYTHON_CLAIMS_STATE_KEY = "_tracecat_run_python_claims"
 
 
 class GatewayRouteKey(NamedTuple):
@@ -736,18 +740,34 @@ def _agent_gateway_action_allowed(
     one must pass. Every action in ``all_of`` must also pass when request parameters
     cross an additional privilege boundary.
     """
+    if requirement is None:
+        return False
+    return any(
+        _claim_allows_action(claims, action) for action in requirement.any_of
+    ) and all(_claim_allows_action(claims, action) for action in requirement.all_of)
+
+
+def _claim_allows_action(claims: ExecutorTokenPayload, action: str) -> bool:
+    """Require an action to pass both the execution grant and the caller scope."""
     scopes = claims.scopes
     allowed_actions = claims.allowed_actions
-    if scopes is None or allowed_actions is None or requirement is None:
+    if scopes is None or allowed_actions is None:
         return False
+    return action in allowed_actions and has_scope(scopes, f"action:{action}:execute")
 
-    def action_allowed(action: str) -> bool:
-        return action in allowed_actions and has_scope(
-            scopes, f"action:{action}:execute"
-        )
 
-    return any(action_allowed(action) for action in requirement.any_of) and all(
-        action_allowed(action) for action in requirement.all_of
+def _action_not_allowed_error(missing_scopes: list[str], message: str) -> HTTPException:
+    """Build the shared 403 raised when a nested call escapes the Agent grant."""
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "code": "action_not_allowed",
+                "message": message,
+                "required_scopes": missing_scopes,
+                "missing_scopes": missing_scopes,
+            }
+        },
     )
 
 
@@ -770,14 +790,19 @@ async def enforce_agent_action_capability(request: Request) -> None:
         # The normal route authentication dependency owns invalid credentials.
         return
 
-    route_key = _request_route_key(request)
-    if (
-        claims.action != PlatformAction.RUN_PYTHON
+    if claims.action != PlatformAction.RUN_PYTHON or claims.allowed_actions is None:
         # ``None`` marks an execution created before the Agent-grant patch. Keep
-        # those in-flight Temporal histories on their recorded legacy behavior.
-        or claims.allowed_actions is None
-        or route_key in GATEWAY_EXEMPT_ROUTES
-    ):
+        # those in-flight Temporal histories on their recorded legacy behavior,
+        # and leave non-``run_python`` callers to the normal route auth.
+        return
+
+    # Expose the verified grant to the matched endpoint. ``POST /internal/agent/run``
+    # only learns a preset's concrete toolset after loading it, so it re-checks the
+    # resolved config against this grant (see ``enforce_run_python_agent_config``).
+    setattr(request.state, _RUN_PYTHON_CLAIMS_STATE_KEY, claims)
+
+    route_key = _request_route_key(request)
+    if route_key in GATEWAY_EXEMPT_ROUTES:
         return
 
     requirement = (
@@ -792,14 +817,39 @@ async def enforce_agent_action_capability(request: Request) -> None:
         f"action:{action}:execute"
         for action in sorted(requirement.actions if requirement is not None else ())
     ]
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "error": {
-                "code": "action_not_allowed",
-                "message": "Action Gateway operation is not in the Agent toolset",
-                "required_scopes": required_scopes,
-                "missing_scopes": required_scopes,
-            }
-        },
+    raise _action_not_allowed_error(
+        required_scopes, "Action Gateway operation is not in the Agent toolset"
     )
+
+
+def enforce_run_python_agent_config(
+    request: Request,
+    *,
+    actions: Iterable[str] | None,
+    base_url: str | None,
+) -> None:
+    """Bound a resolved agent run by the parent ``run_python`` grant.
+
+    The gateway dependency authorizes the ``ai.preset_agent`` operation but cannot
+    see a preset's stored toolset, so the run endpoint re-checks the resolved
+    configuration once the preset (or ad-hoc config) is loaded. A no-op unless the
+    caller is a ``run_python`` executor with a non-legacy grant.
+    """
+    claims = getattr(request.state, _RUN_PYTHON_CLAIMS_STATE_KEY, None)
+    if claims is None:
+        return
+    if base_url is not None:
+        # A caller-controlled endpoint would receive the workspace provider
+        # credential; custom endpoints go through a workspace-scoped catalog_id.
+        raise _action_not_allowed_error(
+            [], "Custom model base URL is not in the Agent toolset"
+        )
+    missing = sorted(
+        f"action:{action}:execute"
+        for action in (actions or ())
+        if not _claim_allows_action(claims, action)
+    )
+    if missing:
+        raise _action_not_allowed_error(
+            missing, "Agent tool is not in the run_python toolset"
+        )

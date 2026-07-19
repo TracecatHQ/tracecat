@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from tracecat_registry import secrets as registry_secrets
 
 from tracecat.agent.exceptions import AgentRunError
@@ -25,6 +25,9 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.executor.action_gateway.capabilities import (
+    enforce_run_python_agent_config,
+)
 from tracecat.logger import logger
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
@@ -137,6 +140,7 @@ def _normalize_output_type(
 @require_scope("agent:execute")
 async def run_agent_endpoint(
     *,
+    request: Request,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     params: InternalRunAgentRequest,
@@ -149,6 +153,12 @@ async def run_agent_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = await _resolve_run_config(params, agent_svc)
+        # A run_python caller authorizes a preset run only as ``ai.preset_agent``;
+        # re-check the resolved toolset so a stored preset cannot launder an
+        # action or custom base URL past the signed execution grant.
+        enforce_run_python_agent_config(
+            request, actions=config.actions, base_url=config.base_url
+        )
         mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:

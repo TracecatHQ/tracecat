@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
@@ -25,6 +25,7 @@ from tracecat.executor.action_gateway.capabilities import (
     GatewayRouteKey,
     _agent_gateway_action_allowed,
     enforce_agent_action_capability,
+    enforce_run_python_agent_config,
     gateway_route_key,
 )
 
@@ -284,6 +285,141 @@ def test_agent_run_python_denies_unmapped_gateway_route(
         )
 
     assert response.status_code == 403
+
+
+def _preset_probe_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """App mounting a stand-in agent-run route that enforces a resolved toolset.
+
+    Mirrors ``run_agent_endpoint``: the gateway dependency authorizes the outer
+    ``ai.preset_agent`` operation, then the route re-checks a resolved config.
+    """
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+
+    async def run_agent(request: Request) -> dict[str, bool]:
+        body = await request.json()
+        enforce_run_python_agent_config(
+            request,
+            actions=body.get("resolved_actions"),
+            base_url=body.get("resolved_base_url"),
+        )
+        return {"ran": True}
+
+    app.add_api_route("/internal/agent/run", run_agent, methods=["POST"])
+    return app
+
+
+def _preset_run_token(*allowed: str, action: str = "core.script.run_python") -> str:
+    return mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset({"*"}),
+        allowed_actions=frozenset({"core.script.run_python", *allowed}),
+        action=action,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+
+def test_preset_run_denies_laundered_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preset resolving to an ungranted action is rejected at the run endpoint."""
+    app = _preset_probe_app(monkeypatch)
+    # Outer grant covers the preset run, but not the laundered inner action.
+    token = _preset_run_token("ai.preset_agent")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"preset_slug": "p", "resolved_actions": ["core.cases.delete_case"]},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
+
+
+def test_preset_run_denies_laundered_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preset resolving to a custom base URL is rejected at the run endpoint."""
+    app = _preset_probe_app(monkeypatch)
+    token = _preset_run_token("ai.preset_agent")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "preset_slug": "p",
+                "resolved_actions": [],
+                "resolved_base_url": "https://evil.test",
+            },
+        )
+
+    assert response.status_code == 403
+
+
+def test_preset_run_allows_granted_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preset whose resolved actions are all granted reaches the runtime."""
+    app = _preset_probe_app(monkeypatch)
+    token = _preset_run_token("ai.preset_agent", "core.cases.get_case")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"preset_slug": "p", "resolved_actions": ["core.cases.get_case"]},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ran": True}
+
+
+def test_preset_run_legacy_token_is_not_enforced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-grant (allowed_actions=None) token keeps its legacy behavior."""
+    app = _preset_probe_app(monkeypatch)
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset({"*"}),
+        allowed_actions=None,
+        action="core.script.run_python",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"preset_slug": "p", "resolved_actions": ["core.cases.delete_case"]},
+        )
+
+    assert response.status_code == 200
+
+
+def test_preset_run_non_run_python_token_is_not_enforced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-run_python executor token (trusted workflow config) is unaffected."""
+    app = _preset_probe_app(monkeypatch)
+    token = _preset_run_token("ai.preset_agent", action="ai.preset_agent")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"preset_slug": "p", "resolved_actions": ["core.cases.delete_case"]},
+        )
+
+    assert response.status_code == 200
 
 
 def test_gateway_action_declarations_cover_mounted_routes() -> None:
