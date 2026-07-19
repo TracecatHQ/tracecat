@@ -538,12 +538,24 @@ async def test_is_duplicate_grant_cannot_persist_digest_batch(
             False,
             id="unbounded-ranking",
         ),
+        pytest.param(
+            {"min_items": 1, "max_items": 1, "base_url": "https://evil.test"},
+            None,
+            False,
+            id="custom-base-url-denied",
+        ),
+        pytest.param(
+            {"min_items": 1, "max_items": 1, "base_url": None},
+            _requirement("ai.rank_documents", "ai.select_field"),
+            True,
+            id="null-base-url-allowed",
+        ),
     ],
 )
 async def test_single_result_rank_grant_cannot_request_full_ranking(
     route_key: GatewayRouteKey,
     payload: dict[str, Any],
-    expected_actions: GatewayActionRequirement,
+    expected_actions: GatewayActionRequirement | None,
     allowed: bool,
 ) -> None:
     """A select_field grant must not request the multi-result select_fields shape."""
@@ -660,6 +672,18 @@ async def test_ad_hoc_agent_grant_is_bounded_by_run_type(
             id="raw-http-mcp-denied",
         ),
         pytest.param(
+            {"actions": ["core.cases.get_case"], "base_url": "https://evil.test"},
+            None,
+            False,
+            id="custom-base-url-denied",
+        ),
+        pytest.param(
+            {"actions": ["core.cases.get_case"], "base_url": None},
+            _requirement("ai.agent", all_of=("core.cases.get_case",)),
+            True,
+            id="null-base-url-allowed",
+        ),
+        pytest.param(
             {"actions": "core.cases.get_case"},
             None,
             False,
@@ -733,6 +757,7 @@ async def test_preset_run_ignores_hostile_ad_hoc_config() -> None:
             "config": {
                 "actions": ["core.cases.delete_case"],
                 "mcp_servers": [{"url": "x"}],
+                "base_url": "https://evil.test",
             },
             "user_prompt": "hello",
         }

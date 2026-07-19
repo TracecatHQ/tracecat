@@ -131,6 +131,11 @@ async def _resolve_run_agent_action(
         return GatewayActionRequirement(any_of=frozenset({"ai.agent"}))
     if config.get("mcp_servers"):
         return None
+    if config.get("base_url") is not None:
+        # No registry action exposes ``base_url``; a caller-supplied endpoint
+        # would receive the workspace provider credential. Custom endpoints go
+        # through a workspace-scoped ``catalog_id`` instead.
+        return None
 
     actions = config.get("actions")
     if actions is None:
@@ -224,7 +229,7 @@ async def _resolve_table_lookup_action(request: Request) -> GatewayActionRequire
     return GatewayActionRequirement(any_of=frozenset({"core.table.lookup_many"}))
 
 
-async def _resolve_rank_action(request: Request) -> GatewayActionRequirement:
+async def _resolve_rank_action(request: Request) -> GatewayActionRequirement | None:
     """Prevent a single-result rank grant from requesting a full ranking.
 
     ``ai.rank_documents`` and ``ai.select_field`` always request exactly one
@@ -233,6 +238,10 @@ async def _resolve_rank_action(request: Request) -> GatewayActionRequirement:
     is therefore only authorized by the ``ai.select_fields`` grant.
     """
     payload = await _request_json_object(request)
+    if payload.get("base_url") is not None:
+        # No ranking registry action exposes ``base_url``; a caller-supplied
+        # endpoint would receive the workspace provider credential.
+        return None
     if payload.get("min_items") == 1 and payload.get("max_items") == 1:
         return GatewayActionRequirement(
             any_of=frozenset({"ai.rank_documents", "ai.select_field"})
