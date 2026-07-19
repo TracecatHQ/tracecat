@@ -29,7 +29,7 @@ import {
 } from "@/client"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
-import type { TracecatApiError } from "@/lib/errors"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 
 type WorkflowContextType = {
   workflow: WorkflowRead | null
@@ -239,24 +239,34 @@ export function WorkflowProvider({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      // A title change is visible on the dashboard too. Those lists are cached
+      // with a 5 minute staleTime and no refetch on focus, so without this the
+      // dashboard keeps showing the old name after a rename in the builder.
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update workflow:", error)
+      // `body` is absent on transport failures, and `String(undefined)` is the
+      // truthy string "undefined", so read the detail through the safe accessor
+      // rather than dereferencing it and defeating the fallbacks below.
+      const detail = getApiErrorDetail(error)
       switch (error.status) {
         case 409:
           toast({
             title: "Failed to update workflow",
             description:
-              String(error.body.detail) ||
+              detail ??
               "There was a conflict updating the workflow. Please try again.",
+            variant: "destructive",
           })
           break
         default:
           toast({
             title: "Failed to update workflow",
             description:
-              String(error.body.detail) ||
-              "Could not update workflow. Please the logs for more details.",
+              detail ?? "Could not update workflow. Please check the logs.",
+            variant: "destructive",
           })
       }
     },

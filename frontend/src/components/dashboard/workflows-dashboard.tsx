@@ -39,6 +39,7 @@ import {
 } from "@/components/dashboard/table-actions"
 import { ActiveDialog } from "@/components/dashboard/table-common"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
+import { WorkflowRenameDialog } from "@/components/dashboard/workflow-rename-dialog"
 import {
   DEFAULT_WORKFLOW_SORT,
   type WorkflowCaseTriggerFilterValue,
@@ -1407,6 +1408,12 @@ export function WorkflowsDashboard() {
         onOpenChange={() => setActiveDialog(null)}
         selectedFolder={selectedFolder}
         setSelectedFolder={setSelectedFolder}
+      />
+      <WorkflowRenameDialog
+        open={activeDialog === ActiveDialog.WorkflowRename}
+        onOpenChange={() => setActiveDialog(null)}
+        selectedWorkflow={selectedWorkflow}
+        setSelectedWorkflow={setSelectedWorkflow}
       />
       <WorkflowMoveDialog
         open={activeDialog === ActiveDialog.WorkflowMove}
