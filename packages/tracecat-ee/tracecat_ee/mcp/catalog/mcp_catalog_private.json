@@ -303,7 +303,7 @@
         "stdio_command": "uvx",
         "stdio_args": [
           "--from",
-          "scc-mcp",
+          "scc-mcp==0.1.0",
           "scc_mcp"
         ],
         "stdio_env": [
@@ -315,10 +315,10 @@
             "command": "uvx",
             "args": [
               "--from",
-              "scc-mcp",
+              "scc-mcp==0.1.0",
               "scc_mcp"
             ],
-            "package": "scc-mcp"
+            "package": "scc-mcp==0.1.0"
           },
           {
             "manager": "pip",
@@ -327,7 +327,7 @@
               "-m",
               "scc_mcp"
             ],
-            "package": "scc-mcp"
+            "package": "scc-mcp==0.1.0"
           }
         ],
         "credentials": [
@@ -342,7 +342,7 @@
         ],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "Official Google repo: github.com/google/mcp-security (the Security Command Center server lives under server/scc). Distributed on PyPI as `scc-mcp` with module `scc_mcp`. Canonical STDIO launch: `uvx --from scc-mcp scc_mcp`. Also installable via `pip install scc-mcp` (then run module `scc_mcp`).\n\nAuth classified as CUSTOM: scc_mcp.py reads no environment variables of its own. Both the Security Command Center and Cloud Asset Inventory clients are constructed without explicit credentials and rely on Application Default Credentials, so authentication is configured out-of-band (`gcloud auth application-default login`, Workload Identity, or a service account key referenced by the standard GOOGLE_APPLICATION_CREDENTIALS variable, which google-auth reads). Required IAM: roles/securitycenter.adminViewer or roles/securitycenter.adminEditor, plus roles/cloudasset.viewer. Required APIs: securitycenter.googleapis.com and cloudasset.googleapis.com.\n\nThe target project is passed per tool call as a `project_id` argument rather than an environment variable, so no project identifier is required in the connection spec.\n\nTools exposed: top_vulnerability_findings (active HIGH/CRITICAL vulnerability-class findings, sorted by Attack Exposure Score) and get_finding_remediation (remediation steps plus affected resource details from Cloud Asset Inventory). This server is read-only and vulnerability-focused; it does not list all finding classes and cannot mute or change finding state.",
+        "research_notes": "Official Google repo: github.com/google/mcp-security (the Security Command Center server lives under server/scc). Distributed on PyPI as `scc-mcp` with module `scc_mcp`. Canonical STDIO launch: `uvx --from scc-mcp scc_mcp`, pinned here to `scc-mcp==0.1.0` (the only published release, 2025-09-05, matching upstream tag `scc-v0.1.0`). Also installable via `pip install scc-mcp` (then run module `scc_mcp`).\n\nAuth classified as CUSTOM: scc_mcp.py reads no environment variables of its own. Both the Security Command Center and Cloud Asset Inventory clients are constructed without explicit credentials and rely on Application Default Credentials, so authentication is configured out-of-band (`gcloud auth application-default login`, Workload Identity, or a service account key referenced by the standard GOOGLE_APPLICATION_CREDENTIALS variable, which google-auth reads). Required IAM: roles/securitycenter.adminViewer or roles/securitycenter.adminEditor, plus roles/cloudasset.viewer. Required APIs: securitycenter.googleapis.com and cloudasset.googleapis.com.\n\nThe target project is passed per tool call as a `project_id` argument rather than an environment variable, so no project identifier is required in the connection spec.\n\nTools exposed: top_vulnerability_findings (active HIGH/CRITICAL vulnerability-class findings, sorted by Attack Exposure Score) and get_finding_remediation (remediation steps plus affected resource details from Cloud Asset Inventory). This server is read-only and vulnerability-focused; it does not list all finding classes and cannot mute or change finding state.",
         "sources": [
           "https://github.com/google/mcp-security",
           "https://google.github.io/mcp-security/servers/scc_mcp.html",
