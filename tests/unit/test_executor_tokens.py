@@ -14,6 +14,7 @@ from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.executor_tokens import (
     EXECUTOR_TOKEN_AUDIENCE,
     EXECUTOR_TOKEN_ISSUER,
+    EXECUTOR_TOKEN_SUBJECT,
     mint_executor_token,
     verify_executor_token,
 )
@@ -57,6 +58,55 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     assert verified.action == "core.script.run_python"
     assert verified.wf_id == wf_id
     assert verified.wf_exec_id == wf_exec_id
+    # Provenance defaults to the enforced ``agent`` origin.
+    assert verified.run_python_origin == "agent"
+
+
+def test_executor_token_preserves_registry_template_origin(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        scopes=frozenset({"*"}),
+        allowed_actions=frozenset({"tools.example.template"}),
+        action="core.script.run_python",
+        run_python_origin="registry_template",
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    verified = verify_executor_token(token)
+
+    assert verified.run_python_origin == "registry_template"
+
+
+def test_executor_token_without_origin_claim_defaults_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A legacy token minted before the provenance claim verifies as ``agent``."""
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+
+    now = datetime.now(UTC)
+    payload = {
+        "iss": EXECUTOR_TOKEN_ISSUER,
+        "aud": EXECUTOR_TOKEN_AUDIENCE,
+        "sub": EXECUTOR_TOKEN_SUBJECT,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=60)).timestamp()),
+        "workspace_id": str(uuid.uuid4()),
+        "user_id": None,
+        "action": "core.script.run_python",
+        "wf_id": "wf-1",
+        "wf_exec_id": "run-1",
+    }
+    token = jwt.encode(payload, "test-service-key", algorithm="HS256")
+
+    verified = verify_executor_token(token)
+
+    assert verified.run_python_origin == "agent"
 
 
 def test_executor_token_preserves_explicit_empty_authority(

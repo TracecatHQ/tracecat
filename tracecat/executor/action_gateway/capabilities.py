@@ -27,7 +27,7 @@ endpoint has such a parameter-dependent privilege boundary.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Collection, Iterable
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, NamedTuple
@@ -796,6 +796,14 @@ async def enforce_agent_action_capability(request: Request) -> None:
         # and leave non-``run_python`` callers to the normal route auth.
         return
 
+    if claims.run_python_origin == "registry_template":
+        # A run-python step inside a registry-locked template is trusted code,
+        # not agent-authored Python. Exempt it from the Agent toolset ceiling
+        # (and the preset re-check) as ordinary workflow steps already are; the
+        # route's own caller-scope RBAC still governs it. Provenance is signed
+        # and stamped only at the template-step boundary, so it is unforgeable.
+        return
+
     # Expose the verified grant to the matched endpoint. ``POST /internal/agent/run``
     # only learns a preset's concrete toolset after loading it, so it re-checks the
     # resolved config against this grant (see ``enforce_run_python_agent_config``).
@@ -827,6 +835,7 @@ def enforce_run_python_agent_config(
     *,
     actions: Iterable[str] | None,
     base_url: str | None,
+    mcp_servers: Collection[object] | None,
 ) -> None:
     """Bound a resolved agent run by the parent ``run_python`` grant.
 
@@ -844,6 +853,12 @@ def enforce_run_python_agent_config(
         raise _action_not_allowed_error(
             [], "Custom model base URL is not in the Agent toolset"
         )
+    if mcp_servers:
+        # No registry-action grant represents external MCP tools, so a resolved
+        # preset cannot add them to a nested run_python toolset. This mirrors the
+        # ad-hoc raw ``mcp_servers`` denial; saved integrations stay usable when
+        # the same preset runs outside run_python.
+        raise _action_not_allowed_error([], "MCP tools are not in the Agent toolset")
     missing = sorted(
         f"action:{action}:execute"
         for action in (actions or ())

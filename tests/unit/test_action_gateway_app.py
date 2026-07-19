@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
-from tracecat.auth.executor_tokens import ExecutorTokenPayload, mint_executor_token
+from tracecat.auth.executor_tokens import (
+    ExecutorTokenPayload,
+    RunPythonOrigin,
+    mint_executor_token,
+)
 from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import (
     create_app,
@@ -219,6 +223,63 @@ def test_agent_run_python_allows_configured_gateway_action(
     assert response.json() == {"ok": True}
 
 
+def test_registry_template_run_python_skips_agent_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registry-locked template's run_python step is exempt from the ceiling.
+
+    An agent-provenance token with the same (missing) grant is rejected; the
+    template-provenance token reaches the route because its internal SDK calls
+    are trusted by the registry lock (caller-scope RBAC still governs it).
+    """
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+
+    async def list_cases() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
+    monkeypatch.setitem(
+        GATEWAY_CAPABILITIES,
+        GatewayRouteKey("GET", "/internal/cases"),
+        GatewayCapability(
+            method="GET",
+            path="/internal/cases",
+            actions=frozenset({"core.cases.list_cases"}),
+        ),
+    )
+
+    # Grant intentionally omits core.cases.list_cases: an agent script would be
+    # denied, but a locked template step is trusted.
+    def _mint(origin: RunPythonOrigin) -> str:
+        return mint_executor_token(
+            workspace_id=uuid.uuid4(),
+            user_id=None,
+            scopes=frozenset({"*"}),
+            allowed_actions=frozenset({"core.script.run_python", "tools.example.tmpl"}),
+            action="core.script.run_python",
+            run_python_origin=origin,
+            wf_id="wf-1",
+            wf_exec_id="run-1",
+        )
+
+    agent_token = _mint("agent")
+    template_token = _mint("registry_template")
+
+    with TestClient(app) as client:
+        agent_response = client.get(
+            "/internal/cases", headers={"Authorization": f"Bearer {agent_token}"}
+        )
+        template_response = client.get(
+            "/internal/cases",
+            headers={"Authorization": f"Bearer {template_token}"},
+        )
+
+    assert agent_response.status_code == 403
+    assert template_response.status_code == 200
+    assert template_response.json() == {"ok": True}
+
+
 def test_agent_route_capability_does_not_follow_endpoint_aliases(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,6 +363,7 @@ def _preset_probe_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
             request,
             actions=body.get("resolved_actions"),
             base_url=body.get("resolved_base_url"),
+            mcp_servers=body.get("resolved_mcp_servers"),
         )
         return {"ran": True}
 
@@ -338,6 +400,49 @@ def test_preset_run_denies_laundered_action(
 
     assert response.status_code == 403
     assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
+
+
+def test_preset_run_denies_resolved_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preset resolving to MCP servers is rejected for a nested run_python run."""
+    app = _preset_probe_app(monkeypatch)
+    token = _preset_run_token("ai.preset_agent")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "preset_slug": "p",
+                "resolved_actions": [],
+                "resolved_mcp_servers": [{"url": "https://mcp.test", "id": "x"}],
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == "action_not_allowed"
+
+
+def test_preset_run_mcp_servers_allowed_for_non_run_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-run_python caller (ordinary workflow) keeps preset MCP integrations."""
+    app = _preset_probe_app(monkeypatch)
+    token = _preset_run_token("ai.preset_agent", action="ai.preset_agent")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/agent/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "preset_slug": "p",
+                "resolved_actions": [],
+                "resolved_mcp_servers": [{"url": "https://mcp.test", "id": "x"}],
+            },
+        )
+
+    assert response.status_code == 200
 
 
 def test_preset_run_denies_laundered_base_url(
@@ -384,7 +489,6 @@ def test_preset_run_legacy_token_is_not_enforced(
 ) -> None:
     """A pre-grant (allowed_actions=None) token keeps its legacy behavior."""
     app = _preset_probe_app(monkeypatch)
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,

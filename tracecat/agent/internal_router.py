@@ -157,7 +157,10 @@ async def run_agent_endpoint(
         # re-check the resolved toolset so a stored preset cannot launder an
         # action or custom base URL past the signed execution grant.
         enforce_run_python_agent_config(
-            request, actions=config.actions, base_url=config.base_url
+            request,
+            actions=config.actions,
+            base_url=config.base_url,
+            mcp_servers=config.mcp_servers,
         )
         mcp_servers = config.mcp_servers
 
