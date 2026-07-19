@@ -15646,6 +15646,17 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       type: "array",
       title: "Scopes",
     },
+    oauth_resource: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Resource",
+    },
     oauth_authorization_endpoint: {
       anyOf: [
         {
