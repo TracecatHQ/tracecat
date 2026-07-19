@@ -4,6 +4,7 @@ import type {
   AgentSessionEntity,
   AgentSessionRead,
   AgentSessionReadVercel,
+  ApprovalRead,
   ApprovalStatus,
   ChatReadMinimal,
   ChatReadVercel,
@@ -16,9 +17,19 @@ export type ApprovalCard = {
   tool_name: string
   args?: unknown
   status?: ApprovalStatus
-  decision?: boolean | Record<string, unknown> | null
+  decision?: ApprovalRead["decision"]
   reason?: string | null
 }
+
+type PersistedApprovalDecision = NonNullable<ApprovalRead["decision"]>
+type ToolApprovedDecision = Extract<
+  PersistedApprovalDecision,
+  { kind: "tool-approved" }
+>
+type ToolDeniedDecision = Extract<
+  PersistedApprovalDecision,
+  { kind: "tool-denied" }
+>
 
 type ServerToolPart = Extract<UIMessage["parts"][number], { state: string }>
 type LegacyToolState =
@@ -394,6 +405,30 @@ export function isApprovalCardArray(data: unknown): data is ApprovalCard[] {
         item.tool_name.length > 0
       )
     })
+  )
+}
+
+/** Whether a persisted approval decision contains tool argument overrides. */
+export function isToolApprovedDecision(
+  decision: unknown
+): decision is ToolApprovedDecision {
+  return (
+    typeof decision === "object" &&
+    decision !== null &&
+    "kind" in decision &&
+    decision.kind === "tool-approved"
+  )
+}
+
+/** Whether a persisted approval decision denies a tool call. */
+export function isToolDeniedDecision(
+  decision: unknown
+): decision is ToolDeniedDecision {
+  return (
+    typeof decision === "object" &&
+    decision !== null &&
+    "kind" in decision &&
+    decision.kind === "tool-denied"
   )
 }
 

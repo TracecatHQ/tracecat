@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
+from tracecat.agent.approvals.types import PersistedApprovalDecision
+
 type ArtifactEventOp = Literal["upsert", "remove"]
 type ApprovalStreamStatus = Literal["pending", "approved", "rejected"]
 
@@ -93,7 +95,7 @@ class ToolCallContent:
     """Trusted runtime metadata about the tool call scope."""
     status: ApprovalStreamStatus | None = None
     """Current approval status, when replaying persisted approval state."""
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision | None = None
     """Persisted decision payload, when one exists."""
     reason: str | None = None
     """Persisted rejection reason, when one exists."""

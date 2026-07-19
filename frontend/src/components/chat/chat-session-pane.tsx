@@ -118,6 +118,8 @@ import {
   getSessionLastError,
   isApprovalCardArray,
   isInterruptArtifactError,
+  isToolApprovedDecision,
+  isToolDeniedDecision,
   type ModelInfo,
   toUIMessage,
   transformMessages,
@@ -2063,18 +2065,13 @@ type DecisionState = {
   overrideArgs?: string
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
 function submittedDecisionFromApproval(
   approval: ApprovalCard
 ): DecisionState | undefined {
   if (approval.status === "approved") {
     if (
-      isRecord(approval.decision) &&
-      approval.decision.kind === "tool-approved" &&
-      "override_args" in approval.decision
+      isToolApprovedDecision(approval.decision) &&
+      approval.decision.override_args !== undefined
     ) {
       return {
         action: "override",
@@ -2087,7 +2084,7 @@ function submittedDecisionFromApproval(
   if (approval.status === "rejected") {
     const reason =
       approval.reason ??
-      (isRecord(approval.decision) &&
+      (isToolDeniedDecision(approval.decision) &&
       typeof approval.decision.message === "string"
         ? approval.decision.message
         : undefined)

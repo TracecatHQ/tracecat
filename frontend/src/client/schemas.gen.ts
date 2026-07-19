@@ -4770,17 +4770,12 @@ export const $ApprovalRead = {
     decision: {
       anyOf: [
         {
-          type: "boolean",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
+          $ref: "#/components/schemas/PersistedApprovalDecision",
         },
         {
           type: "null",
         },
       ],
-      title: "Decision",
     },
     approved_by: {
       anyOf: [
@@ -6137,6 +6132,24 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $BooleanApprovalDecision = {
+  properties: {
+    value: {
+      type: "boolean",
+      title: "Value",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["value", "metadata"],
+  title: "BooleanApprovalDecision",
+  description: "Persisted boolean decision enriched with submission metadata.",
 } as const
 
 export const $CachePoint = {
@@ -18480,6 +18493,23 @@ export const $PayloadChangedEventRead = {
   description: "Event for when a case payload is changed.",
 } as const
 
+export const $PersistedApprovalDecision = {
+  anyOf: [
+    {
+      type: "boolean",
+    },
+    {
+      $ref: "#/components/schemas/ToolApprovedDecision",
+    },
+    {
+      $ref: "#/components/schemas/ToolDeniedDecision",
+    },
+    {
+      $ref: "#/components/schemas/BooleanApprovalDecision",
+    },
+  ],
+} as const
+
 export const $PlatformAuditSettingsRead = {
   properties: {
     audit_webhook_url: {
@@ -26629,6 +26659,31 @@ export const $ToolApproved = {
   title: "ToolApproved",
 } as const
 
+export const $ToolApprovedDecision = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "tool-approved",
+      title: "Kind",
+    },
+    override_args: {
+      additionalProperties: true,
+      type: "object",
+      title: "Override Args",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "ToolApprovedDecision",
+  description:
+    "Persisted decision for a tool approved with argument overrides.",
+} as const
+
 export const $ToolDenied = {
   properties: {
     message: {
@@ -26645,6 +26700,29 @@ export const $ToolDenied = {
   },
   type: "object",
   title: "ToolDenied",
+} as const
+
+export const $ToolDeniedDecision = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "tool-denied",
+      title: "Kind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "ToolDeniedDecision",
+  description: "Persisted decision for a denied tool call.",
 } as const
 
 export const $ToolResultBlock = {

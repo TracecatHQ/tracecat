@@ -47,6 +47,12 @@ import tracecat.agent.adapter.vercel
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import (
+    BooleanApprovalDecision,
+    PersistedApprovalDecision,
+    ToolApprovedDecision,
+    ToolDeniedDecision,
+)
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
@@ -211,33 +217,38 @@ def _approval_decision_fields(
     """Map a deferred approval result into Approval row update fields."""
     status: ApprovalStatus
     reason: str | None = None
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision
 
     match result:
         case bool(value):
             status = ApprovalStatus.APPROVED if value else ApprovalStatus.REJECTED
-            decision = value
+            if decision_metadata:
+                boolean_decision: BooleanApprovalDecision = {
+                    "value": value,
+                    "metadata": decision_metadata,
+                }
+                decision = boolean_decision
+            else:
+                decision = value
         case ToolApproved(override_args=override_args):
             status = ApprovalStatus.APPROVED
-            decision = {"kind": "tool-approved"}
+            approved_decision: ToolApprovedDecision = {"kind": "tool-approved"}
             if override_args is not None:
-                decision["override_args"] = override_args
+                approved_decision["override_args"] = override_args
+            if decision_metadata:
+                approved_decision["metadata"] = decision_metadata
+            decision = approved_decision
         case ToolDenied(message=message):
             status = ApprovalStatus.REJECTED
             reason = message
-            decision = {"kind": "tool-denied"}
+            denied_decision: ToolDeniedDecision = {"kind": "tool-denied"}
             if message:
-                decision["message"] = message
+                denied_decision["message"] = message
+            if decision_metadata:
+                denied_decision["metadata"] = decision_metadata
+            decision = denied_decision
         case _:
             raise ValueError(f"Unsupported approval result: {type(result)}")
-
-    if decision_metadata:
-        if isinstance(decision, dict):
-            decision = {**decision, "metadata": decision_metadata}
-        elif isinstance(decision, bool):
-            decision = {"value": decision, "metadata": decision_metadata}
-        else:
-            decision = {"metadata": decision_metadata}
 
     return {
         "status": status,
