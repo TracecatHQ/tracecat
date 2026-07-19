@@ -151,6 +151,44 @@ async def test_audit_log_lifecycle(
 
 
 @pytest.mark.anyio
+async def test_audit_log_emit_false_failure_executes_operation_once(
+    monkeypatch: pytest.MonkeyPatch,
+    role: Role,
+) -> None:
+    operation_calls = 0
+    create_event = AsyncMock()
+
+    def suppress_audit(_context: AuditCallContext) -> AuditEventDetails:
+        return AuditEventDetails(emit=False)
+
+    class SuppressedService(BaseService):
+        service_name = "suppressed"
+
+        def __init__(self) -> None:
+            super().__init__(AsyncMock())
+            self.role = role
+
+        @audit_log(
+            resource_type="workflow",
+            action="update",
+            attempt_metadata=suppress_audit,
+        )
+        async def mutate(self, workflow_id: uuid.UUID) -> None:
+            del workflow_id
+            nonlocal operation_calls
+            operation_calls += 1
+            raise ValueError("synthetic operation failure")
+
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+
+    with pytest.raises(ValueError, match="synthetic operation failure"):
+        await SuppressedService().mutate(uuid.uuid4())
+
+    assert operation_calls == 1
+    create_event.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_audit_log_result_derivation_failure_is_non_fatal(
     monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:

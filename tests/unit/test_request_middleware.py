@@ -17,25 +17,43 @@ def test_request_context_values_are_normalized() -> None:
 
     app.add_api_route("/", read_context)
     app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
-    with TestClient(app) as client:
+    with TestClient(app, client=("203.0.113.10", 50000)) as client:
         response = client.get(
             "/",
             headers={
-                "X-Forwarded-For": "2001:0db8::1, 192.0.2.1",
+                "X-Forwarded-For": "198.51.100.20",
                 "User-Agent": (
-                    "TracecatClient/1.0 user@example.com "
+                    "TracecatClient/1.0 session=synthetic-opaque-value "
                     "Authorization: Bearer synthetic-token"
                 ),
             },
         )
 
     assert response.json() == {
-        "client_ip": "2001:db8::1",
-        "user_agent": ("TracecatClient/1.0 [redacted email] Authorization: [redacted]"),
+        "client_ip": "198.51.100.20",
+        "user_agent": "tracecat/1.0",
     }
 
 
-def test_invalid_forwarded_ip_is_not_stored() -> None:
+def test_request_context_reduces_unknown_user_agent() -> None:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    async def read_user_agent() -> dict[str, str | None]:
+        return {"user_agent": ctx_user_agent.get()}
+
+    app.add_api_route("/", read_user_agent)
+    app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
+    with TestClient(app) as client:
+        response = client.get(
+            "/",
+            headers={"User-Agent": "UnknownClient session=synthetic-opaque-value"},
+        )
+
+    assert response.json() == {"user_agent": "other"}
+
+
+def test_invalid_forwarded_ip_falls_back_to_socket_peer() -> None:
     app = FastAPI()
     app.add_middleware(RequestLoggingMiddleware)
 
@@ -44,7 +62,22 @@ def test_invalid_forwarded_ip_is_not_stored() -> None:
 
     app.add_api_route("/", read_client_ip)
     app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
-    with TestClient(app) as client:
+    with TestClient(app, client=("203.0.113.10", 50000)) as client:
         response = client.get("/", headers={"X-Forwarded-For": "not-an-ip"})
+
+    assert response.json() == {"client_ip": "203.0.113.10"}
+
+
+def test_no_forwarded_header_and_invalid_socket_peer_yields_none() -> None:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    async def read_client_ip() -> dict[str, str | None]:
+        return {"client_ip": ctx_client_ip.get()}
+
+    app.add_api_route("/", read_client_ip)
+    app.state.logger = type("Logger", (), {"debug": lambda *_args, **_kwargs: None})()
+    with TestClient(app, client=("not-an-ip", 50000)) as client:
+        response = client.get("/")
 
     assert response.json() == {"client_ip": None}

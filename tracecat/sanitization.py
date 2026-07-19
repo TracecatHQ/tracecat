@@ -11,6 +11,17 @@ _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _BEARER_TOKEN_PATTERN = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+")
 _AUTHORIZATION_VALUE_PATTERN = re.compile(r"(?im)\b(Authorization\s*:\s*)[^\r\n]+")
 _COOKIE_VALUE_PATTERN = re.compile(r"(?im)\b((?:Set-)?Cookie\s*:\s*)[^\r\n]+")
+_SERIALIZED_HEADER_VALUE_PATTERN = re.compile(
+    r"(?im)(?P<prefix>(?P<key_quote>['\"]?)\b"
+    r"(?:Authorization|(?:Set-)?Cookie)\b(?P=key_quote)\s*:\s*)"
+    r"(?P<value>\"(?:\\.|[^\"\\\r\n])*\"|'(?:\\.|[^'\\\r\n])*')"
+)
+_PEM_BLOCK_PATTERN = re.compile(
+    r"-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ._/-]{0,63})-----"
+    r".*?"
+    r"-----END (?P=label)-----",
+    re.IGNORECASE | re.DOTALL,
+)
 _JWT_PATTERN = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
 _SENSITIVE_VALUE_PATTERN = re.compile(
     r"(?i)(?P<prefix>['\"]?\b(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|"
@@ -67,6 +78,7 @@ def redact_sensitive_text(
     """
 
     sanitized = sanitize_urls_in_text(text)
+    sanitized = _PEM_BLOCK_PATTERN.sub("[redacted PEM block]", sanitized)
     for value in sensitive_values:
         if len(value) < 4:
             continue
@@ -76,11 +88,23 @@ def redact_sensitive_text(
             sanitized = sanitized.replace(sanitized_value, "[redacted]")
     if redact_emails:
         sanitized = _EMAIL_PATTERN.sub("[redacted email]", sanitized)
+    sanitized = _SERIALIZED_HEADER_VALUE_PATTERN.sub(
+        _redact_serialized_header_value,
+        sanitized,
+    )
     sanitized = _BEARER_TOKEN_PATTERN.sub(r"\1[redacted]", sanitized)
     sanitized = _AUTHORIZATION_VALUE_PATTERN.sub(r"\1[redacted]", sanitized)
     sanitized = _COOKIE_VALUE_PATTERN.sub(r"\1[redacted]", sanitized)
     sanitized = _JWT_PATTERN.sub("[redacted token]", sanitized)
     return _SENSITIVE_VALUE_PATTERN.sub(_redact_sensitive_value, sanitized)
+
+
+def _redact_serialized_header_value(match: re.Match[str]) -> str:
+    """Redact a quoted header value while retaining its serialized shape."""
+
+    value = match.group("value")
+    quote = value[0]
+    return f"{match.group('prefix')}{quote}[redacted]{quote}"
 
 
 def _redact_sensitive_value(match: re.Match[str]) -> str:

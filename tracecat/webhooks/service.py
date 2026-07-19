@@ -11,20 +11,32 @@ from tracecat.audit.logger import (
     audit_log,
 )
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Webhook
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import WorkflowID
 from tracecat.webhooks.schemas import WebhookUpdate
 
 
-def _webhook_update_audit_details(
+async def _webhook_update_audit_details(
     context: AuditCallContext,
 ) -> AuditEventDetails:
+    role = cast(Role, context.arguments["role"])
+    session = cast(AsyncSession, context.arguments["session"])
+    workflow_id = cast(WorkflowID, context.arguments["workflow_id"])
     params = cast(WebhookUpdate, context.arguments["params"])
+    webhook = None
+    if role.workspace_id is not None:
+        webhook = await get_webhook(
+            session,
+            workspace_id=role.workspace_id,
+            workflow_id=workflow_id,
+        )
     return AuditEventDetails(
+        resource_id=webhook.id if webhook is not None else None,
         data={
             "changed_fields": sorted(params.model_dump(exclude_unset=True)),
-        }
+        },
     )
 
 
@@ -33,14 +45,19 @@ async def get_webhook(
     workspace_id,
     workflow_id: WorkflowID,
 ) -> Webhook | None:
-    statement = select(Webhook).where(
-        Webhook.workspace_id == workspace_id,
-        Webhook.workflow_id == workflow_id,
+    statement = (
+        select(Webhook)
+        .where(
+            Webhook.workspace_id == workspace_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        .order_by(Webhook.id)
     )
     result = await session.execute(statement)
     return result.scalars().first()
 
 
+@require_scope("workflow:update")
 @audit_log(
     resource_type="webhook",
     action="update",

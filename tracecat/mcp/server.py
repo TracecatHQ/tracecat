@@ -3421,6 +3421,7 @@ async def edit_workflow(
                 workflow=workflow,
                 original_document=draft_document,
                 updated_document=updated_document,
+                changed_sections=changed_sections,
             )
             await svc.session.refresh(
                 workflow,

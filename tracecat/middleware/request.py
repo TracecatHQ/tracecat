@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+import re
 from ipaddress import ip_address
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracecat.contexts import ctx_client_ip, ctx_user_agent
-from tracecat.sanitization import redact_sensitive_text
 
-_MAX_USER_AGENT_LENGTH = 512
+_AUDIT_USER_AGENT_PATTERN = re.compile(
+    r"^(?P<product>Mozilla|TracecatClient|curl|python-httpx|Claude-Code|Codex)"
+    r"/(?P<version>\d{1,4}(?:\.\d{1,4}){0,3})\b",
+    re.IGNORECASE,
+)
+_AUDIT_USER_AGENT_FAMILIES = {
+    "claude-code": "claude-code",
+    "codex": "codex",
+    "curl": "curl",
+    "mozilla": "browser",
+    "python-httpx": "httpx",
+    "tracecatclient": "tracecat",
+}
 
 
 def _normalize_client_ip(value: str | None) -> str | None:
@@ -20,25 +32,29 @@ def _normalize_client_ip(value: str | None) -> str | None:
         return None
 
 
+def _normalize_audit_user_agent(value: str | None) -> str | None:
+    """Return a bounded client family/version without forwarding raw metadata."""
+    if not value:
+        return None
+    if match := _AUDIT_USER_AGENT_PATTERN.match(value):
+        family = _AUDIT_USER_AGENT_FAMILIES[match.group("product").lower()]
+        return f"{family}/{match.group('version')}"
+    return "other"
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Capture client IP address
-        # Check X-Forwarded-For header first (for production behind proxies)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        forwarded_ip = forwarded_for.split(",")[0].strip() if forwarded_for else None
-        client_ip = _normalize_client_ip(forwarded_ip)
-        # Fallback to direct connection IP
-        if client_ip is None and request.client:
-            client_ip = _normalize_client_ip(request.client.host)
+        # Leftmost X-Forwarded-For hop, falling back to the socket peer.
+        # Client-controlled: informational attribution, not a security control.
+        client_ip = None
+        if forwarded_for := request.headers.get("X-Forwarded-For"):
+            client_ip = _normalize_client_ip(forwarded_for.split(",")[0].strip())
+        if client_ip is None:
+            client_ip = _normalize_client_ip(
+                request.client.host if request.client is not None else None
+            )
 
-        raw_user_agent = request.headers.get("User-Agent")
-        user_agent = (
-            redact_sensitive_text(raw_user_agent, redact_emails=True)[
-                :_MAX_USER_AGENT_LENGTH
-            ]
-            if raw_user_agent
-            else None
-        )
+        user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
 
         client_ip_token = ctx_client_ip.set(client_ip)
         user_agent_token = ctx_user_agent.set(user_agent)

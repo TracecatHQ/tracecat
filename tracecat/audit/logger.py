@@ -231,6 +231,7 @@ def audit_log[**P, R](
 
             event_action = action
             event_data: AuditMetadata | None = None
+            should_emit = True
             if attempt_metadata is not None:
                 try:
                     details = attempt_metadata(call_context)
@@ -241,8 +242,7 @@ def audit_log[**P, R](
                     if details.resource_id is not None:
                         resource_id = details.resource_id
                     event_data = details.data
-                    if not details.emit:
-                        return await func(*args, **kwargs)
+                    should_emit = details.emit
                 except Exception as exc:
                     logger.warning(
                         "Audit attempt metadata derivation failed",
@@ -250,6 +250,9 @@ def audit_log[**P, R](
                         action=action,
                         error_type=type(exc).__name__,
                     )
+
+            if not should_emit:
+                return await func(*args, **kwargs)
 
             async with AuditService.with_session(role, session=session) as svc:
                 # Log attempt

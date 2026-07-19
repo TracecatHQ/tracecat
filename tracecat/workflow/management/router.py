@@ -741,17 +741,17 @@ async def _get_webhook_key_audit_target(
     workflow_id = cast(WorkflowUUID, context.arguments["workflow_id"])
     if role.workspace_id is None:
         return None, None
-    row = (
-        await session.execute(
-            select(Webhook.id, WebhookApiKey.id)
-            .outerjoin(WebhookApiKey, WebhookApiKey.webhook_id == Webhook.id)
-            .where(
-                Webhook.workspace_id == role.workspace_id,
-                Webhook.workflow_id == workflow_id,
-            )
-        )
-    ).one_or_none()
-    return (row[0], row[1]) if row is not None else (None, None)
+    webhook = await webhook_service.get_webhook(
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
+    )
+    if webhook is None:
+        return None, None
+    api_key_id = await session.scalar(
+        select(WebhookApiKey.id).where(WebhookApiKey.webhook_id == webhook.id)
+    )
+    return webhook.id, api_key_id
 
 
 def _webhook_key_audit_details(

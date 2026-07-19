@@ -847,18 +847,23 @@ def parse_workflow_edit_request(
 
 def _workflow_edit_audit_details(context: AuditCallContext) -> AuditEventDetails:
     workflow = cast(Workflow, context.arguments["workflow"])
-    original_document = cast(
-        WorkflowEditDocument,
-        context.arguments["original_document"],
+    changed_sections = cast(
+        set[str] | None,
+        context.arguments.get("changed_sections"),
     )
-    updated_document = cast(
-        WorkflowEditDocument,
-        context.arguments["updated_document"],
-    )
-    changed_sections = workflow_edit_document_changed_sections(
-        original_document,
-        updated_document,
-    )
+    if changed_sections is None:
+        original_document = cast(
+            WorkflowEditDocument,
+            context.arguments["original_document"],
+        )
+        updated_document = cast(
+            WorkflowEditDocument,
+            context.arguments["updated_document"],
+        )
+        changed_sections = workflow_edit_document_changed_sections(
+            original_document,
+            updated_document,
+        )
     return AuditEventDetails(
         resource_id=WorkflowUUID.new(workflow.id),
         data={"changed_fields": sorted(changed_sections)},
@@ -878,12 +883,14 @@ async def persist_workflow_edit_document(
     workflow: Workflow,
     original_document: WorkflowEditDocument,
     updated_document: WorkflowEditDocument,
+    changed_sections: set[str] | None = None,
 ) -> None:
     """Persist changes from the editable workflow document back to the draft."""
-    changed_sections = workflow_edit_document_changed_sections(
-        original_document,
-        updated_document,
-    )
+    if changed_sections is None:
+        changed_sections = workflow_edit_document_changed_sections(
+            original_document,
+            updated_document,
+        )
     if not changed_sections:
         return
 

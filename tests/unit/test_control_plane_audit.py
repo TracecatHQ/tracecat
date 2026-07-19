@@ -14,13 +14,14 @@ from fastapi import HTTPException
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.logger import AuditCallContext
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_client_ip, ctx_role, ctx_user_agent
 from tracecat.db.models import WebhookApiKey
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
 from tracecat.identifiers import ScheduleUUID
 from tracecat.identifiers.workflow import (
     WorkflowUUID,
@@ -36,6 +37,7 @@ from tracecat.workflow.case_triggers.schemas import (
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.graph.service import WorkflowGraphService
+from tracecat.workflow.management import draft as workflow_management_draft
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.draft import (
     build_workflow_edit_document,
@@ -244,13 +246,29 @@ async def _workflow_edit(mp: pytest.MonkeyPatch, role: Role):
     updated = original.model_copy(
         update={"metadata": original.metadata.model_copy(update={"status": "online"})}
     )
+    changed_sections = (
+        workflow_management_draft.workflow_edit_document_changed_sections(
+            original,
+            updated,
+        )
+    )
+    changed_sections_computation = MagicMock(
+        side_effect=AssertionError("changed sections should be reused")
+    )
+    mp.setattr(
+        workflow_management_draft,
+        "workflow_edit_document_changed_sections",
+        changed_sections_computation,
+    )
     await persist_workflow_edit_document(
         role=role,
         service=WorkflowsManagementService(cast(Any, _session()), role=role),
         workflow=cast(Any, source),
         original_document=original,
         updated_document=updated,
+        changed_sections=changed_sections,
     )
+    changed_sections_computation.assert_not_called()
     return _pair(
         "workflow", "update", source.id, source.id, {"changed_fields": ["metadata"]}
     )
@@ -520,7 +538,13 @@ async def _webhook_update(mp: pytest.MonkeyPatch, role: Role):
         workflow_id=WorkflowUUID.new_uuid4(),
         params=WebhookUpdate(status="online"),
     )
-    return _pair("webhook", "update", None, webhook_id, {"changed_fields": ["status"]})
+    return _pair(
+        "webhook",
+        "update",
+        webhook_id,
+        webhook_id,
+        {"changed_fields": ["status"]},
+    )
 
 
 class _GeneratedKey:
@@ -770,6 +794,86 @@ async def test_missing_webhook_key_operation_emits_failure(
     assert all(call["resource_type"] == "webhook_api_key" for call in calls)
     assert all(call["action"] == "create" for call in calls)
     assert all(call["data"] == {"webhook_id": None} for call in calls)
+
+
+@pytest.mark.anyio
+async def test_webhook_update_requires_workflow_update_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role().model_copy(update={"scopes": frozenset({"workflow:read"})})
+    get_webhook = AsyncMock()
+    monkeypatch.setattr(webhook_service, "get_webhook", get_webhook)
+
+    with pytest.raises(ScopeDeniedError):
+        await webhook_service.update_webhook(
+            role=role,
+            session=cast(Any, _session()),
+            workflow_id=WorkflowUUID.new_uuid4(),
+            params=WebhookUpdate(status="online"),
+        )
+
+    get_webhook.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_failed_webhook_update_audit_preserves_resource_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role, calls = _role(), []
+    _capture_events(monkeypatch, calls)
+    webhook_id = uuid.uuid4()
+    webhook = SimpleNamespace(id=webhook_id, status="offline")
+    session = _session()
+    session.commit.side_effect = RuntimeError("synthetic commit failure")
+    monkeypatch.setattr(
+        webhook_service,
+        "get_webhook",
+        AsyncMock(return_value=webhook),
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic commit failure"):
+        await webhook_service.update_webhook(
+            role=role,
+            session=cast(Any, session),
+            workflow_id=WorkflowUUID.new_uuid4(),
+            params=WebhookUpdate(status="online"),
+        )
+
+    assert [call["status"] for call in calls] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.FAILURE,
+    ]
+    assert all(call["resource_id"] == webhook_id for call in calls)
+
+
+@pytest.mark.anyio
+async def test_webhook_key_audit_target_uses_selected_webhook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    workflow_id = WorkflowUUID.new_uuid4()
+    webhook_id = uuid.uuid4()
+    api_key_id = uuid.uuid4()
+    session = _session()
+    session.scalar.return_value = api_key_id
+    monkeypatch.setattr(
+        webhook_service,
+        "get_webhook",
+        AsyncMock(return_value=SimpleNamespace(id=webhook_id)),
+    )
+    context = AuditCallContext(
+        target=None,
+        arguments={
+            "role": role,
+            "session": session,
+            "workflow_id": workflow_id,
+        },
+    )
+
+    target = await workflow_management_router._get_webhook_key_audit_target(context)
+
+    assert target == (webhook_id, api_key_id)
+    session.execute.assert_not_awaited()
 
 
 @pytest.mark.anyio

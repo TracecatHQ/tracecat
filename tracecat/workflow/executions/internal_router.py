@@ -524,6 +524,7 @@ async def edit_workflow_document(
             workflow=workflow,
             original_document=draft_document,
             updated_document=updated_document,
+            changed_sections=changed_sections,
         )
         await service.session.refresh(
             workflow,
