@@ -144,16 +144,6 @@ async def _resolve_run_agent_action(
     )
 
 
-async def _resolve_get_case_action(request: Request) -> GatewayActionRequirement:
-    """Treat linked rows as a separate capability from base case details."""
-    include_rows = request.query_params.get("include_rows")
-    if include_rows is None or include_rows.lower() in {"false", "0", "off", "no"}:
-        return GatewayActionRequirement(any_of=frozenset({"core.cases.get_case"}))
-    return GatewayActionRequirement(
-        any_of=frozenset({"core.cases.get_linked_case_rows"})
-    )
-
-
 def _case_action_requirement(
     request: Request, base_action: str
 ) -> GatewayActionRequirement:
@@ -166,6 +156,17 @@ def _case_action_requirement(
         else frozenset()
     )
     return GatewayActionRequirement(any_of=frozenset({base_action}), all_of=all_of)
+
+
+async def _resolve_get_case_action(request: Request) -> GatewayActionRequirement:
+    """Bound optional row hydration by the linked-row action grant.
+
+    The endpoint returns the full case object even for ``include_rows=true``;
+    the ``get_linked_case_rows`` registry action only narrows that response to
+    ``case["rows"]``. Reading rows therefore still exposes the base case, so it
+    requires the base ``get_case`` grant in addition to the linked-row grant.
+    """
+    return _case_action_requirement(request, "core.cases.get_case")
 
 
 async def _resolve_list_cases_action(request: Request) -> GatewayActionRequirement:
@@ -195,14 +196,66 @@ async def _resolve_create_comment_action(request: Request) -> GatewayActionRequi
     )
 
 
+def _is_single_lookup_shape(payload: dict[str, Any]) -> bool:
+    """Match the exact request the ``lookup`` action emits: one column, one value.
+
+    ``lookup`` always sends a single column/value pair with ``limit=1``. An empty
+    or multi-element filter (for example ``{"columns": [], "values": []}``) selects
+    an arbitrary row, so it must not qualify for the narrower single-row grant.
+    """
+    columns = payload.get("columns")
+    values = payload.get("values")
+    return (
+        payload.get("limit") == 1
+        and isinstance(columns, list)
+        and len(columns) == 1
+        and isinstance(values, list)
+        and len(values) == 1
+    )
+
+
 async def _resolve_table_lookup_action(request: Request) -> GatewayActionRequirement:
     """Prevent a single-row lookup grant from expanding to an arbitrary batch."""
     payload = await _request_json_object(request)
-    if payload.get("limit") == 1:
+    if _is_single_lookup_shape(payload):
         return GatewayActionRequirement(
             any_of=frozenset({"core.table.lookup", "core.table.lookup_many"})
         )
     return GatewayActionRequirement(any_of=frozenset({"core.table.lookup_many"}))
+
+
+async def _resolve_rank_action(request: Request) -> GatewayActionRequirement:
+    """Prevent a single-result rank grant from requesting a full ranking.
+
+    ``ai.rank_documents`` and ``ai.select_field`` always request exactly one
+    result (``min_items == max_items == 1``); a multi-result or unbounded ranking
+    is ``ai.select_fields`` behavior. Any shape other than the single-result one
+    is therefore only authorized by the ``ai.select_fields`` grant.
+    """
+    payload = await _request_json_object(request)
+    if payload.get("min_items") == 1 and payload.get("max_items") == 1:
+        return GatewayActionRequirement(
+            any_of=frozenset({"ai.rank_documents", "ai.select_field"})
+        )
+    return GatewayActionRequirement(any_of=frozenset({"ai.select_fields"}))
+
+
+async def _resolve_deduplicate_action(request: Request) -> GatewayActionRequirement:
+    """Prevent a duplicate-check grant from persisting an arbitrary digest batch.
+
+    ``is_duplicate`` submits exactly one digest for one input; batch persistence
+    is ``deduplicate``. A request carrying more than one digest is therefore only
+    authorized by the ``deduplicate`` grant.
+    """
+    payload = await _request_json_object(request)
+    digests = payload.get("digests")
+    if isinstance(digests, list) and len(digests) == 1:
+        return GatewayActionRequirement(
+            any_of=frozenset(
+                {"core.transform.deduplicate", "core.transform.is_duplicate"}
+            )
+        )
+    return GatewayActionRequirement(any_of=frozenset({"core.transform.deduplicate"}))
 
 
 # Values identify registry actions whose implementation legitimately reaches the
@@ -222,11 +275,13 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
         "POST",
         "/internal/agent/rank",
         frozenset({"ai.rank_documents", "ai.select_field", "ai.select_fields"}),
+        resolver=_resolve_rank_action,
     ),
     GatewayCapability(
         "POST",
         "/internal/agent/rank-pairwise",
         frozenset({"ai.rank_documents", "ai.select_field", "ai.select_fields"}),
+        resolver=_resolve_rank_action,
     ),
     GatewayCapability(
         "GET", "/internal/agent/presets", frozenset({"ai.agent.list_presets"})
@@ -477,6 +532,7 @@ _GATEWAY_CAPABILITY_DECLARATIONS: tuple[GatewayCapability, ...] = (
         "POST",
         "/internal/deduplicate/digests",
         frozenset({"core.transform.deduplicate", "core.transform.is_duplicate"}),
+        resolver=_resolve_deduplicate_action,
     ),
     GatewayCapability("GET", "/internal/tables", frozenset({"core.table.list_tables"})),
     GatewayCapability(

@@ -160,7 +160,9 @@ async def test_capability_resolver_can_deny(
         ),
         pytest.param(
             b"include_rows=true",
-            _requirement("core.cases.get_linked_case_rows"),
+            _requirement(
+                "core.cases.get_case", all_of=("core.cases.get_linked_case_rows",)
+            ),
             False,
             id="linked-rows",
         ),
@@ -430,6 +432,153 @@ async def test_single_row_lookup_grant_is_bounded_by_limit(
 
     assert required_actions == expected_actions
     assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            {"table": "t", "columns": [], "values": [], "limit": 1},
+            id="empty-filter",
+        ),
+        pytest.param(
+            {
+                "table": "t",
+                "columns": ["a", "b"],
+                "values": ["x", "y"],
+                "limit": 1,
+            },
+            id="multi-column-filter",
+        ),
+        pytest.param(
+            {"table": "t", "limit": 1},
+            id="missing-filter",
+        ),
+    ],
+)
+async def test_single_row_lookup_grant_rejects_unfiltered_shape(
+    payload: dict[str, Any],
+) -> None:
+    """A limit=1 request that is not a single column/value pair needs lookup_many."""
+    claims = _claims("core.table.lookup")
+    request = _json_request(payload)
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/tables/{table_name}/lookup"),
+    )
+
+    assert required_actions == _requirement("core.table.lookup_many")
+    assert not _agent_gateway_action_allowed(claims, required_actions)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("payload", "expected_actions", "allowed"),
+    [
+        pytest.param(
+            {"digests": ["abc"], "expire_seconds": 3600},
+            _requirement("core.transform.deduplicate", "core.transform.is_duplicate"),
+            True,
+            id="single-digest-check",
+        ),
+        pytest.param(
+            {"digests": ["abc", "def"], "expire_seconds": 3600},
+            _requirement("core.transform.deduplicate"),
+            False,
+            id="batch-digest-create",
+        ),
+    ],
+)
+async def test_is_duplicate_grant_cannot_persist_digest_batch(
+    payload: dict[str, Any],
+    expected_actions: GatewayActionRequirement,
+    allowed: bool,
+) -> None:
+    """An is_duplicate grant checks one digest; batch persistence needs deduplicate."""
+    claims = _claims("core.transform.is_duplicate")
+    request = _json_request(payload)
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("POST", "/internal/deduplicate/digests"),
+    )
+
+    assert required_actions == expected_actions
+    assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "route_key",
+    [
+        GatewayRouteKey("POST", "/internal/agent/rank"),
+        GatewayRouteKey("POST", "/internal/agent/rank-pairwise"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("payload", "expected_actions", "allowed"),
+    [
+        pytest.param(
+            {"min_items": 1, "max_items": 1},
+            _requirement("ai.rank_documents", "ai.select_field"),
+            True,
+            id="single-result",
+        ),
+        pytest.param(
+            {"min_items": 1, "max_items": 2},
+            _requirement("ai.select_fields"),
+            False,
+            id="multi-result",
+        ),
+        pytest.param(
+            {},
+            _requirement("ai.select_fields"),
+            False,
+            id="unbounded-ranking",
+        ),
+    ],
+)
+async def test_single_result_rank_grant_cannot_request_full_ranking(
+    route_key: GatewayRouteKey,
+    payload: dict[str, Any],
+    expected_actions: GatewayActionRequirement,
+    allowed: bool,
+) -> None:
+    """A select_field grant must not request the multi-result select_fields shape."""
+    claims = _claims("ai.select_field")
+    request = _json_request(payload)
+
+    required_actions = await resolve_gateway_actions(request, route_key)
+
+    assert required_actions == expected_actions
+    assert _agent_gateway_action_allowed(claims, required_actions) is allowed
+
+
+@pytest.mark.anyio
+async def test_linked_case_rows_grant_cannot_read_full_case() -> None:
+    """A linked-row-only grant must not read the full case via include_rows."""
+    claims = _claims("core.cases.get_linked_case_rows")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/internal/cases/case-id",
+            "query_string": b"include_rows=true",
+            "headers": [],
+        }
+    )
+
+    required_actions = await resolve_gateway_actions(
+        request,
+        GatewayRouteKey("GET", "/internal/cases/{case_id}"),
+    )
+
+    assert required_actions == _requirement(
+        "core.cases.get_case", all_of=("core.cases.get_linked_case_rows",)
+    )
+    assert not _agent_gateway_action_allowed(claims, required_actions)
 
 
 @pytest.mark.anyio
