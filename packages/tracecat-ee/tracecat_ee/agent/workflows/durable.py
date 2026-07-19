@@ -1216,12 +1216,13 @@ class DurableAgentWorkflow:
         execution_grant_enabled = workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
         if execution_grant_enabled:
             execution_scopes = self.role.scopes
-            if execution_scopes is None:
+            if not execution_scopes:
                 # A pre-RBAC parent DSL/schedule role can deserialize with no
-                # scope snapshot. Reconstruct it from the role's legacy fields
-                # (pure, deterministic — replay-safe) so this new Agent grant is
-                # enforced, rather than misclassified as a legacy history where
-                # ``scopes=None`` disables the run_python toolset ceiling.
+                # scope snapshot, encoded as either ``None`` or an empty frozenset
+                # (both are documented pre-migration defaults). Reconstruct it from
+                # the role's legacy fields (pure, deterministic — replay-safe) so
+                # this new Agent grant is enforced instead of either disabling the
+                # ceiling (``None``) or denying every configured tool (empty).
                 execution_scopes = backfill_legacy_role_scopes(self.role).scopes
             # Never propagate ``None`` on the patched branch: an unresolvable
             # legacy role fails closed to an empty scope set (deny-all), not the
