@@ -33,6 +33,18 @@ import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+// Keep aligned with the CaseBatchUpdate and CaseBatchDelete schema cap.
+const CASE_BATCH_MAX_IDS = 1000
+
+/** Split case IDs into requests that satisfy the server batch-size contract. */
+export function chunkCaseIds(caseIds: string[]): string[][] {
+  const chunks: string[][] = []
+  for (let start = 0; start < caseIds.length; start += CASE_BATCH_MAX_IDS) {
+    chunks.push(caseIds.slice(start, start + CASE_BATCH_MAX_IDS))
+  }
+  return chunks
+}
+
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
   isLoading: boolean
@@ -73,7 +85,6 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
-  refetch?: () => void
 }
 
 export function CasesLayout({
@@ -116,7 +127,6 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
-  refetch,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -171,12 +181,18 @@ export function CasesLayout({
     try {
       setIsDeleting(true)
       const caseIds = Array.from(selectedCaseIds)
-      const response = await batchDeleteCases({ case_ids: caseIds })
+      let succeeded = 0
+      let failed = 0
+      for (const chunk of chunkCaseIds(caseIds)) {
+        const response = await batchDeleteCases({ case_ids: chunk })
+        succeeded += response.succeeded
+        failed += response.failed
+      }
 
-      if (response.failed > 0) {
+      if (failed > 0) {
         toast({
           variant: "destructive",
-          title: `${response.succeeded} deleted, ${response.failed} failed`,
+          title: `${succeeded} deleted, ${failed} failed`,
           description: "Some selected cases could not be deleted.",
         })
       } else {
@@ -186,7 +202,6 @@ export function CasesLayout({
         })
       }
 
-      refetch?.()
       setSelectedCaseIds(new Set())
     } catch (err) {
       console.error("Failed to delete cases:", err)
@@ -198,7 +213,7 @@ export function CasesLayout({
     } finally {
       setIsDeleting(false)
     }
-  }, [batchDeleteCases, refetch, selectedCaseIds, toast])
+  }, [batchDeleteCases, selectedCaseIds, toast])
 
   const handleBulkUpdate = useCallback(
     async (
@@ -212,15 +227,21 @@ export function CasesLayout({
       try {
         setIsBulkUpdating(true)
 
-        const response = await batchUpdateCases({
-          case_ids: caseIds,
-          update: updates,
-        })
+        let succeeded = 0
+        let failed = 0
+        for (const chunk of chunkCaseIds(caseIds)) {
+          const response = await batchUpdateCases({
+            case_ids: chunk,
+            update: updates,
+          })
+          succeeded += response.succeeded
+          failed += response.failed
+        }
 
-        if (response.failed > 0) {
+        if (failed > 0) {
           toast({
             variant: "destructive",
-            title: `${response.succeeded} updated, ${response.failed} failed`,
+            title: `${succeeded} updated, ${failed} failed`,
             description: "Some selected cases could not be updated.",
           })
         } else {
@@ -233,8 +254,6 @@ export function CasesLayout({
               "The selected cases have been updated successfully.",
           })
         }
-
-        refetch?.()
       } catch (err) {
         console.error("Failed to update cases:", err)
         toast({
@@ -246,7 +265,7 @@ export function CasesLayout({
         setIsBulkUpdating(false)
       }
     },
-    [batchUpdateCases, refetch, selectedCaseIds, toast]
+    [batchUpdateCases, selectedCaseIds, toast]
   )
 
   // Sync selection state with context

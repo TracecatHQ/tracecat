@@ -1154,9 +1154,7 @@ class CasesService(BaseWorkspaceService):
     ) -> None:
         """Emit a batch audit event without allowing audit failures to fail the batch."""
         try:
-            async with AuditService.with_session(
-                role=self.role, session=self.session
-            ) as service:
+            async with AuditService.with_session(role=self.role) as service:
                 await service.create_event(
                     resource_type="case",
                     action=action,
@@ -1191,6 +1189,7 @@ class CasesService(BaseWorkspaceService):
         self, case_ids: list[uuid.UUID], params: CaseUpdate
     ) -> CaseBatchResponse:
         """Update multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
         audit_case_ids = [str(case_id) for case_id in case_ids]
         audit_data: dict[str, Any] = {
             "batch": True,
@@ -1206,52 +1205,53 @@ class CasesService(BaseWorkspaceService):
         try:
             cases_by_id = await self._lock_cases(case_ids)
             results: list[CaseBatchItemResult] = []
-            with defer_after_commit_callbacks(self.session):
-                for case_id in case_ids:
-                    if (case := cases_by_id.get(case_id)) is None:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error="Case not found",
+            with rollback_after_commit_callbacks(self.session):
+                with defer_after_commit_callbacks(self.session):
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
                             )
-                        )
-                        continue
+                            continue
 
-                    try:
-                        with rollback_after_commit_callbacks(self.session):
-                            async with self.session.begin_nested():
-                                await self._apply_case_update(case, params)
-                    except TracecatValidationError as exc:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error=str(exc),
+                        try:
+                            with rollback_after_commit_callbacks(self.session):
+                                async with self.session.begin_nested():
+                                    await self._apply_case_update(case, params)
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
                             )
-                        )
-                    except ValueError as exc:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error=str(exc),
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
                             )
-                        )
-                    except DBAPIError:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error="Database operation failed",
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
                             )
-                        )
-                    else:
-                        results.append(
-                            CaseBatchItemResult(case_id=case_id, success=True)
-                        )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
 
-            await self.session.commit()
+                await self.session.commit()
         except Exception:
             await self.session.rollback()
             await self._audit_batch_event(
@@ -1285,6 +1285,7 @@ class CasesService(BaseWorkspaceService):
     @require_scope("case:delete")
     async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Delete multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
         audit_case_ids = [str(case_id) for case_id in case_ids]
         audit_data: dict[str, Any] = {
             "batch": True,
@@ -1300,52 +1301,53 @@ class CasesService(BaseWorkspaceService):
         try:
             cases_by_id = await self._lock_cases(case_ids)
             results: list[CaseBatchItemResult] = []
-            with defer_after_commit_callbacks(self.session):
-                for case_id in case_ids:
-                    if (case := cases_by_id.get(case_id)) is None:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error="Case not found",
+            with rollback_after_commit_callbacks(self.session):
+                with defer_after_commit_callbacks(self.session):
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
                             )
-                        )
-                        continue
+                            continue
 
-                    try:
-                        with rollback_after_commit_callbacks(self.session):
-                            async with self.session.begin_nested():
-                                await self.session.delete(case)
-                    except TracecatValidationError as exc:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error=str(exc),
+                        try:
+                            with rollback_after_commit_callbacks(self.session):
+                                async with self.session.begin_nested():
+                                    await self.session.delete(case)
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
                             )
-                        )
-                    except ValueError as exc:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error=str(exc),
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
                             )
-                        )
-                    except DBAPIError:
-                        results.append(
-                            CaseBatchItemResult(
-                                case_id=case_id,
-                                success=False,
-                                error="Database operation failed",
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
                             )
-                        )
-                    else:
-                        results.append(
-                            CaseBatchItemResult(case_id=case_id, success=True)
-                        )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
 
-            await self.session.commit()
+                await self.session.commit()
         except Exception:
             await self.session.rollback()
             await self._audit_batch_event(

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { casesBatchDeleteCases, casesBatchUpdateCases } from "@/client"
+import { chunkCaseIds } from "@/components/cases/cases-layout"
 import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
 
 jest.mock("@/client", () => {
@@ -38,6 +39,15 @@ describe("batch case hooks", () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     )
   }
+
+  it("chunks case IDs at the server batch limit", () => {
+    const caseIds = Array.from({ length: 2001 }, (_, index) => `case-${index}`)
+
+    const chunks = chunkCaseIds(caseIds)
+
+    expect(chunks.map((chunk) => chunk.length)).toEqual([1000, 1000, 1])
+    expect(chunks.flat()).toEqual(caseIds)
+  })
 
   it("updates cases once and invalidates the cases cache once", async () => {
     mockBatchUpdateCases.mockResolvedValue({

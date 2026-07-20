@@ -71,7 +71,7 @@ def rollback_after_commit_callbacks(session: AsyncSession) -> Iterator[None]:
     checkpoint = len(callbacks)
     try:
         yield
-    except Exception:
+    except BaseException:
         del callbacks[checkpoint:]
         raise
 
