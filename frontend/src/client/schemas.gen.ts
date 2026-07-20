@@ -6316,6 +6316,100 @@ export const $CaseAttachmentRead = {
   description: "Model for reading a case attachment.",
 } as const
 
+export const $CaseBatchDelete = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+  },
+  type: "object",
+  required: ["case_ids"],
+  title: "CaseBatchDelete",
+  description: "Request body for deleting multiple cases.",
+} as const
+
+export const $CaseBatchItemResult = {
+  properties: {
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["case_id", "success"],
+  title: "CaseBatchItemResult",
+  description: "Result of a batch operation for one case.",
+} as const
+
+export const $CaseBatchResponse = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/CaseBatchItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+    succeeded: {
+      type: "integer",
+      title: "Succeeded",
+    },
+    failed: {
+      type: "integer",
+      title: "Failed",
+    },
+  },
+  type: "object",
+  required: ["results", "succeeded", "failed"],
+  title: "CaseBatchResponse",
+  description: "Per-case results and aggregate counts for a batch operation.",
+} as const
+
+export const $CaseBatchUpdate = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+    update: {
+      $ref: "#/components/schemas/CaseUpdate",
+    },
+  },
+  type: "object",
+  required: ["case_ids", "update"],
+  title: "CaseBatchUpdate",
+  description: "Request body for updating multiple cases.",
+} as const
+
 export const $CaseCommentCreate = {
   properties: {
     content: {

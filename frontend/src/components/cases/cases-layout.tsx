@@ -2,19 +2,18 @@
 
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  type CaseDropdownDefinitionRead,
-  type CaseDurationDefinitionRead,
-  type CaseFieldReadMinimal,
-  type CasePriority,
-  type CaseReadMinimal,
-  type CaseSearchAggregateRead,
-  type CaseSeverity,
-  type CaseStatus,
-  type CaseTagRead,
-  type CaseUpdate,
-  casesUpdateCase,
-  type WorkspaceMember,
+import type {
+  CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
+  CasePriority,
+  CaseReadMinimal,
+  CaseSearchAggregateRead,
+  CaseSeverity,
+  CaseStatus,
+  CaseTagRead,
+  CaseUpdate,
+  WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
@@ -31,11 +30,8 @@ import type {
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
-import { useDeleteCase } from "@/lib/hooks"
-import { runWithConcurrencyLimit } from "@/lib/utils"
+import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const BULK_CASE_REQUEST_CONCURRENCY = 8
 
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
@@ -131,7 +127,8 @@ export function CasesLayout({
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
-  const { deleteCase } = useDeleteCase({ workspaceId })
+  const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
+  const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
   const { toast } = useToast()
 
   const handleSelectCase = useCallback(
@@ -174,15 +171,20 @@ export function CasesLayout({
     try {
       setIsDeleting(true)
       const caseIds = Array.from(selectedCaseIds)
-      await runWithConcurrencyLimit(
-        caseIds.map((caseId) => () => deleteCase(caseId)),
-        BULK_CASE_REQUEST_CONCURRENCY
-      )
+      const response = await batchDeleteCases({ case_ids: caseIds })
 
-      toast({
-        title: `${caseIds.length} case(s) deleted`,
-        description: "The selected cases have been deleted successfully.",
-      })
+      if (response.failed > 0) {
+        toast({
+          variant: "destructive",
+          title: `${response.succeeded} deleted, ${response.failed} failed`,
+          description: "Some selected cases could not be deleted.",
+        })
+      } else {
+        toast({
+          title: `${caseIds.length} case(s) deleted`,
+          description: "The selected cases have been deleted successfully.",
+        })
+      }
 
       refetch?.()
       setSelectedCaseIds(new Set())
@@ -196,7 +198,7 @@ export function CasesLayout({
     } finally {
       setIsDeleting(false)
     }
-  }, [deleteCase, refetch, selectedCaseIds, toast])
+  }, [batchDeleteCases, refetch, selectedCaseIds, toast])
 
   const handleBulkUpdate = useCallback(
     async (
@@ -210,26 +212,27 @@ export function CasesLayout({
       try {
         setIsBulkUpdating(true)
 
-        await runWithConcurrencyLimit(
-          caseIds.map(
-            (caseId) => () =>
-              casesUpdateCase({
-                workspaceId,
-                caseId,
-                requestBody: updates,
-              })
-          ),
-          BULK_CASE_REQUEST_CONCURRENCY
-        )
-
-        toast({
-          title:
-            options?.successTitle ||
-            `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
-          description:
-            options?.successDescription ||
-            "The selected cases have been updated successfully.",
+        const response = await batchUpdateCases({
+          case_ids: caseIds,
+          update: updates,
         })
+
+        if (response.failed > 0) {
+          toast({
+            variant: "destructive",
+            title: `${response.succeeded} updated, ${response.failed} failed`,
+            description: "Some selected cases could not be updated.",
+          })
+        } else {
+          toast({
+            title:
+              options?.successTitle ||
+              `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
+            description:
+              options?.successDescription ||
+              "The selected cases have been updated successfully.",
+          })
+        }
 
         refetch?.()
       } catch (err) {
@@ -243,7 +246,7 @@ export function CasesLayout({
         setIsBulkUpdating(false)
       }
     },
-    [refetch, selectedCaseIds, toast, workspaceId]
+    [batchUpdateCases, refetch, selectedCaseIds, toast]
   )
 
   // Sync selection state with context

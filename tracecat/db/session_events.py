@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, Final, cast
 
 import sqlalchemy.orm
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.logger import logger
 
 _AFTER_COMMIT_KEY: Final[str] = "after_commit_callbacks"
+_DEFER_AFTER_COMMIT_KEY: Final[str] = "defer_after_commit_callbacks"
 _EVENT_LOOP_KEY: Final[str] = "event_loop"
 AsyncCallback = Callable[[], Awaitable[Any]]
 
@@ -44,6 +46,36 @@ def add_after_commit_callback(session: AsyncSession, callback: AsyncCallback) ->
         loop = None
 
 
+@contextmanager
+def defer_after_commit_callbacks(session: AsyncSession) -> Iterator[None]:
+    """Defer callbacks across savepoint releases until the outer commit."""
+    sync = session.sync_session
+    defer_depth = int(sync.info.get(_DEFER_AFTER_COMMIT_KEY, 0))
+    sync.info[_DEFER_AFTER_COMMIT_KEY] = defer_depth + 1
+    try:
+        yield
+    finally:
+        if defer_depth == 0:
+            sync.info.pop(_DEFER_AFTER_COMMIT_KEY, None)
+        else:
+            sync.info[_DEFER_AFTER_COMMIT_KEY] = defer_depth
+
+
+@contextmanager
+def rollback_after_commit_callbacks(session: AsyncSession) -> Iterator[None]:
+    """Discard callbacks registered by work that raises and is rolled back."""
+    callbacks = cast(
+        list[AsyncCallback],
+        session.sync_session.info.setdefault(_AFTER_COMMIT_KEY, []),
+    )
+    checkpoint = len(callbacks)
+    try:
+        yield
+    except Exception:
+        del callbacks[checkpoint:]
+        raise
+
+
 @event.listens_for(sqlalchemy.orm.Session, "after_commit")
 def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: ignore[reportUnusedFunction] - registered as SQLAlchemy event listener
     """Execute all registered after-commit callbacks for the given session.
@@ -63,6 +95,9 @@ def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: igno
         captured during callback registration. If no loop was captured,
         a new event loop is created.
     """
+    if session.info.get(_DEFER_AFTER_COMMIT_KEY):
+        return
+
     callbacks = cast(list[AsyncCallback], session.info.pop(_AFTER_COMMIT_KEY, []))
     if not callbacks:
         return

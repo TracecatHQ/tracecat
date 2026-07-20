@@ -4,13 +4,15 @@ from collections.abc import Iterator
 from decimal import Decimal
 from datetime import UTC, datetime
 from typing import Any, Literal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload as sa_selectinload
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.dropdowns.schemas import (
@@ -161,6 +163,37 @@ async def _create_dropdown_with_option(
         ),
     )
     return definition, option
+
+
+def _assert_batch_audit_calls(
+    mock_create_event: AsyncMock,
+    *,
+    action: Literal["update", "delete"],
+    case_ids: list[uuid.UUID],
+    succeeded: int,
+    failed: int,
+) -> None:
+    base_data = {
+        "batch": True,
+        "case_ids": [str(case_id) for case_id in case_ids],
+        "count": len(case_ids),
+    }
+    assert mock_create_event.await_args_list == [
+        call(
+            resource_type="case",
+            action=action,
+            resource_id=None,
+            status=AuditEventStatus.ATTEMPT,
+            data=base_data,
+        ),
+        call(
+            resource_type="case",
+            action=action,
+            resource_id=None,
+            status=AuditEventStatus.SUCCESS,
+            data={**base_data, "succeeded": succeeded, "failed": failed},
+        ),
+    ]
 
 
 @pytest.mark.anyio
@@ -674,6 +707,254 @@ class TestCasesService:
         assert retrieved_case.summary == update_params.summary
         assert retrieved_case.status == update_params.status
         assert retrieved_case.priority == update_params.priority
+
+    async def test_batch_update_cases(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Batch updates emit per-case events and commit once."""
+        first_case = await cases_service.create_case(case_create_params)
+        second_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Second case"})
+        )
+        case_ids = [first_case.id, second_case.id]
+        original_commit = session.commit
+        mock_publish = AsyncMock()
+
+        async def commit_batch() -> None:
+            mock_publish.assert_not_awaited()
+            await original_commit()
+
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch(
+                "tracecat.cases.service.publish_case_event_payload",
+                new=mock_publish,
+            ),
+            patch.object(
+                cases_service.events,
+                "create_event",
+                wraps=cases_service.events.create_event,
+            ) as mock_create_case_event,
+            patch.object(session, "commit", side_effect=commit_batch) as mock_commit,
+        ):
+            response = await cases_service.batch_update_cases(
+                case_ids, CaseUpdate(summary="Batch updated")
+            )
+            for _ in range(10):
+                if mock_publish.await_count == 2:
+                    break
+                await asyncio.sleep(0)
+
+        assert response.succeeded == 2
+        assert response.failed == 0
+        assert all(result.success for result in response.results)
+        assert mock_create_case_event.await_count == 2
+        assert mock_publish.await_count == 2
+        mock_commit.assert_awaited_once()
+        _assert_batch_audit_calls(
+            mock_audit,
+            action="update",
+            case_ids=case_ids,
+            succeeded=2,
+            failed=0,
+        )
+
+        for case_id in case_ids:
+            updated_case = await cases_service.get_case(case_id)
+            assert updated_case is not None
+            assert updated_case.summary == "Batch updated"
+
+    async def test_batch_update_cases_isolates_partial_failure(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
+    ) -> None:
+        """A typed per-case failure rolls back its savepoint only."""
+        first_case = await cases_service.create_case(case_create_params)
+        invalid_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Invalid case"})
+        )
+        third_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Third case"})
+        )
+        invalid_case_id = invalid_case.id
+        case_ids = [first_case.id, invalid_case.id, third_case.id]
+        apply_case_update = cases_service._apply_case_update
+
+        async def apply_with_one_failure(case: Case, params: CaseUpdate) -> None:
+            if case.id == invalid_case_id:
+                await apply_case_update(case, params)
+                raise ValueError("Invalid case update")
+            await apply_case_update(case, params)
+
+        mock_publish = AsyncMock()
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch(
+                "tracecat.cases.service.publish_case_event_payload",
+                new=mock_publish,
+            ),
+            patch.object(
+                cases_service.events,
+                "create_event",
+                wraps=cases_service.events.create_event,
+            ) as mock_create_case_event,
+            patch.object(
+                cases_service,
+                "_apply_case_update",
+                side_effect=apply_with_one_failure,
+            ),
+            patch.object(session, "commit", wraps=session.commit) as mock_commit,
+        ):
+            response = await cases_service.batch_update_cases(
+                case_ids, CaseUpdate(summary="Batch updated")
+            )
+            for _ in range(10):
+                if mock_publish.await_count == 2:
+                    break
+                await asyncio.sleep(0)
+
+        assert response.succeeded == 2
+        assert response.failed == 1
+        assert response.results[0].success is True
+        assert response.results[1].success is False
+        assert response.results[1].error == "Invalid case update"
+        assert response.results[2].success is True
+        assert mock_create_case_event.await_count == 3
+        assert {
+            published.kwargs["case_id"] for published in mock_publish.await_args_list
+        } == {str(case_ids[0]), str(case_ids[2])}
+        mock_commit.assert_awaited_once()
+        _assert_batch_audit_calls(
+            mock_audit,
+            action="update",
+            case_ids=case_ids,
+            succeeded=2,
+            failed=1,
+        )
+
+        unchanged_case = await cases_service.get_case(invalid_case_id)
+        assert unchanged_case is not None
+        assert unchanged_case.summary == "Invalid case"
+
+    async def test_batch_update_cases_all_not_found(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+    ) -> None:
+        """Missing cases return one failed result per requested ID."""
+        case_ids = [uuid.uuid4(), uuid.uuid4()]
+
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch.object(session, "commit", wraps=session.commit) as mock_commit,
+        ):
+            response = await cases_service.batch_update_cases(
+                case_ids, CaseUpdate(summary="Batch updated")
+            )
+
+        assert response.succeeded == 0
+        assert response.failed == 2
+        assert [result.case_id for result in response.results] == case_ids
+        assert all(result.error == "Case not found" for result in response.results)
+        mock_commit.assert_awaited_once()
+        _assert_batch_audit_calls(
+            mock_audit,
+            action="update",
+            case_ids=case_ids,
+            succeeded=0,
+            failed=2,
+        )
+
+    async def test_batch_delete_cases(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Batch delete removes all found cases with one commit and audit pair."""
+        first_case = await cases_service.create_case(case_create_params)
+        second_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Second case"})
+        )
+        case_ids = [first_case.id, second_case.id]
+
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch.object(session, "commit", wraps=session.commit) as mock_commit,
+        ):
+            response = await cases_service.batch_delete_cases(case_ids)
+
+        assert response.succeeded == 2
+        assert response.failed == 0
+        assert all(result.success for result in response.results)
+        mock_commit.assert_awaited_once()
+        _assert_batch_audit_calls(
+            mock_audit,
+            action="delete",
+            case_ids=case_ids,
+            succeeded=2,
+            failed=0,
+        )
+        for case_id in case_ids:
+            assert await cases_service.get_case(case_id) is None
+
+    async def test_batch_update_cases_audits_whole_batch_failure(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+    ) -> None:
+        """Unexpected failures roll back and emit one terminal failure audit."""
+        case_ids = [uuid.uuid4(), uuid.uuid4()]
+
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch.object(
+                cases_service,
+                "_lock_cases",
+                side_effect=RuntimeError("Unexpected failure"),
+            ),
+            patch.object(session, "rollback", wraps=session.rollback) as mock_rollback,
+        ):
+            with pytest.raises(RuntimeError, match="Unexpected failure"):
+                await cases_service.batch_update_cases(case_ids, CaseUpdate())
+
+        mock_rollback.assert_awaited_once()
+        base_data = {
+            "batch": True,
+            "case_ids": [str(case_id) for case_id in case_ids],
+            "count": 2,
+        }
+        assert mock_audit.await_args_list == [
+            call(
+                resource_type="case",
+                action="update",
+                resource_id=None,
+                status=AuditEventStatus.ATTEMPT,
+                data=base_data,
+            ),
+            call(
+                resource_type="case",
+                action="update",
+                resource_id=None,
+                status=AuditEventStatus.FAILURE,
+                data={**base_data, "succeeded": 0, "failed": 2},
+            ),
+        ]
 
     async def test_update_case_close_emits_case_closed_event(
         self, cases_service: CasesService, case_create_params: CaseCreate

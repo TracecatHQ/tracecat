@@ -28,6 +28,9 @@ from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
+    CaseBatchDelete,
+    CaseBatchResponse,
+    CaseBatchUpdate,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -502,6 +505,32 @@ async def search_case_aggregates(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve case aggregate counts",
         ) from e
+
+
+@cases_router.post("/batch-update")
+@require_scope("case:update")
+async def batch_update_cases(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchUpdate,
+) -> CaseBatchResponse:
+    """Update multiple cases with per-case results."""
+    service = CasesService(session, role)
+    return await service.batch_update_cases(params.case_ids, params.update)
+
+
+@cases_router.post("/batch-delete")
+@require_scope("case:delete")
+async def batch_delete_cases(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchDelete,
+) -> CaseBatchResponse:
+    """Delete multiple cases with per-case results."""
+    service = CasesService(session, role)
+    return await service.batch_delete_cases(params.case_ids)
 
 
 @cases_router.get("/{case_id}")

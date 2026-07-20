@@ -38,6 +38,8 @@ import {
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
+  type CaseBatchDelete,
+  type CaseBatchUpdate,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentThreadRead,
@@ -85,6 +87,8 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchDeleteCases,
+  casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
   casesCreateTask,
@@ -3922,6 +3926,56 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     deleteCase,
     deleteCaseIsPending,
     deleteCaseError,
+  }
+}
+
+/** Update a collection of cases in one server-side batch. */
+export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: batchUpdateCases,
+    isPending: batchUpdateCasesIsPending,
+    error: batchUpdateCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchUpdate) =>
+      await casesBatchUpdateCases({ workspaceId, requestBody: params }),
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cases"],
+        exact: false,
+      })
+    },
+  })
+
+  return {
+    batchUpdateCases,
+    batchUpdateCasesIsPending,
+    batchUpdateCasesError,
+  }
+}
+
+/** Delete a collection of cases in one server-side batch. */
+export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: batchDeleteCases,
+    isPending: batchDeleteCasesIsPending,
+    error: batchDeleteCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchDelete) =>
+      await casesBatchDeleteCases({ workspaceId, requestBody: params }),
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cases"],
+        exact: false,
+      })
+    },
+  })
+
+  return {
+    batchDeleteCases,
+    batchDeleteCasesIsPending,
+    batchDeleteCasesError,
   }
 }
 
