@@ -335,15 +335,13 @@ class TestCaseCommentsService:
         callbacks: list[object] = []
 
         with (
-            patch(
-                "tracecat.cases.service.add_after_commit_callback",
-                side_effect=lambda _session, _callback: callbacks.append(_callback),
-            ),
+            patch("tracecat.cases.service.AfterCommitQueue.of") as queue_of_mock,
             patch(
                 "tracecat.cases.service.publish_case_event_payload",
                 new=AsyncMock(),
             ) as publish_mock,
         ):
+            queue_of_mock.return_value.add.side_effect = callbacks.append
             created_comment = await case_comments_service.create_comment(
                 test_case,
                 CaseCommentCreate(
@@ -412,10 +410,7 @@ class TestCaseCommentsService:
         existing_audit_count = len(audit_event_calls)
 
         with (
-            patch(
-                "tracecat.cases.service.add_after_commit_callback",
-                side_effect=lambda _session, _callback: None,
-            ),
+            patch("tracecat.cases.service.AfterCommitQueue.of"),
             patch(
                 "tracecat.cases.service.publish_case_event_payload",
                 new=AsyncMock(side_effect=RuntimeError("redis unavailable")),

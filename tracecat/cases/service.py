@@ -102,11 +102,7 @@ from tracecat.db.models import (
     Workflow,
     WorkspaceSyncResourceMapping,
 )
-from tracecat.db.session_events import (
-    add_after_commit_callback,
-    defer_after_commit_callbacks,
-    rollback_after_commit_callbacks,
-)
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -1205,8 +1201,9 @@ class CasesService(BaseWorkspaceService):
         try:
             cases_by_id = await self._lock_cases(case_ids)
             results: list[CaseBatchItemResult] = []
-            with rollback_after_commit_callbacks(self.session):
-                with defer_after_commit_callbacks(self.session):
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
                     for case_id in case_ids:
                         if (case := cases_by_id.get(case_id)) is None:
                             results.append(
@@ -1219,7 +1216,7 @@ class CasesService(BaseWorkspaceService):
                             continue
 
                         try:
-                            with rollback_after_commit_callbacks(self.session):
+                            with queue.checkpointed():
                                 async with self.session.begin_nested():
                                     await self._apply_case_update(case, params)
                         except TracecatValidationError as exc:
@@ -1301,8 +1298,9 @@ class CasesService(BaseWorkspaceService):
         try:
             cases_by_id = await self._lock_cases(case_ids)
             results: list[CaseBatchItemResult] = []
-            with rollback_after_commit_callbacks(self.session):
-                with defer_after_commit_callbacks(self.session):
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
                     for case_id in case_ids:
                         if (case := cases_by_id.get(case_id)) is None:
                             results.append(
@@ -1315,7 +1313,7 @@ class CasesService(BaseWorkspaceService):
                             continue
 
                         try:
-                            with rollback_after_commit_callbacks(self.session):
+                            with queue.checkpointed():
                                 async with self.session.begin_nested():
                                     await self.session.delete(case)
                         except TracecatValidationError as exc:
@@ -2695,7 +2693,7 @@ class CaseEventsService(BaseWorkspaceService):
                     created_at=created_at,
                 )
 
-            add_after_commit_callback(self.session, _publish_case_event)
+            AfterCommitQueue.of(self.session).add(_publish_case_event)
 
         # Auto-sync durations whenever an event is created
         durations_service = CaseDurationService(session=self.session, role=self.role)

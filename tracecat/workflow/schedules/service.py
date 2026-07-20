@@ -9,7 +9,7 @@ from temporalio import activity
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
-from tracecat.db.session_events import add_after_commit_callback
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
@@ -157,7 +157,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_role=role_copy,
                 )
 
-        add_after_commit_callback(self.session, _create_schedule)
+        AfterCommitQueue.of(self.session).add(_create_schedule)
 
         # Ensure the SQLAlchemy instance is persistent before refresh.
         # Commit will implicitly flush; when commit=False we must flush explicitly
@@ -268,7 +268,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        add_after_commit_callback(self.session, _update_schedule)
+        AfterCommitQueue.of(self.session).add(_update_schedule)
 
         await self.session.commit()
         await self.session.refresh(schedule)
@@ -321,7 +321,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        add_after_commit_callback(self.session, _delete_schedule)
+        AfterCommitQueue.of(self.session).add(_delete_schedule)
 
         if commit:
             await self.session.commit()
