@@ -74,7 +74,10 @@ class SandboxResult:
     output: Any | None = None
     stdout: str = ""
     stderr: str = ""
-    error: str | None = None
+    # Action sandboxes report failures as ExecutorActionErrorInfo-shaped JSON
+    # objects that cross the sandbox boundary opaquely and are validated by the
+    # consumer (action_runner); python sandboxes report plain strings.
+    error: str | dict[str, Any] | None = None
     error_code: SandboxErrorCode | None = None
     exit_code: int | None = None
     execution_time_ms: float | None = None

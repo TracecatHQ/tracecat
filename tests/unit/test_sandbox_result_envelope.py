@@ -92,7 +92,7 @@ def test_decode_result_envelope_rejects_symlinked_result(tmp_path: Path) -> None
     "invalid_fields",
     [
         {"success": [True]},
-        {"error": {"message": "failed"}},
+        {"error": 42},
     ],
 )
 def test_decode_result_envelope_rejects_wrong_fields_uniformly(
@@ -139,6 +139,29 @@ def test_decode_result_envelope_selects_output_key_and_lenient_defaults(
         exit_code=9,
         execution_time_ms=12.5,
     )
+
+
+def test_decode_result_envelope_passes_structured_action_errors_through(
+    tmp_path: Path,
+) -> None:
+    """Action failures carry ExecutorActionErrorInfo-shaped dicts in `error`."""
+    structured_error = {
+        "type": "ValueError",
+        "message": "boom",
+        "action_name": "tools.example.action",
+        "filename": "<sandbox>",
+        "function": "run",
+        "lineno": 7,
+    }
+    (tmp_path / "result.json").write_bytes(
+        orjson.dumps({"success": False, "result": None, "error": structured_error})
+    )
+
+    outcome = _decode(tmp_path, output_key="result", stream_source="process")
+
+    assert outcome is not None
+    assert outcome.valid_envelope is True
+    assert outcome.result.error == structured_error
 
 
 @pytest.mark.parametrize("stream_field", ["stdout", "stderr"])

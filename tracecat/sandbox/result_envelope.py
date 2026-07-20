@@ -26,7 +26,9 @@ class _ResultEnvelope(BaseModel):
     # takes the invalid-result path rather than leaking None into SandboxResult.
     stdout: str = Field(default="")
     stderr: str = Field(default="")
-    error: str | None = Field(default=None)
+    # Action failures carry an ExecutorActionErrorInfo-shaped JSON object that
+    # must pass through opaquely for the consumer to validate (action_runner).
+    error: str | dict[str, Any] | None = Field(default=None)
     error_code: SandboxErrorCode | None = Field(default=None)
 
     @field_validator("error_code", mode="before")

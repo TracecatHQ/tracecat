@@ -410,7 +410,14 @@ async def probe_stdio_mcp_tools_in_sandbox(
                 message="Connection to the MCP server timed out",
                 error=f"Timed out after {timeout_seconds}s while probing stdio MCP server",
             )
-        error = sanitize_stdio_probe_error(result.error or result.stderr, env=env)
+        # Python-sandbox probes report string errors; stringify defensively in
+        # case a structured action-style error ever reaches this path.
+        probe_error = (
+            result.error
+            if isinstance(result.error, str) or result.error is None
+            else str(result.error)
+        )
+        error = sanitize_stdio_probe_error(probe_error or result.stderr, env=env)
         return StdioMCPProbeResult(
             success=False,
             message="Failed to connect to the stdio MCP server",
