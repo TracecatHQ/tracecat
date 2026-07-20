@@ -8,6 +8,7 @@ import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -16,10 +17,10 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat import __version__ as APP_VERSION
+if TYPE_CHECKING:
+    from temporalio.client import Client
 
 with workflow.unsafe.imports_passed_through():
-    import sentry_sdk
     import uvloop
     from tracecat_ee.agent.activities import AgentActivities
     from tracecat_ee.agent.approvals.service import ApprovalManager
@@ -43,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.logger import logger
     from tracecat.storage.blob import close_storage_client_cache
+    from tracecat.temporal.sentry import initialize_temporal_sentry
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 
@@ -90,7 +92,12 @@ def get_activities() -> list[Callable[..., object]]:
     return activities
 
 
-async def main(shutdown_event: asyncio.Event | None = None) -> None:
+async def main(
+    shutdown_event: asyncio.Event | None = None,
+    *,
+    close_storage_cache: bool = True,
+    temporal_client: Client | None = None,
+) -> None:
     """Run the AgentWorker."""
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
@@ -104,21 +111,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     logger.info("Starting AgentWorker")
 
-    client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    client = temporal_client or await get_temporal_client(
+        plugins=[TracecatPydanticAIPlugin()]
+    )
 
     interceptors = []
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
-        app_env = config.TRACECAT__APP_ENV
-        temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment = (
-            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
-        )
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            environment=sentry_environment,
-            release=f"tracecat@{APP_VERSION}",
-        )
+    if initialize_temporal_sentry():
         interceptors.append(SentryInterceptor())
 
     activities = get_activities()
@@ -154,7 +152,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 logger.info("AgentWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
-        await close_storage_client_cache()
+        if close_storage_cache:
+            await close_storage_client_cache()
 
 
 if __name__ == "__main__":

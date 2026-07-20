@@ -1,0 +1,136 @@
+name: ${TRACECAT_INSTANCE:?Set TRACECAT_INSTANCE in the instance env file}
+
+services:
+  standalone:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    command: ["python", "-m", "tracecat.standalone"]
+    ports:
+      - "127.0.0.1:${TRACECAT_API_PORT:?Set TRACECAT_API_PORT}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PORT: 8000
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
+
+      # API and authentication
+      TRACECAT__APP_ENV: development
+      TRACECAT__API_ROOT_PATH: /api
+      TRACECAT__API_URL: http://127.0.0.1:8000
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES:-basic}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL:-}
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS:-}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH:-12}
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET:?Set USER_AUTH_SECRET}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY:?Set TRACECAT__DB_ENCRYPTION_KEY}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY:?Set TRACECAT__SERVICE_KEY}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET:?Set TRACECAT__SIGNING_SECRET}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS:-}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      TRACECAT__STANDALONE_RUN_MIGRATIONS: ${TRACECAT__STANDALONE_RUN_MIGRATIONS:-true}
+
+      # Per-instance database on shared Postgres
+      TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER:-postgres}:${TRACECAT__POSTGRES_PASSWORD:-postgres}@tracecat-shared-postgres:5432/${TRACECAT_INSTANCE}
+      TRACECAT__DB_SSLMODE: disable
+
+      # Per-instance namespace on shared Temporal
+      TEMPORAL__CLUSTER_URL: tracecat-shared-temporal:7233
+      TEMPORAL__CLUSTER_NAMESPACE: ${TRACECAT_INSTANCE}
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE:-tracecat-task-queue}
+      TEMPORAL__API_KEY: ""
+      TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION: ${TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION:-true}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__THREADPOOL_MAX_WORKERS: ${TEMPORAL__THREADPOOL_MAX_WORKERS:-4}
+      TEMPORAL__MAX_CONCURRENT_ACTIVITIES: ${TEMPORAL__MAX_CONCURRENT_ACTIVITIES:-8}
+      TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS: ${TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS:-4}
+
+      # Direct executor mode for lightweight development
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
+      TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-8}
+      TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-4}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
+
+      # Agent workers; LiteLLM remains a separate optional process
+      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
+      TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES:-4}
+      TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://host.docker.internal:4000}
+
+      # Per-instance buckets on shared MinIO
+      TRACECAT__BLOB_STORAGE_ENDPOINT: http://tracecat-shared-minio:9000
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT_MINIO_PUBLIC_URL:?Set TRACECAT_MINIO_PUBLIC_URL}
+      TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT_INSTANCE}-tracecat-workflow
+      TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT_INSTANCE}-tracecat-attachments
+      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT_INSTANCE}-tracecat-registry
+      TRACECAT__BLOB_STORAGE_BUCKET_SKILLS: ${TRACECAT_INSTANCE}-tracecat-skills
+      TRACECAT__BLOB_STORAGE_BUCKET_AGENT: ${TRACECAT_INSTANCE}-tracecat-agent
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+      TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING: ${TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING:-true}
+      TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED:-true}
+      TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED:-true}
+
+      # Per-instance logical database on shared Redis
+      REDIS_URL: redis://tracecat-shared-redis:6379/${TRACECAT_REDIS_DB:?Set TRACECAT_REDIS_DB}
+
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    volumes:
+      - ../../tracecat:/app/tracecat
+      - ../../packages:/app/packages
+      - ../../alembic:/app/alembic
+      - standalone-cache:/var/lib/tracecat/sandbox-cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - default
+      - shared
+
+  ui:
+    profiles: ["ui"]
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
+        NEXT_SERVER_API_URL: http://standalone:8000
+        NODE_ENV: development
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${TRACECAT_UI_PORT:?Set TRACECAT_UI_PORT}:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_ENV: development
+      NEXT_PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES:-basic}
+      NEXT_SERVER_API_URL: http://standalone:8000
+      NODE_ENV: development
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY:?Set TRACECAT__SERVICE_KEY}
+    depends_on:
+      standalone:
+        condition: service_healthy
+
+volumes:
+  standalone-cache:
+
+networks:
+  default:
+    name: tracecat-${TRACECAT_INSTANCE}
+  shared:
+    external: true
+    name: tracecat-multi-dev
