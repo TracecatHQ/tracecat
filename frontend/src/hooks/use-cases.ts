@@ -973,6 +973,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       casesSearchCases({
         workspaceId,
         ...apiQueryParams,
+        // Totals come from the aggregates query; skip the per-page exact count.
+        includeTotal: false,
         orderBy: serverSortParams.orderBy,
         sort: serverSortParams.sort,
         limit: CASES_PAGE_SIZE,

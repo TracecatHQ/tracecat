@@ -1024,7 +1024,7 @@ async def test_search_cases_success(
             prev_cursor=None,
             has_more=False,
             has_previous=False,
-            total_estimate=None,
+            total_estimate=1,
         )
         MockService.return_value = mock_svc
 
@@ -1043,8 +1043,11 @@ async def test_search_cases_success(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
-        assert data["total_estimate"] is None
+        assert data["total_estimate"] == 1
         mock_svc.search_cases.assert_called_once()
+        # The exact total stays part of the default contract; the case-list UI
+        # opts out explicitly via include_total=false.
+        assert mock_svc.search_cases.call_args.kwargs["include_total"] is True
 
 
 @pytest.mark.anyio

@@ -1118,17 +1118,12 @@ class TestCasesService:
             sort="asc",
         )
 
-        # list_cases opts into the exact total; plain search skips it.
-        assert search_response.total_estimate is None
-        assert list_response.total_estimate == 2
-        assert search_response.model_dump(
-            exclude={"total_estimate"}
-        ) == list_response.model_dump(exclude={"total_estimate"})
+        assert search_response.model_dump() == list_response.model_dump()
 
     async def test_search_cases_paginates_without_total_estimate(
         self, cases_service: CasesService
     ) -> None:
-        """Search pagination should use cursors without computing a total count."""
+        """Opting out of the total must not affect cursor pagination."""
         created_cases = []
         for index in range(3):
             created_cases.append(
@@ -1151,6 +1146,7 @@ class TestCasesService:
             params=CursorPaginationParams(limit=2, cursor=None, reverse=False),
             order_by="created_at",
             sort="asc",
+            include_total=False,
         )
 
         assert [case.id for case in first_page.items] == [
@@ -1171,6 +1167,7 @@ class TestCasesService:
             ),
             order_by="created_at",
             sort="asc",
+            include_total=False,
         )
 
         assert [case.id for case in second_page.items] == [expected_cases[2].id]

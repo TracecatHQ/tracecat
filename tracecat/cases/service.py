@@ -391,12 +391,13 @@ class CasesService(BaseWorkspaceService):
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
         include_payload: bool = False,
-        include_total: bool = False,
+        include_total: bool = True,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
-        The exact filtered total is computed only when ``include_total`` is set;
-        the case-list UI reads totals from the aggregates endpoint instead.
+        The exact filtered total is computed unless ``include_total`` is false;
+        the case-list UI opts out because it reads totals from the aggregates
+        endpoint.
         """
         paginator = BaseCursorPaginator(self.session)
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
@@ -792,7 +793,6 @@ class CasesService(BaseWorkspaceService):
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
-            include_total=True,
         )
 
     async def get_case(
