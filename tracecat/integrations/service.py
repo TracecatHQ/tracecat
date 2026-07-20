@@ -909,9 +909,10 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         server_uri: str,
+        oauth_resource: str | None = None,
         allowed_endpoint_hosts: frozenset[str] = frozenset(),
     ) -> MCPOAuthDiscoveryEndpoints:
-        resource_uri = self._mcp_resource_uri(server_uri)
+        resource_uri = self._mcp_resource_uri(oauth_resource or server_uri)
         resource_host = urlparse(resource_uri).hostname
         if resource_host is None:
             raise ValueError("MCP server URI is missing a hostname")
@@ -929,7 +930,7 @@ class IntegrationService(BaseWorkspaceService):
                 continue
             # Metadata may override the canonical resource identifier we send as
             # the OAuth `resource` parameter; re-validate it before trusting it.
-            if metadata.resource:
+            if metadata.resource and oauth_resource is None:
                 resource_uri = self._mcp_resource_uri(metadata.resource)
             if metadata.is_complete:
                 direct_metadata = metadata
@@ -987,6 +988,7 @@ class IntegrationService(BaseWorkspaceService):
         *,
         server_uri: str,
         provider_config: ProviderConfig,
+        oauth_resource: str | None = None,
     ) -> MCPOAuthDiscoveryEndpoints:
         """Resolve OAuth endpoints for a custom MCP provider.
 
@@ -1012,7 +1014,12 @@ class IntegrationService(BaseWorkspaceService):
                 # safe here.
                 token_methods=[],
                 registration_endpoint=None,
-                resource=self._mcp_resource_uri(server_uri),
+                resource=self._mcp_resource_uri(oauth_resource or server_uri),
+            )
+        if oauth_resource is not None:
+            return await self._discover_mcp_oauth_endpoints(
+                server_uri=server_uri,
+                oauth_resource=oauth_resource,
             )
         return await self._discover_mcp_oauth_endpoints(server_uri=server_uri)
 
@@ -1207,10 +1214,12 @@ class IntegrationService(BaseWorkspaceService):
             if catalog is not None:
                 catalog_spec = self._catalog_connection_spec(catalog)
         allowed_endpoint_hosts: frozenset[str] = frozenset()
+        oauth_resource: str | None = None
         if catalog_spec is not None:
             if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
                 raise ValueError("Catalog option is not an HTTP OAuth MCP server")
             scopes = catalog_spec.scopes
+            oauth_resource = catalog_spec.oauth_resource
             # Hosts of catalog-pinned OAuth endpoints are trusted during
             # discovery; the catalog is repo-owned, so a pinned endpoint
             # states explicitly where the provider serves OAuth.
@@ -1223,10 +1232,17 @@ class IntegrationService(BaseWorkspaceService):
                 if endpoint and (hostname := urlparse(endpoint).hostname)
             )
 
-        endpoints = await self._discover_mcp_oauth_endpoints(
-            server_uri=params.server_uri,
-            allowed_endpoint_hosts=allowed_endpoint_hosts,
-        )
+        if oauth_resource is not None:
+            endpoints = await self._discover_mcp_oauth_endpoints(
+                server_uri=params.server_uri,
+                oauth_resource=oauth_resource,
+                allowed_endpoint_hosts=allowed_endpoint_hosts,
+            )
+        else:
+            endpoints = await self._discover_mcp_oauth_endpoints(
+                server_uri=params.server_uri,
+                allowed_endpoint_hosts=allowed_endpoint_hosts,
+            )
         # Request offline_access only when the AS advertises it, so refresh
         # tokens survive session-bound authorization policies. Computed once and
         # threaded to both DCR and the authorize URL so the two can't disagree.
@@ -1418,6 +1434,9 @@ class IntegrationService(BaseWorkspaceService):
         endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
+            oauth_resource=self._catalog_mcp_oauth_resource(
+                mcp_integration.catalog_slug
+            ),
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()
@@ -1492,6 +1511,9 @@ class IntegrationService(BaseWorkspaceService):
         endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
+            oauth_resource=self._catalog_mcp_oauth_resource(
+                mcp_integration.catalog_slug
+            ),
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()
@@ -2876,6 +2898,9 @@ class IntegrationService(BaseWorkspaceService):
         endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
             provider_config=provider_config,
+            oauth_resource=self._catalog_mcp_oauth_resource(
+                mcp_integration.catalog_slug
+            ),
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()
@@ -3118,6 +3143,21 @@ class IntegrationService(BaseWorkspaceService):
     ) -> MCPConnectionSpec | None:
         """Return the validated runtime catalog connection spec."""
         return catalog.connection_spec
+
+    @classmethod
+    def _catalog_mcp_oauth_resource(cls, catalog_slug: str | None) -> str | None:
+        """Return a catalog-pinned OAuth resource for a saved MCP integration."""
+        if catalog_slug is None:
+            return None
+        catalog = get_platform_mcp_catalog_entry_by_slug(
+            catalog_slug, include_private=True
+        )
+        if catalog is None:
+            return None
+        spec = cls._catalog_connection_spec(catalog)
+        if not isinstance(spec, MCPHTTPOAuth2ConnectionSpec):
+            return None
+        return spec.oauth_resource
 
     @staticmethod
     def _catalog_requires_user_config(spec: MCPConnectionSpec) -> bool:

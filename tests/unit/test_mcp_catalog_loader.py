@@ -116,6 +116,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                             "server_type": "http",
                             "auth_type": "OAUTH2",
                             "server_uri": "https://mcp.example.com/mcp",
+                            "oauth_resource": "https://mcp.example.com",
                         },
                     },
                     {
@@ -254,6 +255,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
     generic_oauth_spec = entries[2].connection_spec
     assert generic_oauth_spec is not None
     assert generic_oauth_spec.auth_type == MCPAuthType.OAUTH2
+    assert generic_oauth_spec.oauth_resource == "https://mcp.example.com"
     assert entries[3].status == "available"
     assert entries[3].provider_id == "runreveal_mcp"
     provider_oauth_spec = entries[3].connection_spec
