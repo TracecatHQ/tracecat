@@ -928,6 +928,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             raise e
 
     @require_scope("workflow:update")
+    @audit_log(resource_type="workflow", action="update")
     async def publish_workflow(self, workflow_id: WorkflowID) -> WorkflowPublishResult:
         """Publish (commit) a workflow's current draft as a new versioned definition.
 
