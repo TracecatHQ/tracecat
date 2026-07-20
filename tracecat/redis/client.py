@@ -3,7 +3,7 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 import boto3
 import redis.asyncio as redis
@@ -47,6 +47,27 @@ def _resolve_redis_url() -> str:
 
     logger.info("Successfully retrieved Redis URL from AWS Secrets Manager")
     return secret_string
+
+
+class PendingEntry(TypedDict):
+    """One entry from the detailed XPENDING form (``xpending_range``).
+
+    These four keys are produced by redis-py's ``parse_xpending_range`` callback,
+    which zips the server's four detail fields into a dict per entry, so the
+    shape is stable while redis-py stays pinned. Values are decoded ``str``
+    because the client is created with ``decode_responses=True``; a Redis URL
+    overriding that would break these annotations.
+
+    References:
+    - Redis XPENDING: https://redis.io/docs/latest/commands/xpending/
+    - redis-py parser (v7.1.0):
+      https://github.com/redis/redis-py/blob/v7.1.0/redis/_parsers/helpers.py#L364-L366
+    """
+
+    message_id: str
+    consumer: str
+    time_since_delivered: int
+    times_delivered: int
 
 
 class RedisClient:
@@ -338,7 +359,7 @@ class RedisClient:
         *,
         consumer: str | None = None,
         idle: int | None = None,
-    ) -> list[Any]:
+    ) -> list[PendingEntry]:
         """Fetch pending messages in a consumer group."""
         try:
             client = await self._get_client()

@@ -316,16 +316,7 @@ class CaseDurationSyncConsumer:
         if not pending:
             return
 
-        message_ids: list[str] = []
-        for entry in pending:
-            msg_id: str | None = None
-            if isinstance(entry, dict):
-                msg_id = entry.get("message_id") or entry.get("id")
-            else:
-                msg_id = getattr(entry, "message_id", None)
-            if msg_id:
-                message_ids.append(msg_id)
-
+        message_ids = [entry["message_id"] for entry in pending]
         if not message_ids:
             return
 
