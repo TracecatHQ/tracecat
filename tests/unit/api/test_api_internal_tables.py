@@ -51,7 +51,7 @@ def mock_table_column(mock_table: Table) -> TableColumn:
 
 @pytest.mark.anyio
 async def test_internal_update_table_returns_metadata(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -63,7 +63,7 @@ async def test_internal_update_table_returns_metadata(
         mock_svc.get_index.return_value = set()
         MockService.return_value = mock_svc
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             "/internal/tables/indicators",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"name": "indicators_v2"},
@@ -79,7 +79,7 @@ async def test_internal_update_table_returns_metadata(
 
 @pytest.mark.anyio
 async def test_internal_update_table_duplicate_name_returns_409(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -91,7 +91,7 @@ async def test_internal_update_table_duplicate_name_returns_409(
         )
         MockService.return_value = mock_svc
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             "/internal/tables/indicators",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"name": "indicators_v2"},
@@ -103,7 +103,7 @@ async def test_internal_update_table_duplicate_name_returns_409(
 
 @pytest.mark.anyio
 async def test_internal_create_column_returns_refreshed_metadata(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
     mock_table_column: TableColumn,
@@ -116,7 +116,7 @@ async def test_internal_create_column_returns_refreshed_metadata(
         mock_svc.get_index.return_value = {"score"}
         MockService.return_value = mock_svc
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/columns",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"name": "score", "type": "NUMERIC"},
@@ -146,7 +146,7 @@ async def test_internal_create_column_returns_refreshed_metadata(
 
 @pytest.mark.anyio
 async def test_internal_create_column_duplicate_name_returns_409(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -158,7 +158,7 @@ async def test_internal_create_column_duplicate_name_returns_409(
         )
         MockService.return_value = mock_svc
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/columns",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"name": "score", "type": "NUMERIC"},
@@ -170,7 +170,7 @@ async def test_internal_create_column_duplicate_name_returns_409(
 
 @pytest.mark.anyio
 async def test_internal_create_column_unexpected_db_error_is_sanitized(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -182,7 +182,7 @@ async def test_internal_create_column_unexpected_db_error_is_sanitized(
         )
         MockService.return_value = mock_svc
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/columns",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"name": "score", "type": "NUMERIC"},
@@ -194,7 +194,7 @@ async def test_internal_create_column_unexpected_db_error_is_sanitized(
 
 @pytest.mark.anyio
 async def test_internal_update_column_404s_when_column_missing(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -203,7 +203,7 @@ async def test_internal_update_column_404s_when_column_missing(
         mock_svc.get_table_by_name.return_value = mock_table
         MockService.return_value = mock_svc
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/tables/{mock_table.name}/columns/missing",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"nullable": False},
@@ -217,7 +217,7 @@ async def test_internal_update_column_404s_when_column_missing(
 
 @pytest.mark.anyio
 async def test_internal_update_column_normalizes_path_name(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
     mock_table_column: TableColumn,
@@ -230,7 +230,7 @@ async def test_internal_update_column_normalizes_path_name(
         mock_svc.get_index.return_value = set()
         MockService.return_value = mock_svc
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/tables/{mock_table.name}/columns/Score",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"nullable": False},
@@ -243,7 +243,7 @@ async def test_internal_update_column_normalizes_path_name(
 
 @pytest.mark.anyio
 async def test_internal_delete_column_normalizes_path_name(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
     mock_table_column: TableColumn,
@@ -264,7 +264,7 @@ async def test_internal_delete_column_normalizes_path_name(
         mock_svc.get_index.return_value = set()
         MockService.return_value = mock_svc
 
-        response = client.delete(
+        response = action_gateway_client.delete(
             f"/internal/tables/{mock_table.name}/columns/Score",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -275,7 +275,7 @@ async def test_internal_delete_column_normalizes_path_name(
 
 @pytest.mark.anyio
 async def test_internal_delete_column_returns_refreshed_metadata(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
     mock_table_column: TableColumn,
@@ -296,7 +296,7 @@ async def test_internal_delete_column_returns_refreshed_metadata(
         mock_svc.get_index.return_value = set()
         MockService.return_value = mock_svc
 
-        response = client.delete(
+        response = action_gateway_client.delete(
             f"/internal/tables/{mock_table.name}/columns/{mock_table_column.name}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -315,7 +315,7 @@ async def test_internal_delete_column_returns_refreshed_metadata(
 
 @pytest.mark.anyio
 async def test_internal_insert_table_row_invalid_numeric_value_returns_400(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -325,7 +325,7 @@ async def test_internal_insert_table_row_invalid_numeric_value_returns_400(
         mock_svc.insert_row.side_effect = ValueError("Invalid numeric value: 'abc'")
         MockService.return_value = mock_svc
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/tables/{mock_table.name}/rows",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"data": {"score": "abc"}},
@@ -337,7 +337,7 @@ async def test_internal_insert_table_row_invalid_numeric_value_returns_400(
 
 @pytest.mark.anyio
 async def test_internal_update_table_row_invalid_integer_value_returns_400(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
@@ -347,7 +347,7 @@ async def test_internal_update_table_row_invalid_integer_value_returns_400(
         mock_svc.update_row.side_effect = ValueError("Invalid integer value: '1.5'")
         MockService.return_value = mock_svc
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/tables/{mock_table.name}/rows/{uuid.uuid4()}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"data": {"attempts": "1.5"}},

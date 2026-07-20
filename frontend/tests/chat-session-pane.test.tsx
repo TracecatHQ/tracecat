@@ -13,6 +13,8 @@ import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
+  useAdoptServerTranscript:
+    jest.requireActual("@/hooks/use-chat").useAdoptServerTranscript,
   useGetChat: jest.fn(() => ({ chat: null })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
@@ -1462,7 +1464,13 @@ describe("ChatSessionPane", () => {
     ).toBeInTheDocument()
   })
 
-  describe("server transcript re-seeding", () => {
+  // Ownership swap at quiescent boundaries: while a turn streams the stream
+  // owns the transcript; the moment status returns to `ready` the pane adopts
+  // the server copy WHOLESALE (replace, never merge — DB and stream message ids
+  // differ by design). The backend guarantees DB history and any continuation
+  // stream never overlap, so adopting a shorter, longer, or same-length copy is
+  // uniformly correct.
+  describe("adopt-on-ready ownership swap", () => {
     const userTurn = (id: string, text: string) => ({
       id,
       role: "user" as const,
@@ -1471,14 +1479,15 @@ describe("ChatSessionPane", () => {
 
     function mockLiveMessages(
       messages: UIMessage[],
-      setMessages: jest.Mock
+      setMessages: jest.Mock,
+      status: "ready" | "streaming" | "submitted" = "ready"
     ): void {
       mockUseVercelChat.mockReturnValue({
         sendMessage: jest.fn(),
         setMessages,
         regenerate: jest.fn(),
         messages,
-        status: "ready",
+        status,
         lastError: null,
         clearError: jest.fn(),
         // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
@@ -1499,33 +1508,27 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    // Regression: after a turn streams, status flips to ready while the
-    // invalidated chat query is still refetching, so the live list leads the
-    // stale server copy. The pane must NOT re-seed from the server then, or it
-    // drops the just-streamed response (permanently if the refetch fails).
-    it("does not clobber a streamed turn while the server copy is stale", () => {
+    // When the live list already matches the server copy there is nothing to
+    // adopt, so the pane leaves useChat untouched.
+    it("does not adopt when the server copy matches the live list", () => {
       const setMessages = jest.fn()
-      const streamed = [userTurn("m1", "hello"), userTurn("m2", "world")]
-      // Live list is one turn ahead of the server transcript.
-      mockLiveMessages(streamed, setMessages)
+      const same = [userTurn("m1", "hello")]
+      mockLiveMessages(same, setMessages)
 
-      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
-      // Server still behind on a re-render (e.g. refetch in flight or failed).
-      rerender(renderSubject([userTurn("m1", "hello")]))
+      render(renderSubject(same))
 
       expect(setMessages).not.toHaveBeenCalled()
     })
 
-    // The original fix: once the server transcript advances (refetch lands with
-    // a resolved approval / new turn), the pane adopts it.
-    it("adopts the server transcript once it advances", () => {
+    // A longer server copy (e.g. an approval resolved from another surface and
+    // the refetch landed) is adopted wholesale.
+    it("adopts a longer server copy", () => {
       const setMessages = jest.fn()
       mockLiveMessages([userTurn("m1", "hello")], setMessages)
 
       const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
       expect(setMessages).not.toHaveBeenCalled()
 
-      // Server moves forward: refetch lands with an extra message.
       const advanced = [userTurn("m1", "hello"), userTurn("m2", "resolved")]
       rerender(renderSubject(advanced))
 
@@ -1533,37 +1536,223 @@ describe("ChatSessionPane", () => {
       expect(setMessages.mock.calls[0][0]).toHaveLength(2)
     })
 
-    // Regression: onFinish's refetch races finalize_turn, so on turn N the
-    // server copy can *advance* (turn N-1's rows become visible) while still
-    // hiding the just-streamed turn N. Adopting it would blank turn N. The
-    // pane must only adopt a server copy that doesn't drop live messages.
-    it("does not adopt an advanced server copy that is shorter than the live list", () => {
+    // onFinish can refetch before the backend clears curr_run_id, so a shorter
+    // server copy may temporarily omit the just-finished turn. Keep the live
+    // reply until a later server snapshot catches up.
+    it("does not let a shorter server copy erase the live reply", () => {
       const setMessages = jest.fn()
-      // Live list holds turns 1 and 2 (turn 2 just streamed).
       const live = [
         userTurn("m1", "turn one"),
         userTurn("m2", "reply one"),
         userTurn("m3", "turn two"),
-        userTurn("m4", "reply two"),
       ]
       mockLiveMessages(live, setMessages)
 
-      // Mount: server only has turn 1's user message (mid-turn filter hid the
-      // rest while turn 1 was live).
-      const { rerender } = render(renderSubject([userTurn("m1", "turn one")]))
-      expect(setMessages).not.toHaveBeenCalled()
+      const server = [userTurn("m1", "turn one")]
+      render(renderSubject(server))
 
-      // Racing refetch: turn 1 now fully visible (shape advanced) but turn 2
-      // is still hidden behind curr_run_id. Shorter than live — must not adopt.
-      rerender(
-        renderSubject([userTurn("m1", "turn one"), userTurn("m2", "reply one")])
-      )
       expect(setMessages).not.toHaveBeenCalled()
+    })
 
-      // Post-finalize refetch: full transcript. Now safe to adopt.
-      rerender(renderSubject(live))
+    // Same length but different content (ids/text) is a distinct transcript and
+    // must be adopted too.
+    it("adopts a same-length server copy with different content", () => {
+      const setMessages = jest.fn()
+      mockLiveMessages([userTurn("m1", "hello")], setMessages)
+
+      render(renderSubject([userTurn("s1", "server hello")]))
+
       expect(setMessages).toHaveBeenCalledTimes(1)
-      expect(setMessages.mock.calls[0][0]).toHaveLength(4)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(1)
+      expect(setMessages.mock.calls[0][0][0].id).toBe("s1")
+    })
+
+    // The stream owns the current turn: while status is streaming the pane must
+    // never adopt, even when the server copy differs — that would clobber the
+    // live turn.
+    it("does not adopt while the stream is active", () => {
+      const setMessages = jest.fn()
+      const streamed = [userTurn("m1", "hello"), userTurn("m2", "world")]
+      mockLiveMessages(streamed, setMessages, "streaming")
+
+      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
+      rerender(renderSubject([userTurn("m1", "hello")]))
+
+      expect(setMessages).not.toHaveBeenCalled()
+    })
+
+    const approvalCardTurn = (id: string): UIMessage => ({
+      id,
+      role: "assistant" as const,
+      parts: [
+        {
+          type: "data-approval-request",
+          data: [
+            {
+              tool_call_id: `tc-${id}`,
+              tool_name: "core__cases__list_cases",
+              args: {},
+            },
+          ],
+        } as unknown as UIMessage["parts"][number],
+      ],
+    })
+
+    // Cross-surface resolution drops the approval card from the server copy, so
+    // the deficit is fully explained by a resolved approval-card-only message.
+    // The server copy is adopted and the stale card disappears.
+    it("adopts when a shorter server copy only dropped a resolved approval card", () => {
+      const setMessages = jest.fn()
+      const live = [userTurn("m1", "hello"), approvalCardTurn("a1")]
+      mockLiveMessages(live, setMessages)
+
+      const server = [userTurn("m1", "hello")]
+      render(renderSubject(server))
+
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(1)
+      expect(setMessages.mock.calls[0][0][0].id).toBe("m1")
+    })
+
+    // Regression: a shorter server copy missing a real (non-approval) turn is
+    // the finalize race, not a resolved card. It must NOT be adopted.
+    it("does not adopt when a shorter server copy is missing a real turn", () => {
+      const setMessages = jest.fn()
+      const live = [
+        userTurn("m1", "hello"),
+        approvalCardTurn("a1"),
+        userTurn("m2", "real reply"),
+      ]
+      mockLiveMessages(live, setMessages)
+
+      const server = [userTurn("m1", "hello")]
+      render(renderSubject(server))
+
+      expect(setMessages).not.toHaveBeenCalled()
+    })
+  })
+
+  // Seam artifact: during an approval pause the DB prefix carries the paused
+  // tool call; after approval the rotated suffix-only stream re-emits the same
+  // call as a synthesized part in a new bubble (bare tool result from the
+  // backend reconcile). The pane must render each toolCallId once — keep the
+  // last copy (the stream one carries the live output) at the display layer.
+  describe("tool call dedupe across the DB/stream seam", () => {
+    const TOOL_LABEL = "core.cases.list_cases"
+
+    function toolPart(
+      toolCallId: string,
+      state: "input-available" | "output-available"
+    ): UIMessage["parts"][number] {
+      return {
+        type: "tool-core__cases__list_cases",
+        toolCallId,
+        state,
+        input: { limit: 10 },
+        ...(state === "output-available" ? { output: { cases: [] } } : {}),
+      } as unknown as UIMessage["parts"][number]
+    }
+
+    function approvalPart(toolCallId: string): UIMessage["parts"][number] {
+      return {
+        type: "data-approval-request",
+        data: [
+          {
+            tool_call_id: toolCallId,
+            tool_name: "core__cases__list_cases",
+            args: { limit: 10 },
+          },
+        ],
+      } as unknown as UIMessage["parts"][number]
+    }
+
+    const assistantMessage = (
+      id: string,
+      parts: UIMessage["parts"]
+    ): UIMessage => ({ id, role: "assistant", parts })
+
+    function mockLiveMessages(messages: UIMessage[]): void {
+      mockUseVercelChat.mockReturnValue({
+        sendMessage: jest.fn(),
+        setMessages: jest.fn(),
+        regenerate: jest.fn(),
+        messages,
+        status: "ready",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+    }
+
+    const renderSubject = () =>
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+
+    it("renders a tool call duplicated across DB prefix and stream suffix once, last copy wins", () => {
+      mockLiveMessages([
+        // DB prefix bubble: paused call awaiting approval.
+        assistantMessage("db-1", [
+          toolPart("tc-1", "input-available"),
+          approvalPart("tc-1"),
+        ]),
+        // Rotated suffix stream bubble: synthesized copy of the same call
+        // carrying the reconciled output.
+        assistantMessage("session:run", [
+          toolPart("tc-1", "input-available"),
+          toolPart("tc-1", "output-available"),
+        ]),
+      ])
+
+      renderSubject()
+
+      // One rendering total: the tool bubble once, and no lingering approval
+      // card for the resolved call (the card renders the same action label).
+      expect(screen.getAllByText(TOOL_LABEL)).toHaveLength(1)
+    })
+
+    it("renders duplicated approval request cards once before tool output arrives", () => {
+      mockLiveMessages([
+        assistantMessage("db-1", [approvalPart("tc-1")]),
+        assistantMessage("session:run", [approvalPart("tc-1")]),
+      ])
+
+      renderSubject()
+
+      expect(screen.getAllByText(TOOL_LABEL)).toHaveLength(1)
+      expect(screen.getAllByText("Approve")).toHaveLength(1)
+    })
+
+    it("renders duplicated identical output copies once", () => {
+      mockLiveMessages([
+        assistantMessage("db-1", [toolPart("tc-1", "output-available")]),
+        assistantMessage("session:run", [toolPart("tc-1", "output-available")]),
+      ])
+
+      renderSubject()
+
+      expect(screen.getAllByText(TOOL_LABEL)).toHaveLength(1)
+    })
+
+    it("leaves distinct tool calls untouched", () => {
+      mockLiveMessages([
+        assistantMessage("m1", [toolPart("tc-1", "output-available")]),
+        assistantMessage("m2", [toolPart("tc-2", "output-available")]),
+      ])
+
+      renderSubject()
+
+      expect(screen.getAllByText(TOOL_LABEL)).toHaveLength(2)
     })
   })
 })

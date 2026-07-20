@@ -1,5 +1,6 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import type { JSONSchema7 } from "json-schema"
 import { AlertTriangleIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -31,6 +32,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
+import { invalidateChatTurnQueries } from "@/hooks/use-chat"
 import type {
   AgentApprovalDecisionPayload,
   AgentSessionWithStatus,
@@ -100,6 +102,7 @@ export function AgentApprovalsDialog({
   onSubmitted,
 }: AgentApprovalsDialogProps) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   const { toast } = useToast()
   const formatWorkflowLabel = (
     summary?: AgentSessionWithStatus["parent_workflow"]
@@ -208,6 +211,10 @@ export function AgentApprovalsDialog({
         requestBody: {
           approvals: approvalsPayload,
         },
+      })
+      invalidateChatTurnQueries(queryClient, {
+        chatId: session.id,
+        workspaceId,
       })
       toast({
         title: "Approvals submitted",

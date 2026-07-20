@@ -20,6 +20,10 @@ definition:
       type: int
       description: Last step seen for incremental polling.
       default: 0
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for the SDL results request.
+      default: 60
     base_url:
       type: str | None
       description: SentinelOne tenant URL. /sdl is appended automatically.
@@ -35,4 +39,5 @@ definition:
           X-Dataset-Query-Forward-Tag: ${{ inputs.forward_tag }}
         params:
           lastStepSeen: ${{ inputs.last_step_seen }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.get_results.result.data }}

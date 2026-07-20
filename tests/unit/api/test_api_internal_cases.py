@@ -78,7 +78,7 @@ def _build_comment_read(
 
 @pytest.mark.anyio
 async def test_internal_get_case_include_rows_hydrates_rows(
-    client: TestClient, test_admin_role: Role, mock_internal_case: Case
+    action_gateway_client: TestClient, test_admin_role: Role, mock_internal_case: Case
 ) -> None:
     row = _build_case_row(mock_internal_case.id)
     with (
@@ -101,7 +101,7 @@ async def test_internal_get_case_include_rows_hydrates_rows(
         mock_service.fields.list_fields.return_value = []
         mock_service_cls.return_value = mock_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/cases/{mock_internal_case.id}",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
@@ -118,7 +118,7 @@ async def test_internal_get_case_include_rows_hydrates_rows(
 
 @pytest.mark.anyio
 async def test_internal_update_case_include_rows_hydrates_rows(
-    client: TestClient, test_admin_role: Role, mock_internal_case: Case
+    action_gateway_client: TestClient, test_admin_role: Role, mock_internal_case: Case
 ) -> None:
     row = _build_case_row(mock_internal_case.id)
     with (
@@ -144,7 +144,7 @@ async def test_internal_update_case_include_rows_hydrates_rows(
         mock_service.fields.list_fields.return_value = []
         mock_service_cls.return_value = mock_service
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/cases/{mock_internal_case.id}",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
@@ -163,7 +163,7 @@ async def test_internal_update_case_include_rows_hydrates_rows(
 
 @pytest.mark.anyio
 async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
@@ -173,7 +173,7 @@ async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.post(
+        response = action_gateway_client.post(
             "/internal/cases/simple",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={
@@ -192,7 +192,7 @@ async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
 
 @pytest.mark.anyio
 async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -204,7 +204,7 @@ async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/cases/{mock_internal_case.id}/simple",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"fields": {"attempts": "1.5"}},
@@ -216,7 +216,7 @@ async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
 
 @pytest.mark.anyio
 async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     with (
@@ -240,7 +240,7 @@ async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
         mock_service_cls.return_value = mock_service
         mock_fields_service_cls.return_value = mock_fields_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             "/internal/cases",
             params=[
                 ("workspace_id", str(test_admin_role.workspace_id)),
@@ -258,7 +258,7 @@ async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
 
 @pytest.mark.anyio
 async def test_internal_search_cases_validates_field_ids_even_when_page_is_empty(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     with (
@@ -284,7 +284,7 @@ async def test_internal_search_cases_validates_field_ids_even_when_page_is_empty
         mock_service_cls.return_value = mock_service
         mock_fields_service_cls.return_value = mock_fields_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             "/internal/cases/search",
             params=[
                 ("workspace_id", str(test_admin_role.workspace_id)),
@@ -302,7 +302,7 @@ async def test_internal_search_cases_validates_field_ids_even_when_page_is_empty
 
 @pytest.mark.anyio
 async def test_internal_list_comment_threads_success(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -333,7 +333,7 @@ async def test_internal_list_comment_threads_success(
         mock_comments_service.list_comment_threads.return_value = [thread]
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/cases/{mock_internal_case.id}/comments/threads",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -347,7 +347,7 @@ async def test_internal_list_comment_threads_success(
 
 @pytest.mark.anyio
 async def test_internal_list_comment_threads_requires_case_addons(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -367,7 +367,7 @@ async def test_internal_list_comment_threads_requires_case_addons(
         )
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/cases/{mock_internal_case.id}/comments/threads",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -378,7 +378,7 @@ async def test_internal_list_comment_threads_requires_case_addons(
 
 @pytest.mark.anyio
 async def test_internal_get_comment_thread_success(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     """Internal comment-id thread lookups should return the full thread."""
@@ -398,7 +398,7 @@ async def test_internal_get_comment_thread_success(
         mock_comments_service.get_comment_thread.return_value = thread
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/comments/{reply.id}/thread",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -411,7 +411,7 @@ async def test_internal_get_comment_thread_success(
 
 @pytest.mark.anyio
 async def test_internal_get_comment_thread_requires_case_addons(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
 ) -> None:
     with patch.object(
@@ -423,7 +423,7 @@ async def test_internal_get_comment_thread_requires_case_addons(
         )
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/comments/{uuid.uuid4()}/thread",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -434,7 +434,7 @@ async def test_internal_get_comment_thread_requires_case_addons(
 
 @pytest.mark.anyio
 async def test_internal_create_comment_simple_reply_requires_case_addons(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -454,7 +454,7 @@ async def test_internal_create_comment_simple_reply_requires_case_addons(
         )
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/cases/{mock_internal_case.id}/comments/simple",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"content": "Reply", "parent_id": str(uuid.uuid4())},
@@ -466,7 +466,7 @@ async def test_internal_create_comment_simple_reply_requires_case_addons(
 
 @pytest.mark.anyio
 async def test_internal_list_case_events_includes_comment_activity(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -494,7 +494,7 @@ async def test_internal_list_case_events_includes_comment_activity(
         mock_service.events.list_events.return_value = [db_event]
         mock_service_cls.return_value = mock_service
 
-        response = client.get(
+        response = action_gateway_client.get(
             f"/internal/cases/{mock_internal_case.id}/events",
             params={"workspace_id": str(test_admin_role.workspace_id)},
         )
@@ -507,7 +507,7 @@ async def test_internal_list_case_events_includes_comment_activity(
 
 @pytest.mark.anyio
 async def test_internal_update_comment_wrong_case_returns_not_found(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -526,7 +526,7 @@ async def test_internal_update_comment_wrong_case_returns_not_found(
         mock_comments_service.get_comment_in_case.return_value = None
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/cases/{mock_internal_case.id}/comments/{uuid.uuid4()}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"content": "Updated"},
@@ -538,7 +538,7 @@ async def test_internal_update_comment_wrong_case_returns_not_found(
 
 @pytest.mark.anyio
 async def test_internal_update_comment_reparenting_returns_bad_request(
-    client: TestClient,
+    action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
@@ -560,7 +560,7 @@ async def test_internal_update_comment_reparenting_returns_bad_request(
         )
         mock_comments_service_cls.return_value = mock_comments_service
 
-        response = client.patch(
+        response = action_gateway_client.patch(
             f"/internal/cases/{mock_internal_case.id}/comments/{uuid.uuid4()}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"parent_id": str(uuid.uuid4())},

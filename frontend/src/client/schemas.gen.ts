@@ -14879,7 +14879,7 @@ export const $IntegrationReadMinimal = {
 
 export const $IntegrationStatus = {
   type: "string",
-  enum: ["not_configured", "configured", "connected"],
+  enum: ["not_configured", "configured", "connected", "reauth_required"],
   title: "IntegrationStatus",
   description: "Status of an integration.",
 } as const
@@ -15646,6 +15646,17 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       type: "array",
       title: "Scopes",
     },
+    oauth_resource: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Resource",
+    },
     oauth_authorization_endpoint: {
       anyOf: [
         {
@@ -16010,7 +16021,13 @@ export const $MCPIntegrationRead = {
     },
     state: {
       type: "string",
-      enum: ["not_configured", "configured", "connected", "error"],
+      enum: [
+        "not_configured",
+        "configured",
+        "connected",
+        "reauth_required",
+        "error",
+      ],
       title: "State",
     },
     stdio_command: {
@@ -18729,7 +18746,13 @@ export const $PlatformMCPCatalogRead = {
     },
     state: {
       type: "string",
-      enum: ["not_configured", "configured", "connected", "error"],
+      enum: [
+        "not_configured",
+        "configured",
+        "connected",
+        "reauth_required",
+        "error",
+      ],
       title: "State",
     },
     mcp_integration_id: {

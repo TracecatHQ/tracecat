@@ -102,21 +102,23 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import {
-  type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useAdoptServerTranscript,
   useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
-import type { ModelInfo } from "@/lib/chat"
 import {
+  type ApprovalCard,
   CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
   getCancelledPartToolCallIds,
   getSessionLastError,
+  isApprovalCardArray,
   isInterruptArtifactError,
+  type ModelInfo,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -170,13 +172,6 @@ function isCancelAttributionContentPart(
     return typeof part.text === "string" && part.text.trim().length > 0
   }
   return true
-}
-
-/** Message ids and their part types — compares two transcripts by shape. */
-function transcriptShape(messages: UIMessage[]): string {
-  return messages
-    .map((m) => `${m.id}:${m.parts.map((p) => p.type).join(",")}`)
-    .join("|")
 }
 
 function matchingUserTextPartKeys(
@@ -431,31 +426,12 @@ export function ChatSessionPane({
     hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
   const displayedError = lastError ?? persistedError
 
-  // useChat seeds `messages` only on mount. Re-seed when the server transcript
-  // *advances* (e.g. an approval resolves), but never on a plain mismatch — post
-  // -stream the live list legitimately leads the not-yet-refetched server copy,
-  // and adopting then would drop the just-streamed turn.
-  //
-  // A shape *advance* alone is not proof the server copy is current: onFinish's
-  // refetch races finalize_turn (which clears curr_run_id and unhides the
-  // active turn's DB rows), so on turn N the refetch often returns a transcript
-  // that newly includes turn N-1 (shape advanced) while still hiding turn N.
-  // Adopting that copy would blank the just-streamed turn until the next
-  // refetch. A lagging copy in that race is always *shorter* than the live
-  // list, so only adopt when the server copy would not drop live messages.
-  const lastServerShapeRef = useRef<string | null>(null)
-  useEffect(() => {
-    const serverShape = transcriptShape(uiMessages)
-    if (lastServerShapeRef.current === null) {
-      lastServerShapeRef.current = serverShape // mount seed; useChat has it
-      return
-    }
-    if (serverShape === lastServerShapeRef.current) return
-    lastServerShapeRef.current = serverShape
-    if (status !== "ready") return // don't clobber a live stream
-    if (uiMessages.length < messages.length) return // server copy lags the live list
-    setMessages(uiMessages)
-  }, [status, uiMessages, messages, setMessages])
+  useAdoptServerTranscript({
+    status,
+    serverMessages: uiMessages,
+    liveMessages: messages,
+    setMessages,
+  })
 
   useEffect(() => {
     onStatusChange?.(status)
@@ -1873,9 +1849,7 @@ export function MessagePart({
 
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
-    const approvals: ApprovalCard[] = Array.isArray(payload)
-      ? (payload.filter(Boolean) as ApprovalCard[])
-      : []
+    const approvals = isApprovalCardArray(payload) ? payload : []
     return (
       <ApprovalRequestPart
         key={`${id}-${partIdx}`}

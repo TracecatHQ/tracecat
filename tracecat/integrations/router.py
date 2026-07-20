@@ -556,6 +556,13 @@ async def get_integration(
                     provider_id=integration.provider_id,
                 )
 
+    # Defaults apply only when scopes were never configured; an explicitly
+    # empty stored set (e.g. narrowed by a DCR echo) is reported as empty.
+    if integration.requested_scopes is None:
+        requested_scopes = provider_info.impl.scopes.default
+    else:
+        requested_scopes = [s for s in integration.requested_scopes.split(" ") if s]
+
     return IntegrationRead(
         id=integration.id,
         user_id=integration.user_id,
@@ -563,9 +570,7 @@ async def get_integration(
         token_type=integration.token_type,
         expires_at=integration.expires_at,
         granted_scopes=integration.scope.split(" ") if integration.scope else None,
-        requested_scopes=integration.requested_scopes.split(" ")
-        if integration.requested_scopes
-        else provider_info.impl.scopes.default,
+        requested_scopes=requested_scopes,
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
         created_at=integration.created_at,

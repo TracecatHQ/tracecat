@@ -19,20 +19,7 @@ class OAuthServerMetadata(BaseModel):
     token_endpoint: str | None = None
     registration_endpoint: str | None = None
     token_endpoint_auth_methods_supported: list[str] = Field(default_factory=list)
-
-    @field_validator(
-        "authorization_servers",
-        "token_endpoint_auth_methods_supported",
-        mode="before",
-    )
-    @classmethod
-    def _only_strings(cls, value: object) -> list[str]:
-        """Drop malformed list items rather than rejecting the metadata document."""
-        return (
-            [item for item in value if isinstance(item, str)]
-            if isinstance(value, list)
-            else []
-        )
+    scopes_supported: list[str] = Field(default_factory=list)
 
     @field_validator(
         "resource",
@@ -64,6 +51,10 @@ class DCRResponse(BaseModel):
     client_id: str = Field(min_length=1)
     client_secret: str | None = None
     token_endpoint_auth_method: str | None = None
+    # RFC 7591 echoes the final registered metadata, incl. AS modifications.
+    # None = grant_types omitted ("as requested"); [] = AS stripped all grants.
+    grant_types: list[str] | None = None
+    scope: str | None = None
 
     @field_validator("client_id")
     @classmethod
@@ -77,6 +68,11 @@ class DCRResponse(BaseModel):
     @classmethod
     def _optional_string(cls, value: object) -> str | None:
         return value if isinstance(value, str) and value else None
+
+    @property
+    def registered_scopes(self) -> list[str] | None:
+        """Return the echoed scope whitelist, preserving omitted versus empty."""
+        return self.scope.split() if self.scope is not None else None
 
 
 class _OAuthTokenWireResponse(BaseModel):

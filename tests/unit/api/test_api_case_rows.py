@@ -142,7 +142,7 @@ async def test_link_case_row_returns_409_for_duplicate_link(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_404_for_missing_case(
-    client: TestClient, test_admin_role: Role
+    action_gateway_client: TestClient, test_admin_role: Role
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -156,7 +156,7 @@ async def test_internal_link_case_row_returns_404_for_missing_case(
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/cases/{case_id}/rows",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"table_id": str(table_id), "row_id": str(row_id)},
@@ -168,7 +168,7 @@ async def test_internal_link_case_row_returns_404_for_missing_case(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_400_for_value_error(
-    client: TestClient, test_admin_role: Role
+    action_gateway_client: TestClient, test_admin_role: Role
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -183,7 +183,7 @@ async def test_internal_link_case_row_returns_400_for_value_error(
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/cases/{case_id}/rows",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"table_id": str(table_id), "row_id": str(row_id)},
@@ -195,7 +195,7 @@ async def test_internal_link_case_row_returns_400_for_value_error(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_409_for_duplicate_link(
-    client: TestClient, test_admin_role: Role
+    action_gateway_client: TestClient, test_admin_role: Role
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -208,7 +208,7 @@ async def test_internal_link_case_row_returns_409_for_duplicate_link(
         mock_service.link_row.side_effect = _duplicate_case_row_link_error()
         mock_service_cls.return_value = mock_service
 
-        response = client.post(
+        response = action_gateway_client.post(
             f"/internal/cases/{case_id}/rows",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"table_id": str(table_id), "row_id": str(row_id)},

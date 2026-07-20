@@ -216,6 +216,13 @@ class WorkspaceSyncService(SyncMappingService):
             include_schedules=params.include_schedules,
             create_missing_mappings=True,
         )
+        self.logger.info(
+            "Projected workspace sync export",
+            operation="export",
+            full_workspace_export=resource_ids is None,
+            projected_file_count=len(projection.files),
+            projected_resource_counts=projection.spec.resource_count_map(),
+        )
         self._require_projected_export_scopes(projection.spec)
         self._validate_projected_workspace_dependencies(projection.spec)
         delete_missing_paths_under = await self._export_delete_roots(
@@ -256,6 +263,13 @@ class WorkspaceSyncService(SyncMappingService):
             resource_ids=resource_ids,
             include_schedules=params.include_schedules,
             create_missing_mappings=False,
+        )
+        self.logger.info(
+            "Projected workspace sync export",
+            operation="preview",
+            full_workspace_export=resource_ids is None,
+            projected_file_count=len(projection.files),
+            projected_resource_counts=projection.spec.resource_count_map(),
         )
         self._require_projected_export_scopes(projection.spec)
         self._validate_projected_workspace_dependencies(projection.spec)

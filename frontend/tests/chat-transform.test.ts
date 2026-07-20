@@ -61,4 +61,28 @@ describe("transformMessages", () => {
       },
     ])
   })
+
+  it("keeps only the latest duplicate approval request", () => {
+    const approval = {
+      tool_call_id: "toolu_01approval",
+      tool_name: "core.http_request",
+      args: { url: "https://example.com" },
+    }
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [{ type: "data-approval-request", data: [approval] }],
+      },
+      {
+        id: "msg-2",
+        role: "assistant",
+        parts: [{ type: "data-approval-request", data: [approval] }],
+      },
+    ] as ai.UIMessage[]
+
+    const transformed = transformMessages(messages)
+
+    expect(transformed).toEqual([messages[1]])
+  })
 })

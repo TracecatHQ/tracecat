@@ -222,6 +222,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 await service.auto_title_session_on_first_prompt(
                     agent_session,
                     input.initial_user_prompt,
+                    expected_title=agent_session.title,
                 )
 
         if created:
