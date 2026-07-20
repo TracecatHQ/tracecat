@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from slugify import slugify
 from sqlalchemy import (
@@ -61,6 +61,13 @@ from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.tiers.enums import Entitlement
 
 type _DurationEventMatch = tuple[uuid.UUID, datetime]
+
+
+class _AnchorStorage(NamedTuple):
+    event_type: CaseEventType
+    timestamp_path: str
+    field_filters: dict[str, Any]
+    selection: CaseDurationAnchorSelection
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):
@@ -258,10 +265,11 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     def _anchor_from_entity(
         self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
     ) -> CaseDurationEventAnchor:
-        raw_filters = dict(getattr(entity, f"{prefix}_field_filters") or {})
-        event_type = getattr(entity, f"{prefix}_event_type")
-        selection = getattr(entity, f"{prefix}_selection")
-        timestamp_path = getattr(entity, f"{prefix}_timestamp_path") or "created_at"
+        storage = self._read_anchor_storage(entity, prefix)
+        raw_filters = storage.field_filters
+        event_type = storage.event_type
+        selection = storage.selection
+        timestamp_path = storage.timestamp_path
         filters, has_unsupported_filters = self._filters_from_storage(
             event_type, raw_filters
         )
@@ -308,13 +316,46 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
 
     def _anchor_storage_snapshot(
         self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
-    ) -> tuple[CaseEventType, str, dict[str, Any], CaseDurationAnchorSelection]:
-        return (
-            getattr(entity, f"{prefix}_event_type"),
-            getattr(entity, f"{prefix}_timestamp_path") or "created_at",
-            dict(getattr(entity, f"{prefix}_field_filters") or {}),
-            getattr(entity, f"{prefix}_selection"),
+    ) -> _AnchorStorage:
+        return self._read_anchor_storage(entity, prefix)
+
+    def _read_anchor_storage(
+        self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
+    ) -> _AnchorStorage:
+        if prefix == "start":
+            event_type = entity.start_event_type
+            timestamp_path = entity.start_timestamp_path
+            field_filters = entity.start_field_filters
+            selection = entity.start_selection
+        else:
+            event_type = entity.end_event_type
+            timestamp_path = entity.end_timestamp_path
+            field_filters = entity.end_field_filters
+            selection = entity.end_selection
+        return _AnchorStorage(
+            event_type,
+            timestamp_path or "created_at",
+            dict(field_filters or {}),
+            selection,
         )
+
+    def _write_anchor_storage(
+        self,
+        entity: CaseDurationDefinitionDB,
+        anchor: CaseDurationEventAnchor,
+        prefix: Literal["start", "end"],
+    ) -> None:
+        filters = self._filters_to_storage(anchor.filters)
+        if prefix == "start":
+            entity.start_event_type = anchor.event_type
+            entity.start_timestamp_path = anchor._timestamp_path
+            entity.start_field_filters = filters
+            entity.start_selection = anchor.selection
+        else:
+            entity.end_event_type = anchor.event_type
+            entity.end_timestamp_path = anchor._timestamp_path
+            entity.end_field_filters = filters
+            entity.end_selection = anchor.selection
 
     def _apply_anchor(
         self,
@@ -322,8 +363,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         anchor: CaseDurationEventAnchor,
         prefix: Literal["start", "end"],
     ) -> None:
-        for attr, value in self._anchor_attributes(anchor, prefix).items():
-            setattr(entity, attr, value)
+        self._write_anchor_storage(entity, anchor, prefix)
 
     def _json_compatible(self, value: Any) -> Any:
         if isinstance(value, Enum):
