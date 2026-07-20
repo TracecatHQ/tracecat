@@ -31,7 +31,11 @@ from tracecat.cases.schemas import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Case, CaseTag, Workspace
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -839,6 +843,47 @@ async def test_batch_delete_cases_success(
     assert response.json()["succeeded"] == 1
     assert response.json()["failed"] == 0
     mock_svc.batch_delete_cases.assert_awaited_once_with([mock_case.id])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "payload", "service_method"),
+    [
+        (
+            "/cases/batch-update",
+            {"case_ids": [str(uuid.uuid4())], "update": {"summary": "x"}},
+            "batch_update_cases",
+        ),
+        (
+            "/cases/batch-delete",
+            {"case_ids": [str(uuid.uuid4())]},
+            "batch_delete_cases",
+        ),
+    ],
+)
+async def test_batch_case_lock_conflict_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+    service_method: str,
+) -> None:
+    """Batch lock timeouts map the service conflict to HTTP 409."""
+    with patch.object(cases_router, "CasesService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        getattr(mock_svc, service_method).side_effect = TracecatConflictError(
+            "Timed out waiting to lock cases"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {"detail": "Timed out waiting to lock cases"}
 
 
 @pytest.mark.anyio

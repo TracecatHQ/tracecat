@@ -108,6 +108,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatException,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -204,6 +205,8 @@ def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
 
 # Treat multiple views inside this window as a single "view" to avoid spam.
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+CASE_BATCH_LOCK_TIMEOUT = "5s"
+CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
 
 
 class CasesService(BaseWorkspaceService):
@@ -1113,7 +1116,7 @@ class CasesService(BaseWorkspaceService):
                 for value in dropdown_values
             ]
             await self.dropdowns.apply_values(
-                case.id,
+                case,
                 normalized_dropdown_values,
                 commit=False,
             )
@@ -1172,7 +1175,11 @@ class CasesService(BaseWorkspaceService):
             )
 
     async def _lock_cases(
-        self, case_ids: list[uuid.UUID], *, load_dropdown_values: bool = False
+        self,
+        case_ids: list[uuid.UUID],
+        *,
+        load_dropdown_values: bool = False,
+        key_share: bool = False,
     ) -> dict[uuid.UUID, Case]:
         """Lock and return workspace-scoped cases in deterministic ID order.
 
@@ -1191,7 +1198,7 @@ class CasesService(BaseWorkspaceService):
                 Case.id.in_(sorted(case_ids)),
             )
             .order_by(Case.id)
-            .with_for_update()
+            .with_for_update(key_share=key_share)
         )
         result = await self.session.execute(statement)
         return {case.id: case for case in result.scalars().all()}
@@ -1214,11 +1221,25 @@ class CasesService(BaseWorkspaceService):
         )
 
         try:
-            cases_by_id = await self._lock_cases(
-                case_ids,
-                load_dropdown_values=params.status
-                in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
             )
+            try:
+                cases_by_id = await self._lock_cases(
+                    case_ids,
+                    load_dropdown_values=params.status
+                    in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+                    key_share=True,
+                )
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch update"
+                    ) from exc
+                raise
             results: list[CaseBatchItemResult] = []
             queue = AfterCommitQueue.of(self.session)
             with queue.checkpointed():
@@ -1316,7 +1337,20 @@ class CasesService(BaseWorkspaceService):
         )
 
         try:
-            cases_by_id = await self._lock_cases(case_ids)
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                cases_by_id = await self._lock_cases(case_ids)
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch delete"
+                    ) from exc
+                raise
             results: list[CaseBatchItemResult] = []
             queue = AfterCommitQueue.of(self.session)
             with queue.checkpointed():

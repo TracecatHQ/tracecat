@@ -62,6 +62,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -517,7 +518,13 @@ async def batch_update_cases(
 ) -> CaseBatchResponse:
     """Update multiple cases with per-case results."""
     service = CasesService(session, role)
-    return await service.batch_update_cases(params.case_ids, params.update)
+    try:
+        return await service.batch_update_cases(params.case_ids, params.update)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
 
 
 @cases_router.post("/batch-delete")
@@ -530,7 +537,13 @@ async def batch_delete_cases(
 ) -> CaseBatchResponse:
     """Delete multiple cases with per-case results."""
     service = CasesService(session, role)
-    return await service.batch_delete_cases(params.case_ids)
+    try:
+        return await service.batch_delete_cases(params.case_ids)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
 
 
 @cases_router.get("/{case_id}")

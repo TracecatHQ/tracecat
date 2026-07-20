@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload as sa_selectinload
 
@@ -39,13 +41,14 @@ from tracecat.cases.schemas import (
 )
 from tracecat.tags.schemas import TagCreate
 from tracecat.cases.service import (
+    CASE_BATCH_LOCK_TIMEOUT,
     CaseCommentsService,
     CaseFieldsService,
     CasesService,
 )
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case, CaseComment, Workspace
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 
@@ -774,6 +777,131 @@ class TestCasesService:
             updated_case = await cases_service.get_case(case_id)
             assert updated_case is not None
             assert updated_case.summary == "Batch updated"
+
+    async def test_case_batch_lock_statements_use_expected_strength(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+    ) -> None:
+        """Updates use NO KEY UPDATE while deletes retain full UPDATE locks."""
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+
+        with patch.object(
+            session, "execute", new=AsyncMock(return_value=result)
+        ) as mock_execute:
+            await cases_service._lock_cases([uuid.uuid4()], key_share=True)
+            assert mock_execute.await_args is not None
+            update_statement = mock_execute.await_args.args[0]
+
+            await cases_service._lock_cases([uuid.uuid4()])
+            assert mock_execute.await_args is not None
+            delete_statement = mock_execute.await_args.args[0]
+
+        update_sql = str(update_statement.compile(dialect=postgresql.dialect()))
+        delete_sql = str(delete_statement.compile(dialect=postgresql.dialect()))
+        assert "FOR NO KEY UPDATE" in update_sql
+        assert "FOR UPDATE" in delete_sql
+        assert "FOR NO KEY UPDATE" not in delete_sql
+
+    async def test_batch_update_reuses_locked_case_for_dropdown_values(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Batch dropdown writes do not requery their already-locked case."""
+        definition, option = await _create_dropdown_with_option(
+            cases_service,
+            definition_name="Batch Triage",
+            definition_ref="batch_triage",
+            option_label="Escalated",
+            option_ref="escalated",
+        )
+        created_case = await cases_service.create_case(case_create_params)
+
+        with patch.object(
+            cases_service.dropdowns,
+            "_get_case",
+            wraps=cases_service.dropdowns._get_case,
+        ) as mock_get_case:
+            response = await cases_service.batch_update_cases(
+                [created_case.id],
+                CaseUpdate(
+                    dropdown_values=[
+                        CaseDropdownValueInput(
+                            definition_id=definition.id,
+                            option_id=option.id,
+                        )
+                    ]
+                ),
+            )
+
+        assert response.succeeded == 1
+        mock_get_case.assert_not_awaited()
+        values = await cases_service.dropdowns.list_values_for_case(created_case.id)
+        assert len(values) == 1
+        assert values[0].option_id == option.id
+
+    @pytest.mark.parametrize("action", ["update", "delete"])
+    async def test_batch_case_lock_timeout_raises_conflict_and_audits_failure(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        action: Literal["update", "delete"],
+    ) -> None:
+        """SQLSTATE 55P03 becomes a conflict after rollback and failure audit."""
+
+        class LockNotAvailableError(Exception):
+            sqlstate = "55P03"
+
+        case_ids = [uuid.uuid4(), uuid.uuid4()]
+        lock_error = DBAPIError(
+            "SELECT ... FOR UPDATE",
+            {},
+            LockNotAvailableError(),
+        )
+
+        with (
+            patch.object(
+                AuditService, "create_event", new_callable=AsyncMock
+            ) as mock_audit,
+            patch.object(
+                cases_service,
+                "_lock_cases",
+                side_effect=lock_error,
+            ) as mock_lock_cases,
+            patch.object(session, "execute", new_callable=AsyncMock) as mock_execute,
+            patch.object(session, "rollback", wraps=session.rollback) as mock_rollback,
+        ):
+            with pytest.raises(TracecatConflictError) as exc_info:
+                if action == "update":
+                    await cases_service.batch_update_cases(case_ids, CaseUpdate())
+                else:
+                    await cases_service.batch_delete_cases(case_ids)
+
+        assert exc_info.value.__cause__ is lock_error
+        mock_rollback.assert_awaited_once()
+        assert mock_execute.await_args is not None
+        timeout_statement = mock_execute.await_args.args[0]
+        assert str(timeout_statement) == (
+            f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'"
+        )
+        if action == "update":
+            mock_lock_cases.assert_awaited_once_with(
+                case_ids,
+                load_dropdown_values=False,
+                key_share=True,
+            )
+        else:
+            mock_lock_cases.assert_awaited_once_with(case_ids)
+        _assert_batch_audit_calls(
+            mock_audit,
+            action=action,
+            case_ids=case_ids,
+            succeeded=0,
+            failed=2,
+            terminal_status=AuditEventStatus.FAILURE,
+        )
 
     async def test_batch_update_cases_deduplicates_case_ids(
         self,
