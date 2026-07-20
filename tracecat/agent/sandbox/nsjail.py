@@ -57,6 +57,7 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.file_io import ensure_directory_beneath
 
 BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
 SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
@@ -409,9 +410,9 @@ async def _spawn_nsjail_runtime(
         if skills_dir is not None:
             skills_dir.mkdir(parents=True, exist_ok=True)
             if session_home_dir is not None:
-                (session_home_dir / ".claude" / "skills").mkdir(
-                    parents=True,
-                    exist_ok=True,
+                ensure_directory_beneath(
+                    session_home_dir,
+                    Path(".claude/skills"),
                 )
         # Build nsjail config (socket paths are derived from socket_dir internally)
         await asyncio.to_thread(

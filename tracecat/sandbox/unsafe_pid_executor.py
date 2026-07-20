@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
+    TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
@@ -26,8 +27,10 @@ from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
+    SandboxFileSafetyError,
     SandboxTimeoutError,
 )
+from tracecat.sandbox.file_io import read_json_object_beneath
 from tracecat.sandbox.types import SandboxResult
 from tracecat.sandbox.utils import pid_namespace_available, pid_namespace_probe_error
 
@@ -486,21 +489,36 @@ class UnsafePidExecutor:
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-            result_path = work_dir / "result.json"
-            if result_path.exists():
-                try:
-                    result_data = json.loads(result_path.read_text())
-                    return SandboxResult(
-                        success=result_data.get("success", False),
-                        output=result_data.get("output"),
-                        stdout=result_data.get("stdout", stdout),
-                        stderr=result_data.get("stderr", stderr),
-                        error=result_data.get("error"),
-                        exit_code=process.returncode,
-                        execution_time_ms=execution_time_ms,
-                    )
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse result.json")
+            try:
+                result_data = read_json_object_beneath(
+                    work_dir,
+                    Path("result.json"),
+                    max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                )
+            except SandboxFileSafetyError as exc:
+                logger.warning(
+                    "Rejected unsafe PID executor result file",
+                    error=str(exc),
+                )
+                return SandboxResult(
+                    success=False,
+                    error="Execution produced an invalid result file",
+                    stdout=stdout,
+                    stderr=stderr[:500],
+                    exit_code=process.returncode,
+                    execution_time_ms=execution_time_ms,
+                )
+
+            if result_data is not None:
+                return SandboxResult(
+                    success=result_data.get("success", False),
+                    output=result_data.get("output"),
+                    stdout=result_data.get("stdout", stdout),
+                    stderr=result_data.get("stderr", stderr),
+                    error=result_data.get("error"),
+                    exit_code=process.returncode,
+                    execution_time_ms=execution_time_ms,
+                )
 
             return SandboxResult(
                 success=False,

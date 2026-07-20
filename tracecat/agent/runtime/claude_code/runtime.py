@@ -56,6 +56,7 @@ from tracecat.agent.common.config import (
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -90,6 +91,11 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.file_io import (
+    atomic_write_file_beneath,
+    read_regular_file_beneath,
+    regular_file_size_beneath,
+)
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
@@ -626,8 +632,8 @@ class ClaudeAgentRuntime:
             },
         }
 
-    def _get_session_file_path(self, sdk_session_id: str) -> Path:
-        """Derive the session file path from SDK session ID.
+    def _get_session_file_location(self, sdk_session_id: str) -> tuple[Path, Path]:
+        """Derive the session root and relative path from an SDK session ID.
 
         The Claude SDK stores sessions at:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
@@ -648,8 +654,15 @@ class ClaudeAgentRuntime:
             raise RuntimeError("Runtime working directory is not configured")
         encoded_cwd = _claude_project_dir_name(self._cwd)
         claude_home_dir = self._session_home_dir or Path.home()
-        claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
-        return claude_dir / f"{sdk_session_id}.jsonl"
+        relative_path = (
+            Path(".claude") / "projects" / encoded_cwd / f"{sdk_session_id}.jsonl"
+        )
+        return claude_home_dir, relative_path
+
+    def _get_session_file_path(self, sdk_session_id: str) -> Path:
+        """Derive the absolute session file path from an SDK session ID."""
+        root, relative_path = self._get_session_file_location(sdk_session_id)
+        return root / relative_path
 
     async def _write_session_file(
         self,
@@ -657,14 +670,15 @@ class ClaudeAgentRuntime:
         sdk_session_data: str,
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
-        session_file_path = self._get_session_file_path(sdk_session_id)
+        session_root, relative_path = self._get_session_file_location(sdk_session_id)
+        session_file_path = session_root / relative_path
         sdk_session_data = self._session_data_for_disk(sdk_session_data)
-
-        def _write() -> None:
-            session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            session_file_path.write_text(sdk_session_data, encoding="utf-8")
-
-        await asyncio.to_thread(_write)
+        await asyncio.to_thread(
+            atomic_write_file_beneath,
+            session_root,
+            relative_path,
+            sdk_session_data.encode("utf-8"),
+        )
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
@@ -863,13 +877,16 @@ class ClaudeAgentRuntime:
         self._sdk_session_id = sdk_session_id
 
         if previous is None and resume_session_id and fork_session:
-            session_file = self._get_session_file_path(sdk_session_id)
-            try:
-                stat = session_file.stat()
-            except FileNotFoundError:
-                pass
-            else:
-                self._last_seen_byte_offset = stat.st_size
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
+            size = await asyncio.to_thread(
+                regular_file_size_beneath,
+                session_root,
+                relative_path,
+            )
+            if size is not None:
+                self._last_seen_byte_offset = size
 
         logger.debug(
             "Captured SDK session ID",
@@ -920,18 +937,17 @@ class ClaudeAgentRuntime:
                 return
 
             sdk_session_id = self._sdk_session_id
-            session_file = self._get_session_file_path(sdk_session_id)
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
             start_offset = self._last_seen_byte_offset
-
-            def _read_tail() -> bytes | None:
-                try:
-                    with session_file.open("rb") as file:
-                        file.seek(start_offset)
-                        return file.read()
-                except FileNotFoundError:
-                    return None
-
-            tail = await asyncio.to_thread(_read_tail)
+            tail = await asyncio.to_thread(
+                read_regular_file_beneath,
+                session_root,
+                relative_path,
+                max_bytes=MAX_PAYLOAD_SIZE,
+                offset=start_offset,
+            )
             if not tail:
                 return
 

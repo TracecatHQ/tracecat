@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,8 +24,10 @@ from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
+    SandboxFileSafetyError,
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
+from tracecat.sandbox.file_io import copy_tree_without_following_symlinks
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
@@ -76,11 +79,9 @@ class SandboxService:
     ):
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
-        self.uv_cache = self.cache_dir / "uv-cache"
 
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
-        self.uv_cache.mkdir(parents=True, exist_ok=True)
 
         # Initialize executors lazily based on availability
         self._nsjail_executor: NsjailExecutor | None = None
@@ -248,43 +249,47 @@ class SandboxService:
         # This prevents race conditions when multiple concurrent requests
         # try to install the same dependencies.
         site_packages = cache_dir / "site-packages"
-        if site_packages.exists() and any(site_packages.iterdir()):
-            dest = self.package_cache / cache_key / "site-packages"
-            dest.parent.mkdir(parents=True, exist_ok=True)
+        dest = self.package_cache / cache_key / "site-packages"
+        dest.parent.mkdir(parents=True, exist_ok=True)
 
-            # Use atomic rename: copy to temp dir in same parent, then rename.
-            # os.rename is atomic on the same filesystem.
-            temp_dest = dest.parent / f"site-packages.{os.getpid()}.tmp"
+        # The installer has stopped, so validate the tree and preserve symlinks
+        # rather than dereferencing sandbox-selected targets in the host process.
+        temp_dest = dest.parent / f"site-packages.{uuid.uuid4().hex}.tmp"
+        try:
             try:
-                # Clean up any stale temp dir from a previous failed attempt
-                if temp_dest.exists():
-                    shutil.rmtree(temp_dest)
-                shutil.copytree(site_packages, temp_dest)
+                copied = copy_tree_without_following_symlinks(
+                    site_packages,
+                    temp_dest,
+                )
+            except SandboxFileSafetyError as exc:
+                raise PackageInstallError(
+                    "Installed packages contained unsafe filesystem entries"
+                ) from exc
 
-                # Atomic rename into place. If dest already exists (another process
-                # beat us), this will fail on POSIX - that's fine, we just use theirs.
-                try:
-                    os.rename(temp_dest, dest)
-                    logger.info(
-                        "Packages cached",
-                        cache_key=cache_key,
-                        path=str(dest),
-                    )
-                except OSError:
-                    # Another process already created the cache - use theirs
-                    logger.debug(
-                        "Cache already exists (concurrent install), using existing",
-                        cache_key=cache_key,
-                    )
-            finally:
-                # Clean up temp dir if rename failed or succeeded
-                if temp_dest.exists():
-                    shutil.rmtree(temp_dest, ignore_errors=True)
-        else:
-            logger.warning(
-                "No packages were installed",
-                dependencies=dependencies,
-            )
+            if not copied:
+                logger.warning(
+                    "No packages were installed",
+                    dependencies=dependencies,
+                )
+                return
+
+            # Atomic rename into place. If another installer won the race, use
+            # the already-published cache tree.
+            try:
+                os.rename(temp_dest, dest)
+                logger.info(
+                    "Packages cached",
+                    cache_key=cache_key,
+                    path=str(dest),
+                )
+            except OSError:
+                logger.debug(
+                    "Cache already exists (concurrent install), using existing",
+                    cache_key=cache_key,
+                )
+        finally:
+            if temp_dest.exists():
+                shutil.rmtree(temp_dest, ignore_errors=True)
 
     async def _prepare_execution(
         self,

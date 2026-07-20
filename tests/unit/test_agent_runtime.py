@@ -52,6 +52,7 @@ from tracecat.agent.runtime.claude_code.runtime import (
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
 @pytest.fixture
@@ -2910,6 +2911,59 @@ class TestClaudeAgentRuntimeInternalSessionLines:
 
 class TestClaudeAgentRuntimeSessionLineFlushing:
     """Tests for ClaudeAgentRuntime SDK JSONL flushing."""
+
+    @pytest.mark.anyio
+    async def test_write_session_file_replaces_planted_symlink(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Resume hydration must not write through an agent-created symlink."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        outside_file = tmp_path / "outside-session.jsonl"
+        outside_file.write_text("host data")
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.symlink_to(outside_file)
+
+        await runtime._write_session_file(
+            sdk_session_id,
+            '{"type":"user"}\n',
+        )
+
+        assert outside_file.read_text() == "host data"
+        assert not session_file.is_symlink()
+        assert session_file.read_text() == '{"type":"user"}\n'
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_rejects_planted_symlink(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Session flushing must not follow an agent-selected host path."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.symlink_to("/dev/zero")
+
+        with pytest.raises(SandboxFileSafetyError, match="not safe to read"):
+            await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_not_awaited()
 
     @staticmethod
     def _line_bytes(line: dict[str, Any]) -> bytes:
