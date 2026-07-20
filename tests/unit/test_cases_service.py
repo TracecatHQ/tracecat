@@ -1118,7 +1118,12 @@ class TestCasesService:
             sort="asc",
         )
 
-        assert search_response.model_dump() == list_response.model_dump()
+        # list_cases opts into the exact total; plain search skips it.
+        assert search_response.total_estimate is None
+        assert list_response.total_estimate == 2
+        assert search_response.model_dump(
+            exclude={"total_estimate"}
+        ) == list_response.model_dump(exclude={"total_estimate"})
 
     async def test_search_cases_paginates_without_total_estimate(
         self, cases_service: CasesService
@@ -1174,6 +1179,26 @@ class TestCasesService:
         assert second_page.has_previous is True
         assert second_page.next_cursor is None
         assert second_page.prev_cursor is not None
+
+    async def test_list_cases_retains_total_estimate(
+        self, cases_service: CasesService
+    ) -> None:
+        for summary in ("List total A", "List total B", "List total C"):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=summary,
+                    description="Total estimate coverage",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.MEDIUM,
+                )
+            )
+
+        page = await cases_service.list_cases(limit=2)
+
+        assert len(page.items) == 2
+        assert page.total_estimate == 3
+        assert page.has_more is True
 
     async def test_search_cases_gates_duration_selectinload(
         self, cases_service: CasesService

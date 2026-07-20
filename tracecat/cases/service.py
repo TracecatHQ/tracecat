@@ -391,8 +391,13 @@ class CasesService(BaseWorkspaceService):
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
         include_payload: bool = False,
+        include_total: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Search cases with cursor-based pagination and filtering."""
+        """Search cases with cursor-based pagination and filtering.
+
+        The exact filtered total is computed only when ``include_total`` is set;
+        the case-list UI reads totals from the aggregates endpoint instead.
+        """
         paginator = BaseCursorPaginator(self.session)
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         filters = self._build_search_filters(
@@ -434,6 +439,13 @@ class CasesService(BaseWorkspaceService):
 
         for clause in filters:
             stmt = stmt.where(clause)
+
+        total_estimate: int | None = None
+        if include_total:
+            count_stmt = select(func.count()).select_from(Case)
+            for clause in filters:
+                count_stmt = count_stmt.where(clause)
+            total_estimate = int(await self.session.scalar(count_stmt) or 0)
 
         # Determine sort column and direction
         sort_column = order_by or "created_at"
@@ -670,7 +682,7 @@ class CasesService(BaseWorkspaceService):
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
-            total_estimate=None,
+            total_estimate=total_estimate,
         )
 
     async def get_search_case_aggregates(
@@ -780,6 +792,7 @@ class CasesService(BaseWorkspaceService):
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            include_total=True,
         )
 
     async def get_case(
