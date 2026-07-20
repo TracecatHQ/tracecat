@@ -6,10 +6,10 @@ import asyncio
 import os
 import socket
 import uuid
-from dataclasses import dataclass
 from time import monotonic
-from typing import cast, get_args
+from typing import Self
 
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 from redis.exceptions import ResponseError
 from sqlalchemy import select
 from tenacity import RetryError
@@ -25,20 +25,41 @@ from tracecat.db.models import Case
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
-CASE_DURATION_SYNC_REASONS = frozenset(
-    cast(tuple[str, ...], get_args(CaseDurationSyncReason))
-)
 RETRY_BACKOFF_BASE_SECONDS = 1.0
 RETRY_BACKOFF_MAX_SECONDS = 30.0
 
 
-@dataclass(frozen=True)
-class CaseDurationSyncJob:
+class CaseDurationSyncJob(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     workspace_id: uuid.UUID
     reason: CaseDurationSyncReason
     case_id: uuid.UUID | None = None
     event_type: str | None = None
     cursor: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_reason_shape(self) -> Self:
+        match self.reason:
+            case "case_event":
+                valid_shape = (
+                    self.case_id is not None
+                    and bool(self.event_type)
+                    and self.cursor is None
+                )
+            case "duration_definition_created" | "duration_definition_updated":
+                valid_shape = (
+                    self.case_id is None
+                    and self.event_type is None
+                    and self.cursor is None
+                )
+            case "duration_definition_backfill":
+                valid_shape = self.event_type is None and (self.case_id is None) != (
+                    self.cursor is None
+                )
+        if not valid_shape:
+            raise ValueError(f"invalid field shape for reason {self.reason!r}")
+        return self
 
 
 class CaseDurationSyncConsumer:
@@ -209,56 +230,15 @@ class CaseDurationSyncConsumer:
             )
 
     def _parse_job(self, fields: dict[str, str]) -> CaseDurationSyncJob | None:
-        workspace_id = fields.get("workspace_id")
-        reason = fields.get("reason")
-        if not (workspace_id and reason):
-            logger.warning("Malformed case duration sync message", fields=fields)
-            return None
-        if reason not in CASE_DURATION_SYNC_REASONS:
-            logger.warning("Unknown case duration sync reason", fields=fields)
-            return None
         try:
-            parsed_workspace_id = uuid.UUID(workspace_id)
-            case_id = (
-                uuid.UUID(case_id_value)
-                if (case_id_value := fields.get("case_id")) is not None
-                else None
-            )
-            event_type = fields.get("event_type")
-            cursor = (
-                int(cursor_value)
-                if (cursor_value := fields.get("cursor")) is not None
-                else None
-            )
-        except (TypeError, ValueError):
-            logger.warning("Invalid IDs in case duration sync message", fields=fields)
-            return None
-
-        valid_shape = False
-        if reason == "case_event":
-            valid_shape = case_id is not None and bool(event_type) and cursor is None
-        elif reason in (
-            "duration_definition_created",
-            "duration_definition_updated",
-        ):
-            valid_shape = case_id is None and event_type is None and cursor is None
-        elif reason == "duration_definition_backfill":
-            valid_shape = event_type is None and (case_id is None) != (cursor is None)
-
-        if not valid_shape:
+            return CaseDurationSyncJob.model_validate(fields)
+        except ValidationError as e:
             logger.warning(
-                "Invalid case duration sync message shape",
+                "Invalid case duration sync message",
                 fields=fields,
+                error=str(e),
             )
             return None
-
-        return CaseDurationSyncJob(
-            workspace_id=parsed_workspace_id,
-            case_id=case_id,
-            event_type=event_type,
-            reason=cast(CaseDurationSyncReason, reason),
-            cursor=cursor,
-        )
 
     async def _sync_case_duration(
         self,
