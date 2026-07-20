@@ -712,6 +712,12 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
     server_uri: str
     scopes: list[str] = Field(default_factory=list)
+    oauth_resource: str | None = None
+    """OAuth resource indicator pinned by the repo-owned catalog row.
+
+    This may differ from ``server_uri`` when a provider protects every MCP
+    route under one origin-level audience.
+    """
     oauth_authorization_endpoint: str | None = None
     """Known OAuth authorization endpoint pinned by the repo-owned catalog row.
 

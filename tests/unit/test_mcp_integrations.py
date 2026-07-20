@@ -3963,6 +3963,36 @@ class TestMCPProviderOAuth:
         )
         assert endpoints.resource == "https://mcp.example.com/mcp"
 
+    async def test_generic_mcp_discovery_prefers_catalog_oauth_resource(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A catalog resource override wins over discovered resource metadata."""
+        docs = {
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": {
+                "resource": "https://mcp.example.com/mcp",
+                "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
+                "token_endpoint": "https://mcp.example.com/oauth/token",
+                "registration_endpoint": "https://mcp.example.com/oauth/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+            "https://mcp.example.com/.well-known/oauth-protected-resource": None,
+            "https://mcp.example.com/.well-known/oauth-authorization-server": None,
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        endpoints = await integration_service._discover_mcp_oauth_endpoints(
+            server_uri="https://mcp.example.com/mcp",
+            oauth_resource="https://mcp.example.com",
+        )
+
+        assert endpoints.resource == "https://mcp.example.com"
+
     async def test_generic_mcp_discovery_allows_protected_resource_issuer_hosts(
         self,
         integration_service: IntegrationService,
@@ -5259,14 +5289,17 @@ class TestMCPProviderOAuth:
     ) -> None:
         """Connect derives trusted endpoint hosts from catalog-pinned endpoints."""
         captured_hosts: list[frozenset[str]] = []
+        captured_resources: list[str | None] = []
 
         async def fake_discover(
             *,
             server_uri: str,
+            oauth_resource: str | None = None,
             allowed_endpoint_hosts: frozenset[str] = frozenset(),
         ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
             _ = server_uri
             captured_hosts.append(allowed_endpoint_hosts)
+            captured_resources.append(oauth_resource)
             raise RuntimeError("stop after capture")
 
         monkeypatch.setattr(
@@ -5275,6 +5308,7 @@ class TestMCPProviderOAuth:
 
         catalog_spec = MCPHTTPOAuth2ConnectionSpec(
             server_uri="https://mcp.example.com/mcp",
+            oauth_resource="https://mcp.example.com",
             oauth_authorization_endpoint="https://app.example.com/oauth/authorize",
             oauth_token_endpoint="https://app.example.com/oauth/token",
         )
@@ -5290,6 +5324,15 @@ class TestMCPProviderOAuth:
             )
 
         assert captured_hosts == [frozenset({"app.example.com"})]
+        assert captured_resources == ["https://mcp.example.com"]
+
+    def test_feedly_catalog_pins_origin_level_oauth_resource(
+        self,
+    ) -> None:
+        """Saved Feedly connections can recover the audience after OAuth redirect."""
+        assert IntegrationService._catalog_mcp_oauth_resource("feedly-mcp") == (
+            "https://mcp.feedly.com"
+        )
 
     async def test_generic_mcp_discovery_uses_protected_resource_identifier(
         self,

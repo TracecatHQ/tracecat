@@ -36,15 +36,19 @@ definition:
     result_type:
       type: str
       description: PowerQuery result type.
-      default: table
+      default: TABLE
     frequency:
       type: str
       description: PowerQuery frequency hint.
-      default: low
+      default: LOW
     query_origin:
       type: str | None
       description: Optional provenance string for SDL.
       default: null
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for the SDL submission request.
+      default: 60
     base_url:
       type: str | None
       description: SentinelOne tenant URL. /sdl is appended automatically.
@@ -80,7 +84,7 @@ definition:
               payload = {
                   "startTime": start_time,
                   "endTime": end_time,
-                  "queryType": "pq",
+                  "queryType": "PQ",
                   "queryPriority": query_priority,
                   "pq": {
                       "query": query,
@@ -107,4 +111,5 @@ definition:
         method: POST
         headers: '${{ FN.merge([{"Authorization": FN.concat("Bearer ", SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN)}, steps.build_payload.result.extra_headers]) }}'
         payload: ${{ steps.build_payload.result.payload }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.submit_query.result }}
