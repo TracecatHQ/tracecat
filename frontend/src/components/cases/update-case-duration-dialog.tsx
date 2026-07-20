@@ -4,6 +4,8 @@ import { useCallback, useMemo } from "react"
 import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
+  CaseDurationEventAnchor,
+  CaseDurationEventFilters,
 } from "@/client"
 import {
   buildDurationFilters,
@@ -118,6 +120,17 @@ function areAnchorFormValuesEqual(
   )
 }
 
+function buildAnchorPayload(
+  anchor: CaseDurationFormValues["start"],
+  filters: CaseDurationEventFilters | null | undefined
+): CaseDurationEventAnchor {
+  return {
+    event_type: anchor.eventType,
+    selection: anchor.selection,
+    ...(filters ? { filters } : {}),
+  }
+}
+
 export function UpdateCaseDurationDialog({
   open,
   onOpenChange,
@@ -156,24 +169,12 @@ export function UpdateCaseDurationDialog({
       const payload: CaseDurationDefinitionUpdate = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
-        ...(shouldSendStartAnchor
-          ? {
-              start_anchor: {
-                event_type: values.start.eventType,
-                selection: values.start.selection,
-                ...(startFilters ? { filters: startFilters } : {}),
-              },
-            }
-          : {}),
-        ...(shouldSendEndAnchor
-          ? {
-              end_anchor: {
-                event_type: values.end.eventType,
-                selection: values.end.selection,
-                ...(endFilters ? { filters: endFilters } : {}),
-              },
-            }
-          : {}),
+      }
+      if (shouldSendStartAnchor) {
+        payload.start_anchor = buildAnchorPayload(values.start, startFilters)
+      }
+      if (shouldSendEndAnchor) {
+        payload.end_anchor = buildAnchorPayload(values.end, endFilters)
       }
 
       try {
