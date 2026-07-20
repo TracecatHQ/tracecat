@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -32,7 +32,7 @@ class AfterCommitQueue:
             if isinstance(session, AsyncSession)
             else session.info
         )
-        queue = info.get(_QUEUE_KEY)
+        queue: AfterCommitQueue | None = info.get(_QUEUE_KEY)
         if queue is None:
             queue = info[_QUEUE_KEY] = cls()
         return queue
@@ -48,7 +48,7 @@ class AfterCommitQueue:
                 pass
 
     @contextmanager
-    def deferred(self) -> Iterator[None]:
+    def deferred(self) -> Generator[None]:
         """Defer callbacks across savepoint releases until the outer commit."""
         self.defer_depth += 1
         try:
@@ -57,7 +57,7 @@ class AfterCommitQueue:
             self.defer_depth -= 1
 
     @contextmanager
-    def checkpointed(self) -> Iterator[None]:
+    def checkpointed(self) -> Generator[None]:
         """Discard callbacks registered by work that raises and is rolled back."""
         checkpoint = len(self.callbacks)
         try:
@@ -93,6 +93,6 @@ class AfterCommitQueue:
 @event.listens_for(sqlalchemy.orm.Session, "after_commit")
 def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: ignore[reportUnusedFunction]
     """Drain callbacks after a session commits."""
-    queue = session.info.get(_QUEUE_KEY)
+    queue: AfterCommitQueue | None = session.info.get(_QUEUE_KEY)
     if queue is not None:
         queue.drain_on_commit()
