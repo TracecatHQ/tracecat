@@ -309,6 +309,25 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
+    async def xdel(self, stream_key: str, message_ids: list[str]) -> int:
+        """Delete messages from a Redis stream."""
+        try:
+            client = await self._get_client()
+            return await client.xdel(stream_key, *message_ids)
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to delete Redis stream messages",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
     async def xpending_range(
         self,
         stream_key: str,

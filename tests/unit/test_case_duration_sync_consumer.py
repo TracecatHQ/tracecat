@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.cases.durations import materialization
 from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
 from tracecat.cases.durations.materialization import (
     _event_types_require_sync,
+    _get_service_role,
     sync_case_duration,
 )
 from tracecat.cases.enums import CaseEventType
@@ -19,6 +21,8 @@ from tracecat.redis.client import RedisClient
 class FakeRedisClient:
     def __init__(self) -> None:
         self.acked: list[list[str]] = []
+        self.deleted: list[list[str]] = []
+        self.calls: list[tuple[str, list[str]]] = []
 
     async def xack(
         self,
@@ -28,6 +32,12 @@ class FakeRedisClient:
     ) -> None:
         del stream_key, group_name
         self.acked.append(message_ids)
+        self.calls.append(("xack", message_ids))
+
+    async def xdel(self, stream_key: str, message_ids: list[str]) -> None:
+        del stream_key
+        self.deleted.append(message_ids)
+        self.calls.append(("xdel", message_ids))
 
 
 class FakeScalarResult:
@@ -92,6 +102,11 @@ async def test_consumer_coalesces_case_jobs_by_case(
         event_types={"case_updated"},
     )
     assert client.acked == [["1-0", "2-0"]]
+    assert client.deleted == [["1-0", "2-0"]]
+    assert client.calls == [
+        ("xack", ["1-0", "2-0"]),
+        ("xdel", ["1-0", "2-0"]),
+    ]
 
 
 @pytest.mark.anyio
@@ -135,6 +150,7 @@ async def test_consumer_forces_sync_when_backfill_coalesces_with_case_event(
         event_types=None,
     )
     assert client.acked == [["1-0", "2-0"]]
+    assert client.deleted == [["1-0", "2-0"]]
 
 
 @pytest.mark.anyio
@@ -154,6 +170,7 @@ async def test_consumer_leaves_locked_case_jobs_pending(
                     "workspace_id": str(uuid.uuid4()),
                     "case_id": str(uuid.uuid4()),
                     "reason": "case_event",
+                    "event_type": "case_updated",
                 },
             )
         ]
@@ -161,6 +178,7 @@ async def test_consumer_leaves_locked_case_jobs_pending(
 
     sync_mock.assert_awaited_once()
     assert client.acked == []
+    assert client.deleted == []
 
 
 @pytest.mark.anyio
@@ -234,6 +252,7 @@ async def test_consumer_leaves_failed_case_jobs_pending(
                     "workspace_id": str(uuid.uuid4()),
                     "case_id": str(uuid.uuid4()),
                     "reason": "case_event",
+                    "event_type": "case_updated",
                 },
             )
         ]
@@ -242,6 +261,7 @@ async def test_consumer_leaves_failed_case_jobs_pending(
     sync_mock.assert_awaited_once()
     logger_mock.assert_called_once()
     assert client.acked == []
+    assert client.deleted == []
 
 
 @pytest.mark.anyio
@@ -252,6 +272,7 @@ async def test_consumer_acks_malformed_jobs() -> None:
     await consumer._handle_entries([("1-0", {"reason": "case_event"})])
 
     assert client.acked == [["1-0"]]
+    assert client.deleted == [["1-0"]]
 
 
 @pytest.mark.anyio
@@ -282,6 +303,201 @@ async def test_consumer_acks_successful_backfill_jobs(
     job = await_args.args[0]
     assert cast(Any, job).workspace_id == workspace_id
     assert client.acked == [["1-0"]]
+    assert client.deleted == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_ignores_xdel_failure_after_ack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    client.xdel = AsyncMock(side_effect=RuntimeError("redis cleanup failed"))
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    monkeypatch.setattr(
+        consumer,
+        "_sync_case_duration",
+        AsyncMock(return_value=True),
+    )
+    logger_mock = MagicMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.logger.warning",
+        logger_mock,
+    )
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "event_type": "case_updated",
+                    "reason": "case_event",
+                },
+            )
+        ]
+    )
+
+    client.xack.assert_awaited_once_with(
+        consumer.stream_key,
+        consumer.group,
+        ["1-0"],
+    )
+    client.xdel.assert_awaited_once_with(consumer.stream_key, ["1-0"])
+    logger_mock.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"reason": "case_event", "event_type": "case_updated"},
+        {"reason": "case_event", "case_id": "case-id"},
+        {"reason": "case_event", "case_id": "case-id", "cursor": "1"},
+        {"reason": "duration_definition_created", "case_id": "case-id"},
+        {
+            "reason": "duration_definition_created",
+            "event_type": "case_updated",
+        },
+        {"reason": "duration_definition_updated", "case_id": "case-id"},
+        {"reason": "duration_definition_updated", "cursor": "1"},
+        {"reason": "duration_definition_backfill"},
+        {
+            "reason": "duration_definition_backfill",
+            "case_id": "case-id",
+            "cursor": "1",
+        },
+        {
+            "reason": "duration_definition_backfill",
+            "case_id": "case-id",
+            "event_type": "case_updated",
+        },
+    ],
+)
+def test_parse_job_rejects_invalid_reason_shapes(
+    fields: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    logger_mock = MagicMock()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
+    parsed_fields = {
+        "workspace_id": str(workspace_id),
+        **{
+            key: str(case_id) if value == "case-id" else value
+            for key, value in fields.items()
+        },
+    }
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.logger.warning",
+        logger_mock,
+    )
+
+    assert consumer._parse_job(parsed_fields) is None
+    logger_mock.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected_case_id", "expected_cursor"),
+    [
+        (
+            {
+                "reason": "case_event",
+                "case_id": "case-id",
+                "event_type": "case_updated",
+            },
+            "case-id",
+            None,
+        ),
+        ({"reason": "duration_definition_created"}, None, None),
+        ({"reason": "duration_definition_updated"}, None, None),
+        (
+            {"reason": "duration_definition_backfill", "case_id": "case-id"},
+            "case-id",
+            None,
+        ),
+        ({"reason": "duration_definition_backfill", "cursor": "42"}, None, 42),
+    ],
+)
+def test_parse_job_accepts_published_reason_shapes(
+    fields: dict[str, str],
+    expected_case_id: str | None,
+    expected_cursor: int | None,
+) -> None:
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
+    parsed_fields = {
+        "workspace_id": str(workspace_id),
+        **{
+            key: str(case_id) if value == "case-id" else value
+            for key, value in fields.items()
+        },
+    }
+
+    job = consumer._parse_job(parsed_fields)
+
+    assert job is not None
+    assert job.workspace_id == workspace_id
+    assert job.case_id == (case_id if expected_case_id is not None else None)
+    assert job.cursor == expected_cursor
+
+
+@pytest.mark.anyio
+async def test_service_role_cache_reuses_workspace_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    workspace = MagicMock(organization_id=organization_id)
+    result = MagicMock()
+    result.scalars.return_value.first.return_value = workspace
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result)
+    monkeypatch.setattr(materialization, "_workspace_role_cache", {})
+    monkeypatch.setattr(materialization, "monotonic", MagicMock(side_effect=[0.0, 1.0]))
+
+    first_role = await _get_service_role(cast(AsyncSession, session), workspace_id)
+    second_role = await _get_service_role(cast(AsyncSession, session), workspace_id)
+
+    assert first_role is not None
+    assert first_role.workspace_id == workspace_id
+    assert first_role.organization_id == organization_id
+    assert first_role.service_id == "tracecat-case-duration-sync"
+    assert second_role is first_role
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_service_role_cache_expiry_detects_deleted_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    workspace = MagicMock(organization_id=uuid.uuid4())
+    existing_result = MagicMock()
+    existing_result.scalars.return_value.first.return_value = workspace
+    deleted_result = MagicMock()
+    deleted_result.scalars.return_value.first.return_value = None
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=[existing_result, deleted_result])
+    logger_mock = MagicMock()
+    monkeypatch.setattr(materialization, "_workspace_role_cache", {})
+    monkeypatch.setattr(
+        materialization,
+        "monotonic",
+        MagicMock(side_effect=[0.0, materialization._WORKSPACE_ROLE_CACHE_TTL_SECONDS]),
+    )
+    monkeypatch.setattr(materialization.logger, "info", logger_mock)
+
+    assert (
+        await _get_service_role(cast(AsyncSession, session), workspace_id) is not None
+    )
+    assert await _get_service_role(cast(AsyncSession, session), workspace_id) is None
+
+    assert session.execute.await_count == 2
+    logger_mock.assert_called_once()
 
 
 @pytest.mark.anyio

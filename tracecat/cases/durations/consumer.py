@@ -128,21 +128,16 @@ class CaseDurationSyncConsumer:
         return False
 
     async def _ensure_group(self) -> None:
-        try:
-            # Read from the start of the stream ("0") rather than only new
-            # messages ("$"). The consumer is started as an unawaited background
-            # task, so jobs can be published before the group exists; "0" also
-            # lets the group reclaim retained jobs after a NOGROUP recovery.
-            await self.client.xgroup_create(
-                self.stream_key,
-                self.group,
-                id="0",
-                ignore_busygroup=True,
-            )
-        except ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                return
-            raise
+        # Read from the start of the stream ("0") rather than only new
+        # messages ("$"). The consumer is started as an unawaited background
+        # task, so jobs can be published before the group exists; "0" also
+        # lets the group reclaim retained jobs after a NOGROUP recovery.
+        await self.client.xgroup_create(
+            self.stream_key,
+            self.group,
+            id="0",
+            ignore_busygroup=True,
+        )
 
     async def _handle_entries(self, entries: list[tuple[str, dict[str, str]]]) -> None:
         case_jobs: dict[tuple[uuid.UUID, uuid.UUID], list[str]] = {}
@@ -151,7 +146,7 @@ class CaseDurationSyncConsumer:
         for message_id, fields in entries:
             job = self._parse_job(fields)
             if job is None:
-                await self.client.xack(self.stream_key, self.group, [message_id])
+                await self._ack_and_delete([message_id])
                 continue
 
             if job.case_id is None:
@@ -165,7 +160,7 @@ class CaseDurationSyncConsumer:
                     )
                     should_ack = False
                 if should_ack:
-                    await self.client.xack(self.stream_key, self.group, [message_id])
+                    await self._ack_and_delete([message_id])
                 continue
 
             key = (job.workspace_id, job.case_id)
@@ -197,7 +192,21 @@ class CaseDurationSyncConsumer:
                 continue
 
             if synced:
-                await self.client.xack(self.stream_key, self.group, message_ids)
+                await self._ack_and_delete(message_ids)
+
+    async def _ack_and_delete(self, message_ids: list[str]) -> None:
+        await self.client.xack(self.stream_key, self.group, message_ids)
+        try:
+            await self.client.xdel(self.stream_key, message_ids)
+        except Exception as e:
+            # The jobs are already acknowledged. Cleanup failures must not make
+            # successfully processed work look pending or fail the consumer loop.
+            logger.warning(
+                "Failed to delete acknowledged case duration sync messages",
+                stream_key=self.stream_key,
+                message_ids=message_ids,
+                error=str(e),
+            )
 
     def _parse_job(self, fields: dict[str, str]) -> CaseDurationSyncJob | None:
         workspace_id = fields.get("workspace_id")
@@ -209,18 +218,47 @@ class CaseDurationSyncConsumer:
             logger.warning("Unknown case duration sync reason", fields=fields)
             return None
         try:
-            return CaseDurationSyncJob(
-                workspace_id=uuid.UUID(workspace_id),
-                case_id=uuid.UUID(case_id)
-                if (case_id := fields.get("case_id"))
-                else None,
-                event_type=fields.get("event_type"),
-                reason=cast(CaseDurationSyncReason, reason),
-                cursor=int(cursor) if (cursor := fields.get("cursor")) else None,
+            parsed_workspace_id = uuid.UUID(workspace_id)
+            case_id = (
+                uuid.UUID(case_id_value)
+                if (case_id_value := fields.get("case_id")) is not None
+                else None
+            )
+            event_type = fields.get("event_type")
+            cursor = (
+                int(cursor_value)
+                if (cursor_value := fields.get("cursor")) is not None
+                else None
             )
         except (TypeError, ValueError):
             logger.warning("Invalid IDs in case duration sync message", fields=fields)
             return None
+
+        valid_shape = False
+        if reason == "case_event":
+            valid_shape = case_id is not None and bool(event_type) and cursor is None
+        elif reason in (
+            "duration_definition_created",
+            "duration_definition_updated",
+        ):
+            valid_shape = case_id is None and event_type is None and cursor is None
+        elif reason == "duration_definition_backfill":
+            valid_shape = event_type is None and (case_id is None) != (cursor is None)
+
+        if not valid_shape:
+            logger.warning(
+                "Invalid case duration sync message shape",
+                fields=fields,
+            )
+            return None
+
+        return CaseDurationSyncJob(
+            workspace_id=parsed_workspace_id,
+            case_id=case_id,
+            event_type=event_type,
+            reason=cast(CaseDurationSyncReason, reason),
+            cursor=cursor,
+        )
 
     async def _sync_case_duration(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from time import monotonic
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,8 @@ from tracecat.logger import logger
 STATUS_CHANGED_ALIASES = frozenset(
     (CaseEventType.CASE_CLOSED, CaseEventType.CASE_REOPENED)
 )
+_WORKSPACE_ROLE_CACHE_TTL_SECONDS = 60.0
+_workspace_role_cache: dict[uuid.UUID, tuple[float, Role]] = {}
 
 
 async def sync_case_duration(
@@ -134,6 +137,13 @@ async def _event_types_require_sync(
 async def _get_service_role(
     session: AsyncSession, workspace_id: uuid.UUID
 ) -> Role | None:
+    now = monotonic()
+    if cached := _workspace_role_cache.get(workspace_id):
+        expires_at, role = cached
+        if now < expires_at:
+            return role
+        del _workspace_role_cache[workspace_id]
+
     result = await session.execute(
         select(Workspace).where(Workspace.id == workspace_id)
     )
@@ -144,7 +154,7 @@ async def _get_service_role(
             workspace_id=str(workspace_id),
         )
         return None
-    return Role(
+    role = Role(
         type="service",
         workspace_id=workspace_id,
         organization_id=workspace.organization_id,
@@ -152,3 +162,10 @@ async def _get_service_role(
         service_id="tracecat-case-duration-sync",
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-case-duration-sync"],
     )
+    # CaseTriggerConsumer also caches positive workspace roles. Bound this cache
+    # so a deleted workspace is rechecked rather than retained for process life.
+    _workspace_role_cache[workspace_id] = (
+        now + _WORKSPACE_ROLE_CACHE_TTL_SECONDS,
+        role,
+    )
+    return role
