@@ -18,6 +18,8 @@ from tracecat.config import (
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
     TRACECAT__SANDBOX_NSJAIL_PATH,
+    TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
+    TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
@@ -260,6 +262,8 @@ class SandboxService:
                 copied = copy_tree_without_following_symlinks(
                     site_packages,
                     temp_dest,
+                    max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
+                    max_entries=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
                 )
             except SandboxFileSafetyError as exc:
                 raise PackageInstallError(

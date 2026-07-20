@@ -27,10 +27,9 @@ from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
-    SandboxFileSafetyError,
     SandboxTimeoutError,
 )
-from tracecat.sandbox.file_io import read_json_object_beneath
+from tracecat.sandbox.result_envelope import decode_result_envelope
 from tracecat.sandbox.types import SandboxResult
 from tracecat.sandbox.utils import pid_namespace_available, pid_namespace_probe_error
 
@@ -489,36 +488,21 @@ class UnsafePidExecutor:
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-            try:
-                result_data = read_json_object_beneath(
-                    work_dir,
-                    Path("result.json"),
-                    max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-                )
-            except SandboxFileSafetyError as exc:
-                logger.warning(
-                    "Rejected unsafe PID executor result file",
-                    error=str(exc),
-                )
-                return SandboxResult(
-                    success=False,
-                    error="Execution produced an invalid result file",
-                    stdout=stdout,
-                    stderr=stderr[:500],
-                    exit_code=process.returncode,
-                    execution_time_ms=execution_time_ms,
-                )
-
-            if result_data is not None:
-                return SandboxResult(
-                    success=result_data.get("success", False),
-                    output=result_data.get("output"),
-                    stdout=result_data.get("stdout", stdout),
-                    stderr=result_data.get("stderr", stderr),
-                    error=result_data.get("error"),
-                    exit_code=process.returncode,
-                    execution_time_ms=execution_time_ms,
-                )
+            outcome = decode_result_envelope(
+                work_dir,
+                output_key="output",
+                stdout=stdout,
+                stderr=stderr,
+                stderr_limit=500,
+                invalid_result_error="Execution produced an invalid result file",
+                log_label="PID executor",
+                exit_code=process.returncode,
+                execution_time_ms=execution_time_ms,
+                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                stream_source="envelope",
+            )
+            if outcome is not None:
+                return outcome.result
 
             return SandboxResult(
                 success=False,

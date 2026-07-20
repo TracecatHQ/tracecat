@@ -93,7 +93,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.logger import logger
 from tracecat.sandbox.file_io import (
     atomic_write_file_beneath,
-    read_regular_file_beneath,
+    read_complete_lines_beneath,
     regular_file_size_beneath,
 )
 
@@ -940,54 +940,55 @@ class ClaudeAgentRuntime:
             session_root, relative_path = self._get_session_file_location(
                 sdk_session_id
             )
-            start_offset = self._last_seen_byte_offset
-            tail = await asyncio.to_thread(
-                read_regular_file_beneath,
-                session_root,
-                relative_path,
-                max_bytes=MAX_PAYLOAD_SIZE,
-                offset=start_offset,
-            )
-            if not tail:
-                return
+            while True:
+                start_offset = self._last_seen_byte_offset
+                chunk = await asyncio.to_thread(
+                    read_complete_lines_beneath,
+                    session_root,
+                    relative_path,
+                    max_bytes=MAX_PAYLOAD_SIZE,
+                    offset=start_offset,
+                )
+                if chunk is None:
+                    return
 
-            line_offset = start_offset
-            for raw_line in tail.splitlines(keepends=True):
-                if not raw_line.endswith(b"\n"):
-                    break
+                tail, _ = chunk
+                if not tail:
+                    return
 
-                next_offset = line_offset + len(raw_line)
-                line_bytes = raw_line.rstrip(b"\r\n")
-                if not line_bytes.strip():
+                line_offset = start_offset
+                for raw_line in tail.splitlines(keepends=True):
+                    next_offset = line_offset + len(raw_line)
+                    line_bytes = raw_line.rstrip(b"\r\n")
+                    if not line_bytes.strip():
+                        self._last_seen_byte_offset = next_offset
+                        line_offset = next_offset
+                        continue
+
+                    # Parse to determine visibility, but send raw line for SDK resume
+                    try:
+                        line = line_bytes.decode("utf-8")
+                        line_data = orjson.loads(line)
+                    except (UnicodeDecodeError, orjson.JSONDecodeError):
+                        logger.debug(
+                            "Stopping at incomplete session line, will retry",
+                            byte_offset=line_offset,
+                        )
+                        return
+
+                    internal = self._is_internal_session_line(line_data) or (
+                        is_approval_continuation
+                        and is_approval_continuation_prompt_line(line_data)
+                    )
+
+                    await self._event_writer.send_session_line(
+                        sdk_session_id, line, internal=internal
+                    )
+
+                    # Only advance the offset after successfully sending the line,
+                    # so a failed send never causes duplicate re-sends on retry.
                     self._last_seen_byte_offset = next_offset
                     line_offset = next_offset
-                    continue
-
-                # Parse to determine visibility, but send raw line for SDK resume
-                try:
-                    line = line_bytes.decode("utf-8")
-                    line_data = orjson.loads(line)
-                except (UnicodeDecodeError, orjson.JSONDecodeError):
-                    # Stop at the first decode failure - this line may be incomplete
-                    # because the SDK is still writing it. We'll retry on the next pass.
-                    logger.debug(
-                        "Stopping at incomplete session line, will retry",
-                        byte_offset=line_offset,
-                    )
-                    break
-
-                internal = self._is_internal_session_line(line_data) or (
-                    is_approval_continuation
-                    and is_approval_continuation_prompt_line(line_data)
-                )
-
-                await self._event_writer.send_session_line(
-                    sdk_session_id, line, internal=internal
-                )
-
-                # Only advance the offset after successfully processing the line.
-                self._last_seen_byte_offset = next_offset
-                line_offset = next_offset
 
     async def _handle_approval_request(
         self,

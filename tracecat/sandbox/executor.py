@@ -18,21 +18,19 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
-    SandboxFileSafetyError,
     SandboxTimeoutError,
     SandboxValidationError,
 )
-from tracecat.sandbox.file_io import read_json_object_beneath
 from tracecat.sandbox.networking import (
     pasta_dns_mount_config_lines,
     pasta_user_net_config_lines,
     write_pasta_network_files,
 )
+from tracecat.sandbox.result_envelope import decode_result_envelope
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
-    SandboxErrorCode,
     SandboxResult,
 )
 
@@ -501,56 +499,22 @@ class NsjailExecutor:
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-        # Try to parse result.json for structured output
-        try:
-            result_data = read_json_object_beneath(
-                job_dir,
-                Path("result.json"),
-                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-            )
-        except SandboxFileSafetyError as exc:
-            logger.warning(
-                "Rejected unsafe sandbox result file",
-                error=str(exc),
-            )
-            return SandboxResult(
-                success=False,
-                error="Sandbox produced an invalid result file",
-                stdout=stdout,
-                stderr=stderr[:500],
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
-
-        if result_data is not None:
-            try:
-                return SandboxResult(
-                    success=result_data.get("success", False),
-                    output=result_data.get("output"),
-                    stdout=result_data.get("stdout", stdout),
-                    stderr=result_data.get("stderr", stderr),
-                    error=result_data.get("error"),
-                    error_code=(
-                        SandboxErrorCode(error_code)
-                        if (error_code := result_data.get("error_code"))
-                        else None
-                    ),
-                    exit_code=process.returncode,
-                    execution_time_ms=execution_time_ms,
-                )
-            except ValueError as exc:
-                logger.warning(
-                    "Rejected invalid sandbox result fields",
-                    error=str(exc),
-                )
-                return SandboxResult(
-                    success=False,
-                    error="Sandbox produced an invalid result file",
-                    stdout=stdout,
-                    stderr=stderr[:500],
-                    exit_code=process.returncode,
-                    execution_time_ms=execution_time_ms,
-                )
+        outcome = decode_result_envelope(
+            job_dir,
+            output_key="output",
+            stdout=stdout,
+            stderr=stderr,
+            stderr_limit=500,
+            invalid_result_error="Sandbox produced an invalid result file",
+            log_label="sandbox",
+            exit_code=process.returncode,
+            execution_time_ms=execution_time_ms,
+            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+            stream_source="envelope",
+            include_error_code=True,
+        )
+        if outcome is not None:
+            return outcome.result
 
         # No result.json - this is an infrastructure error
         if process.returncode != 0:
@@ -941,31 +905,23 @@ class NsjailExecutor:
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-        # Try to parse result.json for structured output
-        try:
-            result_data = read_json_object_beneath(
-                job_dir,
-                Path("result.json"),
-                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
-            )
-        except SandboxFileSafetyError as exc:
-            logger.warning(
-                "Rejected unsafe action result file",
-                error=str(exc),
-            )
-            return SandboxResult(
-                success=False,
-                error="Action sandbox produced an invalid result file",
-                stdout=stdout,
-                stderr=stderr[:2000],
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
-
-        if result_data is not None:
+        outcome = decode_result_envelope(
+            job_dir,
+            output_key="result",
+            stdout=stdout,
+            stderr=stderr,
+            stderr_limit=2000,
+            invalid_result_error="Action sandbox produced an invalid result file",
+            log_label="action",
+            exit_code=process.returncode,
+            execution_time_ms=execution_time_ms,
+            max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+            stream_source="process",
+        )
+        if outcome is not None:
             # Log subprocess stderr for debugging (contains timing info)
             # Filter out nsjail verbose output, look for Python logs
-            if stderr.strip():
+            if outcome.valid_envelope and stderr.strip():
                 # Extract lines that look like Python logs (not nsjail [I] lines)
                 python_logs = "\n".join(
                     line
@@ -974,15 +930,7 @@ class NsjailExecutor:
                 )
                 if python_logs.strip():
                     logger.info("Subprocess output", output=python_logs[:2000])
-            return SandboxResult(
-                success=result_data.get("success", False),
-                output=result_data.get("result"),
-                stdout=stdout,
-                stderr=stderr,
-                error=result_data.get("error"),
-                exit_code=process.returncode,
-                execution_time_ms=execution_time_ms,
-            )
+            return outcome.result
 
         # No result.json - infrastructure error
         if process.returncode != 0:
