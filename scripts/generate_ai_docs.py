@@ -198,6 +198,11 @@ PAGES: list[dict[str, Any]] = [
         "actions": [
             {
                 "id": "ai.action",
+                "warning": (
+                    "`ai.action` requires a model selection at runtime. Set `model` "
+                    "with both `model_name` and `model_provider`, or set the deprecated "
+                    "top-level `model_name` and `model_provider` inputs together."
+                ),
                 "examples": [
                     "ai_action_extract_json",
                     "ai_action_classify_email",
@@ -247,6 +252,11 @@ PAGES: list[dict[str, Any]] = [
         "actions": [
             {
                 "id": "ai.agent",
+                "warning": (
+                    "`ai.agent` requires a model selection at runtime. Set `model` "
+                    "with both `model_name` and `model_provider`, or set the deprecated "
+                    "top-level `model_name` and `model_provider` inputs together."
+                ),
                 "examples": [
                     "ai_agent_investigate_alert",
                     "ai_agent_with_approvals",
@@ -538,6 +548,9 @@ def _render_action_section(action_entry: dict[str, Any], action: Any) -> list[st
         lines.extend([ENTERPRISE_BADGE, ""])
 
     lines.extend([_escape_text(_get_description(action)), ""])
+
+    if warning := action_entry.get("warning"):
+        lines.extend(["<Warning>", str(warning).strip(), "</Warning>", ""])
 
     lines.extend(["#### Inputs", ""])
     lines.extend(_render_input_fields(expects_schema))

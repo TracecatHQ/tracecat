@@ -27,6 +27,10 @@ Use `output_type` when a downstream action needs a predictable shape.
 
 Call an LLM with a given prompt and model (no tools).
 
+<Warning>
+`ai.action` requires a model selection at runtime. Set `model` with both `model_name` and `model_provider`, or set the deprecated top-level `model_name` and `model_provider` inputs together.
+</Warning>
+
 #### Inputs
 
 <ParamField path="user_prompt" type="string" required>

@@ -41,6 +41,10 @@ See [MCP integrations](/automations/integrations/mcp-integrations) to learn more
 
 AI agent with tool calling capabilities. Returns the output and full message history.
 
+<Warning>
+`ai.agent` requires a model selection at runtime. Set `model` with both `model_name` and `model_provider`, or set the deprecated top-level `model_name` and `model_provider` inputs together.
+</Warning>
+
 #### Inputs
 
 <ParamField path="user_prompt" type="string" required>
