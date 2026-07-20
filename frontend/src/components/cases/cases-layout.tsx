@@ -178,21 +178,25 @@ export function CasesLayout({
   const handleBulkDelete = useCallback(async () => {
     if (selectedCaseIds.size === 0) return
 
+    const caseIds = Array.from(selectedCaseIds)
+    const succeededIds = new Set<string>()
+    let failed = 0
     try {
       setIsDeleting(true)
-      const caseIds = Array.from(selectedCaseIds)
-      let succeeded = 0
-      let failed = 0
       for (const chunk of chunkCaseIds(caseIds)) {
         const response = await batchDeleteCases({ case_ids: chunk })
-        succeeded += response.succeeded
+        for (const result of response.results) {
+          if (result.success) {
+            succeededIds.add(result.case_id)
+          }
+        }
         failed += response.failed
       }
 
       if (failed > 0) {
         toast({
           variant: "destructive",
-          title: `${succeeded} deleted, ${failed} failed`,
+          title: `${succeededIds.size} deleted, ${failed} failed`,
           description: "Some selected cases could not be deleted.",
         })
       } else {
@@ -207,9 +211,17 @@ export function CasesLayout({
       console.error("Failed to delete cases:", err)
       toast({
         variant: "destructive",
-        title: "Failed to delete cases",
-        description: "Please try again.",
+        title:
+          succeededIds.size > 0
+            ? `${succeededIds.size} deleted before a request failed`
+            : "Failed to delete cases",
+        description: "Please retry to delete the remaining cases.",
       })
+      // Keep only unprocessed/failed cases selected so a retry cannot
+      // resubmit already-deleted IDs.
+      setSelectedCaseIds(
+        (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+      )
     } finally {
       setIsDeleting(false)
     }
@@ -223,25 +235,29 @@ export function CasesLayout({
       if (selectedCaseIds.size === 0) return
 
       const caseIds = Array.from(selectedCaseIds)
+      const succeededIds = new Set<string>()
+      let failed = 0
 
       try {
         setIsBulkUpdating(true)
 
-        let succeeded = 0
-        let failed = 0
         for (const chunk of chunkCaseIds(caseIds)) {
           const response = await batchUpdateCases({
             case_ids: chunk,
             update: updates,
           })
-          succeeded += response.succeeded
+          for (const result of response.results) {
+            if (result.success) {
+              succeededIds.add(result.case_id)
+            }
+          }
           failed += response.failed
         }
 
         if (failed > 0) {
           toast({
             variant: "destructive",
-            title: `${succeeded} updated, ${failed} failed`,
+            title: `${succeededIds.size} updated, ${failed} failed`,
             description: "Some selected cases could not be updated.",
           })
         } else {
@@ -258,9 +274,17 @@ export function CasesLayout({
         console.error("Failed to update cases:", err)
         toast({
           variant: "destructive",
-          title: "Failed to update cases",
-          description: "Please try again.",
+          title:
+            succeededIds.size > 0
+              ? `${succeededIds.size} updated before a request failed`
+              : "Failed to update cases",
+          description: "Please retry to update the remaining cases.",
         })
+        // Keep only unprocessed/failed cases selected so a retry targets
+        // just the remainder.
+        setSelectedCaseIds(
+          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+        )
       } finally {
         setIsBulkUpdating(false)
       }
