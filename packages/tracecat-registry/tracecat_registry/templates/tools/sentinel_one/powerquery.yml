@@ -48,11 +48,11 @@ definition:
     poll_interval:
       type: float
       description: Seconds between poll attempts while the query runs.
-      default: 1
+      default: 5
     poll_max_attempts:
       type: int
       description: Maximum number of poll attempts. Set to 0 to poll until timeout.
-      default: 300
+      default: 60
     timeout_seconds:
       type: float
       description: HTTP timeout in seconds for each SDL request.

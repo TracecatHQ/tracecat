@@ -108,8 +108,8 @@ def test_powerquery_submission_contract(filename: str) -> None:
 def test_powerquery_poll_contract() -> None:
     definition = load_template("powerquery.yml").definition
 
-    assert definition.expects["poll_interval"].default == 1
-    assert definition.expects["poll_max_attempts"].default == 300
+    assert definition.expects["poll_interval"].default == 5
+    assert definition.expects["poll_max_attempts"].default == 60
 
     poll_step = definition.steps[2]
     assert poll_step.action == "core.http_poll"
