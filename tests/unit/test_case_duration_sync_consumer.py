@@ -15,7 +15,7 @@ from tracecat.cases.durations.materialization import (
     sync_case_duration,
 )
 from tracecat.cases.enums import CaseEventType
-from tracecat.redis.client import RedisClient
+from tracecat.redis.client import RedisClient, StreamGroupNotFoundError
 
 
 class FakeRedisClient:
@@ -628,6 +628,49 @@ async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
     ensure_group_mock.assert_awaited_once()
     handle_entries_mock.assert_awaited_once_with(entries)
     assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0]
+
+
+@pytest.mark.anyio
+async def test_consumer_recreates_missing_group_and_keeps_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entries = [
+        (
+            "1-0",
+            {
+                "workspace_id": str(uuid.uuid4()),
+                "case_id": str(uuid.uuid4()),
+                "reason": "case_event",
+            },
+        )
+    ]
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            StreamGroupNotFoundError("NOGROUP No such consumer group"),
+            [("stream", entries)],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    ensure_group_mock = AsyncMock()
+    handle_entries_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    # Initial creation plus one recreation, with no backoff sleep in between.
+    assert ensure_group_mock.await_count == 2
+    handle_entries_mock.assert_awaited_once_with(entries)
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [0]
 
 
 @pytest.mark.anyio

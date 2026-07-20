@@ -14,12 +14,28 @@ from redis.typing import KeyT, StreamIdT
 from tenacity import (
     retry,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
 
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+
+class StreamGroupNotFoundError(ResponseError):
+    """The stream or consumer group is missing (Redis ``NOGROUP``).
+
+    Subclasses ``ResponseError`` with the original server message so existing
+    callers that match on ``ResponseError`` keep working, while new callers can
+    branch on this type instead of inspecting error text.
+    """
+
+
+def _response_error_code(error: ResponseError) -> str:
+    """Return the RESP error code: the leading token of the server reply."""
+    message = str(error)
+    return message.split(" ", 1)[0] if message else ""
 
 
 def _resolve_redis_url() -> str:
@@ -244,7 +260,7 @@ class RedisClient:
                 name=stream_key, groupname=group_name, id=id, mkstream=mkstream
             )
         except ResponseError as e:
-            if ignore_busygroup and "BUSYGROUP" in str(e):
+            if ignore_busygroup and _response_error_code(e) == "BUSYGROUP":
                 logger.debug(
                     "Redis consumer group already exists",
                     stream_key=stream_key,
@@ -272,7 +288,8 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
+        retry=retry_if_exception_type((RedisError, RuntimeError))
+        & retry_if_not_exception_type(StreamGroupNotFoundError),
     )
     async def xreadgroup(
         self,
@@ -282,7 +299,11 @@ class RedisClient:
         count: int | None = None,
         block: int | None = None,
     ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
-        """Read from Redis streams using a consumer group."""
+        """Read from Redis streams using a consumer group.
+
+        Raises :class:`StreamGroupNotFoundError` (not retried) when the stream
+        or consumer group does not exist, so callers can recreate the group.
+        """
         try:
             client = await self._get_client()
             return await client.xreadgroup(
@@ -292,6 +313,18 @@ class RedisClient:
                 count=count,
                 block=block,
             )
+        except ResponseError as e:
+            if _response_error_code(e) == "NOGROUP":
+                raise StreamGroupNotFoundError(*e.args) from e
+            logger.error(
+                "Failed to read from Redis consumer group",
+                streams=list(streams.keys()),
+                group_name=group_name,
+                consumer_name=consumer_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
         except (RedisError, RuntimeError) as e:
             logger.error(
                 "Failed to read from Redis consumer group",

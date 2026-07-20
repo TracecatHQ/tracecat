@@ -17,9 +17,7 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
-from redis.exceptions import ResponseError
 from sqlalchemy import select
-from tenacity import RetryError
 
 from tracecat import config
 from tracecat.cases.durations.materialization import sync_case_duration
@@ -29,7 +27,11 @@ from tracecat.cases.durations.sync_queue import (
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case
 from tracecat.logger import logger
-from tracecat.redis.client import RedisClient, get_redis_client
+from tracecat.redis.client import (
+    RedisClient,
+    StreamGroupNotFoundError,
+    get_redis_client,
+)
 
 RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
 RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
@@ -127,17 +129,15 @@ class CaseDurationSyncConsumer:
                         count=self.batch,
                         block=self.block_ms,
                     )
-                except (ResponseError, RetryError) as e:
-                    if self._is_nogroup_error(e):
-                        logger.warning(
-                            "Redis case duration sync stream/group missing; recreating",
-                            stream_key=self.stream_key,
-                            group=self.group,
-                            error=str(e),
-                        )
-                        await self._ensure_group()
-                        continue
-                    raise
+                except StreamGroupNotFoundError as e:
+                    logger.warning(
+                        "Redis case duration sync stream/group missing; recreating",
+                        stream_key=self.stream_key,
+                        group=self.group,
+                        error=str(e),
+                    )
+                    await self._ensure_group()
+                    continue
                 if messages:
                     for _stream, entries in messages:
                         await self._handle_entries(entries)
@@ -158,14 +158,6 @@ class CaseDurationSyncConsumer:
                 )
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, RETRY_BACKOFF_MAX_SECONDS)
-
-    def _is_nogroup_error(self, error: Exception) -> bool:
-        if isinstance(error, ResponseError):
-            return "NOGROUP" in str(error)
-        if isinstance(error, RetryError):
-            last_exc = error.last_attempt.exception()
-            return isinstance(last_exc, ResponseError) and "NOGROUP" in str(last_exc)
-        return False
 
     async def _ensure_group(self) -> None:
         # Read from the start of the stream ("0") rather than only new
