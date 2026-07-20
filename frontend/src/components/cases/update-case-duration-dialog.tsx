@@ -94,10 +94,7 @@ const getInitialValues = (
   }
 }
 
-function areStringArraysEqual(
-  left: string[] | undefined,
-  right: string[] | undefined
-): boolean {
+function areStringArraysEqual(left?: string[], right?: string[]): boolean {
   if (left === right) {
     return true
   }
@@ -122,7 +119,7 @@ function areAnchorFormValuesEqual(
 
 function buildAnchorPayload(
   anchor: CaseDurationFormValues["start"],
-  filters: CaseDurationEventFilters | null | undefined
+  filters?: CaseDurationEventFilters | null
 ): CaseDurationEventAnchor {
   return {
     event_type: anchor.eventType,
