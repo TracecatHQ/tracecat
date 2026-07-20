@@ -2,14 +2,16 @@
 
 import asyncio
 import base64
-from collections.abc import Awaitable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import boto3
 import redis.asyncio as redis
 from botocore.exceptions import ClientError
 from redis.asyncio.connection import ConnectionPool
-from redis.exceptions import RedisError, ResponseError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.typing import KeyT, StreamIdT
 from tenacity import (
     retry,
@@ -18,8 +20,17 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
+from tracecat.config import REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+TRANSIENT_REDIS_ERRORS = (RedisConnectionError, RedisTimeoutError, RuntimeError)
+
+_retry_transient = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(TRANSIENT_REDIS_ERRORS),
+    reraise=True,
+)
 
 
 def _resolve_redis_url() -> str:
@@ -110,18 +121,14 @@ class RedisClient:
 
         return RedisClient._client
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xadd(
         self,
         stream_key: str,
         fields: dict[str, Any],
         maxlen: int | None = None,
         approximate: bool = True,
-        expire_seconds: int | None = REDIS_CHAT_TTL_SECONDS,
+        expire_seconds: int | None = None,
     ) -> str:
         """Add an entry to a Redis stream with retry logic.
 
@@ -130,8 +137,8 @@ class RedisClient:
             fields: Dictionary of field-value pairs to add
             maxlen: Maximum stream length (approximate if approximate=True)
             approximate: Whether to use approximate trimming for better performance
-            expire_seconds: TTL in seconds for the stream key. Set to None to disable
-                expiration.
+            expire_seconds: Optional TTL in seconds for the stream key. Streams do not
+                expire by default.
 
         Returns:
             The ID of the added entry
@@ -160,7 +167,7 @@ class RedisClient:
                 message_id=message_id,
             )
             return message_id
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to add entry to Redis stream",
                 stream_key=stream_key,
@@ -169,11 +176,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xread(
         self,
         streams: dict[KeyT, StreamIdT],
@@ -193,7 +196,7 @@ class RedisClient:
         try:
             client = await self._get_client()
             return await client.xread(streams=streams, count=count, block=block)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to read from Redis stream",
                 streams=list(streams.keys()),
@@ -202,11 +205,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xgroup_create(
         self,
         stream_key: str,
@@ -230,15 +229,8 @@ class RedisClient:
                     group_name=group_name,
                 )
                 return False
-            logger.error(
-                "Failed to create Redis consumer group",
-                stream_key=stream_key,
-                group_name=group_name,
-                error=str(e),
-            )
-            await self._reset_connection()
             raise
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to create Redis consumer group",
                 stream_key=stream_key,
@@ -248,11 +240,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xreadgroup(
         self,
         group_name: str,
@@ -271,7 +259,7 @@ class RedisClient:
                 count=count,
                 block=block,
             )
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to read from Redis consumer group",
                 streams=list(streams.keys()),
@@ -282,11 +270,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xack(
         self, stream_key: str, group_name: str, message_ids: list[str]
     ) -> int:
@@ -294,7 +278,7 @@ class RedisClient:
         try:
             client = await self._get_client()
             return await client.xack(stream_key, group_name, *message_ids)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to ack Redis stream messages",
                 stream_key=stream_key,
@@ -304,11 +288,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xpending_range(
         self,
         stream_key: str,
@@ -319,8 +299,12 @@ class RedisClient:
         *,
         consumer: str | None = None,
         idle: int | None = None,
-    ) -> list[Any]:
-        """Fetch pending messages in a consumer group."""
+    ) -> list[dict[str, Any]]:
+        """Fetch pending-message dictionaries from a consumer group.
+
+        Each dictionary contains ``message_id``, ``consumer``,
+        ``time_since_delivered``, and ``times_delivered``.
+        """
         try:
             client = await self._get_client()
             return await client.xpending_range(
@@ -332,7 +316,7 @@ class RedisClient:
                 consumername=consumer,
                 idle=idle,
             )
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to fetch pending Redis messages",
                 stream_key=stream_key,
@@ -342,11 +326,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xclaim(
         self,
         stream_key: str,
@@ -365,7 +345,7 @@ class RedisClient:
                 min_idle_time=min_idle_time,
                 message_ids=list(message_ids),
             )
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to claim Redis pending messages",
                 stream_key=stream_key,
@@ -376,11 +356,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xrange(
         self,
         stream_key: str,
@@ -405,7 +381,7 @@ class RedisClient:
                 name=stream_key, min=min_id, max=max_id, count=count
             )
             return result
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to read range from Redis stream",
                 stream_key=stream_key,
@@ -414,11 +390,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def xrevrange(
         self,
         stream_key: str,
@@ -433,7 +405,7 @@ class RedisClient:
                 name=stream_key, max=max_id, min=min_id, count=count
             )
             return result
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to read reverse range from Redis stream",
                 stream_key=stream_key,
@@ -446,23 +418,11 @@ class RedisClient:
         """Check if Redis connection is alive."""
         try:
             client = await self._get_client()
-            ping_result = client.ping()
-            return await self._awaitable_to_bool(ping_result)
+            return bool(await client.ping())  # pyright: ignore[reportGeneralTypeIssues]
         except Exception:
             return False
 
-    async def _awaitable_to_bool(self, value: bool | Awaitable[bool]) -> bool:
-        """Return awaited bool regardless of sync/async Redis ping implementation."""
-        if isinstance(value, Awaitable):
-            resolved = await value
-            return bool(resolved)
-        return bool(value)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def set_if_not_exists(
         self, key: str, value: str, *, expire_seconds: int
     ) -> bool:
@@ -471,7 +431,7 @@ class RedisClient:
             client = await self._get_client()
             result = await client.set(name=key, value=value, nx=True, ex=expire_seconds)
             return bool(result)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to set Redis key if not exists",
                 key=key,
@@ -480,11 +440,7 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def set(
         self,
         key: str,
@@ -497,7 +453,7 @@ class RedisClient:
             client = await self._get_client()
             result = await client.set(name=key, value=value, ex=expire_seconds)
             return bool(result)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error(
                 "Failed to set Redis key",
                 key=key,
@@ -506,27 +462,19 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def exists(self, key: str) -> bool:
         """Check if a Redis key exists."""
         try:
             client = await self._get_client()
             result = await client.exists(key)
             return bool(result)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error("Failed to check Redis key existence", key=key, error=str(e))
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def get(self, key: str) -> str | None:
         """Get a Redis key value."""
         try:
@@ -535,22 +483,18 @@ class RedisClient:
             if result is None:
                 return None
             return str(result)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error("Failed to get Redis key", key=key, error=str(e))
             await self._reset_connection()
             raise
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
-    )
+    @_retry_transient
     async def delete(self, key: str) -> int:
         """Delete a Redis key."""
         try:
             client = await self._get_client()
             return await client.delete(key)
-        except (RedisError, RuntimeError) as e:
+        except TRANSIENT_REDIS_ERRORS as e:
             logger.error("Failed to delete Redis key", key=key, error=str(e))
             await self._reset_connection()
             raise
@@ -559,7 +503,7 @@ class RedisClient:
         """Close the Redis connection."""
         closed = False
         if RedisClient._client:
-            await RedisClient._client.close()
+            await RedisClient._client.aclose()
             RedisClient._client = None
             closed = True
         if RedisClient._pool:

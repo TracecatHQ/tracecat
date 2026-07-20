@@ -32,6 +32,7 @@ from tracecat.agent.stream.events import (
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
+from tracecat.config import REDIS_CHAT_TTL_SECONDS
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -94,6 +95,7 @@ class AgentStream:
             {tokens.DATA_KEY: orjson.dumps(event, default=to_jsonable_python).decode()},
             maxlen=10000,
             approximate=True,
+            expire_seconds=REDIS_CHAT_TTL_SECONDS,
         )
 
     async def error(self, error: str) -> None:

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 import tenacity
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError
 
 from tracecat.redis.client import RedisClient
 
@@ -31,13 +33,15 @@ class DummyRedis:
     expire_call_count = 0
     _xadd_raised_once = False
     raise_on_xadd_once = False
+    xreadgroup_call_count = 0
+    xreadgroup_error: Exception | None = None
 
     def __init__(self, *, connection_pool: DummyConnectionPool) -> None:
         self.connection_pool = connection_pool
         self.closed = False
         DummyRedis.instances.append(self)
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         self.closed = True
 
     async def ping(self) -> bool:
@@ -59,6 +63,14 @@ class DummyRedis:
     ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
         return []
 
+    async def xreadgroup(
+        self, *args, **kwargs
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        DummyRedis.xreadgroup_call_count += 1
+        if DummyRedis.xreadgroup_error is not None:
+            raise DummyRedis.xreadgroup_error
+        return []
+
     async def xrange(self, *args, **kwargs) -> list[tuple[str, dict[str, str]]]:
         return []
 
@@ -69,6 +81,8 @@ class DummyRedis:
         cls.expire_call_count = 0
         cls._xadd_raised_once = False
         cls.raise_on_xadd_once = False
+        cls.xreadgroup_call_count = 0
+        cls.xreadgroup_error = None
 
 
 def fake_from_url(*args, **kwargs) -> SimpleNamespace:
@@ -101,13 +115,20 @@ def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def no_retry_wait() -> Generator[None, None, None]:
-    retry_controller = RedisClient.xadd.retry  # type: ignore[attr-defined]
-    original_wait = retry_controller.wait
-    retry_controller.wait = tenacity.wait.wait_fixed(0)
+    retry_controllers = [
+        RedisClient.xadd.retry,  # type: ignore[attr-defined]
+        RedisClient.xreadgroup.retry,  # type: ignore[attr-defined]
+    ]
+    original_waits = [controller.wait for controller in retry_controllers]
+    for controller in retry_controllers:
+        controller.wait = tenacity.wait.wait_fixed(0)
     try:
         yield
     finally:
-        retry_controller.wait = original_wait
+        for controller, original_wait in zip(
+            retry_controllers, original_waits, strict=True
+        ):
+            controller.wait = original_wait
 
 
 async def _two_clients_same_loop(client: RedisClient):
@@ -152,17 +173,55 @@ def test_xadd_retries_after_transport_error() -> None:
     assert DummyRedis.instances[0].closed is True
 
 
-def test_xadd_applies_default_ttl() -> None:
+def test_xadd_skips_ttl_by_default() -> None:
     client = RedisClient()
 
     asyncio.run(client.xadd("stream", {"field": "value"}))
 
+    assert DummyRedis.expire_call_count == 0
+
+
+def test_xadd_applies_explicit_ttl() -> None:
+    client = RedisClient()
+
+    asyncio.run(client.xadd("stream", {"field": "value"}, expire_seconds=60))
+
     assert DummyRedis.expire_call_count == 1
 
 
-def test_xadd_allows_disabling_ttl() -> None:
+def test_xreadgroup_response_error_does_not_retry_or_reset() -> None:
     client = RedisClient()
+    error = ResponseError("NOGROUP No such key or consumer group")
+    DummyRedis.xreadgroup_error = error
 
-    asyncio.run(client.xadd("stream", {"field": "value"}, expire_seconds=None))
+    with pytest.raises(ResponseError) as exc_info:
+        asyncio.run(
+            client.xreadgroup(
+                group_name="group",
+                consumer_name="consumer",
+                streams={"stream": ">"},
+            )
+        )
 
-    assert DummyRedis.expire_call_count == 0
+    assert exc_info.value is error
+    assert DummyRedis.xreadgroup_call_count == 1
+    assert len(DummyConnectionPool.instances) == 1
+    assert DummyConnectionPool.instances[0].disconnected is False
+
+
+def test_xreadgroup_exhausted_retries_raise_original_exception() -> None:
+    client = RedisClient()
+    error = RedisConnectionError("connection lost")
+    DummyRedis.xreadgroup_error = error
+
+    with pytest.raises(RedisConnectionError) as exc_info:
+        asyncio.run(
+            client.xreadgroup(
+                group_name="group",
+                consumer_name="consumer",
+                streams={"stream": ">"},
+            )
+        )
+
+    assert exc_info.value is error
+    assert DummyRedis.xreadgroup_call_count == 3
