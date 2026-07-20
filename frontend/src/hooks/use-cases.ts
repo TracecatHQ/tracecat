@@ -1071,9 +1071,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (visibleAggregateData?.total ??
-      visibleRowsData?.pages[0]?.total_estimate ??
-      null)
+    : (visibleAggregateData?.total ?? null)
   const isHydrationPending =
     enabled && Boolean(workspaceId) && !hasHydratedFilters
 

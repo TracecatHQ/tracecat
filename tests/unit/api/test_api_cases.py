@@ -1024,6 +1024,7 @@ async def test_search_cases_success(
             prev_cursor=None,
             has_more=False,
             has_previous=False,
+            total_estimate=None,
         )
         MockService.return_value = mock_svc
 
@@ -1042,6 +1043,7 @@ async def test_search_cases_success(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
+        assert data["total_estimate"] is None
         mock_svc.search_cases.assert_called_once()
 
 

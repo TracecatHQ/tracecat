@@ -1120,6 +1120,61 @@ class TestCasesService:
 
         assert search_response.model_dump() == list_response.model_dump()
 
+    async def test_search_cases_paginates_without_total_estimate(
+        self, cases_service: CasesService
+    ) -> None:
+        """Search pagination should use cursors without computing a total count."""
+        created_cases = []
+        for index in range(3):
+            created_cases.append(
+                await cases_service.create_case(
+                    CaseCreate(
+                        summary=f"Paginated case {index}",
+                        description=f"Paginated case description {index}",
+                        status=CaseStatus.NEW,
+                        priority=CasePriority.MEDIUM,
+                        severity=CaseSeverity.LOW,
+                    )
+                )
+            )
+        expected_cases = sorted(
+            created_cases,
+            key=lambda case: (case.created_at, case.id),
+        )
+
+        first_page = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=2, cursor=None, reverse=False),
+            order_by="created_at",
+            sort="asc",
+        )
+
+        assert [case.id for case in first_page.items] == [
+            expected_cases[0].id,
+            expected_cases[1].id,
+        ]
+        assert first_page.total_estimate is None
+        assert first_page.has_more is True
+        assert first_page.has_previous is False
+        assert first_page.next_cursor is not None
+        assert first_page.prev_cursor is None
+
+        second_page = await cases_service.search_cases(
+            params=CursorPaginationParams(
+                limit=2,
+                cursor=first_page.next_cursor,
+                reverse=False,
+            ),
+            order_by="created_at",
+            sort="asc",
+        )
+
+        assert [case.id for case in second_page.items] == [expected_cases[2].id]
+        assert second_page.total_estimate is None
+        assert second_page.has_more is False
+        assert second_page.has_previous is True
+        assert second_page.next_cursor is None
+        assert second_page.prev_cursor is not None
+
     async def test_search_cases_gates_duration_selectinload(
         self, cases_service: CasesService
     ) -> None:

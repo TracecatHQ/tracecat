@@ -435,14 +435,6 @@ class CasesService(BaseWorkspaceService):
         for clause in filters:
             stmt = stmt.where(clause)
 
-        # Compute total count with applied filters (workspace scoped)
-        count_stmt = select(func.count()).select_from(Case)
-        for clause in filters:
-            count_stmt = count_stmt.where(clause)
-
-        total_count = await self.session.scalar(count_stmt)
-        total_estimate = int(total_count or 0)
-
         # Determine sort column and direction
         sort_column = order_by or "created_at"
         sort_direction = sort or "desc"
@@ -678,7 +670,7 @@ class CasesService(BaseWorkspaceService):
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
-            total_estimate=total_estimate,
+            total_estimate=None,
         )
 
     async def get_search_case_aggregates(
