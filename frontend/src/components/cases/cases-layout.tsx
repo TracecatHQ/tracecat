@@ -199,9 +199,10 @@ export function CasesLayout({
           title: `${succeededIds.size} deleted, ${failed} failed`,
           description: "Some selected cases could not be deleted.",
         })
-        // Keep only failed cases selected so a retry targets the remainder.
+        // Drop succeeded cases from the current selection so a retry targets
+        // the remainder without discarding selection changes made mid-flight.
         setSelectedCaseIds(
-          new Set(caseIds.filter((id) => !succeededIds.has(id)))
+          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
         )
       } else {
         toast({
@@ -263,9 +264,10 @@ export function CasesLayout({
             title: `${succeededIds.size} updated, ${failed} failed`,
             description: "Some selected cases could not be updated.",
           })
-          // Keep only failed cases selected so a retry targets the remainder.
+          // Drop succeeded cases from the current selection so a retry targets
+          // the remainder without discarding selection changes made mid-flight.
           setSelectedCaseIds(
-            new Set(caseIds.filter((id) => !succeededIds.has(id)))
+            (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
           )
         } else {
           toast({
