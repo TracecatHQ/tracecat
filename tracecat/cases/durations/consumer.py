@@ -43,10 +43,10 @@ class CaseKey(NamedTuple):
 
 
 class _SyncJobBase(BaseModel):
-    """Fields marked `None` are forbidden for that reason and reject non-null
-    values, while unknown extra fields stay ignored (Pydantic's default)."""
+    """Each subclass declares exactly the fields its reason allows; any other
+    field in a message rejects it (`extra="forbid"`)."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: uuid.UUID
 
@@ -55,20 +55,15 @@ class CaseEventSyncJob(_SyncJobBase):
     reason: Literal["case_event"]
     case_id: uuid.UUID
     event_type: str = Field(min_length=1)
-    cursor: None = None
 
 
 class DurationDefinitionSyncJob(_SyncJobBase):
     reason: Literal["duration_definition_created", "duration_definition_updated"]
-    case_id: None = None
-    event_type: None = None
-    cursor: None = None
 
 
 class DurationBackfillSyncJob(_SyncJobBase):
     reason: Literal["duration_definition_backfill"]
     case_id: uuid.UUID | None = None
-    event_type: None = None
     cursor: int | None = None
 
     @model_validator(mode="after")
@@ -194,30 +189,32 @@ class CaseDurationSyncConsumer:
                 await self._ack_and_delete([message_id])
                 continue
 
-            if job.case_id is None:
-                try:
-                    should_ack = await self._process_backfill_job(job)
-                except Exception:
-                    logger.exception(
-                        "Failed to process case duration backfill job",
-                        workspace_id=str(job.workspace_id),
-                        reason=job.reason,
-                    )
-                    should_ack = False
-                if should_ack:
-                    await self._ack_and_delete([message_id])
+            if isinstance(job, CaseEventSyncJob):
+                key = CaseKey(workspace_id=job.workspace_id, case_id=job.case_id)
+                case_jobs.setdefault(key, []).append(message_id)
+                case_event_types.setdefault(key, set()).add(job.event_type)
                 continue
 
-            key = CaseKey(workspace_id=job.workspace_id, case_id=job.case_id)
-            case_jobs.setdefault(key, []).append(message_id)
-            if job.event_type:
-                case_event_types.setdefault(key, set()).add(job.event_type)
-            else:
-                # A case-scoped job without an event type (e.g. a backfill job)
-                # means "sync unconditionally". Record the key so a coalesced,
-                # non-matching event type cannot make the event-type filter skip
-                # and ack it.
+            if isinstance(job, DurationBackfillSyncJob) and job.case_id is not None:
+                # A case-scoped backfill job means "sync unconditionally".
+                # Record the key so a coalesced, non-matching event type cannot
+                # make the event-type filter skip and ack it.
+                key = CaseKey(workspace_id=job.workspace_id, case_id=job.case_id)
+                case_jobs.setdefault(key, []).append(message_id)
                 force_sync_keys.add(key)
+                continue
+
+            try:
+                should_ack = await self._process_backfill_job(job)
+            except Exception:
+                logger.exception(
+                    "Failed to process case duration backfill job",
+                    workspace_id=str(job.workspace_id),
+                    reason=job.reason,
+                )
+                should_ack = False
+            if should_ack:
+                await self._ack_and_delete([message_id])
 
         for key, message_ids in case_jobs.items():
             event_types = None if key in force_sync_keys else case_event_types.get(key)
@@ -286,7 +283,7 @@ class CaseDurationSyncConsumer:
                 .order_by(Case.surrogate_id.asc())
                 .limit(self.backfill_batch)
             )
-            if job.cursor is not None:
+            if isinstance(job, DurationBackfillSyncJob) and job.cursor is not None:
                 stmt = stmt.where(Case.surrogate_id > job.cursor)
             result = await session.execute(stmt)
             case_rows = result.tuples().all()

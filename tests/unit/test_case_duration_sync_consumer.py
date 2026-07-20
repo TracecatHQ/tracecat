@@ -441,8 +441,10 @@ def test_parse_job_accepts_published_reason_shapes(
 
     assert job is not None
     assert job.workspace_id == workspace_id
-    assert job.case_id == (case_id if expected_case_id is not None else None)
-    assert job.cursor == expected_cursor
+    assert getattr(job, "case_id", None) == (
+        case_id if expected_case_id is not None else None
+    )
+    assert getattr(job, "cursor", None) == expected_cursor
 
 
 @pytest.mark.anyio
