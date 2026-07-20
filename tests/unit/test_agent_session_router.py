@@ -41,7 +41,11 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
     VercelChatRequest,
 )
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 
 
 async def _empty_event_stream() -> AsyncIterator[None]:
@@ -980,6 +984,60 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
     # the HTTP layer so a concurrent newer turn's pointers are not clobbered.
     assert isinstance(clear_call.kwargs["expected_stream_id"], uuid.UUID)
     fake_stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_send_message_maps_conflicting_decision_to_409() -> None:
+    """A decision contradicting a recorded one is a conflict, not a 500."""
+    session_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = ContinueRunRequest(
+        decisions=[ApprovalDecision(tool_call_id="tool_call_123", action="deny")],
+        source="slack",
+    )
+
+    fake_svc = SimpleNamespace(
+        session=Mock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=SimpleNamespace(curr_run_id=None)),
+        run_turn=AsyncMock(
+            side_effect=TracecatConflictError(
+                "Approval decision conflicts with a decision already recorded"
+                " for tool call tool_call_123"
+            )
+        ),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router._require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_send_message(
+                session_id=session_id,
+                request=request,
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    assert exc_info.value.status_code == 409
+    assert "already recorded" in str(exc_info.value.detail)
 
 
 @pytest.mark.anyio

@@ -1156,7 +1156,7 @@ export type ApprovalInteraction = {
 }
 
 export type ApprovalMap = {
-  [key: string]: boolean | ToolApproved | ToolDenied
+  [key: string]: ApprovalResult
 }
 
 /**
@@ -1176,6 +1176,8 @@ export type ApprovalRead = {
   approved_at?: string | null
   created_at: string
 }
+
+export type ApprovalResult = boolean | ToolApproved | ToolDenied
 
 /**
  * Possible states for a deferred tool approval.

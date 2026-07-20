@@ -608,6 +608,13 @@ async def send_message(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except TracecatConflictError as e:
+        # A decision contradicting one already recorded: the client is acting on
+        # stale state and should refresh, not retry.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -27,6 +27,7 @@ from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval
+from tracecat.exceptions import TracecatConflictError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -1411,6 +1412,249 @@ async def test_run_turn_continue_partial_approval_reports_not_resumed(
     }
 
 
+async def _partial_batch_session(
+    session: AsyncSession,
+    svc_role: Role,
+) -> tuple[AgentSession, AgentSessionService]:
+    """Seed a session whose parallel batch has one decided and one pending call."""
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    for tool_call_id in ("tool_call_123", "tool_call_456"):
+        session.add(
+            Approval(
+                workspace_id=svc_role.workspace_id,
+                session_id=agent_session.id,
+                tool_call_id=tool_call_id,
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.PENDING,
+            )
+        )
+    await session.commit()
+    await session.refresh(agent_session)
+
+    service = AgentSessionService(session=session, role=svc_role)
+    first = ContinueRunRequest(
+        decisions=[ApprovalDecision(tool_call_id="tool_call_123", action="approve")],
+        source="inbox",
+    )
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), AsyncMock(return_value=False)
+    ):
+        await service.run_turn(agent_session.id, first)
+
+    return agent_session, service
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_matching_resubmission_is_noop(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A replayed decision for an already-decided call must not 400."""
+    agent_session, service = await _partial_batch_session(session, svc_role)
+
+    execute_update = AsyncMock(return_value=False)
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        result = await service.run_turn(
+            agent_session.id,
+            ContinueRunRequest(
+                decisions=[
+                    ApprovalDecision(tool_call_id="tool_call_123", action="approve")
+                ],
+                source="inbox",
+            ),
+        )
+
+    assert result is None
+    execute_update.assert_not_awaited()
+
+    pending = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_456",
+        )
+    )
+    assert pending is not None
+    assert pending.status is ApprovalStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_deny_replay_across_surfaces_is_noop(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Each surface supplies its own deny reason; the outcome still matches."""
+    agent_session = await _seed_approval_session(
+        session,
+        svc_role,
+        approvals=[
+            Approval(
+                tool_call_id="tool_call_123",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.REJECTED,
+                decision={
+                    "kind": "tool-denied",
+                    "message": "Tool denied by user",
+                    "metadata": {"source": "inbox"},
+                },
+            ),
+            Approval(
+                tool_call_id="tool_call_456",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.PENDING,
+            ),
+        ],
+    )
+
+    service = AgentSessionService(session=session, role=svc_role)
+    execute_update = AsyncMock(return_value=True)
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        result = await service.run_turn(
+            agent_session.id,
+            ContinueRunRequest(
+                decisions=[
+                    # Slack's default reason differs from the recorded inbox one.
+                    ApprovalDecision(
+                        tool_call_id="tool_call_123",
+                        action="deny",
+                        reason="The tool call was denied.",
+                    ),
+                    ApprovalDecision(tool_call_id="tool_call_456", action="approve"),
+                ],
+                source="slack",
+            ),
+        )
+
+    assert result is not None
+    execute_update.assert_awaited_once()
+    submitted = execute_update.await_args
+    assert submitted is not None
+    assert set(submitted.args[1].approvals) == {"tool_call_456"}
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_conflicting_resubmission_raises(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A stale card contradicting a recorded decision must not read as accepted."""
+    agent_session, service = await _partial_batch_session(session, svc_role)
+
+    execute_update = AsyncMock(return_value=False)
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        with pytest.raises(TracecatConflictError):
+            await service.run_turn(
+                agent_session.id,
+                ContinueRunRequest(
+                    decisions=[
+                        ApprovalDecision(tool_call_id="tool_call_123", action="deny")
+                    ],
+                    source="slack",
+                ),
+            )
+
+    execute_update.assert_not_awaited()
+    approved = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_123",
+        )
+    )
+    assert approved is not None
+    assert approved.status is ApprovalStatus.APPROVED
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_mixed_resubmission_forwards_pending_only(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Resending a decided call alongside a pending one forwards only the latter."""
+    agent_session, service = await _partial_batch_session(session, svc_role)
+
+    execute_update = AsyncMock(return_value=True)
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        result = await service.run_turn(
+            agent_session.id,
+            ContinueRunRequest(
+                decisions=[
+                    ApprovalDecision(tool_call_id="tool_call_123", action="approve"),
+                    ApprovalDecision(tool_call_id="tool_call_456", action="approve"),
+                ],
+                source="inbox",
+            ),
+        )
+
+    assert result is not None
+    execute_update.assert_awaited_once()
+    assert execute_update.await_args is not None
+    submitted = execute_update.await_args.args[1]
+    assert set(submitted.approvals) == {"tool_call_456"}
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_conflicting_after_batch_settled_raises(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Once nothing is pending, a contradicting replay still must not report success."""
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    session.add(
+        Approval(
+            workspace_id=svc_role.workspace_id,
+            session_id=agent_session.id,
+            tool_call_id="tool_call_123",
+            tool_name="core.http_request",
+            tool_call_args={"url": "https://example.com"},
+            status=ApprovalStatus.APPROVED,
+            decision={"value": True, "metadata": {"source": "inbox"}},
+        )
+    )
+    await session.commit()
+    await session.refresh(agent_session)
+
+    service = AgentSessionService(session=session, role=svc_role)
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), AsyncMock(return_value=False)
+    ):
+        with pytest.raises(TracecatConflictError):
+            await service.run_turn(
+                agent_session.id,
+                ContinueRunRequest(
+                    decisions=[
+                        ApprovalDecision(tool_call_id="tool_call_123", action="deny")
+                    ],
+                    source="slack",
+                ),
+            )
+
+
 @pytest.mark.anyio
 async def test_run_turn_continue_old_worker_none_defaults_to_resumed(
     session: AsyncSession,
@@ -1824,10 +2068,20 @@ async def test_run_turn_rejects_invalid_approval_ids_before_stream_rotation(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_without_pending_approvals_is_noop(
+@pytest.mark.parametrize(
+    "seed_decided,expectation",
+    [
+        pytest.param(False, pytest.raises(ValueError), id="unknown-tool-call-rejected"),
+        pytest.param(True, contextlib.nullcontext(), id="settled-replay-is-noop"),
+    ],
+)
+async def test_run_turn_continue_without_pending_approvals(
     session: AsyncSession,
     svc_role: Role,
+    seed_decided: bool,
+    expectation: contextlib.AbstractContextManager[object],
 ) -> None:
+    """With nothing pending, only a matching settled replay is a no-op."""
     rotated_stream_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
@@ -1839,6 +2093,18 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
         active_stream_id=rotated_stream_id,
     )
     session.add(agent_session)
+    if seed_decided:
+        session.add(
+            Approval(
+                workspace_id=svc_role.workspace_id,
+                session_id=agent_session.id,
+                tool_call_id="tool_call_123",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.APPROVED,
+                decision={"value": True, "metadata": {"source": "inbox"}},
+            )
+        )
     await session.commit()
     await session.refresh(agent_session)
 
@@ -1860,9 +2126,9 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
         "tracecat.agent.session.service.get_temporal_client",
         AsyncMock(return_value=fake_client),
     ):
-        result = await service.run_turn(agent_session.id, continuation)
+        with expectation:
+            assert await service.run_turn(agent_session.id, continuation) is None
 
-    assert result is None
     get_workflow_handle_for.assert_not_called()
     fake_handle.execute_update.assert_not_awaited()
 
@@ -2002,3 +2268,191 @@ async def test_run_turn_merges_basic_chat_request_instructions(
         == "Base preset instructions\n\nSlack actor context for this turn:\n- Slack email: jordan@example.com"
     )
     assert workflow_args.agent_args.user_prompt == "summarize this thread"
+
+
+async def _seed_approval_session(
+    session: AsyncSession,
+    svc_role: Role,
+    *,
+    approvals: list[Approval],
+) -> AgentSession:
+    """Seed a session plus caller-supplied approval rows."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.flush()
+    for approval in approvals:
+        approval.workspace_id = workspace_id
+        approval.session_id = agent_session.id
+        session.add(approval)
+    await session.commit()
+    return agent_session
+
+
+@pytest.mark.anyio
+async def test_apply_decisions_skips_already_terminal_row(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A deny submitted against an APPROVED row must not overwrite it."""
+    agent_session = await _seed_approval_session(
+        session,
+        svc_role,
+        approvals=[
+            Approval(
+                tool_call_id="tool_call_123",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.APPROVED,
+                decision={"value": True},
+            )
+        ],
+    )
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service._apply_submitted_approval_decisions(
+        session_id=agent_session.id,
+        approval_map={"tool_call_123": False},
+        decision_metadata={},
+    )
+
+    row = (
+        await session.execute(
+            select(Approval.status, Approval.decision).where(
+                Approval.session_id == agent_session.id,
+                Approval.tool_call_id == "tool_call_123",
+            )
+        )
+    ).one()
+    assert row.status is ApprovalStatus.APPROVED
+    assert row.decision == {"value": True}
+
+
+@pytest.mark.anyio
+async def test_apply_decisions_warns_on_missing_row(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Tool call IDs with no persisted row warn once, batched, instead of raising."""
+    agent_session = await _seed_approval_session(session, svc_role, approvals=[])
+
+    service = AgentSessionService(session=session, role=svc_role)
+    with patch("tracecat.agent.session.service.logger") as mock_logger:
+        await service._apply_submitted_approval_decisions(
+            session_id=agent_session.id,
+            approval_map={"tool_call_missing": True, "tool_call_absent": False},
+            decision_metadata={},
+        )
+
+    mock_logger.warning.assert_called_once()
+    assert mock_logger.warning.call_args.kwargs["tool_call_ids"] == [
+        "tool_call_absent",
+        "tool_call_missing",
+    ]
+
+
+@pytest.mark.anyio
+async def test_apply_decisions_nulls_approved_by_for_unknown_user(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A role user_id with no user row must not raise an FK violation."""
+    agent_session = await _seed_approval_session(
+        session,
+        svc_role,
+        approvals=[
+            Approval(
+                tool_call_id="tool_call_123",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.PENDING,
+            )
+        ],
+    )
+
+    ghost_role = svc_role.model_copy(update={"user_id": uuid.uuid4()})
+    service = AgentSessionService(session=session, role=ghost_role)
+    await service._apply_submitted_approval_decisions(
+        session_id=agent_session.id,
+        approval_map={"tool_call_123": True},
+        decision_metadata={},
+    )
+
+    row = (
+        await session.execute(
+            select(Approval.status, Approval.approved_by).where(
+                Approval.session_id == agent_session.id,
+                Approval.tool_call_id == "tool_call_123",
+            )
+        )
+    ).one()
+    assert row.status is ApprovalStatus.APPROVED
+    assert row.approved_by is None
+
+
+@pytest.mark.anyio
+async def test_apply_decisions_visible_to_later_read_in_same_session(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Rows already in the identity map must not read back stale after apply.
+
+    ``_emit_approval_idle_segment`` re-selects these rows in the same session
+    right after the decisions land, so a Core UPDATE must not leave the ORM
+    holding the pre-update PENDING state.
+    """
+    agent_session = await _seed_approval_session(
+        session,
+        svc_role,
+        approvals=[
+            Approval(
+                tool_call_id="tool_call_123",
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.PENDING,
+            )
+        ],
+    )
+
+    service = AgentSessionService(session=session, role=svc_role)
+    preloaded = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_123",
+        )
+    )
+    assert preloaded is not None
+    assert preloaded.status is ApprovalStatus.PENDING
+
+    await service._apply_submitted_approval_decisions(
+        session_id=agent_session.id,
+        approval_map={"tool_call_123": True},
+        decision_metadata={"tool_call_123": {"source": "inbox"}},
+    )
+
+    items = await service._approval_stream_items(
+        session_id=agent_session.id,
+        tool_call_ids=["tool_call_123"],
+    )
+    assert [item.status for item in items] == ["approved"]
+
+    reread = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_123",
+        )
+    )
+    assert reread is not None
+    assert reread.status is ApprovalStatus.APPROVED
+    assert reread.decision == {"value": True, "metadata": {"source": "inbox"}}
+    # `updated_at` cannot be asserted to advance here: the test fixture runs one
+    # outer transaction, and `func.now()` is transaction-start time.
+    assert reread.approved_at is not None

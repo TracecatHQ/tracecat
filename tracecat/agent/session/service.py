@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import orjson
 from pydantic_ai.messages import (
@@ -20,6 +20,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import (
+    TIMESTAMP,
+    String,
     and_,
     case,
     column,
@@ -29,8 +31,9 @@ from sqlalchemy import (
     or_,
     select,
     update,
+    values,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.client import (
     WorkflowUpdateRPCTimeoutOrCancelledError,
@@ -115,6 +118,7 @@ from tracecat.chat.tools import (
     get_default_tools,
 )
 from tracecat.db.models import (
+    APPROVAL_STATUS_ENUM,
     AgentSession,
     AgentSessionHistory,
     Approval,
@@ -145,7 +149,7 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
-    from tracecat_ee.agent.approvals.service import ApprovalMap
+    from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
 
     from tracecat.agent.executor.activity import ToolExecutionResult
 
@@ -208,12 +212,22 @@ class SessionHistoryData:
     is_fork: bool = False  # If True, SDK should use fork_session=True
 
 
+class _ApprovalDecisionFields(NamedTuple):
+    """Approval row fields derived from a deferred approval result."""
+
+    status: ApprovalStatus
+    reason: str | None
+    decision: PersistedApprovalDecision
+    approved_by: uuid.UUID | None
+    approved_at: datetime
+
+
 def _approval_decision_fields(
-    result: Any,
+    result: ApprovalResult,
     *,
     approved_by: uuid.UUID | None,
-    decision_metadata: dict[str, Any] | None,
-) -> dict[str, Any]:
+    decision_metadata: ApprovalDecisionMetadata | None,
+) -> _ApprovalDecisionFields:
     """Map a deferred approval result into Approval row update fields."""
     status: ApprovalStatus
     reason: str | None = None
@@ -250,13 +264,42 @@ def _approval_decision_fields(
         case _:
             raise ValueError(f"Unsupported approval result: {type(result)}")
 
-    return {
-        "status": status,
-        "reason": reason,
-        "decision": decision,
-        "approved_by": approved_by,
-        "approved_at": datetime.now(tz=UTC),
-    }
+    return _ApprovalDecisionFields(
+        status=status,
+        reason=reason,
+        decision=decision,
+        approved_by=approved_by,
+        approved_at=datetime.now(tz=UTC),
+    )
+
+
+def _decision_matches_persisted(
+    result: ApprovalResult, persisted: PersistedApprovalDecision | None
+) -> bool:
+    """Return whether a resubmitted decision matches what was already stored.
+
+    Compares outcome and override args but not metadata, so the same decision
+    replayed from a different surface (Slack <-> inbox) is still a match.
+    """
+    if persisted is None:
+        return False
+
+    fields = _approval_decision_fields(result, approved_by=None, decision_metadata=None)
+    submitted = fields.decision
+    # A bare bool is the legacy shape; {"value": ...} is the same decision
+    # enriched with submission metadata, so the two must compare equal.
+    if isinstance(submitted, bool):
+        if isinstance(persisted, bool):
+            return submitted == persisted
+        return submitted == persisted.get("value")
+    if isinstance(persisted, bool):
+        return False
+    # Compare the outcome only. Metadata and the deny message are excluded:
+    # each surface supplies its own default reason, so including them would
+    # reject a replay of the same decision from a different surface.
+    return all(
+        submitted.get(key) == persisted.get(key) for key in ("kind", "override_args")
+    )
 
 
 @dataclass(frozen=True)
@@ -278,12 +321,31 @@ class ApprovalContinuationAttempt:
     previous_stream_id: uuid.UUID | None
 
 
+type ApprovalDecisionMetadata = dict[str, Any]
+"""Submission metadata persisted alongside a decision.
+
+Always carries ``source``; client-supplied keys are merged over it, so the
+value type stays open. ``_decision_matches_persisted`` ignores this entirely
+so the same decision replayed from another surface is not a conflict.
+"""
+
+
 @dataclass(frozen=True)
 class _ValidatedContinuation:
     """Approvals resolved from a validated continuation request."""
 
     approval_map: ApprovalMap
-    decision_metadata: dict[str, dict[str, Any]]
+    decision_metadata: dict[str, ApprovalDecisionMetadata]
+
+
+class _DecisionRow(NamedTuple):
+    """One row of the VALUES clause; field order must match the columns."""
+
+    tool_call_id: str
+    status: ApprovalStatus
+    reason: str | None
+    decision: PersistedApprovalDecision
+    approved_at: datetime
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1254,49 +1316,96 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return set(result.scalars().all())
 
+    async def _settled_approval_decisions(
+        self, session_id: uuid.UUID
+    ) -> dict[str, PersistedApprovalDecision | None]:
+        """Return already-decided approvals so retries can be reconciled."""
+        stmt = select(Approval.tool_call_id, Approval.decision).where(
+            Approval.workspace_id == self.workspace_id,
+            Approval.session_id == session_id,
+            Approval.status != ApprovalStatus.PENDING,
+        )
+        result = await self.session.execute(stmt)
+        return {row.tool_call_id: row.decision for row in result}
+
     async def _apply_submitted_approval_decisions(
         self,
         *,
         session_id: uuid.UUID,
-        approval_map: Mapping[str, Any],
-        decision_metadata: Mapping[str, dict[str, Any]],
+        approval_map: Mapping[str, ApprovalResult],
+        decision_metadata: Mapping[str, ApprovalDecisionMetadata],
     ) -> None:
         """Persist accepted approval decisions before the full set resumes."""
         if not approval_map:
             return
 
-        tool_call_ids = list(approval_map)
-        stmt = (
-            select(Approval)
-            .where(
-                Approval.workspace_id == self.workspace_id,
-                Approval.session_id == session_id,
-                Approval.tool_call_id.in_(tool_call_ids),
-                Approval.status == ApprovalStatus.PENDING,
-            )
-            .with_for_update()
-        )
-        result = await self.session.execute(stmt)
-        approvals_by_tool_id = {
-            approval.tool_call_id: approval for approval in result.scalars().all()
-        }
         approved_by = await self._existing_user_id(self.role.user_id)
-
+        rows: list[_DecisionRow] = []
         for tool_call_id, approval_result in approval_map.items():
-            approval = approvals_by_tool_id.get(tool_call_id)
-            if approval is None:
-                logger.warning(
-                    "Accepted approval decision has no persisted approval row",
-                    session_id=str(session_id),
-                    tool_call_id=tool_call_id,
-                )
-                continue
-            for field, value in _approval_decision_fields(
+            fields = _approval_decision_fields(
                 approval_result,
                 approved_by=approved_by,
                 decision_metadata=decision_metadata.get(tool_call_id),
-            ).items():
-                setattr(approval, field, value)
+            )
+            rows.append(
+                _DecisionRow(
+                    tool_call_id=tool_call_id,
+                    status=fields.status,
+                    reason=fields.reason,
+                    decision=fields.decision,
+                    approved_at=fields.approved_at,
+                )
+            )
+
+        # Column types mirror the Approval model so values bind directly.
+        decisions = (
+            values(
+                column("tool_call_id", String),
+                column("status", APPROVAL_STATUS_ENUM),
+                column("reason", String),
+                column("decision", JSONB),
+                column("approved_at", TIMESTAMP(timezone=True)),
+                name="decisions",
+            )
+            .data(rows)
+            .alias()
+        )
+
+        stmt = (
+            update(Approval)
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id == session_id,
+                Approval.status == ApprovalStatus.PENDING,
+                Approval.tool_call_id == decisions.c.tool_call_id,
+            )
+            .values(
+                status=decisions.c.status,
+                reason=decisions.c.reason,
+                decision=decisions.c.decision,
+                approved_by=literal(approved_by, UUID),
+                approved_at=decisions.c.approved_at,
+                # Core-level bulk UPDATE does not fire the mapper `onupdate`.
+                updated_at=func.now(),
+            )
+            .returning(Approval.tool_call_id)
+            # "fetch" expires the updated rows in the identity map so
+            # `_emit_approval_idle_segment` re-reads them fresh. It reuses the
+            # RETURNING above, so this costs no extra query. "evaluate" cannot
+            # replay a criteria that joins a SQL-only VALUES clause.
+            .execution_options(synchronize_session="fetch")
+        )
+        result = await self.session.execute(stmt)
+        updated = set(result.scalars().all())
+
+        # Validation admits only pending IDs, so a miss here means the row was
+        # decided by a concurrent submitter in between, or is missing entirely.
+        if skipped := set(approval_map) - updated:
+            logger.warning(
+                "Accepted approval decisions were missing or no longer pending",
+                session_id=str(session_id),
+                tool_call_ids=sorted(skipped),
+            )
 
         await self.session.commit()
 
@@ -2012,12 +2121,18 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         request: ContinueRunRequest,
         pending_tool_call_ids: set[str],
+        settled_decisions: Mapping[str, PersistedApprovalDecision | None],
     ) -> _ValidatedContinuation:
-        """Validate decisions against the pending set and build the ApprovalMap.
+        """Validate decisions against pending and already-settled approvals.
+
+        Partial batches make resubmission normal: a decision that matches what
+        is already persisted is dropped as a no-op, so only still-pending
+        decisions reach the workflow.
 
         Raises:
-            ValueError: On duplicate submitted IDs or any mismatch with the
-                pending tool-call-id set.
+            ValueError: On duplicate submitted IDs, or IDs that are neither
+                pending nor already decided.
+            TracecatConflictError: If a decision contradicts a settled one.
         """
 
         source = request.source
@@ -2027,27 +2142,30 @@ class AgentSessionService(BaseWorkspaceService):
         submitted_tool_call_id_set = set(submitted_tool_call_ids)
         if len(submitted_tool_call_ids) != len(submitted_tool_call_id_set):
             raise ValueError("Approval decisions contain duplicate tool call IDs")
-        if not submitted_tool_call_id_set or not submitted_tool_call_id_set.issubset(
-            pending_tool_call_ids
-        ):
+        unexpected = sorted(
+            submitted_tool_call_id_set
+            - pending_tool_call_ids
+            - settled_decisions.keys()
+        )
+        if not submitted_tool_call_id_set or unexpected:
             missing = sorted(pending_tool_call_ids - submitted_tool_call_id_set)
-            unexpected = sorted(submitted_tool_call_id_set - pending_tool_call_ids)
             raise ValueError(
                 "Approval decisions do not match pending tool calls"
                 f" (missing={missing}, unexpected={unexpected})"
             )
 
         approval_map: ApprovalMap = {}
-        decision_metadata: dict[str, dict[str, Any]] = {}
+        decision_metadata: dict[str, ApprovalDecisionMetadata] = {}
         for decision in request.decisions:
+            approval_result: ApprovalResult
             if decision.action == "approve":
-                approval_map[decision.tool_call_id] = True
+                approval_result = True
             elif decision.action == "override":
-                approval_map[decision.tool_call_id] = ToolApproved(
+                approval_result = ToolApproved(
                     override_args=decision.override_args or {}
                 )
             elif decision.action == "deny":
-                approval_map[decision.tool_call_id] = ToolDenied(
+                approval_result = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
             else:
@@ -2056,10 +2174,24 @@ class AgentSessionService(BaseWorkspaceService):
                     action=decision.action,
                     tool_call_id=decision.tool_call_id,
                 )
-                approval_map[decision.tool_call_id] = ToolDenied(
+                approval_result = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
-            merged_metadata: dict[str, Any] = {"source": source}
+
+            if decision.tool_call_id not in pending_tool_call_ids:
+                # Already settled: identical resubmissions are dropped, but a
+                # contradicting one must not read as accepted.
+                if not _decision_matches_persisted(
+                    approval_result, settled_decisions[decision.tool_call_id]
+                ):
+                    raise TracecatConflictError(
+                        "Approval decision conflicts with a decision already"
+                        f" recorded for tool call {decision.tool_call_id}"
+                    )
+                continue
+
+            approval_map[decision.tool_call_id] = approval_result
+            merged_metadata: ApprovalDecisionMetadata = {"source": source}
             if decision.metadata:
                 merged_metadata.update(decision.metadata)
                 merged_metadata["source"] = source
@@ -2144,22 +2276,25 @@ class AgentSessionService(BaseWorkspaceService):
 
         source: Literal["inbox", "slack"] = request.source
 
-        # Idempotency path: if approvals are already resolved, accept duplicate
-        # submissions as a no-op (cross-surface races Slack <-> inbox).
+        # Idempotency path: resubmissions are normal for partial batches, so
+        # reconcile against settled decisions instead of only pending ones.
+        # A matching replay is a no-op; a contradicting one raises.
         pending_tool_call_ids = await self._pending_approval_tool_call_ids(session_id)
-        if not pending_tool_call_ids:
+        settled_decisions = await self._settled_approval_decisions(session_id)
+
+        validated = self._validate_continuation_decisions(
+            request=request,
+            pending_tool_call_ids=pending_tool_call_ids,
+            settled_decisions=settled_decisions,
+        )
+        if not validated.approval_map:
             logger.info(
-                "Ignoring approval continuation without pending approvals",
+                "Ignoring approval continuation with no undecided approvals",
                 session_id=str(session_id),
                 run_id=str(curr_run_id),
                 source=source,
             )
             return None
-
-        validated = self._validate_continuation_decisions(
-            request=request,
-            pending_tool_call_ids=pending_tool_call_ids,
-        )
 
         # Resolve the workflow handle first. These operations do not mutate
         # continuation state, so failures here should not suppress a later retry.

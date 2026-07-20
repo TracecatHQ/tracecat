@@ -17,7 +17,8 @@ from pydantic_ai.tools import (
     ToolApproved,
     ToolDenied,
 )
-from sqlalchemy import select
+from sqlalchemy import func, null, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
 
@@ -418,7 +419,8 @@ class ApprovalService(BaseWorkspaceService):
         await self.session.commit()
 
 
-type ApprovalMap = dict[str, bool | DeferredToolApprovalResult]
+type ApprovalResult = bool | DeferredToolApprovalResult
+type ApprovalMap = dict[str, ApprovalResult]
 
 
 class ApprovalManagerStatus(StrEnum):
@@ -648,51 +650,16 @@ class ApprovalManager:
             return
 
         async with ApprovalService.with_session(role=input.role) as service:
-            tool_call_ids = [decision.tool_call_id for decision in input.decisions]
-            stmt = (
-                select(Approval)
-                .where(
-                    Approval.workspace_id == service.workspace_id,
-                    Approval.session_id == input.session_id,
-                    Approval.tool_call_id.in_(tool_call_ids),
-                )
-                .with_for_update()
-            )
-            result = await service.session.execute(stmt)
-            approvals_by_tool_id = {
-                approval.tool_call_id: approval for approval in result.scalars().all()
-            }
-
+            now = datetime.now(tz=UTC)
+            # Untyped: these are SQLAlchemy insert values keyed by column name,
+            # where each value may be a Python scalar or a SQL element (null()).
+            rows: list[dict[str, Any]] = []
             for decision in input.decisions:
-                approval = approvals_by_tool_id.get(decision.tool_call_id)
-                if approval is None:
-                    approval = Approval(
-                        workspace_id=service.workspace_id,
-                        session_id=input.session_id,
-                        tool_call_id=decision.tool_call_id,
-                        tool_name="unknown",
-                        tool_call_args=None,
-                        status=ApprovalStatus.PENDING,
-                    )
-                    service.session.add(approval)
-                    approvals_by_tool_id[decision.tool_call_id] = approval
-
-                # Determine status and calculate approved_at timestamp
                 status = (
                     ApprovalStatus.APPROVED
                     if decision.approved
                     else ApprovalStatus.REJECTED
                 )
-                approved_at = (
-                    datetime.now(tz=UTC) if status != ApprovalStatus.PENDING else None
-                )
-
-                # Build update payload - only include decision if it was explicitly set
-                update_data: dict[str, Any] = {
-                    "status": status,
-                    "reason": decision.reason,
-                    "approved_by": decision.approved_by,
-                }
                 resolved_decision = decision.decision
                 if decision.decision_metadata:
                     if isinstance(resolved_decision, dict):
@@ -707,13 +674,41 @@ class ApprovalManager:
                         }
                     elif resolved_decision is None:
                         resolved_decision = {"metadata": decision.decision_metadata}
-                if resolved_decision is not None:
-                    update_data["decision"] = resolved_decision
+                rows.append(
+                    {
+                        "workspace_id": service.workspace_id,
+                        "session_id": input.session_id,
+                        "tool_call_id": decision.tool_call_id,
+                        "tool_name": "unknown",
+                        "tool_call_args": None,
+                        "status": status,
+                        "reason": decision.reason,
+                        "approved_by": decision.approved_by,
+                        "approved_at": now,
+                        # SQL NULL (not Python None) so COALESCE preserves a stored
+                        # decision instead of overwriting it with JSON null.
+                        "decision": resolved_decision
+                        if resolved_decision is not None
+                        else null(),
+                    }
+                )
 
-                for key, value in update_data.items():
-                    setattr(approval, key, value)
-                approval.approved_at = approved_at
-
+            stmt = pg_insert(Approval).values(rows)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_approval_workspace_session_tool",
+                set_={
+                    "status": stmt.excluded.status,
+                    "reason": stmt.excluded.reason,
+                    "approved_by": stmt.excluded.approved_by,
+                    "approved_at": stmt.excluded.approved_at,
+                    "decision": func.coalesce(
+                        stmt.excluded.decision, Approval.decision
+                    ),
+                    # onupdate does not fire for ON CONFLICT DO UPDATE.
+                    "updated_at": func.now(),
+                },
+            )
+            await service.session.execute(stmt)
             await service.session.commit()
 
     @staticmethod

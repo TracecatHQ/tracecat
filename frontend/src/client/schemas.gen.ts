@@ -4700,28 +4700,7 @@ export const $ApprovalInteraction = {
 
 export const $ApprovalMap = {
   additionalProperties: {
-    anyOf: [
-      {
-        type: "boolean",
-      },
-      {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/ToolApproved",
-          },
-          {
-            $ref: "#/components/schemas/ToolDenied",
-          },
-        ],
-        discriminator: {
-          propertyName: "kind",
-          mapping: {
-            "tool-approved": "#/components/schemas/ToolApproved",
-            "tool-denied": "#/components/schemas/ToolDenied",
-          },
-        },
-      },
-    ],
+    $ref: "#/components/schemas/ApprovalResult",
   },
   type: "object",
 } as const
@@ -4811,6 +4790,31 @@ export const $ApprovalRead = {
   required: ["id", "tool_call_id", "tool_name", "status", "created_at"],
   title: "ApprovalRead",
   description: "Response schema for approval data in chat timeline.",
+} as const
+
+export const $ApprovalResult = {
+  anyOf: [
+    {
+      type: "boolean",
+    },
+    {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ToolApproved",
+        },
+        {
+          $ref: "#/components/schemas/ToolDenied",
+        },
+      ],
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          "tool-approved": "#/components/schemas/ToolApproved",
+          "tool-denied": "#/components/schemas/ToolDenied",
+        },
+      },
+    },
+  ],
 } as const
 
 export const $ApprovalStatus = {
