@@ -1,0 +1,19 @@
+docs/automations/cases.mdx
+  s_c25a229991abf8::t_a81fa4d1e74c70 173-178,183,188-194,203-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "d4bff39d09573cc0262bf238f0147aabd8f156a3",
+  "prompts": {},
+  "sessions": {
+    "s_c25a229991abf8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8066-0276-77e3-a582-824a54eddea2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
