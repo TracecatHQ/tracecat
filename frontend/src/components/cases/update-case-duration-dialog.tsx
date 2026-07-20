@@ -92,6 +92,32 @@ const getInitialValues = (
   }
 }
 
+function areStringArraysEqual(
+  left: string[] | undefined,
+  right: string[] | undefined
+): boolean {
+  if (left === right) {
+    return true
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false
+  }
+  return left.every((value, index) => value === right[index])
+}
+
+function areAnchorFormValuesEqual(
+  left: CaseDurationFormValues["start"],
+  right: CaseDurationFormValues["start"]
+): boolean {
+  return (
+    left.selection === right.selection &&
+    left.eventType === right.eventType &&
+    left.dropdownDefinitionId === right.dropdownDefinitionId &&
+    areStringArraysEqual(left.filterValues, right.filterValues) &&
+    areStringArraysEqual(left.dropdownOptionIds, right.dropdownOptionIds)
+  )
+}
+
 export function UpdateCaseDurationDialog({
   open,
   onOpenChange,
@@ -120,20 +146,34 @@ export function UpdateCaseDurationDialog({
         values.end.filterValues,
         values.end
       )
+      const shouldSendStartAnchor =
+        isCaseDurationAnchorEventType(duration.start_anchor.event_type) ||
+        !areAnchorFormValuesEqual(values.start, initialValues.start)
+      const shouldSendEndAnchor =
+        isCaseDurationAnchorEventType(duration.end_anchor.event_type) ||
+        !areAnchorFormValuesEqual(values.end, initialValues.end)
 
       const payload: CaseDurationDefinitionUpdate = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
-        start_anchor: {
-          event_type: values.start.eventType,
-          selection: values.start.selection,
-          ...(startFilters ? { filters: startFilters } : {}),
-        },
-        end_anchor: {
-          event_type: values.end.eventType,
-          selection: values.end.selection,
-          ...(endFilters ? { filters: endFilters } : {}),
-        },
+        ...(shouldSendStartAnchor
+          ? {
+              start_anchor: {
+                event_type: values.start.eventType,
+                selection: values.start.selection,
+                ...(startFilters ? { filters: startFilters } : {}),
+              },
+            }
+          : {}),
+        ...(shouldSendEndAnchor
+          ? {
+              end_anchor: {
+                event_type: values.end.eventType,
+                selection: values.end.selection,
+                ...(endFilters ? { filters: endFilters } : {}),
+              },
+            }
+          : {}),
       }
 
       try {
@@ -143,7 +183,7 @@ export function UpdateCaseDurationDialog({
         console.error("Failed to update case duration definition", error)
       }
     },
-    [duration, onOpenChange, onUpdateDuration]
+    [duration, initialValues, onOpenChange, onUpdateDuration]
   )
 
   return (

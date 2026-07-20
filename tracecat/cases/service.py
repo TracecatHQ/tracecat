@@ -2,6 +2,7 @@ import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from typing import cast as typing_cast
 
@@ -30,6 +31,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.durations.sync_queue import (
@@ -2800,6 +2802,12 @@ class CaseEventsService(BaseWorkspaceService):
                 case_id=case.id,
                 event_type=event_type,
                 reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
             )
 
         return db_event

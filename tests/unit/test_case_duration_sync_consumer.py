@@ -5,8 +5,13 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
+from tracecat.cases.durations.materialization import (
+    _event_types_require_sync,
+    sync_case_duration,
+)
 from tracecat.cases.enums import CaseEventType
 from tracecat.redis.client import RedisClient
 
@@ -159,11 +164,9 @@ async def test_consumer_leaves_locked_case_jobs_pending(
 
 
 @pytest.mark.anyio
-async def test_sync_case_duration_uses_transaction_scoped_lock(
+async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = FakeRedisClient()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
     workspace_id = uuid.uuid4()
     case_id = uuid.uuid4()
     fake_session = MagicMock()
@@ -180,29 +183,27 @@ async def test_sync_case_duration_uses_transaction_scoped_lock(
         yield fake_session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.materialization.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.try_pg_advisory_xact_lock",
+        "tracecat.cases.durations.materialization.try_pg_advisory_xact_lock",
         lock_mock,
     )
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.CaseDurationService",
+        "tracecat.cases.durations.materialization.CaseDurationService",
         duration_service_cls,
     )
     monkeypatch.setattr(
-        consumer,
-        "_get_service_role",
+        "tracecat.cases.durations.materialization._get_service_role",
         AsyncMock(return_value=role),
     )
     monkeypatch.setattr(
-        consumer,
-        "_event_types_require_sync",
+        "tracecat.cases.durations.materialization._event_types_require_sync",
         AsyncMock(return_value=True),
     )
 
-    assert await consumer._sync_case_duration(workspace_id, case_id)
+    assert await sync_case_duration(workspace_id, case_id)
 
     lock_mock.assert_awaited_once()
     duration_service_cls.assert_called_once_with(session=fake_session, role=role)
@@ -302,21 +303,20 @@ async def test_ensure_group_reads_backlog_from_start() -> None:
 
 @pytest.mark.anyio
 async def test_event_types_require_sync_matches_status_changed_aliases() -> None:
-    session = FakeDefinitionMatchSession()
-    consumer = CaseDurationSyncConsumer(cast(RedisClient, FakeRedisClient()))
+    session = cast(AsyncSession, FakeDefinitionMatchSession())
     workspace_id = uuid.uuid4()
 
-    assert await consumer._event_types_require_sync(
+    assert await _event_types_require_sync(
         session,
         workspace_id=workspace_id,
         event_types={"case_closed"},
     )
-    assert await consumer._event_types_require_sync(
+    assert await _event_types_require_sync(
         session,
         workspace_id=workspace_id,
         event_types={"case_reopened"},
     )
-    assert not await consumer._event_types_require_sync(
+    assert not await _event_types_require_sync(
         session,
         workspace_id=workspace_id,
         event_types={"case_updated"},
@@ -368,3 +368,98 @@ async def test_consumer_claims_idle_messages_while_stream_is_busy(
     ensure_group_mock.assert_awaited_once()
     handle_entries_mock.assert_awaited_once_with(entries)
     claim_idle_mock.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entries = [
+        (
+            "1-0",
+            {
+                "workspace_id": str(uuid.uuid4()),
+                "case_id": str(uuid.uuid4()),
+                "reason": "case_event",
+            },
+        )
+    ]
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            ConnectionError("redis unavailable"),
+            [("stream", entries)],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    ensure_group_mock = AsyncMock()
+    handle_entries_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    ensure_group_mock.assert_awaited_once()
+    handle_entries_mock.assert_awaited_once_with(entries)
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0]
+
+
+@pytest.mark.anyio
+async def test_consumer_retries_transient_group_creation_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(side_effect=asyncio.CancelledError())
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    ensure_group_mock = AsyncMock(
+        side_effect=[ConnectionError("redis unavailable"), None]
+    )
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    assert ensure_group_mock.await_count == 2
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0]
+
+
+@pytest.mark.anyio
+async def test_consumer_resets_backoff_after_successful_iteration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            ConnectionError("first outage"),
+            [],
+            ConnectionError("second outage"),
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0, 1.0]

@@ -49,6 +49,7 @@ from tracecat.cases.durations.sync_queue import (
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.exceptions import (
@@ -183,6 +184,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
                 self.session,
                 workspace_id=self.workspace_id,
                 reason=reason,
+                inline_fallback=self._sync_existing_case_durations_inline_after_commit,
             )
             return
 
@@ -204,6 +206,15 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
                 await asyncio.sleep(0)
         finally:
             await case_ids.close()
+
+    async def _sync_existing_case_durations_inline_after_commit(self) -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            definition_service = CaseDurationDefinitionService(
+                session=session,
+                role=self.role,
+            )
+            await definition_service._sync_existing_case_durations_inline()
+            await session.commit()
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID

@@ -11,35 +11,25 @@ from time import monotonic
 from typing import cast, get_args
 
 from redis.exceptions import ResponseError
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from tenacity import RetryError
 
 from tracecat import config
-from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.sync_queue import (
     CaseDurationSyncReason,
     publish_case_duration_sync,
 )
-from tracecat.cases.enums import CaseEventType
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.locks import (
-    derive_lock_key_from_parts,
-    try_pg_advisory_xact_lock,
-)
-from tracecat.db.models import Case, Workspace
-from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.db.models import Case
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
 CASE_DURATION_SYNC_REASONS = frozenset(
     cast(tuple[str, ...], get_args(CaseDurationSyncReason))
 )
-STATUS_CHANGED_ALIASES = frozenset(
-    (CaseEventType.CASE_CLOSED, CaseEventType.CASE_REOPENED)
-)
+RETRY_BACKOFF_BASE_SECONDS = 1.0
+RETRY_BACKOFF_MAX_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -72,16 +62,23 @@ class CaseDurationSyncConsumer:
             logger.info("Case duration sync disabled; skipping consumer")
             return
 
-        await self._ensure_group()
-        logger.info(
-            "Case duration sync consumer started",
-            stream_key=self.stream_key,
-            group=self.group,
-            consumer=self.consumer_name,
-        )
         last_pending_check = monotonic()
-        try:
-            while True:
+        retry_delay = RETRY_BACKOFF_BASE_SECONDS
+        group_ready = False
+        started = False
+        while True:
+            try:
+                if not group_ready:
+                    await self._ensure_group()
+                    group_ready = True
+                if not started:
+                    logger.info(
+                        "Case duration sync consumer started",
+                        stream_key=self.stream_key,
+                        group=self.group,
+                        consumer=self.consumer_name,
+                    )
+                    started = True
                 try:
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
@@ -109,14 +106,18 @@ class CaseDurationSyncConsumer:
                     await self._claim_idle_messages()
                     last_pending_check = now
                 await asyncio.sleep(0)
-        except asyncio.CancelledError:
-            logger.info("Case duration sync consumer cancelled")
-            raise
-        except Exception as e:
-            logger.error(
-                "Case duration sync consumer stopped due to error", error=str(e)
-            )
-            raise
+                retry_delay = RETRY_BACKOFF_BASE_SECONDS
+            except asyncio.CancelledError:
+                logger.info("Case duration sync consumer cancelled")
+                raise
+            except Exception as e:
+                logger.warning(
+                    "Case duration sync consumer iteration failed; retrying",
+                    error=str(e),
+                    retry_in_seconds=retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, RETRY_BACKOFF_MAX_SECONDS)
 
     def _is_nogroup_error(self, error: Exception) -> bool:
         if isinstance(error, ResponseError):
@@ -228,107 +229,11 @@ class CaseDurationSyncConsumer:
         *,
         event_types: set[str] | None = None,
     ) -> bool:
-        lock_key = derive_lock_key_from_parts(
-            "case-duration-sync",
-            str(workspace_id),
-            str(case_id),
+        return await sync_case_duration(
+            workspace_id,
+            case_id,
+            event_types=event_types,
         )
-        async with get_async_session_bypass_rls_context_manager() as session:
-            role = await self._get_service_role(session, workspace_id)
-            if role is None:
-                return True
-
-            if not await self._event_types_require_sync(
-                session,
-                workspace_id=workspace_id,
-                event_types=event_types or set(),
-            ):
-                logger.debug(
-                    "Skipping case duration sync; no definitions use event types",
-                    workspace_id=str(workspace_id),
-                    case_id=str(case_id),
-                    event_types=sorted(event_types or set()),
-                )
-                return True
-
-            locked = await try_pg_advisory_xact_lock(session, lock_key)
-            if not locked:
-                await session.rollback()
-                logger.debug(
-                    "Case duration sync already locked; leaving message pending",
-                    workspace_id=str(workspace_id),
-                    case_id=str(case_id),
-                )
-                return False
-
-            try:
-                await CaseDurationService(
-                    session=session, role=role
-                ).sync_case_durations(case_id)
-                await session.commit()
-                return True
-            except TracecatNotFoundError:
-                await session.rollback()
-                logger.info(
-                    "Skipping case duration sync for deleted case",
-                    workspace_id=str(workspace_id),
-                    case_id=str(case_id),
-                )
-                return True
-            except Exception:
-                await session.rollback()
-                logger.exception(
-                    "Failed to sync case durations",
-                    workspace_id=str(workspace_id),
-                    case_id=str(case_id),
-                )
-                return False
-
-    async def _event_types_require_sync(
-        self,
-        session,
-        *,
-        workspace_id: uuid.UUID,
-        event_types: set[str],
-    ) -> bool:
-        if not event_types:
-            return True
-
-        parsed_event_types: list[CaseEventType] = []
-        for event_type in event_types:
-            try:
-                parsed_event_types.append(CaseEventType(event_type))
-            except ValueError:
-                logger.warning(
-                    "Unknown case event type in duration sync job",
-                    workspace_id=str(workspace_id),
-                    event_type=event_type,
-                )
-                return True
-
-        matching_event_types = list(parsed_event_types)
-        if (
-            any(
-                event_type in STATUS_CHANGED_ALIASES
-                for event_type in parsed_event_types
-            )
-            and CaseEventType.STATUS_CHANGED not in matching_event_types
-        ):
-            matching_event_types.append(CaseEventType.STATUS_CHANGED)
-
-        stmt = (
-            select(CaseDurationDefinitionDB.id)
-            .where(
-                CaseDurationDefinitionDB.workspace_id == workspace_id,
-                or_(
-                    CaseDurationDefinitionDB.start_event_type.in_(matching_event_types),
-                    CaseDurationDefinitionDB.end_event_type.in_(matching_event_types),
-                ),
-            )
-            .limit(1)
-        )
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none() is not None
 
     async def _process_backfill_job(self, job: CaseDurationSyncJob) -> bool:
         async with get_async_session_bypass_rls_context_manager() as session:
@@ -358,26 +263,6 @@ class CaseDurationSyncConsumer:
                 cursor=next_cursor,
             )
         return True
-
-    async def _get_service_role(self, session, workspace_id: uuid.UUID) -> Role | None:
-        result = await session.execute(
-            select(Workspace).where(Workspace.id == workspace_id)
-        )
-        workspace = result.scalars().first()
-        if workspace is None:
-            logger.info(
-                "Skipping case duration sync for deleted workspace",
-                workspace_id=str(workspace_id),
-            )
-            return None
-        return Role(
-            type="service",
-            workspace_id=workspace_id,
-            organization_id=workspace.organization_id,
-            user_id=None,
-            service_id="tracecat-case-duration-sync",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-case-duration-sync"],
-        )
 
     async def _claim_idle_messages(self) -> None:
         pending = await self.client.xpending_range(

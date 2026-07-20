@@ -137,6 +137,7 @@ class TestCaseEventsService:
         assert enqueue_calls[0]["case_id"] == test_case.id
         assert enqueue_calls[0]["event_type"] == CaseEventType.STATUS_CHANGED.value
         assert enqueue_calls[0]["reason"] == "case_event"
+        assert callable(enqueue_calls[0]["inline_fallback"])
 
     async def test_create_event_can_sync_durations_inline(
         self,
@@ -690,14 +691,15 @@ class TestCaseEventsService:
         event = await case_events_service.create_case_viewed_event(test_case)
 
         assert event is not None
-        assert enqueue_calls == [
-            {
-                "workspace_id": test_case.workspace_id,
-                "case_id": test_case.id,
-                "event_type": CaseEventType.CASE_VIEWED.value,
-                "reason": "case_event",
-            }
-        ]
+        assert len(enqueue_calls) == 1
+        assert enqueue_calls[0] | {"inline_fallback": None} == {
+            "workspace_id": test_case.workspace_id,
+            "case_id": test_case.id,
+            "event_type": CaseEventType.CASE_VIEWED.value,
+            "reason": "case_event",
+            "inline_fallback": None,
+        }
+        assert callable(enqueue_calls[0]["inline_fallback"])
 
     async def test_case_viewed_event_created_after_window_elapsed(
         self,

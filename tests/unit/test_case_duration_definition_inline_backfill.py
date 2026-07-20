@@ -1,3 +1,4 @@
+import contextlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import cast
@@ -76,3 +77,36 @@ async def test_inline_definition_backfill_streams_case_ids(
     assert duration_service.sync_case_durations.await_args_list == [
         call(case_id) for case_id in case_ids
     ]
+
+
+@pytest.mark.anyio
+async def test_after_commit_inline_backfill_uses_fresh_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fresh_session = MagicMock()
+    fresh_session.commit = AsyncMock()
+    inline_backfill_mock = AsyncMock()
+    role = MagicMock()
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield fresh_session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        inline_backfill_mock,
+    )
+    definition_service = CaseDurationDefinitionService(
+        session=cast(AsyncSession, MagicMock()),
+        role=role,
+    )
+
+    await definition_service._sync_existing_case_durations_inline_after_commit()
+
+    inline_backfill_mock.assert_awaited_once_with()
+    fresh_session.commit.assert_awaited_once_with()
