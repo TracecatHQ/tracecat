@@ -16,7 +16,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
@@ -96,17 +96,6 @@ from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
-def _workflow_update_audit_details(
-    context: AuditCallContext,
-) -> AuditEventDetails:
-    params = cast(WorkflowUpdate, context.arguments["params"])
-    return AuditEventDetails(
-        data={
-            "changed_fields": sorted(params.model_dump(exclude_unset=True)),
-        }
-    )
-
-
 class _ModelKey(NamedTuple):
     """Stable cross-environment identity of a model selection.
 
@@ -140,6 +129,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
     """Manages CRUD operations for Workflows."""
 
     service_name = "workflows"
+
+    def _workflow_update_audit_details(
+        self, workflow_id: WorkflowID, params: WorkflowUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
 
     @staticmethod
     def _workflow_fields_from_dsl(dsl: DSLInput) -> dict[str, Any]:

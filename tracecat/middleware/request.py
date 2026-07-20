@@ -48,7 +48,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         # Client-controlled: informational attribution, not a security control.
         client_ip = None
         if forwarded_for := request.headers.get("X-Forwarded-For"):
-            client_ip = _normalize_client_ip(forwarded_for.split(",")[0].strip())
+            client_ip = _normalize_client_ip(forwarded_for.split(",", 1)[0].strip())
         if client_ip is None:
             client_ip = _normalize_client_ip(
                 request.client.host if request.client is not None else None

@@ -5,7 +5,7 @@ import inspect
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Concatenate, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,26 +21,6 @@ from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.service import BaseService
-
-
-@dataclass(frozen=True)
-class AuditCallContext:
-    """Information passed to an audit detail callback.
-
-    Attributes:
-        target: The service associated with the call, when one can be found.
-            For methods this is normally ``self``. For decorated free functions,
-            it may be the bound ``service`` argument. Otherwise, it is the first
-            positional argument or ``None``.
-        arguments: Arguments supplied to the decorated function, keyed by their
-            parameter names. Default values that the caller omitted are not
-            included. These arguments may contain sensitive application data;
-            callbacks must select only identifiers, changed-field names, and
-            other metadata permitted by the audit policy.
-    """
-
-    target: Any | None
-    arguments: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -76,12 +56,9 @@ class AuditEventDetails:
     emit: bool = True
 
 
-type AuditAttemptMetadataFn = Callable[
-    [AuditCallContext], AuditEventDetails | Awaitable[AuditEventDetails]
-]
-type AuditTerminalMetadataFn[T] = Callable[
-    [AuditCallContext, T], AuditEventDetails | Awaitable[AuditEventDetails]
-]
+type AuditDetailsResult = AuditEventDetails | Awaitable[AuditEventDetails]
+type AuditAttemptMetadataFn[**P] = Callable[P, AuditDetailsResult]
+type AuditTerminalMetadataFn[R, **P] = Callable[Concatenate[R, P], AuditDetailsResult]
 
 # Mapping of resource types to their default resource_id_attr names
 _RESOURCE_ID_ATTR_MAP: dict[str, str] = {
@@ -106,8 +83,8 @@ def audit_log[**P, R](
     resource_type: AuditResourceType,
     action: AuditAction,
     resource_id_attr: str | None = None,
-    attempt_metadata: AuditAttemptMetadataFn | None = None,
-    terminal_metadata: AuditTerminalMetadataFn[R] | None = None,
+    attempt_metadata: AuditAttemptMetadataFn[P] | None = None,
+    terminal_metadata: AuditTerminalMetadataFn[R, P] | None = None,
 ) -> Callable[
     [Callable[P, Awaitable[R]]],
     Callable[P, Awaitable[R]],
@@ -123,8 +100,9 @@ def audit_log[**P, R](
 
     The actor role is resolved from the service instance or a bound ``role``
     argument, then from the role context. Auditing is skipped when there is no
-    authenticated actor or when the resolved role belongs to an internal
-    service. User and service-account roles remain auditable. Event creation and
+    auditable actor. Internal service roles that carry the initiating user's ID
+    are audited and attributed to that user; unattributed service traffic has
+    no actor and is skipped. Event creation and
     detail callbacks are best-effort: their failures are logged without changing
     the result of the decorated operation. A service session is reused when
     available; decorated free functions can instead supply a bound ``session``
@@ -150,17 +128,18 @@ def audit_log[**P, R](
             the call, extraction checks positional objects and bound arguments;
             after the call, the return value is checked first.
         attempt_metadata: Optional synchronous or asynchronous callback invoked
-            before the attempt event. It receives an
-            :class:`AuditCallContext` and returns :class:`AuditEventDetails`.
-            Only ``action``, ``resource_id``, ``data``, and ``emit`` are used in
-            this phase. If it raises, the decorator logs the error and continues
-            with its default fields.
-        terminal_metadata: Optional synchronous or asynchronous callback
-            invoked after the decorated function returns. It receives the same
-            call context plus the function result and returns
-            :class:`AuditEventDetails`. Only ``resource_id``, ``data``, and
-            ``status`` are used in this phase. If it raises, the terminal event
-            uses the fields already derived.
+            before the attempt event. It takes the decorated function's own
+            arguments and returns :class:`AuditEventDetails`. Only ``action``,
+            ``resource_id``, ``data``, and ``emit`` are used in this phase. If it
+            raises, the decorator logs the error and continues with its default
+            fields.
+        terminal_metadata: Optional synchronous or asynchronous callback invoked
+            after the decorated function returns. It takes the result followed by
+            the decorated function's arguments; method-attached callbacks should
+            declare ``(result, *args: Any, **kwargs: Any)`` because a named
+            parameter spelling fails pyright's name check against P. Only
+            ``resource_id``, ``data``, and ``status`` are used in this phase. If
+            it raises, the terminal event uses the fields already derived.
 
     Returns:
         A decorator that preserves the wrapped function's signature and return
@@ -202,17 +181,13 @@ def audit_log[**P, R](
                 else ctx_role.get()
             )
 
-            if role is None or role.actor_id is None or role.type == "service":
+            if role is None or role.actor_id is None:
                 return await func(*args, **kwargs)
 
             raw_session = getattr(service, "session", None)
             if raw_session is None:
                 raw_session = bound_arguments.get("session")
             session = cast(AsyncSession | None, raw_session)
-            call_context = AuditCallContext(
-                target=service if service is not None else first_arg,
-                arguments=bound_arguments,
-            )
 
             resource_id: uuid.UUID | None = None
             try:
@@ -234,7 +209,7 @@ def audit_log[**P, R](
             should_emit = True
             if attempt_metadata is not None:
                 try:
-                    details = attempt_metadata(call_context)
+                    details = attempt_metadata(*args, **kwargs)
                     if inspect.isawaitable(details):
                         details = await details
                     if details.action is not None:
@@ -298,7 +273,7 @@ def audit_log[**P, R](
                     )
                     if terminal_metadata is not None:
                         try:
-                            details = terminal_metadata(call_context, result)
+                            details = terminal_metadata(result, *args, **kwargs)
                             if inspect.isawaitable(details):
                                 details = await details
                             if details.resource_id is not None:

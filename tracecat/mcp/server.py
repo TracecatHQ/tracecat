@@ -92,7 +92,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
-from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
@@ -1834,11 +1834,17 @@ async def _create_workflow_from_import_data(
 
 
 def _workflow_yaml_update_audit_details(
-    context: AuditCallContext,
+    *,
+    role: Role,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    workflow_id: WorkflowUUID,
+    update_params: WorkflowUpdate,
+    yaml_payload: WorkflowYamlPayload | None,
+    definition_yaml: str | None,
+    update_mode: Literal["replace", "patch"],
 ) -> AuditEventDetails:
-    update_params = cast(WorkflowUpdate, context.arguments["update_params"])
-    yaml_payload = cast(WorkflowYamlPayload | None, context.arguments["yaml_payload"])
-    changed_fields = set(update_params.model_dump(exclude_unset=True))
+    changed_fields = set(update_params.model_fields_set)
     if yaml_payload is not None:
         changed_fields.update(
             field

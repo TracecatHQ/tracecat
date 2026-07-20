@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -31,6 +30,27 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows."""
 
     service_name = "workflow_schedules"
+
+    def _suppress_audit_when_deferred_commit(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
+
+    def _schedule_update_audit_details(
+        self, schedule_id: AnyScheduleID, params: ScheduleUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
+
+    def _suppress_delete_audit_when_deferred_commit(
+        self, schedule_id: AnyScheduleID, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
 
     async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
@@ -73,6 +93,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         resource_type="schedule",
         action="create",
         resource_id_attr="id",
+        attempt_metadata=_suppress_audit_when_deferred_commit,
     )
     async def create_schedule(
         self, params: ScheduleCreate, commit: bool = True
@@ -241,16 +262,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     @audit_log(
         resource_type="schedule",
         action="update",
-        attempt_metadata=lambda context: AuditEventDetails(
-            data={
-                "changed_fields": sorted(
-                    cast(
-                        ScheduleUpdate,
-                        context.arguments["params"],
-                    ).model_dump(exclude_unset=True)
-                ),
-            }
-        ),
+        attempt_metadata=_schedule_update_audit_details,
     )
     async def update_schedule(
         self, schedule_id: AnyScheduleID, params: ScheduleUpdate
@@ -309,6 +321,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     @audit_log(
         resource_type="schedule",
         action="delete",
+        attempt_metadata=_suppress_delete_audit_when_deferred_commit,
     )
     async def delete_schedule(
         self, schedule_id: AnyScheduleID, commit: bool = True

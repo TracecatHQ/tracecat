@@ -26,8 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.logger import (
-    AuditAttemptMetadataFn,
-    AuditCallContext,
     AuditEventDetails,
     audit_log,
 )
@@ -715,12 +713,12 @@ async def create_workflow_definition(
 
 
 async def _webhook_create_audit_result(
-    context: AuditCallContext,
     _result: None,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: WebhookCreate,
 ) -> AuditEventDetails:
-    session = cast(AsyncSession, context.arguments["session"])
-    role = cast(Role, context.arguments["role"])
-    workflow_id = cast(WorkflowUUID, context.arguments["workflow_id"])
     if role.workspace_id is None:
         return AuditEventDetails()
     webhook = await webhook_service.get_webhook(
@@ -734,11 +732,10 @@ async def _webhook_create_audit_result(
 
 
 async def _get_webhook_key_audit_target(
-    context: AuditCallContext,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowUUID,
 ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
-    session = cast(AsyncSession, context.arguments["session"])
-    role = cast(Role, context.arguments["role"])
-    workflow_id = cast(WorkflowUUID, context.arguments["workflow_id"])
     if role.workspace_id is None:
         return None, None
     webhook = await webhook_service.get_webhook(
@@ -754,30 +751,62 @@ async def _get_webhook_key_audit_target(
     return webhook.id, api_key_id
 
 
-def _webhook_key_audit_details(
-    operation: Literal["generate", "revoke", "delete"],
-) -> AuditAttemptMetadataFn:
-    async def details(context: AuditCallContext) -> AuditEventDetails:
-        webhook_id, api_key_id = await _get_webhook_key_audit_target(context)
-        action = None
-        if operation == "generate":
-            action = "create" if api_key_id is None else "rotate"
-        return AuditEventDetails(
-            action=action,
-            resource_id=api_key_id,
-            data={
-                "webhook_id": str(webhook_id) if webhook_id is not None else None,
-            },
-        )
+async def _generate_webhook_key_audit_details(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    webhook_id, api_key_id = await _get_webhook_key_audit_target(
+        role, session, workflow_id
+    )
+    return AuditEventDetails(
+        action="create" if api_key_id is None else "rotate",
+        resource_id=api_key_id,
+        data={
+            "webhook_id": str(webhook_id) if webhook_id is not None else None,
+        },
+    )
 
-    return details
+
+async def _revoke_webhook_key_audit_details(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    webhook_id, api_key_id = await _get_webhook_key_audit_target(
+        role, session, workflow_id
+    )
+    return AuditEventDetails(
+        resource_id=api_key_id,
+        data={
+            "webhook_id": str(webhook_id) if webhook_id is not None else None,
+        },
+    )
+
+
+async def _delete_webhook_key_audit_details(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> AuditEventDetails:
+    webhook_id, api_key_id = await _get_webhook_key_audit_target(
+        role, session, workflow_id
+    )
+    return AuditEventDetails(
+        resource_id=api_key_id,
+        data={
+            "webhook_id": str(webhook_id) if webhook_id is not None else None,
+        },
+    )
 
 
 async def _webhook_key_audit_result(
-    context: AuditCallContext,
     _result: WebhookApiKeyGenerateResponse,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
 ) -> AuditEventDetails:
-    _, api_key_id = await _get_webhook_key_audit_target(context)
+    _, api_key_id = await _get_webhook_key_audit_target(role, session, workflow_id)
     return AuditEventDetails(resource_id=api_key_id)
 
 
@@ -950,7 +979,7 @@ async def update_case_trigger(
 @audit_log(
     resource_type="webhook_api_key",
     action="create",
-    attempt_metadata=_webhook_key_audit_details("generate"),
+    attempt_metadata=_generate_webhook_key_audit_details,
     terminal_metadata=_webhook_key_audit_result,
 )
 async def generate_webhook_api_key(
@@ -1012,7 +1041,7 @@ async def generate_webhook_api_key(
 @audit_log(
     resource_type="webhook_api_key",
     action="revoke",
-    attempt_metadata=_webhook_key_audit_details("revoke"),
+    attempt_metadata=_revoke_webhook_key_audit_details,
 )
 async def revoke_webhook_api_key(
     role: WorkspaceUserRouteRole,
@@ -1053,7 +1082,7 @@ async def revoke_webhook_api_key(
 @audit_log(
     resource_type="webhook_api_key",
     action="delete",
-    attempt_metadata=_webhook_key_audit_details("delete"),
+    attempt_metadata=_delete_webhook_key_audit_details,
 )
 async def delete_webhook_api_key(
     role: WorkspaceUserRouteRole,

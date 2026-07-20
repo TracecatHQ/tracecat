@@ -9,7 +9,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import orjson
 import temporalio.api.enums.v1
@@ -30,12 +30,7 @@ from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.audit.logger import (
-    AuditAttemptMetadataFn,
-    AuditCallContext,
-    AuditEventDetails,
-    audit_log,
-)
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
@@ -109,23 +104,6 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusLiteral,
 )
 from tracecat.workspaces.service import WorkspaceService
-
-
-def _execution_control_audit_details(
-    operation: Literal["reset", "cancel", "terminate"],
-) -> AuditAttemptMetadataFn:
-    def details(context: AuditCallContext) -> AuditEventDetails:
-        execution_id = cast(
-            WorkflowExecutionID,
-            context.arguments["wf_exec_id"],
-        )
-        workflow_id, _ = exec_id_to_parts(execution_id)
-        return AuditEventDetails(
-            resource_id=workflow_id,
-            data={"execution_id": execution_id, "operation": operation},
-        )
-
-    return details
 
 
 class WorkflowExecutionResultNotFoundError(ValueError):
@@ -1960,10 +1938,42 @@ class WorkflowExecutionsService:
             )
         return reset_event_id
 
+    def _reset_workflow_execution_audit_details(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        event_id: int | None,
+        reason: str | None = None,
+        reapply_type: WorkflowExecutionResetReapplyType = WorkflowExecutionResetReapplyType.ALL_ELIGIBLE,
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            data={"execution_id": wf_exec_id, "operation": "reset"},
+        )
+
+    def _cancel_workflow_execution_audit_details(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            data={"execution_id": wf_exec_id, "operation": "cancel"},
+        )
+
+    def _terminate_workflow_execution_audit_details(
+        self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            data={"execution_id": wf_exec_id, "operation": "terminate"},
+        )
+
     @audit_log(
         resource_type="workflow_execution",
-        action="create",
-        attempt_metadata=_execution_control_audit_details("reset"),
+        action="reset",
+        attempt_metadata=_reset_workflow_execution_audit_details,
     )
     async def reset_workflow_execution(
         self,
@@ -2034,7 +2044,7 @@ class WorkflowExecutionsService:
     @audit_log(
         resource_type="workflow_execution",
         action="cancel",
-        attempt_metadata=_execution_control_audit_details("cancel"),
+        attempt_metadata=_cancel_workflow_execution_audit_details,
     )
     async def cancel_workflow_execution(self, wf_exec_id: WorkflowExecutionID) -> None:
         """Cancel a workflow execution."""
@@ -2051,8 +2061,8 @@ class WorkflowExecutionsService:
 
     @audit_log(
         resource_type="workflow_execution",
-        action="cancel",
-        attempt_metadata=_execution_control_audit_details("terminate"),
+        action="terminate",
+        attempt_metadata=_terminate_workflow_execution_audit_details,
     )
     async def terminate_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID, reason: str | None = None

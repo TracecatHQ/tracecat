@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import cast
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import (
-    AuditCallContext,
     AuditEventDetails,
     audit_log,
 )
@@ -19,12 +16,12 @@ from tracecat.webhooks.schemas import WebhookUpdate
 
 
 async def _webhook_update_audit_details(
-    context: AuditCallContext,
+    *,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowID,
+    params: WebhookUpdate,
 ) -> AuditEventDetails:
-    role = cast(Role, context.arguments["role"])
-    session = cast(AsyncSession, context.arguments["session"])
-    workflow_id = cast(WorkflowID, context.arguments["workflow_id"])
-    params = cast(WebhookUpdate, context.arguments["params"])
     webhook = None
     if role.workspace_id is not None:
         webhook = await get_webhook(
@@ -35,7 +32,7 @@ async def _webhook_update_audit_details(
     return AuditEventDetails(
         resource_id=webhook.id if webhook is not None else None,
         data={
-            "changed_fields": sorted(params.model_dump(exclude_unset=True)),
+            "changed_fields": sorted(params.model_fields_set),
         },
     )
 

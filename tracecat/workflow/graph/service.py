@@ -3,8 +3,10 @@
 Implements the canonical graph API with optimistic concurrency.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import column, delete, func, literal, select, update
@@ -12,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.enums import AuditEventStatus
-from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
@@ -43,27 +45,6 @@ _STRUCTURAL_OPERATION_TYPES = {
 }
 
 
-def _graph_audit_details(context: AuditCallContext) -> AuditEventDetails:
-    operations = cast(list[GraphOperation], context.arguments["operations"])
-    changed_fields = sorted(
-        {
-            "definition" if operation.type in _STRUCTURAL_OPERATION_TYPES else "layout"
-            for operation in operations
-        }
-    )
-    return AuditEventDetails(data={"changed_fields": changed_fields})
-
-
-def _graph_audit_result(
-    _context: AuditCallContext, result: GraphResponse | None
-) -> AuditEventDetails:
-    return AuditEventDetails(
-        status=(
-            AuditEventStatus.SUCCESS if result is not None else AuditEventStatus.FAILURE
-        )
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class EdgeDedupKey:
     source_id: str
@@ -77,6 +58,37 @@ class WorkflowGraphService(BaseWorkspaceService):
     service_name = "workflow_graph"
 
     _STRUCTURAL_OPS = _STRUCTURAL_OPERATION_TYPES
+
+    def _graph_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        base_version: int,
+        operations: list[GraphOperation],
+    ) -> AuditEventDetails:
+        changed_fields = sorted(
+            {
+                (
+                    "definition"
+                    if operation.type in _STRUCTURAL_OPERATION_TYPES
+                    else "layout"
+                )
+                for operation in operations
+            }
+        )
+        return AuditEventDetails(data={"changed_fields": changed_fields})
+
+    # Gradual form: a named signature fails pyright's name check; _graph_audit_details keeps P pinned.
+    @staticmethod
+    def _graph_audit_result(
+        result: GraphResponse | None, *args: Any, **kwargs: Any
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            status=(
+                AuditEventStatus.SUCCESS
+                if result is not None
+                else AuditEventStatus.FAILURE
+            )
+        )
 
     async def get_graph(self, workflow_id: WorkflowID) -> GraphResponse | None:
         """Get the canonical graph projection from Actions.

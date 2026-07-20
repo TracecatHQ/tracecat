@@ -14,7 +14,6 @@ from fastapi import HTTPException
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.audit.enums import AuditEventStatus
-from tracecat.audit.logger import AuditCallContext
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
@@ -379,7 +378,7 @@ async def _execution_control(mp: pytest.MonkeyPatch, role: Role, operation: str)
     mp.setattr(service, "handle", MagicMock(return_value=handle))
     await getattr(service, f"{operation}_workflow_execution")(execution_id)
     data = {"execution_id": execution_id, "operation": operation}
-    return _pair("workflow_execution", "cancel", workflow_id, workflow_id, data)
+    return _pair("workflow_execution", operation, workflow_id, workflow_id, data)
 
 
 async def _execution_cancel(mp: pytest.MonkeyPatch, role: Role):
@@ -406,7 +405,7 @@ async def _execution_reset(mp: pytest.MonkeyPatch, role: Role):
     mp.setattr(service, "_resolve_reset_event_id", AsyncMock(return_value=1))
     await service.reset_workflow_execution(execution_id, event_id=None)
     data = {"execution_id": execution_id, "operation": "reset"}
-    return _pair("workflow_execution", "create", workflow_id, workflow_id, data)
+    return _pair("workflow_execution", "reset", workflow_id, workflow_id, data)
 
 
 async def _schedule(mp: pytest.MonkeyPatch, role: Role, action: str):
@@ -453,11 +452,9 @@ async def _schedule_delete(mp: pytest.MonkeyPatch, role: Role):
     return await _schedule(mp, role, "delete")
 
 
-async def _case_upsert(mp: pytest.MonkeyPatch, role: Role, exists: bool):
+async def _case_upsert(mp: pytest.MonkeyPatch, role: Role):
     trigger_id = uuid.uuid4()
-    session = _session()
-    session.scalar.return_value = SimpleNamespace(id=trigger_id) if exists else None
-    service = CaseTriggersService(cast(Any, session), role=role)
+    service = CaseTriggersService(cast(Any, _session()), role=role)
     mp.setattr(service, "require_entitlement", AsyncMock())
     mp.setattr(
         service,
@@ -467,21 +464,8 @@ async def _case_upsert(mp: pytest.MonkeyPatch, role: Role, exists: bool):
     await service.upsert_case_trigger(
         WorkflowUUID.new_uuid4(), CaseTriggerConfig(status="offline")
     )
-    action = "update" if exists else "create"
-    data = (
-        {"changed_fields": sorted(CaseTriggerConfig.model_fields)} if exists else None
-    )
-    return _pair(
-        "case_trigger", action, trigger_id if exists else None, trigger_id, data
-    )
-
-
-async def _case_create(mp: pytest.MonkeyPatch, role: Role):
-    return await _case_upsert(mp, role, False)
-
-
-async def _case_upsert_update(mp: pytest.MonkeyPatch, role: Role):
-    return await _case_upsert(mp, role, True)
+    data = {"changed_fields": sorted(CaseTriggerConfig.model_fields)}
+    return _pair("case_trigger", "upsert", None, trigger_id, data)
 
 
 async def _case_update(mp: pytest.MonkeyPatch, role: Role):
@@ -575,7 +559,7 @@ async def _key(mp: pytest.MonkeyPatch, role: Role, action: str):
     session = _webhook_session()
 
     async def get_api_key_audit_target(
-        _context: object,
+        _role: object, _session: object, _workflow_id: object
     ) -> tuple[uuid.UUID, uuid.UUID | None]:
         if action == "create" and session.add.called:
             return webhook_id, cast(WebhookApiKey, session.add.call_args.args[0]).id
@@ -661,8 +645,7 @@ CASES = tuple(
         ("schedule_create", _schedule_create),
         ("schedule_update", _schedule_update),
         ("schedule_delete", _schedule_delete),
-        ("case_create", _case_create),
-        ("case_upsert_update", _case_upsert_update),
+        ("case_upsert", _case_upsert),
         ("case_update", _case_update),
         ("webhook_create", _webhook_create),
         ("webhook_update", _webhook_update),
@@ -756,7 +739,7 @@ async def test_bulk_reset_emits_one_event_pair_per_execution(
         assert matching == list(
             _pair(
                 "workflow_execution",
-                "create",
+                "reset",
                 workflow_id,
                 workflow_id,
                 {"execution_id": execution_id, "operation": "reset"},
@@ -861,24 +844,44 @@ async def test_webhook_key_audit_target_uses_selected_webhook(
         "get_webhook",
         AsyncMock(return_value=SimpleNamespace(id=webhook_id)),
     )
-    context = AuditCallContext(
-        target=None,
-        arguments={
-            "role": role,
-            "session": session,
-            "workflow_id": workflow_id,
-        },
+    target = await workflow_management_router._get_webhook_key_audit_target(
+        role, cast(Any, session), workflow_id
     )
-
-    target = await workflow_management_router._get_webhook_key_audit_target(context)
 
     assert target == (webhook_id, api_key_id)
     session.execute.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_internal_publish_is_suppressed(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_internal_publish_with_user_attribution_audits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     role, calls = _role(internal=True), []
+    _capture_events(monkeypatch, calls)
+    service = WorkflowsManagementService(cast(Any, _session()), role=role)
+    monkeypatch.setattr(
+        service, "get_workflow", AsyncMock(side_effect=TracecatValidationError("stop"))
+    )
+    workflow_id = WorkflowUUID.new_uuid4()
+    with pytest.raises(TracecatValidationError):
+        await service.publish_workflow(workflow_id)
+    assert calls == list(
+        _pair(
+            "workflow",
+            "publish",
+            workflow_id,
+            workflow_id,
+            terminal_status=AuditEventStatus.FAILURE,
+        )
+    )
+
+
+@pytest.mark.anyio
+async def test_unattributed_service_publish_is_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role(internal=True).model_copy(update={"user_id": None})
+    calls: list[AuditCall] = []
     _capture_events(monkeypatch, calls)
     service = WorkflowsManagementService(cast(Any, _session()), role=role)
     monkeypatch.setattr(

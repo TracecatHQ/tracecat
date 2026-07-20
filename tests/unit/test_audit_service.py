@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -14,13 +18,20 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit import service as audit_service_module
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import (
-    AuditCallContext,
     AuditEventDetails,
     audit_log,
 )
-from tracecat.audit.service import AuditService
+from tracecat.audit.service import (
+    AuditService,
+    _AuditDelivery,
+    _DeliveryChannel,
+    _enqueue_delivery,
+    _get_delivery_queue,
+    flush_audit_deliveries,
+)
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
@@ -46,14 +57,6 @@ def audit_service(role: Role) -> AuditService:
     return AuditService(AsyncMock(), role=role)
 
 
-def _test_audit_details(_context: AuditCallContext) -> AuditEventDetails:
-    return AuditEventDetails(data={"changed_fields": ["status"]})
-
-
-def _broken_audit_result(_context: AuditCallContext, _result: str) -> AuditEventDetails:
-    raise ValueError("metadata derivation failed")
-
-
 class _AuditedService(BaseService):
     service_name = "test_audit"
 
@@ -61,20 +64,34 @@ class _AuditedService(BaseService):
         super().__init__(session)
         self.role = role
 
+    def _mutate_details(
+        self, workflow_id: uuid.UUID, *, fail: bool = False
+    ) -> AuditEventDetails:
+        return AuditEventDetails(data={"changed_fields": ["status"]})
+
     @audit_log(
         resource_type="workflow",
         action="update",
-        attempt_metadata=_test_audit_details,
+        attempt_metadata=_mutate_details,
     )
     async def mutate(self, workflow_id: uuid.UUID, *, fail: bool = False) -> str:
         if fail:
             raise ValueError("operation failed")
         return "result"
 
+    def _broken_details(self, workflow_id: uuid.UUID) -> AuditEventDetails:
+        return AuditEventDetails(data={"changed_fields": ["status"]})
+
+    @staticmethod
+    def _broken_audit_result(
+        result: str, *args: Any, **kwargs: Any
+    ) -> AuditEventDetails:
+        raise ValueError("metadata derivation failed")
+
     @audit_log(
         resource_type="workflow",
         action="update",
-        attempt_metadata=_test_audit_details,
+        attempt_metadata=_broken_details,
         terminal_metadata=_broken_audit_result,
     )
     async def mutate_with_broken_result(self, workflow_id: uuid.UUID) -> str:
@@ -88,7 +105,8 @@ class _AuditedService(BaseService):
         ("success", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
         ("failure", [AuditEventStatus.ATTEMPT, AuditEventStatus.FAILURE]),
         ("service_account", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
-        ("service_gate", []),
+        ("service_attributed", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
+        ("service_unattributed", []),
     ],
 )
 async def test_audit_log_lifecycle(
@@ -119,8 +137,10 @@ async def test_audit_log_lifecycle(
         yield Capture()
 
     monkeypatch.setattr(AuditService, "with_session", classmethod(with_session))
-    if scenario == "service_gate":
+    if scenario == "service_attributed":
         audit_role = role.model_copy(update={"type": "service"})
+    elif scenario == "service_unattributed":
+        audit_role = role.model_copy(update={"type": "service", "user_id": None})
     elif scenario == "service_account":
         audit_role = role.model_copy(
             update={
@@ -158,9 +178,6 @@ async def test_audit_log_emit_false_failure_executes_operation_once(
     operation_calls = 0
     create_event = AsyncMock()
 
-    def suppress_audit(_context: AuditCallContext) -> AuditEventDetails:
-        return AuditEventDetails(emit=False)
-
     class SuppressedService(BaseService):
         service_name = "suppressed"
 
@@ -168,10 +185,13 @@ async def test_audit_log_emit_false_failure_executes_operation_once(
             super().__init__(AsyncMock())
             self.role = role
 
+        def _suppress_audit(self, workflow_id: uuid.UUID) -> AuditEventDetails:
+            return AuditEventDetails(emit=False)
+
         @audit_log(
             resource_type="workflow",
             action="update",
-            attempt_metadata=suppress_audit,
+            attempt_metadata=_suppress_audit,
         )
         async def mutate(self, workflow_id: uuid.UUID) -> None:
             del workflow_id
@@ -313,6 +333,7 @@ async def test_create_event_streams_exact_payload_contract(
         ctx_user_agent.reset(user_agent_token)
         ctx_client_ip.reset(client_ip_token)
 
+    await flush_audit_deliveries()
     assert route.called
     payload = orjson.loads(route.calls[0].request.content)
     created_at = payload.pop("created_at")
@@ -810,6 +831,7 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
         return_value=async_client_context_mock,
     ) as async_client_ctor:
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
+        await flush_audit_deliveries()
 
     async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
     assert client_mock.post.await_count == 1
@@ -873,6 +895,7 @@ async def test_post_event_wraps_payload_when_attribute_configured(
         return_value=async_client_context_mock,
     ) as async_client_ctor:
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
+        await flush_audit_deliveries()
 
     async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
     kwargs = client_mock.post.await_args.kwargs
@@ -880,6 +903,517 @@ async def test_post_event_wraps_payload_when_attribute_configured(
     assert set(wrapped_payload.keys()) == {"event"}
     assert wrapped_payload["event"]["custom"] == "yes"
     assert wrapped_payload["event"]["actor_label"] == "user@example.com"
+
+
+@pytest.mark.anyio
+async def test_post_event_failure_does_not_log_webhook_url(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    webhook_url = "https://secret-host.example.com/audit-hook"
+    monkeypatch.setattr(
+        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+    )
+
+    client_mock = AsyncMock()
+    client_mock.post = AsyncMock(
+        side_effect=httpx.ConnectError(f"cannot connect to {webhook_url}")
+    )
+    async_client_context_mock = AsyncMock()
+    async_client_context_mock.__aenter__.return_value = client_mock
+    async_client_context_mock.__aexit__.return_value = None
+
+    event = AuditEvent(
+        organization_id=uuid.uuid4(),
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label="user@example.com",
+        resource_type="workflow",
+        resource_id=uuid.uuid4(),
+        action="create",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    with (
+        patch(
+            "tracecat.audit.service.httpx.AsyncClient",
+            return_value=async_client_context_mock,
+        ),
+        patch("tracecat.audit.service.logger.warning", side_effect=capture_warning),
+    ):
+        await audit_service._post_event(webhook_url=webhook_url, payload=event)
+        await flush_audit_deliveries()
+
+    assert client_mock.post.await_count == 1
+    delivery_warnings = [
+        kwargs for m, kwargs in warnings if m == "Failed to deliver audit webhook"
+    ]
+    assert delivery_warnings
+    for kwargs in delivery_warnings:
+        # The URL is never logged in any form.
+        assert "webhook_url" not in kwargs
+        # The delivery path logs no exception text, so the URL embedded in the
+        # exception message never reaches the log either.
+        assert "error" not in kwargs
+        assert webhook_url not in repr(kwargs)
+        assert kwargs["error_type"] == "ConnectError"
+
+
+@pytest.mark.anyio
+async def test_enqueue_delivery_drops_newest_when_queue_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Fresh, tiny queue for this loop so we can overflow deterministically.
+    loop = asyncio.get_running_loop()
+    audit_service_module._delivery_channels.pop(loop, None)
+    monkeypatch.setattr(audit_service_module, "_AUDIT_DELIVERY_QUEUE_MAXSIZE", 2)
+
+    delivered: list[str] = []
+    gate = asyncio.Event()
+
+    async def blocking_deliver(delivery: _AuditDelivery) -> None:
+        # Hold the worker until released so the queue can fill to capacity.
+        await gate.wait()
+        delivered.append(delivery.request_payload["resource_id"])
+
+    monkeypatch.setattr(audit_service_module, "_deliver", blocking_deliver)
+
+    dropped_url = "https://drop-host.example.com/audit-hook"
+    dropped_payload_marker = "dropped-payload-secret"
+
+    def make_delivery(tag: str, resource_type: str, action: str) -> _AuditDelivery:
+        is_dropped = tag == "dropped"
+        return _AuditDelivery(
+            webhook_url=dropped_url if is_dropped else "https://example.com/audit",
+            request_payload={
+                "resource_id": tag,
+                "data": dropped_payload_marker if is_dropped else "ok",
+            },
+            headers=None,
+            verify_ssl=True,
+            resource_type=cast(Any, resource_type),
+            action=cast(Any, action),
+        )
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
+        # First item is picked up by the worker and blocks on the gate; the next
+        # two fill the maxsize=2 queue; the fourth overflows and is dropped.
+        _enqueue_delivery(make_delivery("first", "workflow", "create"))
+        queue = audit_service_module._delivery_channels[loop].queue
+        while queue.qsize() != 0:  # worker has pulled "first" and is blocked
+            await asyncio.sleep(0)
+        _enqueue_delivery(make_delivery("second", "workflow", "update"))
+        _enqueue_delivery(make_delivery("third", "schedule", "delete"))
+        assert queue.full()
+        _enqueue_delivery(make_delivery("dropped", "webhook", "revoke"))
+
+        gate.set()
+        await flush_audit_deliveries()
+
+    # Overflow event is dropped, queued events still deliver FIFO.
+    assert delivered == ["first", "second", "third"]
+
+    drop_warnings = [
+        kwargs
+        for m, kwargs in warnings
+        if m == "Dropped audit webhook delivery; queue full"
+    ]
+    assert len(drop_warnings) == 1
+    dropped = drop_warnings[0]
+    assert dropped["resource_type"] == "webhook"
+    assert dropped["action"] == "revoke"
+    # No payload contents (resource_id / data / url) on the drop-log boundary.
+    assert "dropped" not in repr(dropped)
+    assert "resource_id" not in dropped
+    assert "data" not in dropped
+    assert "webhook_url" not in dropped
+    # The dropped event's payload and sink URL appear nowhere in captured logs.
+    all_logs = repr(warnings)
+    assert dropped_url not in all_logs
+    assert dropped_payload_marker not in all_logs
+
+
+def _delivery(tag: str) -> _AuditDelivery:
+    """Build a minimal delivery whose resource_id doubles as an ordering tag."""
+    return _AuditDelivery(
+        webhook_url="https://example.com/audit",
+        request_payload={"resource_id": tag},
+        headers=None,
+        verify_ssl=True,
+        resource_type=cast(Any, "workflow"),
+        action=cast(Any, "update"),
+    )
+
+
+async def _drop_channel(loop: asyncio.AbstractEventLoop) -> None:
+    """Cancel and detach any channel worker for a loop so it can't leak."""
+    channel = audit_service_module._delivery_channels.pop(loop, None)
+    if channel is not None and not channel.worker.done():
+        channel.worker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await channel.worker
+
+
+@pytest.fixture
+async def fresh_delivery_channels() -> AsyncIterator[None]:
+    """Isolate _delivery_channels for the current loop and restore afterward.
+
+    _delivery_channels is a module global and pytest-asyncio may reuse a loop
+    across tests, so a leaked worker/queue would pollute later tests.
+    """
+    loop = asyncio.get_running_loop()
+    await _drop_channel(loop)
+    yield
+    await _drop_channel(loop)
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_poison_item_does_not_block_following_deliveries(
+    fresh_delivery_channels: None,
+) -> None:
+    """A failed HTTP delivery must not block or drop later, ordered items.
+
+    The failure is injected at the transport layer: _deliver itself must never
+    raise, or the drain worker would die and orphan the queue.
+    """
+    route = respx.post("https://example.com/audit").mock(
+        side_effect=[
+            httpx.ConnectError("boom"),
+            httpx.Response(200),
+            httpx.Response(200),
+        ]
+    )
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
+        _enqueue_delivery(_delivery("first"))
+        _enqueue_delivery(_delivery("second"))
+        _enqueue_delivery(_delivery("third"))
+        await flush_audit_deliveries()
+
+    # Serial FIFO worker: request order is delivery order.
+    tags = [orjson.loads(call.request.content)["resource_id"] for call in route.calls]
+    assert tags == ["first", "second", "third"]
+    assert [
+        (msg, kwargs.get("error_type"), kwargs.get("status_code"))
+        for msg, kwargs in warnings
+    ] == [("Failed to deliver audit webhook", "ConnectError", None)]
+
+
+@respx.mock
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 429, 500])
+async def test_deliver_http_status_failures_log_status_without_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_delivery_channels: None,
+    status_code: int,
+) -> None:
+    """HTTP errors log HTTPStatusError + real status; never URL/exc text/payload."""
+    webhook_url = "https://secret-host.example.com/audit-hook"
+    payload_marker = "payload-secret-marker"
+    respx.post(webhook_url).mock(return_value=httpx.Response(status_code))
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    delivery = _AuditDelivery(
+        webhook_url=webhook_url,
+        request_payload={"resource_id": payload_marker},
+        headers=None,
+        verify_ssl=True,
+        resource_type=cast(Any, "workflow"),
+        action=cast(Any, "update"),
+    )
+
+    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
+        _enqueue_delivery(delivery)
+        await flush_audit_deliveries()
+
+    delivery_warnings = [
+        kwargs for m, kwargs in warnings if m == "Failed to deliver audit webhook"
+    ]
+    assert len(delivery_warnings) == 1
+    kwargs = delivery_warnings[0]
+    assert kwargs["error_type"] == "HTTPStatusError"
+    assert kwargs["status_code"] == status_code
+    # No sink URL, exception text, or payload contents anywhere in the logs.
+    all_logs = repr(warnings)
+    assert webhook_url not in all_logs
+    assert payload_marker not in all_logs
+    assert str(status_code) in all_logs  # status is present, only as the field
+
+
+@pytest.mark.anyio
+async def test_enqueue_does_not_await_while_delivery_in_flight(
+    fresh_delivery_channels: None,
+) -> None:
+    """put_nowait must return immediately even while a slow delivery is blocked."""
+    delivered: list[str] = []
+    gate = asyncio.Event()
+
+    async def gated_deliver(delivery: _AuditDelivery) -> None:
+        tag = delivery.request_payload["resource_id"]
+        if tag == "first":
+            await gate.wait()
+        delivered.append(tag)
+
+    with patch("tracecat.audit.service._deliver", gated_deliver):
+        _enqueue_delivery(_delivery("first"))
+        queue = _get_delivery_queue()
+        # Let the worker pull "first" and block on the gate.
+        while queue.qsize() != 0:
+            await asyncio.sleep(0)
+
+        # Enqueue while the first delivery is blocked; must not await/block.
+        _enqueue_delivery(_delivery("second"))
+        _enqueue_delivery(_delivery("third"))
+        assert queue.qsize() == 2
+
+        gate.set()
+        await flush_audit_deliveries()
+
+    assert delivered == ["first", "second", "third"]
+
+
+@pytest.mark.anyio
+async def test_decorator_delivers_attempt_before_terminal_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+    role: Role,
+    fresh_delivery_channels: None,
+) -> None:
+    """Through the real @audit_log path, the sink sees ATTEMPT before terminal."""
+    webhook_url = "https://example.com/audit"
+    received: list[str] = []
+
+    async def get_webhook_url(_self: AuditService) -> str:
+        return webhook_url
+
+    async def get_actor_label(_self: AuditService) -> str | None:
+        return None
+
+    async def deliver(delivery: _AuditDelivery) -> None:
+        received.append(delivery.request_payload["status"])
+
+    monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
+    monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
+    monkeypatch.setattr(
+        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(AuditService, "_get_verify_ssl", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
+    )
+
+    service = _AuditedService(AsyncMock(), role)
+    token = ctx_role.set(role)
+    try:
+        with patch("tracecat.audit.service._deliver", deliver):
+            assert await service.mutate(uuid.uuid4()) == "result"
+            await flush_audit_deliveries()
+    finally:
+        ctx_role.reset(token)
+
+    assert received == ["ATTEMPT", "SUCCESS"]
+
+
+@pytest.mark.anyio
+async def test_worker_respawns_onto_same_queue_without_losing_events(
+    fresh_delivery_channels: None,
+) -> None:
+    """Regression: a dead worker respawns on the SAME queue; no events lost."""
+    delivered: list[str] = []
+
+    async def deliver(delivery: _AuditDelivery) -> None:
+        delivered.append(delivery.request_payload["resource_id"])
+
+    with patch("tracecat.audit.service._deliver", deliver):
+        _enqueue_delivery(_delivery("pre-1"))
+        _enqueue_delivery(_delivery("pre-2"))
+        await flush_audit_deliveries()
+
+        loop = asyncio.get_running_loop()
+        channel = audit_service_module._delivery_channels[loop]
+        queue_before = channel.queue
+
+        # Cancel the idle worker (blocked on an empty queue.get()); no item is
+        # mid-flight, so the unfinished-count stays consistent.
+        channel.worker.cancel()
+        try:
+            await channel.worker
+        except asyncio.CancelledError:
+            pass
+        assert channel.worker.done()
+
+        _enqueue_delivery(_delivery("post-1"))
+        # Access respawns the worker onto the existing queue.
+        assert _get_delivery_queue() is queue_before
+        assert audit_service_module._delivery_channels[loop].queue is queue_before
+        await flush_audit_deliveries()
+
+    assert delivered == ["pre-1", "pre-2", "post-1"]
+
+
+@pytest.mark.anyio
+async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
+    monkeypatch: pytest.MonkeyPatch,
+    role: Role,
+    fresh_delivery_channels: None,
+) -> None:
+    """A failing settings read inside _build_delivery must not break the op."""
+    webhook_url = "https://secret-host.example.com/audit-hook"
+    delivered: list[_AuditDelivery] = []
+
+    async def get_webhook_url(_self: AuditService) -> str:
+        return webhook_url
+
+    async def get_actor_label(_self: AuditService) -> str | None:
+        return None
+
+    async def broken_verify_ssl(_self: AuditService) -> bool:
+        raise RuntimeError("settings backend down")
+
+    async def deliver(delivery: _AuditDelivery) -> None:
+        delivered.append(delivery)
+
+    monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
+    monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
+    monkeypatch.setattr(
+        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(AuditService, "_get_verify_ssl", broken_verify_ssl)
+    monkeypatch.setattr(
+        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
+    )
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    service = _AuditedService(AsyncMock(), role)
+    token = ctx_role.set(role)
+    try:
+        with (
+            patch("tracecat.audit.service._deliver", deliver),
+            patch("tracecat.audit.logger.logger.warning", side_effect=capture_warning),
+            patch("tracecat.audit.service.logger.warning", side_effect=capture_warning),
+        ):
+            # The decorated business op still succeeds despite settings failure.
+            assert await service.mutate(uuid.uuid4()) == "result"
+            await flush_audit_deliveries()
+    finally:
+        ctx_role.reset(token)
+
+    # No delivery occurs when settings resolution raises.
+    assert delivered == []
+    # No warning leaks the sink URL.
+    assert webhook_url not in repr(warnings)
+
+
+@pytest.mark.anyio
+async def test_get_delivery_queue_evicts_closed_loop_entries(
+    fresh_delivery_channels: None,
+) -> None:
+    """Regression: closed-loop entries are evicted on access; no unbounded growth."""
+    channels = audit_service_module._delivery_channels
+
+    # Seed several real, closed loops with dummy channel entries.
+    closed_loops: list[asyncio.AbstractEventLoop] = []
+    for _ in range(5):
+        dead_loop = asyncio.new_event_loop()
+        dead_loop.close()
+        closed_loops.append(dead_loop)
+        channels[dead_loop] = _DeliveryChannel(
+            queue=asyncio.Queue(),
+            worker=cast(Any, MagicMock()),
+        )
+
+    live_loop = asyncio.get_running_loop()
+    size_with_dead = len(channels)
+    assert size_with_dead >= 5
+
+    # Access on the live loop must drop every closed-loop entry.
+    _get_delivery_queue()
+
+    for dead_loop in closed_loops:
+        assert dead_loop not in channels
+    assert live_loop in channels
+    # The dict shrank; it does not grow monotonically with dead loops.
+    assert len(channels) < size_with_dead
+
+
+@pytest.mark.anyio
+async def test_flush_audit_deliveries_no_op_without_channel(
+    fresh_delivery_channels: None,
+) -> None:
+    """flush_audit_deliveries returns immediately when no channel exists."""
+    loop = asyncio.get_running_loop()
+    assert loop not in audit_service_module._delivery_channels
+    # Must not raise or hang.
+    await flush_audit_deliveries()
+    # Flush alone must not create a channel.
+    assert loop not in audit_service_module._delivery_channels
+
+
+@pytest.mark.anyio
+async def test_flush_audit_deliveries_waits_for_in_flight_delivery(
+    fresh_delivery_channels: None,
+) -> None:
+    """flush blocks until a gated in-flight delivery completes."""
+    completed = asyncio.Event()
+    gate = asyncio.Event()
+
+    async def gated_deliver(delivery: _AuditDelivery) -> None:
+        await gate.wait()
+        completed.set()
+
+    with patch("tracecat.audit.service._deliver", gated_deliver):
+        _enqueue_delivery(_delivery("only"))
+        queue = _get_delivery_queue()
+        while queue.qsize() != 0:
+            await asyncio.sleep(0)
+        assert not completed.is_set()
+
+        async def release() -> None:
+            await asyncio.sleep(0)
+            gate.set()
+
+        release_task = asyncio.ensure_future(release())
+        # flush must not return until the gated delivery finishes.
+        await flush_audit_deliveries()
+        await release_task
+
+    assert completed.is_set()
 
 
 @pytest.mark.anyio

@@ -1,8 +1,17 @@
+"""Fire-and-forget audit webhook delivery with an at-most-once contract.
+
+Events are buffered in an in-memory per-loop queue and posted by a background
+worker; they are lost on process/loop shutdown and on queue overflow. Durable,
+at-least-once delivery arrives with the ENG-1514 spool.
+"""
+
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, Self
 
 import httpx
@@ -26,12 +35,122 @@ from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_client_ip, ctx_role, ctx_user_agent
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
+from tracecat.logger import logger
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
 
 # Union type for roles that can be used for audit logging
 AuditableRole = Role | PlatformRole
+
+
+@dataclass(frozen=True)
+class _AuditDelivery:
+    """A fully resolved audit webhook post, safe to run without a DB session.
+
+    Built synchronously while the request context and session are live, then
+    handed to a background worker for fire-and-forget delivery.
+    """
+
+    webhook_url: str
+    request_payload: dict[str, Any]
+    headers: dict[str, str] | None
+    verify_ssl: bool
+    # Non-sensitive discriminators for drop logging; never the payload contents.
+    resource_type: AuditResourceType
+    action: AuditAction
+
+
+@dataclass
+class _DeliveryChannel:
+    queue: asyncio.Queue[_AuditDelivery]
+    worker: asyncio.Task[None]
+
+
+# Hard cap on undelivered payloads so a slow or down sink cannot grow memory
+# without bound. Overflow drops the newest event rather than blocking the caller.
+_AUDIT_DELIVERY_QUEUE_MAXSIZE = 1000
+
+# Single FIFO worker per event loop drains deliveries in enqueue order,
+# preserving ATTEMPT->terminal ordering per operation within a process. Keyed by
+# loop so queues never leak across loops (e.g. per-test loops).
+_delivery_channels: dict[asyncio.AbstractEventLoop, _DeliveryChannel] = {}
+
+
+def _get_delivery_queue() -> asyncio.Queue[_AuditDelivery]:
+    loop = asyncio.get_running_loop()
+    # Evict closed loops so short-lived (test) loops don't leak channels.
+    for closed in [other for other in _delivery_channels if other.is_closed()]:
+        del _delivery_channels[closed]
+
+    channel = _delivery_channels.get(loop)
+    if channel is None:
+        queue: asyncio.Queue[_AuditDelivery] = asyncio.Queue(
+            maxsize=_AUDIT_DELIVERY_QUEUE_MAXSIZE
+        )
+        worker = loop.create_task(_drain_deliveries(queue))
+        channel = _DeliveryChannel(queue=queue, worker=worker)
+        _delivery_channels[loop] = channel
+    elif channel.worker.done():
+        # Worker died (CancelledError/BaseException) with items possibly still
+        # queued. Respawn onto the existing queue so nothing is lost.
+        channel.worker = loop.create_task(_drain_deliveries(channel.queue))
+    return channel.queue
+
+
+def _enqueue_delivery(delivery: _AuditDelivery) -> None:
+    """Enqueue without blocking; drop the newest event on overflow and log once."""
+    queue = _get_delivery_queue()
+    try:
+        queue.put_nowait(delivery)
+    except asyncio.QueueFull:
+        # No payload contents in this log line: keeps dropped-event data off the
+        # logging boundary.
+        logger.warning(
+            "Dropped audit webhook delivery; queue full",
+            resource_type=delivery.resource_type,
+            action=delivery.action,
+            queue_maxsize=_AUDIT_DELIVERY_QUEUE_MAXSIZE,
+        )
+
+
+async def _drain_deliveries(queue: asyncio.Queue[_AuditDelivery]) -> None:
+    while True:
+        delivery = await queue.get()
+        try:
+            await _deliver(delivery)
+        finally:
+            queue.task_done()
+
+
+async def _deliver(delivery: _AuditDelivery) -> None:
+    """Post one resolved delivery. Never uses a DB session."""
+    response: httpx.Response | None = None
+    try:
+        async with httpx.AsyncClient(
+            timeout=10.0, verify=delivery.verify_ssl
+        ) as client:
+            response = await client.post(
+                delivery.webhook_url,
+                json=delivery.request_payload,
+                headers=delivery.headers,
+            )
+            response.raise_for_status()
+    except Exception as exc:
+        # No exception text or URL on this path: the webhook URL is
+        # operator-configured and may carry a credential in its path.
+        logger.warning(
+            "Failed to deliver audit webhook",
+            error_type=type(exc).__name__,
+            status_code=getattr(response, "status_code", None),
+        )
+
+
+async def flush_audit_deliveries() -> None:
+    """Wait for all queued audit deliveries to complete. Intended for tests."""
+    channel = _delivery_channels.get(asyncio.get_running_loop())
+    if channel is not None:
+        await channel.queue.join()
 
 
 class AuditService(BaseService):
@@ -193,36 +312,39 @@ class AuditService(BaseService):
         cleaned = value.strip()
         return cleaned or None
 
-    async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
-        response: httpx.Response | None = None
-        try:
-            custom_headers = await self._get_custom_headers()
-            custom_payload = await self._get_custom_payload()
-            verify_ssl = await self._get_verify_ssl()
-            payload_attribute = await self._get_payload_attribute()
-            event_payload = payload.model_dump(mode="json")
-            if custom_payload:
-                event_payload = {**event_payload, **custom_payload}
-            request_payload: dict[str, Any]
-            if payload_attribute:
-                request_payload = {payload_attribute: event_payload}
-            else:
-                request_payload = event_payload
+    async def _build_delivery(
+        self, *, webhook_url: str, payload: AuditEvent
+    ) -> _AuditDelivery:
+        """Resolve webhook settings and assemble the request body.
 
-            async with httpx.AsyncClient(timeout=10.0, verify=verify_ssl) as client:
-                response = await client.post(
-                    webhook_url,
-                    json=request_payload,
-                    headers=custom_headers,
-                )
-                response.raise_for_status()
-        except Exception as exc:
-            self.logger.warning(
-                "Failed to deliver audit webhook",
-                error=redact_sensitive_text(str(exc), redact_emails=True),
-                webhook_url=redact_sensitive_text(webhook_url),
-                status_code=getattr(response, "status_code", None),
-            )
+        Runs while the request session is live; the returned delivery needs no
+        session and is safe to post from a detached background task.
+        """
+        custom_headers = await self._get_custom_headers()
+        custom_payload = await self._get_custom_payload()
+        verify_ssl = await self._get_verify_ssl()
+        payload_attribute = await self._get_payload_attribute()
+        event_payload = payload.model_dump(mode="json")
+        if custom_payload:
+            event_payload = {**event_payload, **custom_payload}
+        request_payload: dict[str, Any]
+        if payload_attribute:
+            request_payload = {payload_attribute: event_payload}
+        else:
+            request_payload = event_payload
+        return _AuditDelivery(
+            webhook_url=webhook_url,
+            request_payload=request_payload,
+            headers=custom_headers,
+            verify_ssl=verify_ssl,
+            resource_type=payload.resource_type,
+            action=payload.action,
+        )
+
+    async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
+        """Resolve the delivery synchronously, then enqueue it fire-and-forget."""
+        delivery = await self._build_delivery(webhook_url=webhook_url, payload=payload)
+        _enqueue_delivery(delivery)
 
     async def _get_actor_label(self) -> str | None:
         if self.role is None:

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import cast
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from tracecat.audit.logger import AuditCallContext, AuditEventDetails, audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -17,44 +16,37 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 
 
-async def _case_trigger_upsert_audit_details(
-    context: AuditCallContext,
-) -> AuditEventDetails:
-    if context.arguments.get("commit", True) is False:
-        return AuditEventDetails(emit=False)
-    service = cast(BaseWorkspaceService, context.target)
-    workflow_id = cast(WorkflowID, context.arguments["workflow_id"])
-    params = cast(CaseTriggerConfig, context.arguments["params"])
-    existing = await service.session.scalar(
-        select(CaseTrigger).where(
-            CaseTrigger.workspace_id == service.workspace_id,
-            CaseTrigger.workflow_id == WorkflowUUID.new(workflow_id),
-        )
-    )
-    if existing is None:
-        return AuditEventDetails(action="create")
-    return AuditEventDetails(
-        action="update",
-        resource_id=existing.id,
-        data={"changed_fields": sorted(params.model_dump())},
-    )
-
-
-def _case_trigger_update_audit_details(
-    context: AuditCallContext,
-) -> AuditEventDetails:
-    if context.arguments.get("commit", True) is False:
-        return AuditEventDetails(emit=False)
-    params = cast(CaseTriggerUpdate, context.arguments["params"])
-    return AuditEventDetails(
-        data={"changed_fields": sorted(params.model_dump(exclude_unset=True))}
-    )
-
-
 class CaseTriggersService(BaseWorkspaceService):
     """Manage workflow case trigger configuration."""
 
     service_name = "case_triggers"
+
+    def _case_trigger_upsert_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        # commit=False suppresses emission for sync/dry-run callers.
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails(data={"changed_fields": sorted(params.model_dump())})
+
+    def _case_trigger_update_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
 
     async def _lock_workflow(self, workflow_id: WorkflowID) -> None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
@@ -169,7 +161,7 @@ class CaseTriggersService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.CASE_ADDONS)
     @audit_log(
         resource_type="case_trigger",
-        action="create",
+        action="upsert",
         resource_id_attr="id",
         attempt_metadata=_case_trigger_upsert_audit_details,
     )

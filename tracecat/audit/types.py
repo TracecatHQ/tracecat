@@ -15,9 +15,12 @@ type AuditMetadata = Mapping[str, AuditMetadataValue]
 AuditAction = Literal[
     "create",
     "update",
+    "upsert",
     "delete",
     "publish",
     "cancel",
+    "terminate",
+    "reset",
     "rotate",
     "accept",
     "revoke",
