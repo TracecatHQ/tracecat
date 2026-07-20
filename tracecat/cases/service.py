@@ -14,6 +14,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.audit.enums import AuditEventStatus
@@ -1179,7 +1180,7 @@ class CasesService(BaseWorkspaceService):
         materialize unrelated collections; `load_dropdown_values` opts into the
         one relationship closure validation reads.
         """
-        options: list[Any] = [raiseload("*")]
+        options: list[ExecutableOption] = [raiseload("*")]
         if load_dropdown_values:
             options.append(selectinload(Case.dropdown_values))
         statement = (
@@ -1304,10 +1305,9 @@ class CasesService(BaseWorkspaceService):
     async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Delete multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
-        audit_case_ids = [str(case_id) for case_id in case_ids]
         audit_data: dict[str, Any] = {
             "batch": True,
-            "case_ids": audit_case_ids,
+            "case_ids": [str(case_id) for case_id in case_ids],
             "count": len(case_ids),
         }
         await self._audit_batch_event(
