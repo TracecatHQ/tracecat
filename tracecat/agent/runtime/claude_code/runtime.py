@@ -91,6 +91,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.exceptions import SandboxFileSafetyError
 from tracecat.sandbox.file_io import (
     atomic_write_file_beneath,
     read_complete_lines_beneath,
@@ -98,6 +99,9 @@ from tracecat.sandbox.file_io import (
 )
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
+# Headroom reserved for session-envelope metadata when checking whether a
+# serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
+_SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 
@@ -975,6 +979,19 @@ class ClaudeAgentRuntime:
                             byte_offset=line_offset,
                         )
                         return
+
+                    # The line parsed as JSON, so re-escaping it into the session
+                    # envelope grows it at most ~2x. Reject a line whose
+                    # serialized form cannot fit the socket frame instead of
+                    # failing the same doomed send on every flush.
+                    if (
+                        2 * len(line_bytes) + _SESSION_FRAME_MARGIN > MAX_PAYLOAD_SIZE
+                        and len(orjson.dumps(line)) + _SESSION_FRAME_MARGIN
+                        > MAX_PAYLOAD_SIZE
+                    ):
+                        raise SandboxFileSafetyError(
+                            "Session line exceeds the socket frame limit"
+                        )
 
                     internal = self._is_internal_session_line(line_data) or (
                         is_approval_continuation

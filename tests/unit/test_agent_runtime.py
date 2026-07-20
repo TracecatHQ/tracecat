@@ -2974,6 +2974,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """A backlog larger than one frame should flush completely in order."""
         monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", 80)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
             transport_factory=lambda _: MagicMock(),
@@ -3025,6 +3026,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         advancement: the sent line is committed, the failed line is not.
         """
         monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", 200)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
             transport_factory=lambda _: MagicMock(),
@@ -3051,6 +3053,42 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
             await runtime._emit_new_session_lines()
 
         assert runtime._last_seen_byte_offset == len(first_line)
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_rejects_line_oversized_after_escaping(
+        self,
+        mock_socket_writer: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A line that fits raw but not after JSON escaping must fail fast.
+
+        Embedding the line in the session envelope re-escapes it, so a raw
+        read limit alone would let the send fail on every flush.
+        """
+        raw_line = self._line_bytes(
+            {"type": "user", "uuid": "big", "message": {"content": '"' * 40}}
+        )
+        # Raw line fits the frame, but its re-escaped serialization does not.
+        monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", len(raw_line) + 1)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.write_bytes(raw_line)
+
+        with pytest.raises(SandboxFileSafetyError, match="frame limit"):
+            await runtime._emit_new_session_lines()
+
+        assert runtime._last_seen_byte_offset == 0
+        mock_socket_writer.send_session_line.assert_not_awaited()
 
     @staticmethod
     def _line_bytes(line: dict[str, Any]) -> bytes:

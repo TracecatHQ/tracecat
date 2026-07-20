@@ -1,5 +1,6 @@
 """High-level sandbox service for Python script execution."""
 
+import asyncio
 import hashlib
 import json
 import os
@@ -259,7 +260,9 @@ class SandboxService:
         temp_dest = dest.parent / f"site-packages.{uuid.uuid4().hex}.tmp"
         try:
             try:
-                copied = copy_tree_without_following_symlinks(
+                # The walk and copy can span gigabytes; keep them off the loop.
+                copied = await asyncio.to_thread(
+                    copy_tree_without_following_symlinks,
                     site_packages,
                     temp_dest,
                     max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
@@ -293,7 +296,7 @@ class SandboxService:
                 )
         finally:
             if temp_dest.exists():
-                shutil.rmtree(temp_dest, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, temp_dest, ignore_errors=True)
 
     async def _prepare_execution(
         self,

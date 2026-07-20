@@ -141,6 +141,19 @@ def test_decode_result_envelope_selects_output_key_and_lenient_defaults(
     )
 
 
+@pytest.mark.parametrize("stream_field", ["stdout", "stderr"])
+def test_decode_result_envelope_rejects_null_streams(
+    tmp_path: Path,
+    stream_field: str,
+) -> None:
+    """Explicit null streams are malformed; SandboxResult streams are str."""
+    (tmp_path / "result.json").write_bytes(
+        orjson.dumps({"success": True, stream_field: None})
+    )
+
+    _assert_invalid_result(_decode(tmp_path))
+
+
 def test_decode_result_envelope_can_preserve_process_streams(tmp_path: Path) -> None:
     """Action envelopes should not override captured process stdout or stderr."""
     (tmp_path / "result.json").write_bytes(

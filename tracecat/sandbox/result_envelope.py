@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -22,8 +22,10 @@ class _ResultEnvelope(BaseModel):
     success: bool = Field(default=False)
     output: Any | None = Field(default=None)
     result: Any | None = Field(default=None)
-    stdout: str | None = Field(default=None)
-    stderr: str | None = Field(default=None)
+    # Streams must be strings when present; an explicit null is malformed and
+    # takes the invalid-result path rather than leaking None into SandboxResult.
+    stdout: str = Field(default="")
+    stderr: str = Field(default="")
     error: str | None = Field(default=None)
     error_code: SandboxErrorCode | None = Field(default=None)
 
@@ -123,9 +125,9 @@ def decode_result_envelope(
     result_stderr: str = stderr
     if stream_source == "envelope":
         if "stdout" in envelope.model_fields_set:
-            result_stdout = cast(str, envelope.stdout)
+            result_stdout = envelope.stdout
         if "stderr" in envelope.model_fields_set:
-            result_stderr = cast(str, envelope.stderr)
+            result_stderr = envelope.stderr
 
     return ResultEnvelopeOutcome(
         result=SandboxResult(
