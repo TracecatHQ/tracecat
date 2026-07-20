@@ -36,11 +36,11 @@ definition:
     result_type:
       type: str
       description: PowerQuery result type.
-      default: table
+      default: TABLE
     frequency:
       type: str
       description: PowerQuery frequency hint.
-      default: low
+      default: LOW
     query_origin:
       type: str | None
       description: Optional provenance string for SDL.
@@ -48,11 +48,15 @@ definition:
     poll_interval:
       type: float
       description: Seconds between poll attempts while the query runs.
-      default: 2
+      default: 1
     poll_max_attempts:
       type: int
       description: Maximum number of poll attempts. Set to 0 to poll until timeout.
-      default: 30
+      default: 300
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for each SDL request.
+      default: 60
     base_url:
       type: str | None
       description: SentinelOne tenant URL. /sdl is appended automatically.
@@ -88,7 +92,7 @@ definition:
               payload = {
                   "startTime": start_time,
                   "endTime": end_time,
-                  "queryType": "pq",
+                  "queryType": "PQ",
                   "queryPriority": query_priority,
                   "pq": {
                       "query": query,
@@ -115,6 +119,7 @@ definition:
         method: POST
         headers: '${{ FN.merge([{"Authorization": FN.concat("Bearer ", SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN)}, steps.build_payload.result.extra_headers]) }}'
         payload: ${{ steps.build_payload.result.payload }}
+        timeout: ${{ inputs.timeout_seconds }}
     - ref: poll_results
       action: core.http_poll
       args:
@@ -127,6 +132,16 @@ definition:
           lastStepSeen: 0
         poll_interval: ${{ inputs.poll_interval }}
         poll_max_attempts: ${{ inputs.poll_max_attempts }}
+        timeout: ${{ inputs.timeout_seconds }}
         poll_condition: >
-          lambda x: x.get('data', {}).get('totalSteps', 0) > 0 and x.get('data', {}).get('stepsCompleted', 0) >= x.get('data', {}).get('totalSteps', 0)
+          lambda x: x.get('data', {}).get('totalSteps') is not None and x.get('data', {}).get('stepsCompleted') == x.get('data', {}).get('totalSteps')
+    - ref: delete_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/sdl/v2/api/queries/${{ steps.submit_query.result.data.id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          X-Dataset-Query-Forward-Tag: ${{ steps.submit_query.result.headers["x-dataset-query-forward-tag"] }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.poll_results.result.data }}

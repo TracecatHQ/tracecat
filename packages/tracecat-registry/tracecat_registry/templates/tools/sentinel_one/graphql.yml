@@ -25,6 +25,10 @@ definition:
       type: str
       description: GraphQL endpoint path appended to base_url.
       default: /web/api/v2.1/graphql
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for the GraphQL request.
+      default: 30
     base_url:
       type: str | None
       description: SentinelOne tenant URL.
@@ -42,4 +46,5 @@ definition:
         payload:
           query: ${{ inputs.query }}
           variables: ${{ inputs.variables }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.run_query.result.data }}
