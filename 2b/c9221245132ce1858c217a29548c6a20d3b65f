@@ -1,0 +1,24 @@
+scripts/generate_ai_docs.py
+  s_c25a229991abf8::t_29a56b615c42aa 201-205,255-259,552-553
+  s_c25a229991abf8::t_9c712becfec928 554
+docs/agents/ai-action.mdx
+  s_c25a229991abf8::t_b76cf205c642f9 30-33
+docs/agents/ai-agent.mdx
+  s_c25a229991abf8::t_00ba84eac12b2f 44-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2bc9221245132ce1858c217a29548c6a20d3b65f",
+  "prompts": {},
+  "sessions": {
+    "s_c25a229991abf8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8066-0276-77e3-a582-824a54eddea2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
