@@ -1202,10 +1202,9 @@ class CasesService(BaseWorkspaceService):
     ) -> CaseBatchResponse:
         """Update multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
-        audit_case_ids = [str(case_id) for case_id in case_ids]
         audit_data: dict[str, Any] = {
             "batch": True,
-            "case_ids": audit_case_ids,
+            "case_ids": [str(case_id) for case_id in case_ids],
             "count": len(case_ids),
         }
         await self._audit_batch_event(
