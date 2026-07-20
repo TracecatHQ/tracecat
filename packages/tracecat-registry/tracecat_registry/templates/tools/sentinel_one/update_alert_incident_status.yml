@@ -3,7 +3,7 @@ definition:
   title: Update alert incident status
   description: Update the incident status for one or more SentinelOne alerts.
   display_group: SentinelOne
-  doc_url: https://github.com/Sentinel-One/purple-mcp
+  doc_url: https://github.com/Sentinel-One/ai-siem/blob/main/plugins/s1-secops-skills/skills/mgmt-console-api/references/tags/alerts.md
   namespace: tools.sentinel_one
   name: update_alert_incident_status
   secrets:
