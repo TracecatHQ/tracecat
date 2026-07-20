@@ -4822,6 +4822,7 @@ export type MCPHTTPOAuth2ConnectionSpec = {
   auth_type?: "OAUTH2"
   server_uri: string
   scopes?: Array<string>
+  oauth_resource?: string | null
   oauth_authorization_endpoint?: string | null
   oauth_token_endpoint?: string | null
   /**
