@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Literal
@@ -9,7 +10,7 @@ from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.db.session_events import add_after_commit_callback
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 
@@ -20,6 +21,12 @@ CaseDurationSyncReason = Literal[
     "duration_definition_backfill",
 ]
 type InlineDurationSyncFallback = Callable[[], Awaitable[bool | None]]
+
+# Delay before each inline fallback attempt when the case's sync advisory lock
+# is held by another transaction. Bounded so a degraded (Redis-down) deployment
+# never accumulates long-lived waiters; a sync that stays locked out past the
+# last attempt heals on the next case event or definition backfill.
+INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS: tuple[float, ...] = (0.0, 0.5, 2.0, 5.0)
 
 
 async def publish_case_duration_sync(
@@ -102,23 +109,40 @@ def enqueue_case_duration_sync_after_commit(
             )
 
         # Preserve duration materialization durability when Redis is unavailable.
-        try:
-            synced = await inline_fallback()
-        except Exception:
-            logger.exception(
-                "Inline case duration sync fallback failed",
+        # Retry briefly when another transaction holds the case's sync lock: the
+        # lock holder may have computed before this commit became visible, and
+        # with Redis down there is no queued job to redo the work.
+        for attempt, delay_seconds in enumerate(
+            INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS, start=1
+        ):
+            if delay_seconds:
+                await asyncio.sleep(delay_seconds)
+            try:
+                synced = await inline_fallback()
+            except Exception:
+                logger.exception(
+                    "Inline case duration sync fallback failed",
+                    workspace_id=str(workspace_id),
+                    case_id=str(case_id) if case_id is not None else None,
+                    reason=reason,
+                )
+                return
+            if synced is not False:
+                return
+            logger.debug(
+                "Inline case duration sync fallback lock busy; retrying",
                 workspace_id=str(workspace_id),
                 case_id=str(case_id) if case_id is not None else None,
                 reason=reason,
-            )
-            return
-
-        if synced is False:
-            logger.warning(
-                "Inline case duration sync fallback skipped; sync lock is busy",
-                workspace_id=str(workspace_id),
-                case_id=str(case_id) if case_id is not None else None,
-                reason=reason,
+                attempt=attempt,
             )
 
-    add_after_commit_callback(session, _publish)
+        logger.warning(
+            "Inline case duration sync fallback skipped; sync lock stayed busy",
+            workspace_id=str(workspace_id),
+            case_id=str(case_id) if case_id is not None else None,
+            reason=reason,
+            attempts=len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS),
+        )
+
+    AfterCommitQueue.of(session).add(_publish)
