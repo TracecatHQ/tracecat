@@ -7,9 +7,16 @@ import os
 import socket
 import uuid
 from time import monotonic
-from typing import Self
+from typing import Annotated, Final, Literal, NamedTuple, Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 from redis.exceptions import ResponseError
 from sqlalchemy import select
 from tenacity import RetryError
@@ -17,7 +24,6 @@ from tenacity import RetryError
 from tracecat import config
 from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.sync_queue import (
-    CaseDurationSyncReason,
     publish_case_duration_sync,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -25,41 +31,59 @@ from tracecat.db.models import Case
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
-RETRY_BACKOFF_BASE_SECONDS = 1.0
-RETRY_BACKOFF_MAX_SECONDS = 30.0
+RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
+RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
 
 
-class CaseDurationSyncJob(BaseModel):
+class CaseKey(NamedTuple):
+    """Key used to coalesce case-scoped jobs."""
+
+    workspace_id: uuid.UUID
+    case_id: uuid.UUID
+
+
+class _SyncJobBase(BaseModel):
+    """Fields marked `None` are forbidden for that reason and reject non-null
+    values, while unknown extra fields stay ignored (Pydantic's default)."""
+
     model_config = ConfigDict(frozen=True)
 
     workspace_id: uuid.UUID
-    reason: CaseDurationSyncReason
+
+
+class CaseEventSyncJob(_SyncJobBase):
+    reason: Literal["case_event"]
+    case_id: uuid.UUID
+    event_type: str = Field(min_length=1)
+    cursor: None = None
+
+
+class DurationDefinitionSyncJob(_SyncJobBase):
+    reason: Literal["duration_definition_created", "duration_definition_updated"]
+    case_id: None = None
+    event_type: None = None
+    cursor: None = None
+
+
+class DurationBackfillSyncJob(_SyncJobBase):
+    reason: Literal["duration_definition_backfill"]
     case_id: uuid.UUID | None = None
-    event_type: str | None = None
+    event_type: None = None
     cursor: int | None = None
 
     @model_validator(mode="after")
-    def _validate_reason_shape(self) -> Self:
-        match self.reason:
-            case "case_event":
-                valid_shape = (
-                    self.case_id is not None
-                    and bool(self.event_type)
-                    and self.cursor is None
-                )
-            case "duration_definition_created" | "duration_definition_updated":
-                valid_shape = (
-                    self.case_id is None
-                    and self.event_type is None
-                    and self.cursor is None
-                )
-            case "duration_definition_backfill":
-                valid_shape = self.event_type is None and (self.case_id is None) != (
-                    self.cursor is None
-                )
-        if not valid_shape:
-            raise ValueError(f"invalid field shape for reason {self.reason!r}")
+    def _validate_scope(self) -> Self:
+        if (self.case_id is None) == (self.cursor is None):
+            raise ValueError("exactly one of case_id or cursor must be set")
         return self
+
+
+type CaseDurationSyncJob = Annotated[
+    CaseEventSyncJob | DurationDefinitionSyncJob | DurationBackfillSyncJob,
+    Field(discriminator="reason"),
+]
+
+_JOB_VALIDATOR: TypeAdapter[CaseDurationSyncJob] = TypeAdapter(CaseDurationSyncJob)
 
 
 class CaseDurationSyncConsumer:
@@ -161,9 +185,9 @@ class CaseDurationSyncConsumer:
         )
 
     async def _handle_entries(self, entries: list[tuple[str, dict[str, str]]]) -> None:
-        case_jobs: dict[tuple[uuid.UUID, uuid.UUID], list[str]] = {}
-        case_event_types: dict[tuple[uuid.UUID, uuid.UUID], set[str]] = {}
-        force_sync_keys: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        case_jobs: dict[CaseKey, list[str]] = {}
+        case_event_types: dict[CaseKey, set[str]] = {}
+        force_sync_keys: set[CaseKey] = set()
         for message_id, fields in entries:
             job = self._parse_job(fields)
             if job is None:
@@ -184,7 +208,7 @@ class CaseDurationSyncConsumer:
                     await self._ack_and_delete([message_id])
                 continue
 
-            key = (job.workspace_id, job.case_id)
+            key = CaseKey(workspace_id=job.workspace_id, case_id=job.case_id)
             case_jobs.setdefault(key, []).append(message_id)
             if job.event_type:
                 case_event_types.setdefault(key, set()).add(job.event_type)
@@ -195,20 +219,19 @@ class CaseDurationSyncConsumer:
                 # and ack it.
                 force_sync_keys.add(key)
 
-        for (workspace_id, case_id), message_ids in case_jobs.items():
-            key = (workspace_id, case_id)
+        for key, message_ids in case_jobs.items():
             event_types = None if key in force_sync_keys else case_event_types.get(key)
             try:
                 synced = await self._sync_case_duration(
-                    workspace_id,
-                    case_id,
+                    key.workspace_id,
+                    key.case_id,
                     event_types=event_types,
                 )
             except Exception:
                 logger.exception(
                     "Failed to process case duration sync job",
-                    workspace_id=str(workspace_id),
-                    case_id=str(case_id),
+                    workspace_id=str(key.workspace_id),
+                    case_id=str(key.case_id),
                 )
                 continue
 
@@ -231,7 +254,7 @@ class CaseDurationSyncConsumer:
 
     def _parse_job(self, fields: dict[str, str]) -> CaseDurationSyncJob | None:
         try:
-            return CaseDurationSyncJob.model_validate(fields)
+            return _JOB_VALIDATOR.validate_python(fields)
         except ValidationError as e:
             logger.warning(
                 "Invalid case duration sync message",
@@ -253,7 +276,9 @@ class CaseDurationSyncConsumer:
             event_types=event_types,
         )
 
-    async def _process_backfill_job(self, job: CaseDurationSyncJob) -> bool:
+    async def _process_backfill_job(
+        self, job: DurationDefinitionSyncJob | DurationBackfillSyncJob
+    ) -> bool:
         async with get_async_session_bypass_rls_context_manager() as session:
             stmt = (
                 select(Case.surrogate_id, Case.id)
@@ -296,7 +321,7 @@ class CaseDurationSyncConsumer:
 
         message_ids: list[str] = []
         for entry in pending:
-            msg_id = None
+            msg_id: str | None = None
             if isinstance(entry, dict):
                 msg_id = entry.get("message_id") or entry.get("id")
             else:
