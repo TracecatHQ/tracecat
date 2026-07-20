@@ -208,7 +208,8 @@ just gen-functions
   hardcoded literal so `.env` overrides still work. In `.env.example`, use an
   explicit `true` or `false`, never a blank value. Update
   `tests/unit/test_config.py` when adding deployment env files.
-- Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
+- Use `pnpm` instead of `npm`, prefer `rg` over slower text-search tools, and
+  prefer `fd` over `find` when `fd` is available.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
 
