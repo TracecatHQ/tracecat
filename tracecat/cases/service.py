@@ -12,7 +12,7 @@ from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -1123,15 +1123,19 @@ class CasesService(BaseWorkspaceService):
             old = getattr(case, key, None)
             setattr(case, key, value)
             if key == "assignee_id":
-                events.append(
-                    AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
-                )
-            elif key == "summary":
-                events.append(
-                    UpdatedEvent(
-                        field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                # Only record event if the assignee actually changed
+                if old != value:
+                    events.append(
+                        AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
-                )
+            elif key == "summary":
+                # Only record event if the summary actually changed
+                if old != value:
+                    events.append(
+                        UpdatedEvent(
+                            field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                        )
+                    )
             elif key == "payload":
                 # Only record event if payload actually changed
                 if old != value:
@@ -1166,10 +1170,21 @@ class CasesService(BaseWorkspaceService):
                 error=str(exc),
             )
 
-    async def _lock_cases(self, case_ids: list[uuid.UUID]) -> dict[uuid.UUID, Case]:
-        """Lock and return workspace-scoped cases in deterministic ID order."""
+    async def _lock_cases(
+        self, case_ids: list[uuid.UUID], *, load_dropdown_values: bool = False
+    ) -> dict[uuid.UUID, Case]:
+        """Lock and return workspace-scoped cases in deterministic ID order.
+
+        Relationship loading is suppressed so a 1000-case batch does not
+        materialize unrelated collections; `load_dropdown_values` opts into the
+        one relationship closure validation reads.
+        """
+        options: list[Any] = [raiseload("*")]
+        if load_dropdown_values:
+            options.append(selectinload(Case.dropdown_values))
         statement = (
             select(Case)
+            .options(*options)
             .where(
                 Case.workspace_id == self.workspace_id,
                 Case.id.in_(sorted(case_ids)),
@@ -1199,7 +1214,11 @@ class CasesService(BaseWorkspaceService):
         )
 
         try:
-            cases_by_id = await self._lock_cases(case_ids)
+            cases_by_id = await self._lock_cases(
+                case_ids,
+                load_dropdown_values=params.status
+                in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+            )
             results: list[CaseBatchItemResult] = []
             queue = AfterCommitQueue.of(self.session)
             with queue.checkpointed():
@@ -1270,7 +1289,9 @@ class CasesService(BaseWorkspaceService):
         )
         await self._audit_batch_event(
             action="update",
-            status=AuditEventStatus.SUCCESS,
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
                 "succeeded": response.succeeded,
@@ -1315,7 +1336,27 @@ class CasesService(BaseWorkspaceService):
                         try:
                             with queue.checkpointed():
                                 async with self.session.begin_nested():
-                                    await self.session.delete(case)
+                                    # Rely on database ON DELETE CASCADE instead
+                                    # of ORM cascades, which lazy-load every
+                                    # child collection per case. Reply comments
+                                    # must be unlinked first: the
+                                    # (case_id, parent_id) self-FK is
+                                    # ON DELETE RESTRICT, so a cascading case
+                                    # delete is order-sensitive with threads.
+                                    await self.session.execute(
+                                        sa.update(CaseComment)
+                                        .where(
+                                            CaseComment.case_id == case.id,
+                                            CaseComment.parent_id.is_not(None),
+                                        )
+                                        .values(parent_id=None)
+                                    )
+                                    await self.session.execute(
+                                        sa.delete(Case).where(
+                                            Case.id == case.id,
+                                            Case.workspace_id == self.workspace_id,
+                                        )
+                                    )
                         except TracecatValidationError as exc:
                             results.append(
                                 CaseBatchItemResult(
@@ -1367,7 +1408,9 @@ class CasesService(BaseWorkspaceService):
         )
         await self._audit_batch_event(
             action="delete",
-            status=AuditEventStatus.SUCCESS,
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
                 "succeeded": response.succeeded,

@@ -199,14 +199,17 @@ export function CasesLayout({
           title: `${succeededIds.size} deleted, ${failed} failed`,
           description: "Some selected cases could not be deleted.",
         })
+        // Keep only failed cases selected so a retry targets the remainder.
+        setSelectedCaseIds(
+          new Set(caseIds.filter((id) => !succeededIds.has(id)))
+        )
       } else {
         toast({
           title: `${caseIds.length} case(s) deleted`,
           description: "The selected cases have been deleted successfully.",
         })
+        setSelectedCaseIds(new Set())
       }
-
-      setSelectedCaseIds(new Set())
     } catch (err) {
       console.error("Failed to delete cases:", err)
       toast({
@@ -260,6 +263,10 @@ export function CasesLayout({
             title: `${succeededIds.size} updated, ${failed} failed`,
             description: "Some selected cases could not be updated.",
           })
+          // Keep only failed cases selected so a retry targets the remainder.
+          setSelectedCaseIds(
+            new Set(caseIds.filter((id) => !succeededIds.has(id)))
+          )
         } else {
           toast({
             title:

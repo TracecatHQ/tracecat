@@ -31,15 +31,20 @@ from tracecat.cases.enums import (
     CaseStatus,
 )
 from tracecat.cases.schemas import (
+    CaseCommentCreate,
     CaseCreate,
     CaseFieldCreate,
     CaseReadMinimal,
     CaseUpdate,
 )
 from tracecat.tags.schemas import TagCreate
-from tracecat.cases.service import CaseFieldsService, CasesService
+from tracecat.cases.service import (
+    CaseCommentsService,
+    CaseFieldsService,
+    CasesService,
+)
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, Workspace
+from tracecat.db.models import Case, CaseComment, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
@@ -172,6 +177,7 @@ def _assert_batch_audit_calls(
     case_ids: list[uuid.UUID],
     succeeded: int,
     failed: int,
+    terminal_status: AuditEventStatus = AuditEventStatus.SUCCESS,
 ) -> None:
     base_data = {
         "batch": True,
@@ -190,7 +196,7 @@ def _assert_batch_audit_calls(
             resource_type="case",
             action=action,
             resource_id=None,
-            status=AuditEventStatus.SUCCESS,
+            status=terminal_status,
             data={**base_data, "succeeded": succeeded, "failed": failed},
         ),
     ]
@@ -905,6 +911,7 @@ class TestCasesService:
             case_ids=case_ids,
             succeeded=0,
             failed=2,
+            terminal_status=AuditEventStatus.FAILURE,
         )
 
     async def test_batch_delete_cases(
@@ -941,6 +948,36 @@ class TestCasesService:
         )
         for case_id in case_ids:
             assert await cases_service.get_case(case_id) is None
+
+    async def test_batch_delete_cases_with_threaded_comments(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Deleting a case with a reply comment must not trip the parent-id
+        RESTRICT self-FK: replies are unlinked before the case row is deleted
+        and database cascades remove the comments."""
+        created_case = await cases_service.create_case(case_create_params)
+        comments_service = CaseCommentsService(session=session, role=cases_service.role)
+        parent = await comments_service.create_comment(
+            created_case, CaseCommentCreate(content="thread starter")
+        )
+        await comments_service.create_comment(
+            created_case,
+            CaseCommentCreate(content="reply", parent_id=parent.id),
+        )
+        await session.commit()
+
+        response = await cases_service.batch_delete_cases([created_case.id])
+
+        assert response.succeeded == 1
+        assert response.failed == 0
+        assert await cases_service.get_case(created_case.id) is None
+        remaining = await session.execute(
+            select(CaseComment).where(CaseComment.case_id == created_case.id)
+        )
+        assert remaining.scalars().all() == []
 
     async def test_batch_delete_cases_deduplicates_case_ids(
         self,
