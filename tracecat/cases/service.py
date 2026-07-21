@@ -888,7 +888,6 @@ class CasesService(BaseWorkspaceService):
             await self.events.create_event(
                 case=case,
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
-                duration_sync="inline",
             )
 
             if params.dropdown_values is not None:
@@ -2744,7 +2743,7 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
-        duration_sync: Literal["async", "inline", "none"] = "async",
+        duration_sync: Literal["async", "none"] = "async",
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2752,8 +2751,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is queued after commit by default. Callers that need
-        immediate materialization can request inline sync.
+        Duration sync is queued after commit; when the async worker is
+        disabled it falls back to an in-transaction sync.
         """
 
         db_event = CaseEvent(
@@ -2788,33 +2787,26 @@ class CaseEventsService(BaseWorkspaceService):
 
             AfterCommitQueue.of(self.session).add(_publish_case_event)
 
-        sync_inline = duration_sync == "inline" or (
-            duration_sync == "async" and not config.TRACECAT__CASE_DURATION_SYNC_ENABLED
-        )
-        if sync_inline:
-            durations_service = CaseDurationService(
-                session=self.session, role=self.role
-            )
-            await durations_service.sync_case_durations(case)
-        if duration_sync != "none" and config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-            # Enqueued even after an inline sync: the in-transaction sync
-            # cannot see a duration definition committed after this
-            # transaction's snapshot, and that definition's backfill can
-            # likewise miss this not-yet-committed case. The coalesced
-            # post-commit job closes that ordering gap.
-            enqueue_case_duration_sync_after_commit(
-                self.session,
-                workspace_id=case.workspace_id,
-                case_id=case.id,
-                event_type=event_type,
-                reason="case_event",
-                inline_fallback=partial(
-                    sync_case_duration,
-                    case.workspace_id,
-                    case.id,
-                    event_types={event_type},
-                ),
-            )
+        if duration_sync == "async":
+            if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+                enqueue_case_duration_sync_after_commit(
+                    self.session,
+                    workspace_id=case.workspace_id,
+                    case_id=case.id,
+                    event_type=event_type,
+                    reason="case_event",
+                    inline_fallback=partial(
+                        sync_case_duration,
+                        case.workspace_id,
+                        case.id,
+                        event_types={event_type},
+                    ),
+                )
+            else:
+                durations_service = CaseDurationService(
+                    session=self.session, role=self.role
+                )
+                await durations_service.sync_case_durations(case)
 
         return db_event
 

@@ -402,6 +402,7 @@ async def test_compute_case_durations_from_events(
     assert value.end_event_id is None
     assert value.duration is None
 
+    await duration_service.sync_case_durations(case)
     initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     initial_duration = await session.execute(initial_stmt)
     initial_record = initial_duration.scalar_one()

@@ -139,37 +139,6 @@ class TestCaseEventsService:
         assert enqueue_calls[0]["reason"] == "case_event"
         assert callable(enqueue_calls[0]["inline_fallback"])
 
-    async def test_create_event_can_sync_durations_inline(
-        self,
-        case_events_service: CaseEventsService,
-        test_case,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Inline sync materializes in-transaction and still queues a
-        post-commit job so a definition committed concurrently with this
-        transaction cannot be missed by both sides."""
-        enqueue_mock = MagicMock()
-        sync_mock = AsyncMock(return_value=None)
-
-        monkeypatch.setattr(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
-            enqueue_mock,
-        )
-        monkeypatch.setattr(
-            "tracecat.cases.service.CaseDurationService.sync_case_durations",
-            sync_mock,
-        )
-
-        event_data = CreatedEvent(type=CaseEventType.CASE_CREATED)
-        await case_events_service.create_event(
-            test_case,
-            event_data,
-            duration_sync="inline",
-        )
-
-        sync_mock.assert_awaited_once()
-        enqueue_mock.assert_called_once()
-
     async def test_create_event_syncs_inline_when_async_duration_sync_disabled(
         self,
         case_events_service: CaseEventsService,
