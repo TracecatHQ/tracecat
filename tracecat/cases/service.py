@@ -1259,6 +1259,14 @@ class CasesService(BaseWorkspaceService):
                             with queue.checkpointed():
                                 async with self.session.begin_nested():
                                     await self._apply_case_update(case, params)
+                        except TracecatNotFoundError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
                         except TracecatValidationError as exc:
                             results.append(
                                 CaseBatchItemResult(

@@ -1,5 +1,6 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -137,6 +138,7 @@ export function CasesLayout({
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
+  const queryClient = useQueryClient()
   const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
   const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
   const { toast } = useToast()
@@ -227,9 +229,11 @@ export function CasesLayout({
         (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
       )
     } finally {
+      // Refetch once per bulk operation, not once per chunk.
+      queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
       setIsDeleting(false)
     }
-  }, [batchDeleteCases, selectedCaseIds, toast])
+  }, [batchDeleteCases, queryClient, selectedCaseIds, toast])
 
   const handleBulkUpdate = useCallback(
     async (
@@ -295,10 +299,12 @@ export function CasesLayout({
           (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
         )
       } finally {
+        // Refetch once per bulk operation, not once per chunk.
+        queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
         setIsBulkUpdating(false)
       }
     },
-    [batchUpdateCases, selectedCaseIds, toast]
+    [batchUpdateCases, queryClient, selectedCaseIds, toast]
   )
 
   // Sync selection state with context

@@ -48,7 +48,11 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case, CaseComment, Workspace
-from tracecat.exceptions import TracecatAuthorizationError, TracecatConflictError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 
@@ -1009,6 +1013,43 @@ class TestCasesService:
         unchanged_case = await cases_service.get_case(invalid_case_id)
         assert unchanged_case is not None
         assert unchanged_case.summary == "Invalid case"
+
+    async def test_batch_update_cases_isolates_not_found_failure(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """A per-case lookup failure (e.g. missing dropdown ref) stays per-case."""
+        first_case = await cases_service.create_case(case_create_params)
+        invalid_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"summary": "Invalid case"})
+        )
+        invalid_case_id = invalid_case.id
+        case_ids = [first_case.id, invalid_case.id]
+        apply_case_update = cases_service._apply_case_update
+
+        async def apply_with_missing_ref(case: Case, params: CaseUpdate) -> None:
+            if case.id == invalid_case_id:
+                raise TracecatNotFoundError("Dropdown definition not found")
+            await apply_case_update(case, params)
+
+        with (
+            patch.object(AuditService, "create_event", new_callable=AsyncMock),
+            patch.object(
+                cases_service,
+                "_apply_case_update",
+                side_effect=apply_with_missing_ref,
+            ),
+        ):
+            response = await cases_service.batch_update_cases(
+                case_ids, CaseUpdate(summary="Batch updated")
+            )
+
+        assert response.succeeded == 1
+        assert response.failed == 1
+        assert response.results[0].success is True
+        assert response.results[1].success is False
+        assert response.results[1].error == "Dropdown definition not found"
 
     async def test_batch_update_cases_all_not_found(
         self,

@@ -3931,7 +3931,6 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
 
 /** Update a collection of cases in one server-side batch. */
 export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
-  const queryClient = useQueryClient()
   const {
     mutateAsync: batchUpdateCases,
     isPending: batchUpdateCasesIsPending,
@@ -3939,12 +3938,9 @@ export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
   } = useMutation({
     mutationFn: async (params: CaseBatchUpdate) =>
       await casesBatchUpdateCases({ workspaceId, requestBody: params }),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["cases"],
-        exact: false,
-      })
-    },
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
   })
 
   return {
@@ -3956,7 +3952,6 @@ export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
 
 /** Delete a collection of cases in one server-side batch. */
 export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
-  const queryClient = useQueryClient()
   const {
     mutateAsync: batchDeleteCases,
     isPending: batchDeleteCasesIsPending,
@@ -3964,12 +3959,9 @@ export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
   } = useMutation({
     mutationFn: async (params: CaseBatchDelete) =>
       await casesBatchDeleteCases({ workspaceId, requestBody: params }),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["cases"],
-        exact: false,
-      })
-    },
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
   })
 
   return {
