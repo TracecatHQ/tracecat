@@ -27,12 +27,6 @@ export interface CaseEventOption {
   description?: string
 }
 
-export type CaseDurationAnchorEventType = CaseEventType
-
-interface CaseDurationEventOption extends Omit<CaseEventOption, "value"> {
-  value: CaseDurationAnchorEventType
-}
-
 export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
   {
     value: "case_created",
@@ -124,13 +118,6 @@ export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
 export const CASE_EVENT_VALUES = CASE_EVENT_OPTIONS.map(
   (option) => option.value
 ) as [CaseEventType, ...CaseEventType[]]
-
-export const CASE_DURATION_EVENT_OPTIONS: CaseDurationEventOption[] =
-  CASE_EVENT_OPTIONS
-
-export const CASE_DURATION_EVENT_VALUES = CASE_DURATION_EVENT_OPTIONS.map(
-  (option) => option.value
-) as [CaseDurationAnchorEventType, ...CaseDurationAnchorEventType[]]
 
 export const CASE_DURATION_SELECTION_OPTIONS: Array<{
   value: CaseDurationAnchorSelection

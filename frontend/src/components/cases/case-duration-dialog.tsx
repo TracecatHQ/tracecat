@@ -12,10 +12,10 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import {
-  CASE_DURATION_EVENT_OPTIONS,
-  CASE_DURATION_EVENT_VALUES,
   CASE_DURATION_SELECTION_OPTIONS,
   CASE_EVENT_FILTER_OPTIONS,
+  CASE_EVENT_OPTIONS,
+  CASE_EVENT_VALUES,
   isCaseDropdownEventType,
   isCaseEventFilterType,
   isCaseFieldEventType,
@@ -61,7 +61,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 const anchorSchema = z.object({
   selection: z.enum(["first", "last"]),
-  eventType: z.enum(CASE_DURATION_EVENT_VALUES),
+  eventType: z.enum(CASE_EVENT_VALUES),
   filterValues: z.array(z.string()).optional(),
   dropdownDefinitionId: z.string().optional(),
   dropdownOptionIds: z.array(z.string()).optional(),
@@ -73,7 +73,7 @@ const CATEGORY_OPTIONS = {
   status_changed: STATUSES,
 } as const
 
-type CaseDurationEventTypeValue = (typeof CASE_DURATION_EVENT_VALUES)[number]
+type CaseDurationEventTypeValue = (typeof CASE_EVENT_VALUES)[number]
 
 const requiresFilterSelection = (
   eventType: CaseDurationEventTypeValue
@@ -605,7 +605,7 @@ export function CaseDurationDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {CASE_DURATION_EVENT_OPTIONS.map((option) => (
+                          {CASE_EVENT_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               <span className="flex items-center gap-2">
                                 <option.icon className="size-3.5 text-muted-foreground" />
@@ -755,7 +755,7 @@ export function CaseDurationDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {CASE_DURATION_EVENT_OPTIONS.map((option) => (
+                          {CASE_EVENT_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               <span className="flex items-center gap-2">
                                 <option.icon className="size-3.5 text-muted-foreground" />
