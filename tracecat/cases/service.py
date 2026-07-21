@@ -10,10 +10,11 @@ from asyncpg import UndefinedColumnError
 from pydantic import ValidationError
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.audit.enums import AuditEventStatus
@@ -39,6 +40,8 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
+    CaseBatchItemResult,
+    CaseBatchResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -100,11 +103,12 @@ from tracecat.db.models import (
     Workflow,
     WorkspaceSyncResourceMapping,
 )
-from tracecat.db.session_events import add_after_commit_callback
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatException,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -201,6 +205,8 @@ def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
 
 # Treat multiple views inside this window as a single "view" to avoid spam.
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+CASE_BATCH_LOCK_TIMEOUT = "5s"
+CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
 
 
 class CasesService(BaseWorkspaceService):
@@ -1003,6 +1009,18 @@ class CasesService(BaseWorkspaceService):
             TracecatNotFoundError: If the case has no fields when trying to update fields
         """
 
+        try:
+            await self._apply_case_update(case, params)
+            # Commit once to persist all updates and emitted events atomically
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def _apply_case_update(self, case: Case, params: CaseUpdate) -> None:
+        """Apply a case update without committing the active transaction."""
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
@@ -1098,7 +1116,7 @@ class CasesService(BaseWorkspaceService):
                 for value in dropdown_values
             ]
             await self.dropdowns.apply_values(
-                case.id,
+                case,
                 normalized_dropdown_values,
                 commit=False,
             )
@@ -1109,32 +1127,338 @@ class CasesService(BaseWorkspaceService):
             old = getattr(case, key, None)
             setattr(case, key, value)
             if key == "assignee_id":
-                events.append(
-                    AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
-                )
-            elif key == "summary":
-                events.append(
-                    UpdatedEvent(
-                        field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                # Only record event if the assignee actually changed
+                if old != value:
+                    events.append(
+                        AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
-                )
+            elif key == "summary":
+                # Only record event if the summary actually changed
+                if old != value:
+                    events.append(
+                        UpdatedEvent(
+                            field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                        )
+                    )
             elif key == "payload":
                 # Only record event if payload actually changed
                 if old != value:
                     events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
-        try:
-            # If there are any remaining changed fields, record a general update activity
-            for event in events:
-                await self.events.create_event(case=case, event=event)
+        # If there are any remaining changed fields, record a general update activity
+        for event in events:
+            await self.events.create_event(case=case, event=event)
 
-            # Commit once to persist all updates and emitted events atomically
-            await self.session.commit()
-            await self.session.refresh(case)
-            return case
+    async def _audit_batch_event(
+        self,
+        *,
+        action: Literal["update", "delete"],
+        status: AuditEventStatus,
+        data: dict[str, Any],
+    ) -> None:
+        """Emit a batch audit event without allowing audit failures to fail the batch."""
+        try:
+            async with AuditService.with_session(role=self.role) as service:
+                await service.create_event(
+                    resource_type="case",
+                    action=action,
+                    resource_id=None,
+                    status=status,
+                    data=data,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Batch case audit log failed",
+                action=action,
+                status=status,
+                error=str(exc),
+            )
+
+    async def _lock_cases(
+        self,
+        case_ids: list[uuid.UUID],
+        *,
+        load_dropdown_values: bool = False,
+        key_share: bool = False,
+    ) -> dict[uuid.UUID, Case]:
+        """Lock and return workspace-scoped cases in deterministic ID order.
+
+        Relationship loading is suppressed so a 1000-case batch does not
+        materialize unrelated collections; `load_dropdown_values` opts into the
+        one relationship closure validation reads.
+        """
+        options: list[ExecutableOption] = [raiseload("*")]
+        if load_dropdown_values:
+            options.append(selectinload(Case.dropdown_values))
+        statement = (
+            select(Case)
+            .options(*options)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.id.in_(sorted(case_ids)),
+            )
+            .order_by(Case.id)
+            .with_for_update(key_share=key_share)
+        )
+        result = await self.session.execute(statement)
+        return {case.id: case for case in result.scalars().all()}
+
+    @require_scope("case:update")
+    async def batch_update_cases(
+        self, case_ids: list[uuid.UUID], params: CaseUpdate
+    ) -> CaseBatchResponse:
+        """Update multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
+        audit_data: dict[str, Any] = {
+            "batch": True,
+            "case_ids": [str(case_id) for case_id in case_ids],
+            "count": len(case_ids),
+        }
+        await self._audit_batch_event(
+            action="update",
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
+
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                cases_by_id = await self._lock_cases(
+                    case_ids,
+                    load_dropdown_values=params.status
+                    in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+                    key_share=True,
+                )
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch update"
+                    ) from exc
+                raise
+            results: list[CaseBatchItemResult] = []
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
+                            )
+                            continue
+
+                        try:
+                            with queue.checkpointed():
+                                async with self.session.begin_nested():
+                                    await self._apply_case_update(case, params)
+                        except TracecatNotFoundError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
+                            )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
+
+                await self.session.commit()
         except Exception:
             await self.session.rollback()
+            await self._audit_batch_event(
+                action="update",
+                status=AuditEventStatus.FAILURE,
+                data={
+                    **audit_data,
+                    "succeeded": 0,
+                    "failed": len(case_ids),
+                },
+            )
             raise
+
+        succeeded = sum(result.success for result in results)
+        response = CaseBatchResponse(
+            results=results,
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+        )
+        await self._audit_batch_event(
+            action="update",
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
+            data={
+                **audit_data,
+                "succeeded": response.succeeded,
+                "failed": response.failed,
+            },
+        )
+        return response
+
+    @require_scope("case:delete")
+    async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
+        """Delete multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
+        audit_data: dict[str, Any] = {
+            "batch": True,
+            "case_ids": [str(case_id) for case_id in case_ids],
+            "count": len(case_ids),
+        }
+        await self._audit_batch_event(
+            action="delete",
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
+
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                cases_by_id = await self._lock_cases(case_ids)
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch delete"
+                    ) from exc
+                raise
+            results: list[CaseBatchItemResult] = []
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
+                            )
+                            continue
+
+                        try:
+                            with queue.checkpointed():
+                                async with self.session.begin_nested():
+                                    # Rely on database ON DELETE CASCADE instead
+                                    # of ORM cascades, which lazy-load every
+                                    # child collection per case. Reply comments
+                                    # must be unlinked first: the
+                                    # (case_id, parent_id) self-FK is
+                                    # ON DELETE RESTRICT, so a cascading case
+                                    # delete is order-sensitive with threads.
+                                    await self.session.execute(
+                                        sa.update(CaseComment)
+                                        .where(
+                                            CaseComment.case_id == case.id,
+                                            CaseComment.parent_id.is_not(None),
+                                        )
+                                        .values(parent_id=None)
+                                    )
+                                    await self.session.execute(
+                                        sa.delete(Case).where(
+                                            Case.id == case.id,
+                                            Case.workspace_id == self.workspace_id,
+                                        )
+                                    )
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
+                            )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
+
+                await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            await self._audit_batch_event(
+                action="delete",
+                status=AuditEventStatus.FAILURE,
+                data={
+                    **audit_data,
+                    "succeeded": 0,
+                    "failed": len(case_ids),
+                },
+            )
+            raise
+
+        succeeded = sum(result.success for result in results)
+        response = CaseBatchResponse(
+            results=results,
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+        )
+        await self._audit_batch_event(
+            action="delete",
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
+            data={
+                **audit_data,
+                "succeeded": response.succeeded,
+                "failed": response.failed,
+            },
+        )
+        return response
 
     @require_scope("case:delete")
     @audit_log(resource_type="case", action="delete")
@@ -2453,7 +2777,7 @@ class CaseEventsService(BaseWorkspaceService):
                     created_at=created_at,
                 )
 
-            add_after_commit_callback(self.session, _publish_case_event)
+            AfterCommitQueue.of(self.session).add(_publish_case_event)
 
         # Auto-sync durations whenever an event is created
         durations_service = CaseDurationService(session=self.session, role=self.role)

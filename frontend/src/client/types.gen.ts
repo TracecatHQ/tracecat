@@ -1634,6 +1634,39 @@ export type CaseAttachmentRead = {
   is_deleted?: boolean
 }
 
+/**
+ * Request body for deleting multiple cases.
+ */
+export type CaseBatchDelete = {
+  case_ids: Array<string>
+}
+
+/**
+ * Result of a batch operation for one case.
+ */
+export type CaseBatchItemResult = {
+  case_id: string
+  success: boolean
+  error?: string | null
+}
+
+/**
+ * Per-case results and aggregate counts for a batch operation.
+ */
+export type CaseBatchResponse = {
+  results: Array<CaseBatchItemResult>
+  succeeded: number
+  failed: number
+}
+
+/**
+ * Request body for updating multiple cases.
+ */
+export type CaseBatchUpdate = {
+  case_ids: Array<string>
+  update: CaseUpdate
+}
+
 export type CaseCommentCreate = {
   content: string
   parent_id?: string | null
@@ -12725,6 +12758,20 @@ export type CasesSearchCaseAggregatesData = {
 
 export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
 
+export type CasesBatchUpdateCasesData = {
+  requestBody: CaseBatchUpdate
+  workspaceId: string
+}
+
+export type CasesBatchUpdateCasesResponse = CaseBatchResponse
+
+export type CasesBatchDeleteCasesData = {
+  requestBody: CaseBatchDelete
+  workspaceId: string
+}
+
+export type CasesBatchDeleteCasesResponse = CaseBatchResponse
+
 export type CasesGetCaseData = {
   caseId: string
   /**
@@ -18511,6 +18558,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseSearchAggregateRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-update": {
+    post: {
+      req: CasesBatchUpdateCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-delete": {
+    post: {
+      req: CasesBatchDeleteCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
         /**
          * Validation Error
          */

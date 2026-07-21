@@ -570,13 +570,17 @@ class CaseDropdownValuesService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def apply_values(
         self,
-        case_id: uuid.UUID,
+        case: Case | uuid.UUID,
         values: Sequence[CaseDropdownValueInput],
         *,
         commit: bool = True,
     ) -> list[CaseDropdownValueRead]:
         """Apply multiple dropdown selections to a case in a single transaction."""
-        case = await self._get_case(case_id)
+        if isinstance(case, uuid.UUID):
+            case = await self._get_case(case)
+        elif case.workspace_id != self.workspace_id:
+            # Preserve the same tenant scoping _get_case enforces for UUIDs.
+            raise TracecatNotFoundError(f"Case {case.id} not found")
         seen_definition_ids: set[uuid.UUID] = set()
         results: list[CaseDropdownValueRead] = []
 

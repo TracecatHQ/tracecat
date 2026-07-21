@@ -38,6 +38,8 @@ import {
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
+  type CaseBatchDelete,
+  type CaseBatchUpdate,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentThreadRead,
@@ -85,6 +87,8 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchDeleteCases,
+  casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
   casesCreateTask,
@@ -3922,6 +3926,48 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     deleteCase,
     deleteCaseIsPending,
     deleteCaseError,
+  }
+}
+
+/** Update a collection of cases in one server-side batch. */
+export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchUpdateCases,
+    isPending: batchUpdateCasesIsPending,
+    error: batchUpdateCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchUpdate) =>
+      await casesBatchUpdateCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchUpdateCases,
+    batchUpdateCasesIsPending,
+    batchUpdateCasesError,
+  }
+}
+
+/** Delete a collection of cases in one server-side batch. */
+export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchDeleteCases,
+    isPending: batchDeleteCasesIsPending,
+    error: batchDeleteCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchDelete) =>
+      await casesBatchDeleteCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchDeleteCases,
+    batchDeleteCasesIsPending,
+    batchDeleteCasesError,
   }
 }
 
