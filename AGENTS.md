@@ -248,9 +248,9 @@ just gen-functions
 ## Infra and migrations
 
 - Infrastructure changes must be reviewed across all relevant deployment
-  targets: `docker-compose*.yml`, `deployments/fargate/`,
-  `deployments/k8s/eks/`, `deployments/k8s/eks/modules/eks/`, and
-  `deployments/k8s/helm/`.
+  targets: `docker-compose*.yml` and `deployments/fargate/`. Kubernetes
+  infrastructure lives in the separate `TracecatHQ/k8s` repository and must be
+  reviewed there when relevant.
 - Check the matching `values.yaml`, `variables.tf`, and `main.tf` files before
   closing out infra work.
 - For Alembic work, bring up the database first, check the cluster port with
