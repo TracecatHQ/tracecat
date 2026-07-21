@@ -18,7 +18,7 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
+from tracecat.agent.common import config as agent_config
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -105,7 +105,9 @@ def _make_tool_handler(
             tool_call_id = extract_proxy_tool_call_id(forwarded_args)
 
         try:
-            transport = _create_uds_transport(str(TRUSTED_MCP_SOCKET_PATH))
+            transport = _create_uds_transport(
+                str(agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH)
+            )
             async with Client(transport) as client:
                 payload = {
                     **trusted_tool_args,
