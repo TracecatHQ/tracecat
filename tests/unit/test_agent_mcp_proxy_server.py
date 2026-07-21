@@ -102,7 +102,7 @@ async def test_registry_proxy_handler_strips_metadata_and_forwards_tool_call_id(
 ) -> None:
     call_tool = AsyncMock(
         return_value=SimpleNamespace(
-            content=[SimpleNamespace(text='{"ok": true}')],
+            content=[mt.TextContent(type="text", text='{"ok": true}')],
             is_error=False,
         )
     )
@@ -154,7 +154,7 @@ async def test_proxy_handler_returns_mcp_error_result_when_trusted_tool_errors(
 ) -> None:
     call_tool = AsyncMock(
         return_value=SimpleNamespace(
-            content=[SimpleNamespace(text="external MCP rejected")],
+            content=[mt.TextContent(type="text", text="external MCP rejected")],
             is_error=True,
         )
     )
@@ -246,7 +246,7 @@ async def test_registry_proxy_server_accepts_hook_injected_metadata_during_tool_
 ) -> None:
     call_tool = AsyncMock(
         return_value=SimpleNamespace(
-            content=[SimpleNamespace(text='{"ok": true}')],
+            content=[mt.TextContent(type="text", text='{"ok": true}')],
             is_error=False,
         )
     )

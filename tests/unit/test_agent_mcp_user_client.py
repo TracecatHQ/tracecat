@@ -15,7 +15,6 @@ from pydantic import AnyUrl
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
 from tracecat.agent.mcp.utils import (
-    MCP_TOOL_RESULT_MAX_BYTES,
     flatten_mcp_content_blocks,
 )
 
@@ -193,25 +192,35 @@ def test_flatten_emits_placeholder_for_blob_resource_without_leaking_base64() ->
     assert "iVBOR" not in flattened
 
 
-def test_flatten_truncates_over_cap_with_loud_marker() -> None:
-    """Over-cap results are truncated loudly, not silently dropped."""
-    oversized = "x" * (MCP_TOOL_RESULT_MAX_BYTES + 2_000_000)
-    blocks: list[ContentBlock] = [TextContent(type="text", text=oversized)]
-
-    flattened = flatten_mcp_content_blocks(blocks)
-
-    assert "[truncated:" in flattened
-    assert "omitted]" in flattened
-    assert len(flattened) < len(oversized)
-    assert len(flattened.encode("utf-8")) < MCP_TOOL_RESULT_MAX_BYTES + 1024
-    assert flattened.startswith("x" * 1000)
-
-
 def test_flatten_single_text_block_is_unchanged() -> None:
     """Regression: the common single-block case keeps its exact prior value."""
     blocks: list[ContentBlock] = [TextContent(type="text", text="plain result")]
 
     assert flatten_mcp_content_blocks(blocks) == "plain result"
+
+
+def test_flatten_replaces_lone_surrogates_instead_of_raising() -> None:
+    """Lone surrogates cannot cross JSON serialization; replace, don't raise."""
+    blocks: list[ContentBlock] = [TextContent(type="text", text="ok\ud800end")]
+
+    flattened = flatten_mcp_content_blocks(blocks)
+
+    assert "\ud800" not in flattened
+    assert "ok" in flattened
+    assert "end" in flattened
+    flattened.encode("utf-8")
+
+
+def test_flatten_multiblock_under_cap_is_identical_join() -> None:
+    """Multi-block under-cap output is the exact "\\n\\n"-joined text."""
+    bodies = ["first block", "second block\nwith newline", "third"]
+    blocks: list[ContentBlock] = [
+        TextContent(type="text", text=body) for body in bodies
+    ]
+
+    flattened = flatten_mcp_content_blocks(blocks)
+
+    assert flattened == "\n\n".join(bodies)
 
 
 @pytest.mark.parametrize("content", [None, []])
@@ -259,3 +268,75 @@ async def test_call_tool_returns_all_blocks(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert "successfully downloaded text file" in result
     assert "the real file body" in result
+
+
+@pytest.mark.anyio
+async def test_call_tool_converts_response_too_large_to_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The byte-cap error becomes a descriptive ToolError, not a raw error."""
+    from fastmcp.exceptions import ToolError
+
+    from tracecat.agent.mcp.http_limits import MCPResponseTooLargeError
+
+    class _StubClient:
+        def __init__(self, transport: Any) -> None:
+            del transport
+
+        async def __aenter__(self) -> "_StubClient":
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+        async def call_tool(self, tool_name: str, args: dict[str, Any]) -> Any:
+            del tool_name, args
+            # Mirror the tools/call surfacing: bare error under an anyio group.
+            group = ExceptionGroup(
+                "unhandled errors in a TaskGroup",
+                [MCPResponseTooLargeError(16 * 1024 * 1024, observed=17_000_000)],
+            )
+            raise MCPResponseTooLargeError(
+                16 * 1024 * 1024, observed=17_000_000
+            ) from group
+
+    monkeypatch.setattr("tracecat.agent.mcp.user_client.Client", _StubClient)
+    client = UserMCPClient([_mcp_server("github")])
+
+    with pytest.raises(ToolError, match="16 MiB"):
+        await client.call_tool("github", "big_tool", {})
+
+
+@pytest.mark.anyio
+async def test_call_tool_propagates_cancellation_carrying_cap_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CancelledError with the cap error in __context__ must not become ToolError."""
+    import asyncio
+
+    from tracecat.agent.mcp.http_limits import MCPResponseTooLargeError
+
+    class _StubClient:
+        def __init__(self, transport: Any) -> None:
+            del transport
+
+        async def __aenter__(self) -> "_StubClient":
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+        async def call_tool(self, tool_name: str, args: dict[str, Any]) -> Any:
+            del tool_name, args
+            # Teardown cancellation carrying the cap error as its __context__;
+            # implicit chaining is the point, so keep the bare re-raise.
+            try:
+                raise MCPResponseTooLargeError(16 * 1024 * 1024, observed=17_000_000)
+            except MCPResponseTooLargeError:
+                raise asyncio.CancelledError()  # noqa: B904
+
+    monkeypatch.setattr("tracecat.agent.mcp.user_client.Client", _StubClient)
+    client = UserMCPClient([_mcp_server("github")])
+
+    with pytest.raises(asyncio.CancelledError):
+        await client.call_tool("github", "big_tool", {})

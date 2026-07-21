@@ -15,6 +15,7 @@ from typing import Any, Literal
 import httpx
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
+from fastmcp.exceptions import ToolError
 from mcp import McpError
 from tenacity import (
     AsyncRetrying,
@@ -24,6 +25,10 @@ from tenacity import (
 )
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.http_limits import (
+    MCPResponseTooLargeError,
+    create_bounded_mcp_http_client,
+)
 from tracecat.agent.mcp.utils import (
     LEGACY_REGISTRY_MCP_SERVER_NAME,
     REGISTRY_MCP_SERVER_NAME,
@@ -54,9 +59,19 @@ def _create_transport(
     if headers is not None:
         headers = {name.lower(): value for name, value in headers.items()}
     if transport_type == "sse":
-        return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
+        return SSETransport(
+            url=url,
+            headers=headers,
+            sse_read_timeout=timeout,
+            httpx_client_factory=create_bounded_mcp_http_client,
+        )
     # Default to HTTP (Streamable HTTP transport)
-    return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+    return StreamableHttpTransport(
+        url=url,
+        headers=headers,
+        sse_read_timeout=timeout,
+        httpx_client_factory=create_bounded_mcp_http_client,
+    )
 
 
 async def list_remote_mcp_tools(
@@ -89,6 +104,30 @@ def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
         chain.append(current)
         current = current.__cause__ or current.__context__
     return chain
+
+
+def _contains_response_too_large(exc: BaseException) -> bool:
+    """Walk cause/context and ExceptionGroup members for the byte-cap error.
+
+    The cap raise surfaces differently by path: bare on tools/call, wrapped in
+    a connect RuntimeError on the handshake, and nested inside an anyio
+    ExceptionGroup in either case.
+    """
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, MCPResponseTooLargeError):
+            return True
+        if isinstance(current, BaseExceptionGroup):
+            stack.extend(current.exceptions)
+        for linked in (current.__cause__, current.__context__):
+            if linked is not None:
+                stack.append(linked)
+    return False
 
 
 def _is_retryable_discovery_error_leaf(exc: BaseException) -> bool:
@@ -294,12 +333,20 @@ class UserMCPClient:
             tool_name=tool_name,
         )
 
-        async with Client(transport) as client:
-            result = await client.call_tool(tool_name, args)
+        try:
+            async with Client(transport) as client:
+                result = await client.call_tool(tool_name, args)
 
-            # Flatten every block: file bodies arrive as EmbeddedResource,
-            # not as the leading TextContent status line.
-            return flatten_mcp_content_blocks(result.content)
+                # Flatten every block: file bodies arrive as EmbeddedResource,
+                # not as the leading TextContent status line.
+                return flatten_mcp_content_blocks(result.content)
+        except Exception as e:
+            # Catch Exception, not BaseException: the cap error surfaces bare, in
+            # an ExceptionGroup, or wrapped in RuntimeError (all Exception). A
+            # CancelledError carrying the cap error in __context__ must propagate.
+            if _contains_response_too_large(e):
+                raise ToolError("MCP server response exceeded 16 MiB limit") from e
+            raise
 
     @staticmethod
     def _is_tracecat_registry_server_name(server_name: str) -> bool:
