@@ -27,6 +27,7 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowValidationError
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -447,6 +448,11 @@ async def insert_row(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except TableRowValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         if "duplicate values" in str(e):
             raise HTTPException(
@@ -505,6 +511,11 @@ async def update_row(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except TableRowValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -544,6 +555,11 @@ async def batch_insert_rows(
     try:
         count = await service.batch_insert_rows(table, params.rows)
         return TableRowInsertBatchResponse(rows_inserted=count)
+    except TableRowValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -610,6 +626,11 @@ async def batch_update_rows(
     try:
         count = await service.batch_update_rows(table, params.row_ids, params.data)
         return TableRowBatchUpdateResponse(rows_updated=count)
+    except TableRowValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

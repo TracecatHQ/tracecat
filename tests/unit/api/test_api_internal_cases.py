@@ -18,6 +18,8 @@ from tracecat.cases.schemas import (
 from tracecat.db.models import Case, Workspace
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import CaseFieldValidationError
 
 
 @pytest.fixture
@@ -168,8 +170,10 @@ async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
 ) -> None:
     with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
         mock_service = AsyncMock()
-        mock_service.create_case.side_effect = ValueError(
-            "Invalid numeric value: 'abc'"
+        mock_service.create_case.side_effect = CaseFieldValidationError.invalid_value(
+            field_name="score",
+            expected_type=SqlType.NUMERIC,
+            value="abc",
         )
         mock_service_cls.return_value = mock_service
 
@@ -187,7 +191,14 @@ async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+    assert response.json()["detail"] == {
+        "code": "CASE_FIELD_INVALID_VALUE",
+        "message": (
+            "Custom field 'score' expects NUMERIC (a finite number). Received str."
+        ),
+        "field": "score",
+        "expected_type": "NUMERIC",
+    }
 
 
 @pytest.mark.anyio

@@ -24,6 +24,7 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowValidationError
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
@@ -486,6 +487,11 @@ async def insert_row(
 
     try:
         return await service.insert_row(table, params)
+    except TableRowValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -519,6 +525,11 @@ async def insert_rows_batch(
 
     try:
         return await service.batch_insert_rows(table, params.rows, upsert=params.upsert)
+    except TableRowValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -563,6 +574,11 @@ async def update_row(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except TableRowValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail,
         ) from exc
     except ValueError as exc:
         raise HTTPException(

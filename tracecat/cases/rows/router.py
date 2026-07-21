@@ -22,6 +22,7 @@ from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables.exceptions import TableRowValidationError
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -97,6 +98,11 @@ async def insert_case_row(
         return hydrated[0]
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TableRowValidationError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=exc.detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

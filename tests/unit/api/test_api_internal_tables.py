@@ -13,6 +13,8 @@ from sqlalchemy.exc import ProgrammingError
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.tables import internal_router as internal_tables_router
+from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowValidationError
 
 
 def _programming_error(cause: BaseException) -> ProgrammingError:
@@ -355,3 +357,39 @@ async def test_internal_update_table_row_invalid_integer_value_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_internal_insert_table_row_invalid_datetime_returns_detail(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    error = TableRowValidationError.invalid_value(
+        column_name="observed_at",
+        expected_type=SqlType.TIMESTAMPTZ,
+        value="",
+    )
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.insert_row.side_effect = error
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/rows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"data": {"observed_at": ""}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == {
+        "code": "TABLE_ROW_INVALID_VALUE",
+        "message": (
+            "Column 'observed_at' expects TIMESTAMPTZ (an ISO 8601 datetime "
+            "(for example, 2026-01-30T12:00:00Z) or a Unix timestamp). Received "
+            "an empty string; use null to leave a nullable field empty."
+        ),
+        "column": "observed_at",
+        "expected_type": "TIMESTAMPTZ",
+    }

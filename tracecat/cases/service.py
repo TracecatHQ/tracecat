@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from typing import cast as typing_cast
 
+import orjson
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from pydantic import ValidationError
@@ -121,13 +122,17 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
+    coerce_boolean_value,
     coerce_integer_value,
     coerce_multi_select_value,
     coerce_numeric_value,
     coerce_select_value,
+    coerce_to_date,
+    coerce_to_utc_datetime,
     normalize_column_options,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import CaseFieldValidationError
 from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TablesService,
@@ -975,8 +980,6 @@ class CasesService(BaseWorkspaceService):
                     missing_dropdowns.append(defn.name)
 
         if missing_fields or missing_dropdowns:
-            import orjson
-
             detail = orjson.dumps(
                 {
                     "code": "closure_requirements_not_met",
@@ -1285,32 +1288,48 @@ class CaseFieldsService(CustomFieldsService):
 
             if value is None or field_type is None:
                 normalized[field_name] = value
-            elif field_type is SqlType.INTEGER:
-                normalized[field_name] = coerce_integer_value(value)
-            elif field_type is SqlType.NUMERIC:
-                normalized[field_name] = coerce_numeric_value(value)
-            elif field_type is SqlType.TEXT:
-                if isinstance(value, dict | list | tuple | set):
-                    raise ValueError(
-                        f"Custom field '{field_name}' expects TEXT but received "
-                        f"{type(value).__name__}."
+                continue
+
+            try:
+                if field_type is SqlType.INTEGER:
+                    normalized[field_name] = coerce_integer_value(value)
+                elif field_type is SqlType.NUMERIC:
+                    normalized[field_name] = coerce_numeric_value(value)
+                elif field_type is SqlType.TEXT:
+                    if isinstance(value, dict | list | tuple | set):
+                        raise TypeError("Structured values cannot be stored as text")
+                    normalized[field_name] = (
+                        value if isinstance(value, str) else str(value)
                     )
-                normalized[field_name] = value if isinstance(value, str) else str(value)
-            elif field_type is SqlType.SELECT:
-                if isinstance(value, dict | list | tuple | set):
-                    raise ValueError(
-                        f"Custom field '{field_name}' expects SELECT but received "
-                        f"{type(value).__name__}."
+                elif field_type is SqlType.SELECT:
+                    if isinstance(value, dict | list | tuple | set):
+                        raise TypeError(
+                            "Structured values cannot be stored as a select"
+                        )
+                    normalized[field_name] = coerce_select_value(
+                        value, options=field_options
                     )
-                normalized[field_name] = coerce_select_value(
-                    value, options=field_options
-                )
-            elif field_type is SqlType.MULTI_SELECT:
-                normalized[field_name] = coerce_multi_select_value(
-                    value, options=field_options
-                )
-            else:
-                normalized[field_name] = value
+                elif field_type is SqlType.MULTI_SELECT:
+                    normalized[field_name] = coerce_multi_select_value(
+                        value, options=field_options
+                    )
+                elif field_type is SqlType.DATE:
+                    normalized[field_name] = coerce_to_date(value)
+                elif field_type is SqlType.TIMESTAMPTZ:
+                    normalized[field_name] = coerce_to_utc_datetime(value)
+                elif field_type is SqlType.BOOLEAN:
+                    normalized[field_name] = coerce_boolean_value(value)
+                elif field_type is SqlType.JSONB:
+                    orjson.dumps(value)
+                    normalized[field_name] = value
+                else:
+                    normalized[field_name] = value
+            except (TypeError, ValueError) as exc:
+                raise CaseFieldValidationError.invalid_value(
+                    field_name=field_name,
+                    expected_type=field_type,
+                    value=value,
+                ) from exc
 
         return normalized
 
