@@ -235,3 +235,4 @@ cython_debug/
 
 # Claude Code local runtime state (keep tracked commands/settings/skills)
 .claude/scheduled_tasks.lock
+.pi-subagents/
