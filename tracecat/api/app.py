@@ -223,13 +223,11 @@ async def lifespan(app: FastAPI):
         )
         logger.debug("Spawned background task for case trigger consumer")
 
-    case_duration_sync_task = None
-    if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-        case_duration_sync_task = asyncio.create_task(
-            start_case_duration_sync_consumer(),
-            name="case_duration_sync_consumer",
-        )
-        logger.debug("Spawned background task for case duration sync consumer")
+    case_duration_sync_task = asyncio.create_task(
+        start_case_duration_sync_consumer(),
+        name="case_duration_sync_consumer",
+    )
+    logger.debug("Spawned background task for case duration sync consumer")
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -301,14 +299,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
 
-    if case_duration_sync_task is not None:
-        case_duration_sync_task.cancel()
-        try:
-            await case_duration_sync_task
-        except asyncio.CancelledError:
-            logger.debug("Case duration sync consumer task cancelled")
-        except Exception as e:
-            logger.warning("Case duration sync consumer stopped with error", error=e)
+    case_duration_sync_task.cancel()
+    try:
+        await case_duration_sync_task
+    except asyncio.CancelledError:
+        logger.debug("Case duration sync consumer task cancelled")
+    except Exception as e:
+        logger.warning("Case duration sync consumer stopped with error", error=e)
 
     await close_storage_client_cache()
 

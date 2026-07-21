@@ -30,7 +30,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
@@ -181,33 +180,12 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     async def _backfill_after_definition_change(
         self, *, reason: CaseDurationSyncReason
     ) -> None:
-        if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-            enqueue_case_duration_sync_after_commit(
-                self.session,
-                workspace_id=self.workspace_id,
-                reason=reason,
-                inline_fallback=self._sync_existing_case_durations_inline_after_commit,
-            )
-            return
-
-        await self._sync_existing_case_durations_inline()
-
-    async def _sync_existing_case_durations_inline(self) -> None:
-        await self.session.flush()
-        stmt = (
-            select(Case.id)
-            .where(Case.workspace_id == self.workspace_id)
-            .order_by(Case.surrogate_id.asc())
+        enqueue_case_duration_sync_after_commit(
+            self.session,
+            workspace_id=self.workspace_id,
+            reason=reason,
+            inline_fallback=self._sync_existing_case_durations_inline_after_commit,
         )
-        duration_service = CaseDurationService(session=self.session, role=self.role)
-        case_ids = await self.session.stream_scalars(stmt)
-        try:
-            async for batch in case_ids.partitions(8):
-                for case_id in batch:
-                    await duration_service.sync_case_durations(case_id)
-                await asyncio.sleep(0)
-        finally:
-            await case_ids.close()
 
     async def _sync_existing_case_durations_inline_after_commit(self) -> bool:
         """Backfill workspace cases through the locked per-case sync path.

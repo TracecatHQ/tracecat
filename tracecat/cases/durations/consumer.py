@@ -101,10 +101,6 @@ class CaseDurationSyncConsumer:
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
 
     async def run(self) -> None:
-        if not config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-            logger.info("Case duration sync disabled; skipping consumer")
-            return
-
         last_pending_check = monotonic()
         retry_delay = RETRY_BACKOFF_BASE_SECONDS
         group_ready = False
@@ -324,16 +320,15 @@ class CaseDurationSyncConsumer:
 
 
 async def start_case_duration_sync_consumer() -> None:
-    if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-        try:
-            await enqueue_rollout_backfill_once()
-        except Exception as e:
-            # Non-fatal: the consumer must still start; the released marker
-            # lets the next boot retry the rollout backfill.
-            logger.warning(
-                "Failed to queue rollout duration backfill; continuing",
-                error=str(e),
-            )
+    try:
+        await enqueue_rollout_backfill_once()
+    except Exception as e:
+        # Non-fatal: the consumer must still start; the released marker
+        # lets the next boot retry the rollout backfill.
+        logger.warning(
+            "Failed to queue rollout duration backfill; continuing",
+            error=str(e),
+        )
     client = await get_redis_client()
     consumer = CaseDurationSyncConsumer(client)
     await consumer.run()

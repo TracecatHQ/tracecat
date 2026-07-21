@@ -40,11 +40,8 @@ async def publish_case_duration_sync(
     case_id: uuid.UUID | None = None,
     event_type: str | None = None,
     cursor: int | None = None,
-) -> str | None:
+) -> str:
     """Publish a case duration sync job to Redis."""
-    if not config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-        return None
-
     fields = {
         "workspace_id": str(workspace_id),
         "reason": reason,
@@ -91,9 +88,6 @@ async def enqueue_rollout_backfill_once() -> None:
     after every workspace job is queued, so an interrupted pass is retried by
     a later boot. Re-runs are idempotent.
     """
-    if not config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-        return
-
     client = await get_redis_client()
     acquired = await client.set_if_not_exists(
         ROLLOUT_BACKFILL_MARKER_KEY,
@@ -154,21 +148,14 @@ def enqueue_case_duration_sync_after_commit(
 
     async def _publish() -> None:
         try:
-            message_id = await publish_case_duration_sync(
+            await publish_case_duration_sync(
                 workspace_id=workspace_id,
                 case_id=case_id,
                 event_type=event_type,
                 reason=reason,
                 cursor=cursor,
             )
-            if message_id is not None:
-                return
-            logger.warning(
-                "Case duration sync publish skipped; falling back inline",
-                workspace_id=str(workspace_id),
-                case_id=str(case_id) if case_id is not None else None,
-                reason=reason,
-            )
+            return
         except Exception as e:
             logger.warning(
                 "Failed to publish case duration sync; falling back inline",

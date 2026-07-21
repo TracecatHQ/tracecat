@@ -539,7 +539,6 @@ async def test_hot_case_load_latency_during_async_duration_mutation_burst(
     cfg = CaseDurationBurstBenchmarkConfig(case_count=1)
     stream_suffix = uuid.uuid4().hex[:8]
     monkeypatch.setattr(config, "TRACECAT__CASE_TRIGGERS_ENABLED", False)
-    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
     monkeypatch.setattr(
         config,
         "TRACECAT__CASE_DURATION_SYNC_STREAM_KEY",
@@ -586,18 +585,25 @@ async def test_hot_case_load_latency_during_async_duration_mutation_burst(
             ),
         ):
             role = await _seed_benchmark_role(async_engine)
-            case_ids = await _seed_cases_definitions_and_history(
-                async_engine=async_engine,
-                role=role,
-                cfg=cfg,
-            )
+            # Keep setup jobs out of the isolated benchmark stream; the
+            # mutation phase below exercises the real enqueue path.
+            with (
+                patch(
+                    "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit"
+                ),
+                patch("tracecat.cases.service.enqueue_case_duration_sync_after_commit"),
+            ):
+                case_ids = await _seed_cases_definitions_and_history(
+                    async_engine=async_engine,
+                    role=role,
+                    cfg=cfg,
+                )
             case_id = case_ids[0]
             await _sync_initial_case_durations(
                 async_engine=async_engine,
                 role=role,
                 case_id=case_id,
             )
-            monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", True)
             consumer = CaseDurationSyncConsumer(
                 await get_redis_client(),
                 consumer_name=f"duration-benchmark-{uuid.uuid4().hex[:8]}",

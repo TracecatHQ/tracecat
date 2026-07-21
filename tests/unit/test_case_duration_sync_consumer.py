@@ -569,10 +569,6 @@ async def test_consumer_claims_idle_messages_while_stream_is_busy(
     claim_idle_mock = AsyncMock()
     monotonic_mock = MagicMock(side_effect=[0.0, 11.0])
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
-        True,
-    )
-    monkeypatch.setattr(
         "tracecat.cases.durations.consumer.monotonic",
         monotonic_mock,
     )
@@ -614,10 +610,6 @@ async def test_consumer_retries_transient_read_failure_and_processes_next_batch(
     ensure_group_mock = AsyncMock()
     handle_entries_mock = AsyncMock()
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
-        True,
-    )
     monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
     monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
@@ -656,10 +648,6 @@ async def test_consumer_recreates_missing_group_and_keeps_reading(
     ensure_group_mock = AsyncMock()
     handle_entries_mock = AsyncMock()
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
-        True,
-    )
     monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
     monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
@@ -684,10 +672,6 @@ async def test_consumer_retries_transient_group_creation_failure(
         side_effect=[ConnectionError("redis unavailable"), None]
     )
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
-        True,
-    )
     monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
@@ -713,10 +697,6 @@ async def test_consumer_resets_backoff_after_successful_iteration(
     )
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
     sleep_mock = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
-        True,
-    )
     monkeypatch.setattr(consumer, "_ensure_group", AsyncMock())
     monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 

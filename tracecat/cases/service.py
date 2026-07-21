@@ -18,7 +18,6 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
 
-from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -33,7 +32,6 @@ from tracecat.cases.dropdowns.schemas import (
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.durations.sync_queue import (
     enqueue_case_duration_sync_after_commit,
 )
@@ -101,7 +99,6 @@ from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
-    CaseDurationDefinition,
     CaseEvent,
     CaseFields,
     CaseTagLink,
@@ -2751,8 +2748,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is queued after commit; when the async worker is
-        disabled it falls back to an in-transaction sync.
+        Duration sync is queued after commit, with an inline fallback when
+        Redis publication fails.
         """
 
         db_event = CaseEvent(
@@ -2788,25 +2785,19 @@ class CaseEventsService(BaseWorkspaceService):
             AfterCommitQueue.of(self.session).add(_publish_case_event)
 
         if sync_durations:
-            if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
-                enqueue_case_duration_sync_after_commit(
-                    self.session,
-                    workspace_id=case.workspace_id,
-                    case_id=case.id,
-                    event_type=event_type,
-                    reason="case_event",
-                    inline_fallback=partial(
-                        sync_case_duration,
-                        case.workspace_id,
-                        case.id,
-                        event_types={event_type},
-                    ),
-                )
-            else:
-                durations_service = CaseDurationService(
-                    session=self.session, role=self.role
-                )
-                await durations_service.sync_case_durations(case)
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
+            )
 
         return db_event
 
@@ -2843,39 +2834,10 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        # With the worker enabled, always sync: a preflight definition check
-        # races a concurrent definition create whose backfill snapshot
-        # predates this event's commit, and the consumer's event-type filter
-        # skips unused view events cheaply. With the worker disabled, sync
-        # degrades to an in-transaction recompute, so keep the preflight to
-        # avoid paying it on every deduped view in workspaces with no
-        # view-anchored definitions.
-        sync_durations = (
-            config.TRACECAT__CASE_DURATION_SYNC_ENABLED
-            or await self._has_case_viewed_duration_definition()
-        )
-
         return await self.create_event(
             case=case,
             event=CaseViewedEvent(),
-            sync_durations=sync_durations,
         )
-
-    async def _has_case_viewed_duration_definition(self) -> bool:
-        stmt = (
-            select(CaseDurationDefinition.id)
-            .where(
-                CaseDurationDefinition.workspace_id == self.workspace_id,
-                or_(
-                    CaseDurationDefinition.start_event_type
-                    == CaseEventType.CASE_VIEWED,
-                    CaseDurationDefinition.end_event_type == CaseEventType.CASE_VIEWED,
-                ),
-            )
-            .limit(1)
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none() is not None
 
 
 class CaseTasksService(BaseWorkspaceService):
