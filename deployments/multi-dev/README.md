@@ -99,6 +99,20 @@ Lower concurrency first when a small VPS is memory- or CPU-constrained. The
 combined process still creates separate activity thread pools for worker types,
 but it imports the Tracecat package only once.
 
+### KSM (optional)
+
+On Linux 6.4 or newer, enable Kernel Samepage Merging (KSM) on the host:
+
+```bash
+echo 1 | sudo tee /sys/kernel/mm/ksm/run
+```
+
+Set `TRACECAT__STANDALONE_MEMORY_MERGE=true` in each instance environment file
+to opt its standalone process into memory merging. After two or more instances
+boot, verify that `/sys/kernel/mm/ksm/pages_sharing` grows. Judge memory savings
+by proportional set size (PSS), for example with `smem`, rather than RSS because
+RSS double-counts merged pages across processes.
+
 LiteLLM remains external and optional. By default the instance reaches a proxy
 on VPS host port 4000 through `host.docker.internal`; change
 `TRACECAT__LITELLM_BASE_URL` when the proxy lives elsewhere. The frontend is

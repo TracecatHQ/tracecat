@@ -8,7 +8,11 @@ production deployment topology.
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import errno
+import gc
 import os
+import sys
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass
@@ -37,6 +41,7 @@ from tracecat.temporal.worker_lifecycle import (
 from tracecat.uvicorn_server import NoSignalUvicornServer
 
 ComponentMain = Callable[[asyncio.Event], Coroutine[Any, Any, None]]
+PR_SET_MEMORY_MERGE = 67
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,36 @@ class Component:
 
     name: str
     main: ComponentMain
+
+
+def _enable_memory_merge() -> None:
+    if not config.TRACECAT__STANDALONE_MEMORY_MERGE:
+        return
+    if sys.platform != "linux":
+        logger.warning(
+            "Standalone memory merging requires Linux; continuing without KSM opt-in"
+        )
+        return
+
+    result = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_MEMORY_MERGE, 1, 0, 0, 0)
+    if result != 0:
+        error_number = ctypes.get_errno()
+        error_name = errno.errorcode.get(error_number, "UNKNOWN")
+        if error_number == errno.EINVAL:
+            reason = "kernel too old or KSM not built"
+        elif error_number == errno.EPERM:
+            reason = "missing capability"
+        else:
+            reason = "unexpected prctl failure"
+        logger.warning(
+            "Failed to enable standalone memory merging",
+            errno=error_number,
+            errno_name=error_name,
+            reason=reason,
+        )
+        return
+
+    logger.info("Standalone memory merging enabled")
 
 
 def _run_migrations() -> None:
@@ -220,6 +255,8 @@ async def _supervise(
 
 async def main() -> int:
     """Run migrations and supervise all development components."""
+    _enable_memory_merge()
+
     if config.TRACECAT__STANDALONE_RUN_MIGRATIONS:
         _run_migrations()
 
@@ -227,6 +264,8 @@ async def main() -> int:
     plugin_temporal_client = await connect_to_temporal(
         plugins=[TracecatPydanticAIPlugin()]
     )
+    # Standalone is dev-only and long-lived: move import-era objects to the permanent generation so GC stops touching and dirtying those pages.
+    gc.freeze()
     shutdown_event = asyncio.Event()
     with install_worker_shutdown_signal_handlers(shutdown_event):
         exit_code = await _supervise(

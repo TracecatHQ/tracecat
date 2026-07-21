@@ -98,6 +98,10 @@ TRACECAT__STANDALONE_RUN_MIGRATIONS = env_bool(
     "TRACECAT__STANDALONE_RUN_MIGRATIONS", default=True
 )
 """Run database migrations before starting the development-only standalone process."""
+TRACECAT__STANDALONE_MEMORY_MERGE = env_bool(
+    "TRACECAT__STANDALONE_MEMORY_MERGE", default=False
+)
+"""Opt in to memory merging; requires Linux >=6.4 and host KSM enabled at /sys/kernel/mm/ksm/run."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
