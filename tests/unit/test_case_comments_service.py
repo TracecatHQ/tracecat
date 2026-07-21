@@ -42,8 +42,8 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.fixture(autouse=True)
 def stub_case_duration_sync() -> Iterator[None]:
     with patch(
-        "tracecat.cases.service.CaseDurationService.sync_case_durations",
-        new=AsyncMock(return_value=None),
+        "tracecat.cases.service.sync_case_duration",
+        new=AsyncMock(return_value=True),
     ):
         yield
 
@@ -350,7 +350,11 @@ class TestCaseCommentsService:
                 ),
             )
 
-        assert callbacks == []
+        # Only the duration sync publish is deferred; the workflow trigger
+        # below is published explicitly rather than after commit.
+        assert [getattr(cb, "__qualname__", None) for cb in callbacks] == [
+            "enqueue_case_duration_sync_after_commit.<locals>._publish"
+        ]
         workflow_publish = next(
             kwargs
             for _, kwargs in publish_mock.await_args_list
