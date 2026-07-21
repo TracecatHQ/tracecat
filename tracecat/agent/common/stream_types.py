@@ -10,7 +10,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
+from tracecat.agent.approvals.types import PersistedApprovalDecision
+
 type ArtifactEventOp = Literal["upsert", "remove"]
+type ApprovalStreamStatus = Literal["pending", "approved", "rejected"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +93,12 @@ class ToolCallContent:
     """Arguments for the tool call."""
     metadata: dict[str, Any] | None = None
     """Trusted runtime metadata about the tool call scope."""
+    status: ApprovalStreamStatus | None = None
+    """Current approval status, when replaying persisted approval state."""
+    decision: PersistedApprovalDecision | None = None
+    """Persisted decision payload, when one exists."""
+    reason: str | None = None
+    """Persisted rejection reason, when one exists."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ToolCallContent:
@@ -100,6 +109,9 @@ class ToolCallContent:
             name=data["name"],
             input=data.get("input", {}),
             metadata=data.get("metadata"),
+            status=data.get("status"),
+            decision=data.get("decision"),
+            reason=data.get("reason"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,6 +124,12 @@ class ToolCallContent:
         }
         if self.metadata is not None:
             result["metadata"] = self.metadata
+        if self.status is not None:
+            result["status"] = self.status
+        if self.decision is not None:
+            result["decision"] = self.decision
+        if self.reason is not None:
+            result["reason"] = self.reason
         return result
 
 

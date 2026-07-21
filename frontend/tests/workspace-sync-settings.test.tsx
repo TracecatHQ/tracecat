@@ -525,7 +525,7 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
   })
 
-  it("shows the pull resource manifest after previewing changes", async () => {
+  it("keeps pull actions available after previewing changes", async () => {
     const user = userEvent.setup()
     const commitSha = "a".repeat(40)
     const preview: PullResult = {
@@ -582,9 +582,11 @@ describe("WorkspaceSyncSettings", () => {
         },
       ],
     })
-    mockPullWorkflows.mockResolvedValueOnce(preview)
+    mockPullWorkflows.mockResolvedValue(preview)
 
-    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+    const { container } = render(
+      <WorkspaceSyncSettings workspace={connectedWorkspace} />
+    )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
     await user.click(screen.getByRole("button", { name: "Preview changes" }))
@@ -601,6 +603,19 @@ describe("WorkspaceSyncSettings", () => {
     expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
     expect(screen.getByText("Indicators")).toBeInTheDocument()
     expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(container.firstElementChild).toHaveClass("min-w-0")
+
+    const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
+    expect(applyPullButton).toBeEnabled()
+
+    await user.click(applyPullButton)
+
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenLastCalledWith({
+        commit_sha: commitSha,
+        sync_schedules: false,
+      })
+    })
   })
 
   it("disables the repository selector while repositories are loading", () => {

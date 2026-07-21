@@ -32,7 +32,10 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useDeleteCase } from "@/lib/hooks"
+import { runWithConcurrencyLimit } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const BULK_CASE_REQUEST_CONCURRENCY = 8
 
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
@@ -171,7 +174,10 @@ export function CasesLayout({
     try {
       setIsDeleting(true)
       const caseIds = Array.from(selectedCaseIds)
-      await Promise.all(caseIds.map((caseId) => deleteCase(caseId)))
+      await runWithConcurrencyLimit(
+        caseIds.map((caseId) => () => deleteCase(caseId)),
+        BULK_CASE_REQUEST_CONCURRENCY
+      )
 
       toast({
         title: `${caseIds.length} case(s) deleted`,
@@ -204,14 +210,16 @@ export function CasesLayout({
       try {
         setIsBulkUpdating(true)
 
-        await Promise.all(
-          caseIds.map((caseId) =>
-            casesUpdateCase({
-              workspaceId,
-              caseId,
-              requestBody: updates,
-            })
-          )
+        await runWithConcurrencyLimit(
+          caseIds.map(
+            (caseId) => () =>
+              casesUpdateCase({
+                workspaceId,
+                caseId,
+                requestBody: updates,
+              })
+          ),
+          BULK_CASE_REQUEST_CONCURRENCY
         )
 
         toast({

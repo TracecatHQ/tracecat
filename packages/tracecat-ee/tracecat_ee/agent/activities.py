@@ -121,6 +121,8 @@ class ApprovalDecisionPayload(BaseModel):
 class ApplyApprovalResultsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
+    # Unique by tool_call_id: handle_decisions builds these from a dict, and the
+    # persistence upsert cannot carry one conflict key twice.
     decisions: list[ApprovalDecisionPayload]
 
 
