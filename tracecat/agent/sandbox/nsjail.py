@@ -32,11 +32,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from tracecat.agent.common.config import (
-    CONTROL_SOCKET_NAME,
-    TRACECAT__AGENT_MCP_SOCKET_PATH,
-    TRACECAT__DISABLE_NSJAIL,
-)
+from tracecat.agent.common import config as agent_config
+from tracecat.agent.common.config import CONTROL_SOCKET_NAME, TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import (
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
@@ -302,7 +299,9 @@ async def _spawn_direct_runtime(
     logger.info(
         "Spawning agent runtime (direct subprocess - DEVELOPMENT MODE)",
         control_socket_path=str(JAILED_CONTROL_SOCKET_PATH),
-        mcp_socket_path=str(mcp_socket_path or TRACECAT__AGENT_MCP_SOCKET_PATH),
+        mcp_socket_path=str(
+            mcp_socket_path or agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH
+        ),
     )
 
     # Use minimal base environment instead of inheriting full host env
@@ -321,7 +320,7 @@ async def _spawn_direct_runtime(
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
     env["TRACECAT__AGENT_MCP_SOCKET_PATH"] = str(
-        mcp_socket_path or TRACECAT__AGENT_MCP_SOCKET_PATH
+        mcp_socket_path or agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH
     )
     for key in ("TRACECAT__LITELLM_BASE_URL",):
         if value := os.environ.get(key):
@@ -384,7 +383,7 @@ async def _spawn_nsjail_runtime(
     if llm_socket_path is not None and not llm_socket_path.exists():
         raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
     if mcp_socket_path is None:
-        mcp_socket_path = TRACECAT__AGENT_MCP_SOCKET_PATH
+        mcp_socket_path = agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH
     if not mcp_socket_path.exists():
         raise AgentSandboxExecutionError(f"MCP socket not found: {mcp_socket_path}")
 

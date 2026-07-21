@@ -84,6 +84,80 @@ Run these commands from the repository root.
    docker compose -f deployments/multi-dev/docker-compose.infra.yml down
    ```
 
+## Zygote mode (N instances, one container)
+
+Zygote mode is the lower-memory alternative when several headless development
+instances can share one container lifecycle. The parent imports the standalone
+runtime once, freezes the imported Python object graph, and forks one child per
+instance. Linux copy-on-write lets those children physically share most clean
+import pages instead of paying for the same roughly 400 MB module graph in
+every container.
+
+Prefer the per-instance compose file when instances need independent container
+restarts, health state, resource limits, or deployment lifecycles. In zygote
+mode, restarting or replacing the one container restarts every child, and v1
+does not restart a child that exits.
+
+The zygote reads every `*.env` file from `deployments/multi-dev/instances/`.
+Files contain only per-instance values; shared endpoints and concurrency
+defaults remain in `docker-compose.zygote.yml`. Ports must be unique and fall
+within the published `8100-8119` range.
+
+1. Start the shared infrastructure as described above, then create instance
+   manifests from the examples and replace every placeholder secret.
+
+   ```bash
+   cp deployments/multi-dev/instances/alpha.env.example \
+     deployments/multi-dev/instances/alpha.env
+   cp deployments/multi-dev/instances/beta.env.example \
+     deployments/multi-dev/instances/beta.env
+   ```
+
+2. Bootstrap each instance database and Temporal namespace exactly as for a
+   per-instance container. Repeat this block for each manifest before starting
+   the zygote.
+
+   ```bash
+   set -a
+   . deployments/multi-dev/instances/alpha.env
+   set +a
+
+   docker compose -f deployments/multi-dev/docker-compose.infra.yml exec -T postgres \
+     createdb -U postgres "$TRACECAT_INSTANCE"
+   docker compose -f deployments/multi-dev/docker-compose.infra.yml exec -T temporal \
+     temporal operator namespace create \
+       --address localhost:7233 \
+       --namespace "$TEMPORAL__CLUSTER_NAMESPACE"
+   ```
+
+3. Validate the manifests with real forks, then build and start the one zygote
+   container.
+
+   ```bash
+   TRACECAT__ZYGOTE_INSTANCE_DIR=deployments/multi-dev/instances \
+     uv run python -m tracecat.zygote --dry-run
+
+   docker compose \
+     -f deployments/multi-dev/docker-compose.zygote.yml \
+     up -d --build
+   ```
+
+The parent has no HTTP port of its own, so a single container healthcheck cannot
+represent all children. Check each configured port directly, for example
+`curl -f http://localhost:8100/health` and
+`curl -f http://localhost:8101/health`.
+
+To measure the saving, compare the one zygote cgroup with the same number of
+per-instance containers:
+
+```bash
+docker stats --no-stream tracecat-zygote-zygote-1
+```
+
+The baseline standalone process was about 621 MiB in the original measurement.
+Unlike summing N per-instance container readings, one zygote container's cgroup
+counts its children’s shared copy-on-write pages once.
+
 ## Memory and concurrency knobs
 
 The instance compose file uses small development defaults:

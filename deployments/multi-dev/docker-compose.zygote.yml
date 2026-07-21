@@ -1,0 +1,84 @@
+name: tracecat-zygote
+
+services:
+  zygote:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    command: ["python", "-m", "tracecat.zygote"]
+    ports:
+      - "127.0.0.1:8100-8119:8100-8119"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
+      TRACECAT__ZYGOTE_INSTANCE_DIR: /etc/tracecat/instances
+
+      # Shared API and authentication settings. Instance URLs and secrets live
+      # in instances/*.env.
+      TRACECAT__APP_ENV: development
+      TRACECAT__API_ROOT_PATH: /api
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES:-basic}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL:-dev@example.com}
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS:-}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH:-12}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS:-}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      TRACECAT__STANDALONE_RUN_MIGRATIONS: ${TRACECAT__STANDALONE_RUN_MIGRATIONS:-true}
+      TRACECAT__DB_SSLMODE: disable
+
+      # Shared Temporal endpoint and small development concurrency defaults.
+      TEMPORAL__CLUSTER_URL: tracecat-shared-temporal:7233
+      TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE:-tracecat-task-queue}
+      TEMPORAL__API_KEY: ""
+      TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION: ${TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION:-true}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__THREADPOOL_MAX_WORKERS: ${TEMPORAL__THREADPOOL_MAX_WORKERS:-4}
+      TEMPORAL__MAX_CONCURRENT_ACTIVITIES: ${TEMPORAL__MAX_CONCURRENT_ACTIVITIES:-8}
+      TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS: ${TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS:-4}
+
+      # Direct executor mode for lightweight development.
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
+      TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-8}
+      TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-4}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
+
+      # Agent workers; LiteLLM remains a separate optional process.
+      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
+      TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES:-4}
+      TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://host.docker.internal:4000}
+
+      # Shared MinIO endpoint and credentials. Bucket names are per instance.
+      TRACECAT__BLOB_STORAGE_ENDPOINT: http://tracecat-shared-minio:9000
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT_MINIO_PUBLIC_URL:-http://localhost:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+      TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING: ${TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING:-true}
+      TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED:-true}
+      TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED:-true}
+
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    volumes:
+      - ./instances:/etc/tracecat/instances:ro
+      - ../../tracecat:/app/tracecat
+      - ../../packages:/app/packages
+      - ../../alembic:/app/alembic
+      - standalone-cache:/var/lib/tracecat/sandbox-cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - shared
+
+volumes:
+  standalone-cache:
+
+networks:
+  shared:
+    external: true
+    name: tracecat-multi-dev

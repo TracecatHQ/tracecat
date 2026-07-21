@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -32,7 +31,7 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
     socket_path = tmp_path / "trusted-mcp.sock"
 
     monkeypatch.setattr(
-        "tracecat.agent.common.config.TRUSTED_MCP_SOCKET_PATH",
+        "tracecat.agent.common.config.TRACECAT__AGENT_MCP_SOCKET_PATH",
         socket_path,
     )
     monkeypatch.setattr(
@@ -58,7 +57,7 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
         Config=lambda *args, **kwargs: object(),
         Server=lambda config: SimpleNamespace(serve=fake_serve),
     )
-    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+    monkeypatch.setattr(runtime_services, "uvicorn", fake_uvicorn)
 
     with pytest.raises(RuntimeError, match="socket was not created"):
         await runtime_services.start_mcp_server()
