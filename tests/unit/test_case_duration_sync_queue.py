@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
@@ -8,6 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations.sync_queue import (
+    ROLLOUT_BACKFILL_LEASE_SECONDS,
     ROLLOUT_BACKFILL_MARKER_KEY,
     enqueue_case_duration_sync_after_commit,
     enqueue_rollout_backfill_once,
@@ -22,6 +24,7 @@ def _mock_rollout_environment(
 ) -> tuple[MagicMock, AsyncMock]:
     redis_mock = MagicMock()
     redis_mock.set_if_not_exists = AsyncMock(return_value=marker_acquired)
+    redis_mock.set = AsyncMock()
     redis_mock.delete = AsyncMock()
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.get_redis_client",
@@ -54,7 +57,7 @@ async def test_rollout_backfill_publishes_once_per_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_ids = [uuid.uuid4(), uuid.uuid4()]
-    _, publish_mock = _mock_rollout_environment(
+    redis_mock, publish_mock = _mock_rollout_environment(
         monkeypatch, marker_acquired=True, workspace_ids=workspace_ids
     )
 
@@ -64,6 +67,30 @@ async def test_rollout_backfill_publishes_once_per_workspace(
         call(workspace_id=workspace_id, reason="duration_definition_updated")
         for workspace_id in workspace_ids
     ]
+    # Lease acquired with a TTL, then made permanent after all jobs queued.
+    assert (
+        redis_mock.set_if_not_exists.await_args.kwargs["expire_seconds"]
+        == ROLLOUT_BACKFILL_LEASE_SECONDS
+    )
+    assert redis_mock.set.await_args.kwargs["expire_seconds"] is None
+
+
+@pytest.mark.anyio
+async def test_rollout_backfill_keeps_lease_on_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled startup pass must neither persist the marker nor delete
+    the lease; the TTL lapses so a later boot retries the rollout."""
+    redis_mock, publish_mock = _mock_rollout_environment(
+        monkeypatch, marker_acquired=True, workspace_ids=[uuid.uuid4()]
+    )
+    publish_mock.side_effect = asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await enqueue_rollout_backfill_once()
+
+    redis_mock.set.assert_not_awaited()
+    redis_mock.delete.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -197,13 +224,17 @@ async def test_definition_sync_publish_failure_runs_inline_backfill(
 
 
 @pytest.mark.anyio
-async def test_failing_inline_fallback_is_logged_and_does_not_propagate(
+async def test_failing_inline_fallback_retries_then_logs_without_propagating(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     callbacks = capture_after_commit_callback(monkeypatch)
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
         AsyncMock(side_effect=ConnectionError("redis unavailable")),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
+        (0.0, 0.0),
     )
     fallback_mock = AsyncMock(side_effect=RuntimeError("database unavailable"))
     logger_mock = MagicMock()
@@ -222,5 +253,33 @@ async def test_failing_inline_fallback_is_logged_and_does_not_propagate(
 
     await callbacks[0]()
 
-    fallback_mock.assert_awaited_once_with()
+    assert fallback_mock.await_count == 2
     logger_mock.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_transient_inline_fallback_error_recovers_on_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callbacks = capture_after_commit_callback(monkeypatch)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
+        AsyncMock(side_effect=ConnectionError("redis unavailable")),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
+        (0.0, 0.0, 0.0),
+    )
+    fallback_mock = AsyncMock(side_effect=[TimeoutError("pool timeout"), True])
+
+    enqueue_case_duration_sync_after_commit(
+        cast(AsyncSession, MagicMock()),
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        reason="case_event",
+        inline_fallback=fallback_mock,
+    )
+
+    await callbacks[0]()
+
+    assert fallback_mock.await_count == 2

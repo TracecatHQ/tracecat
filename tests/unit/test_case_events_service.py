@@ -618,13 +618,17 @@ class TestCaseEventsService:
         assert first_event is not None
         assert first_event.type == CaseEventType.CASE_VIEWED
         assert first_event.user_id == case_events_service.role.user_id
-        assert enqueue_calls == []
+        # Recorded views enqueue unconditionally; the consumer's event-type
+        # filter decides whether any definition cares.
+        assert len(enqueue_calls) == 1
+        assert enqueue_calls[0]["event_type"] == CaseEventType.CASE_VIEWED.value
         await case_events_service.session.commit()
 
         duplicate_event = await case_events_service.create_case_viewed_event(
             test_case, dedupe_window=timedelta(minutes=5)
         )
         assert duplicate_event is None
+        assert len(enqueue_calls) == 1
 
     async def test_case_viewed_event_syncs_duration_definitions(
         self,

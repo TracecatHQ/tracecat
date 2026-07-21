@@ -75,6 +75,10 @@ async def publish_case_duration_sync(
 
 
 ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
+# Lease TTL covering one enqueue pass. A boot that dies mid-pass (crash or a
+# cancelled lifespan task) simply lets the lease lapse, so a later boot
+# retries instead of permanently skipping the rollout.
+ROLLOUT_BACKFILL_LEASE_SECONDS: Final = 600
 
 
 async def enqueue_rollout_backfill_once() -> None:
@@ -82,9 +86,10 @@ async def enqueue_rollout_backfill_once() -> None:
 
     Deployments that predate async duration sync materialized duration rows
     on read; that read-time sync is gone, so cases without a subsequent event
-    would otherwise stay unmaterialized forever. A Redis ``SET NX`` marker
-    keeps replicas and restarts from repeating the enqueue; if Redis loses
-    the marker the backfill re-runs once, which is idempotent.
+    would otherwise stay unmaterialized forever. A short-lived Redis lease
+    (``SET NX EX``) elects one replica; the marker is made permanent only
+    after every workspace job is queued, so an interrupted pass is retried by
+    a later boot. Re-runs are idempotent.
     """
     if not config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
         return
@@ -92,8 +97,8 @@ async def enqueue_rollout_backfill_once() -> None:
     client = await get_redis_client()
     acquired = await client.set_if_not_exists(
         ROLLOUT_BACKFILL_MARKER_KEY,
-        datetime.now(UTC).isoformat(),
-        expire_seconds=None,
+        "pending",
+        expire_seconds=ROLLOUT_BACKFILL_LEASE_SECONDS,
     )
     if not acquired:
         return
@@ -109,20 +114,30 @@ async def enqueue_rollout_backfill_once() -> None:
                 workspace_id=workspace_id,
                 reason="duration_definition_updated",
             )
-        logger.info(
-            "Queued rollout duration backfill",
-            workspace_count=len(workspace_ids),
-        )
     except Exception:
-        # Release the marker so the next boot retries the rollout backfill.
+        # Release the lease so the next boot retries immediately rather than
+        # waiting out the TTL. CancelledError deliberately bypasses this: the
+        # lease then lapses on its own.
         try:
             await client.delete(ROLLOUT_BACKFILL_MARKER_KEY)
         except Exception:
             logger.warning(
-                "Failed to release rollout duration backfill marker",
+                "Failed to release rollout duration backfill lease",
                 key=ROLLOUT_BACKFILL_MARKER_KEY,
             )
         raise
+
+    # All jobs are queued; overwrite the lease with a permanent marker (SET
+    # without an expiry clears the TTL).
+    await client.set(
+        ROLLOUT_BACKFILL_MARKER_KEY,
+        datetime.now(UTC).isoformat(),
+        expire_seconds=None,
+    )
+    logger.info(
+        "Queued rollout duration backfill",
+        workspace_count=len(workspace_ids),
+    )
 
 
 def enqueue_case_duration_sync_after_commit(
@@ -167,6 +182,7 @@ def enqueue_case_duration_sync_after_commit(
         # Retry briefly when another transaction holds the case's sync lock: the
         # lock holder may have computed before this commit became visible, and
         # with Redis down there is no queued job to redo the work.
+        attempts = len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS)
         for attempt, delay_seconds in enumerate(
             INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS, start=1
         ):
@@ -175,13 +191,26 @@ def enqueue_case_duration_sync_after_commit(
             try:
                 synced = await inline_fallback()
             except Exception:
-                logger.exception(
-                    "Inline case duration sync fallback failed",
+                # Transient failures (e.g. a pool timeout) get the same
+                # bounded retries as lock contention: with Redis down there
+                # is no queued job left to redo this work.
+                if attempt == attempts:
+                    logger.exception(
+                        "Inline case duration sync fallback failed; giving up",
+                        workspace_id=str(workspace_id),
+                        case_id=str(case_id) if case_id is not None else None,
+                        reason=reason,
+                        attempts=attempts,
+                    )
+                    return
+                logger.warning(
+                    "Inline case duration sync fallback errored; retrying",
                     workspace_id=str(workspace_id),
                     case_id=str(case_id) if case_id is not None else None,
                     reason=reason,
+                    attempt=attempt,
                 )
-                return
+                continue
             if synced is not False:
                 return
             logger.debug(
@@ -197,7 +226,7 @@ def enqueue_case_duration_sync_after_commit(
             workspace_id=str(workspace_id),
             case_id=str(case_id) if case_id is not None else None,
             reason=reason,
-            attempts=len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS),
+            attempts=attempts,
         )
 
     AfterCommitQueue.of(session).add(_publish)

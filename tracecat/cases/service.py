@@ -2843,9 +2843,20 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        duration_sync: Literal["async", "none"] = (
-            "async" if await self._has_case_viewed_duration_definition() else "none"
-        )
+        if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+            # Unconditional: a preflight definition check races a concurrent
+            # definition create whose backfill snapshot predates this event's
+            # commit. The consumer's event-type filter skips unused view
+            # events cheaply.
+            duration_sync: Literal["async", "none"] = "async"
+        else:
+            # With the worker disabled, "async" degrades to an in-transaction
+            # sync, so keep the preflight to avoid recomputing durations on
+            # every deduped view in workspaces with no view-anchored
+            # definitions.
+            duration_sync = (
+                "async" if await self._has_case_viewed_duration_definition() else "none"
+            )
 
         return await self.create_event(
             case=case,
