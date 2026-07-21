@@ -39,6 +39,7 @@ from tracecat.tiers.enums import Entitlement
 
 RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
 RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
+CASE_SYNC_ATTEMPT_DELAYS_SECONDS: Final = (0.0, 0.5, 2.0)
 
 
 class CaseKey(NamedTuple):
@@ -237,40 +238,51 @@ class CaseDurationSyncConsumer:
 
         for key, message_ids in case_jobs.items():
             event_types = None if key in force_sync_keys else case_event_types.get(key)
-            try:
-                synced = await self._sync_case_duration(
-                    key.workspace_id,
-                    key.case_id,
-                    event_types=event_types,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to process case duration sync job",
+            for delay in CASE_SYNC_ATTEMPT_DELAYS_SECONDS:
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    synced = await self._sync_case_duration(
+                        key.workspace_id,
+                        key.case_id,
+                        event_types=event_types,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to process case duration sync job",
+                        workspace_id=str(key.workspace_id),
+                        case_id=str(key.case_id),
+                    )
+                    continue
+
+                if synced:
+                    await self._ack_and_delete(message_ids)
+                    break
+
+                logger.debug(
+                    "Case duration sync lock busy",
                     workspace_id=str(key.workspace_id),
                     case_id=str(key.case_id),
                 )
-                continue
+            else:
+                # The local ladder absorbs seconds-scale contention and errors.
+                # Republish throttles longer outages; case_jobs coalesces duplicates.
+                try:
+                    await publish_case_duration_sync(
+                        workspace_id=key.workspace_id,
+                        case_id=key.case_id,
+                        reason="duration_definition_backfill",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to requeue locked case duration sync job",
+                        workspace_id=str(key.workspace_id),
+                        case_id=str(key.case_id),
+                        error=str(e),
+                    )
+                    continue
 
-            if synced:
                 await self._ack_and_delete(message_ids)
-                continue
-
-            try:
-                await publish_case_duration_sync(
-                    workspace_id=key.workspace_id,
-                    case_id=key.case_id,
-                    reason="duration_definition_backfill",
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to requeue locked case duration sync job",
-                    workspace_id=str(key.workspace_id),
-                    case_id=str(key.case_id),
-                    error=str(e),
-                )
-                continue
-
-            await self._ack_and_delete(message_ids)
 
     async def _ack_and_delete(self, message_ids: list[str]) -> None:
         await self.client.xack(self.stream_key, self.group, message_ids)

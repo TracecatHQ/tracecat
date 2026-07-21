@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import materialization
 from tracecat.cases.durations.consumer import (
+    CASE_SYNC_ATTEMPT_DELAYS_SECONDS,
     CaseDurationSyncConsumer,
     DurationDefinitionSyncJob,
 )
@@ -177,11 +178,13 @@ async def test_consumer_requeues_locked_case_jobs(
     case_id = uuid.uuid4()
     sync_mock = AsyncMock(return_value=False)
     publish_mock = AsyncMock()
+    sleep_mock = AsyncMock()
     monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.publish_case_duration_sync",
         publish_mock,
     )
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
     await consumer._handle_entries(
         [
@@ -197,12 +200,52 @@ async def test_consumer_requeues_locked_case_jobs(
         ]
     )
 
-    sync_mock.assert_awaited_once()
+    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
     publish_mock.assert_awaited_once_with(
         workspace_id=workspace_id,
         case_id=case_id,
         reason="duration_definition_backfill",
     )
+    assert client.acked == [["1-0"]]
+    assert client.deleted == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_retries_locked_case_job_locally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    sync_mock = AsyncMock(side_effect=[False, True])
+    publish_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "case_event",
+                    "event_type": "case_updated",
+                },
+            )
+        ]
+    )
+
+    assert sync_mock.await_count == 2
+    sleep_mock.assert_awaited_once_with(0.5)
+    publish_mock.assert_not_awaited()
     assert client.acked == [["1-0"]]
     assert client.deleted == [["1-0"]]
 
@@ -218,6 +261,7 @@ async def test_consumer_leaves_locked_case_jobs_pending_when_requeue_fails(
     sync_mock = AsyncMock(return_value=False)
     publish_mock = AsyncMock(side_effect=RuntimeError("redis unavailable"))
     logger_mock = MagicMock()
+    sleep_mock = AsyncMock()
     monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.publish_case_duration_sync",
@@ -227,6 +271,7 @@ async def test_consumer_leaves_locked_case_jobs_pending_when_requeue_fails(
         "tracecat.cases.durations.consumer.logger.warning",
         logger_mock,
     )
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
     await consumer._handle_entries(
         [
@@ -242,7 +287,8 @@ async def test_consumer_leaves_locked_case_jobs_pending_when_requeue_fails(
         ]
     )
 
-    sync_mock.assert_awaited_once()
+    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
     publish_mock.assert_awaited_once_with(
         workspace_id=workspace_id,
         case_id=case_id,
@@ -370,26 +416,35 @@ async def test_consumer_checks_backfill_entitlement_by_organization(
 
 
 @pytest.mark.anyio
-async def test_consumer_leaves_failed_case_jobs_pending(
+async def test_consumer_requeues_failed_case_jobs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = FakeRedisClient()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
     sync_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
+    publish_mock = AsyncMock()
     logger_mock = MagicMock()
+    sleep_mock = AsyncMock()
     monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.logger.exception",
         logger_mock,
     )
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
 
     await consumer._handle_entries(
         [
             (
                 "1-0",
                 {
-                    "workspace_id": str(uuid.uuid4()),
-                    "case_id": str(uuid.uuid4()),
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
                     "reason": "case_event",
                     "event_type": "case_updated",
                 },
@@ -397,10 +452,16 @@ async def test_consumer_leaves_failed_case_jobs_pending(
         ]
     )
 
-    sync_mock.assert_awaited_once()
-    logger_mock.assert_called_once()
-    assert client.acked == []
-    assert client.deleted == []
+    assert sync_mock.await_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [0.5, 2.0]
+    assert logger_mock.call_count == len(CASE_SYNC_ATTEMPT_DELAYS_SECONDS)
+    publish_mock.assert_awaited_once_with(
+        workspace_id=workspace_id,
+        case_id=case_id,
+        reason="duration_definition_backfill",
+    )
+    assert client.acked == [["1-0"]]
+    assert client.deleted == [["1-0"]]
 
 
 @pytest.mark.anyio
