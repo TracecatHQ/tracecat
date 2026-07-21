@@ -2777,11 +2777,9 @@ class AgentSessionService(BaseWorkspaceService):
         """Retrieve session messages, optionally filtered by message kind.
 
         For forked sessions, includes parent session messages first.
-        Checks the new AgentSessionHistory table first, then falls back to
-        the legacy ChatMessage table for backward compatibility.
 
         Args:
-            session_id: The session UUID (could be AgentSession.id or Chat.id).
+            session_id: The session UUID.
             kinds: Optional list of message kinds to filter by.
             include_active: When True, do not hide the active turn's rows. The
                 mid-turn filter exists for live UI reads (the assistant streams
