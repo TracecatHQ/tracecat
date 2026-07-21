@@ -948,6 +948,9 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
+REDIS_SSL_CA_DATA = os.environ.get("REDIS_SSL_CA_DATA")
+"""PEM-encoded CA certificate used to verify Redis TLS connections."""
+
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )

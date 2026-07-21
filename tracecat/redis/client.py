@@ -20,6 +20,7 @@ from tenacity import (
 
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+from tracecat.redis.connection import redis_tls_kwargs
 
 
 def _resolve_redis_url() -> str:
@@ -70,13 +71,15 @@ class RedisClient:
     def _init_pool(self) -> None:
         """Ensure the Redis connection pool is initialized."""
         if RedisClient._pool is None:
+            redis_url = _resolve_redis_url()
             # Create connection pool
             RedisClient._pool = redis.from_url(
-                _resolve_redis_url(),
+                redis_url,
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
                 health_check_interval=30,
+                **redis_tls_kwargs(redis_url),
             ).connection_pool
 
     async def _get_client(self) -> redis.Redis:

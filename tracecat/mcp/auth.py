@@ -73,6 +73,7 @@ from tracecat.mcp.oidc.features import (
 )
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.service import verify_mcp_personal_access_token
+from tracecat.redis.connection import redis_tls_kwargs
 
 
 class MCPTokenIdentity(BaseModel):
@@ -1060,7 +1061,9 @@ def _create_oidc_auth() -> OIDCProxy:
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = AsyncRedis.from_url(
+        REDIS_URL, decode_responses=True, **redis_tls_kwargs(REDIS_URL)
+    )
     redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
     if config.TRACECAT__DB_ENCRYPTION_KEY:

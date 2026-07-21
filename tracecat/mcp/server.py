@@ -212,6 +212,7 @@ from tracecat.mcp.schemas import (
     WorkflowYamlPayload,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.redis.connection import redis_tls_kwargs
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
     RegistryActionsService,
@@ -1314,7 +1315,9 @@ def _get_workflow_artifact_redis() -> AsyncRedis:
     """Get the Redis client used for MCP file artifact metadata."""
     global _workflow_artifact_redis
     if _workflow_artifact_redis is None:
-        _workflow_artifact_redis = AsyncRedis.from_url(config.REDIS_URL)
+        _workflow_artifact_redis = AsyncRedis.from_url(
+            config.REDIS_URL, **redis_tls_kwargs(config.REDIS_URL)
+        )
     return _workflow_artifact_redis
 
 

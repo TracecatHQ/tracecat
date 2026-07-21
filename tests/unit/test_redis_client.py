@@ -71,7 +71,11 @@ class DummyRedis:
         cls.raise_on_xadd_once = False
 
 
+from_url_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+
 def fake_from_url(*args, **kwargs) -> SimpleNamespace:
+    from_url_calls.append((args, kwargs))
     pool = DummyConnectionPool()
     return SimpleNamespace(connection_pool=pool)
 
@@ -87,6 +91,7 @@ def reset_singleton() -> None:
 def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     DummyRedis.reset()
     DummyConnectionPool.reset()
+    from_url_calls.clear()
     reset_singleton()
 
     monkeypatch.setattr("tracecat.redis.client.redis.Redis", DummyRedis)
@@ -97,6 +102,7 @@ def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     reset_singleton()
     DummyRedis.reset()
     DummyConnectionPool.reset()
+    from_url_calls.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -123,6 +129,18 @@ def test_get_client_reuses_same_event_loop() -> None:
     assert first is second
     assert len(DummyRedis.instances) == 1
     assert DummyConnectionPool.instances[0].disconnected is False
+
+
+def test_init_pool_passes_redis_tls_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "tracecat.redis.client.redis_tls_kwargs",
+        lambda url: {"ssl_ca_data": "certificate"},
+    )
+
+    RedisClient()
+
+    _, kwargs = from_url_calls[0]
+    assert kwargs["ssl_ca_data"] == "certificate"
 
 
 def test_get_client_reinitializes_after_loop_change() -> None:

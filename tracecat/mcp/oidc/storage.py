@@ -14,6 +14,7 @@ from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc.schemas import AuthCodeData, ResumeTransaction
+from tracecat.redis.connection import redis_tls_kwargs
 
 _KEY_PREFIX = "mcp-oidc"
 
@@ -75,7 +76,9 @@ class _EncryptedRedis:
 
 def _build_store() -> _EncryptedRedis:
     """Create an encrypted Redis store for OIDC issuer state."""
-    redis = AsyncRedis.from_url(REDIS_URL, decode_responses=False)
+    redis = AsyncRedis.from_url(
+        REDIS_URL, decode_responses=False, **redis_tls_kwargs(REDIS_URL)
+    )
     fernet: Fernet | None = None
     if TRACECAT__DB_ENCRYPTION_KEY:
         fernet = Fernet(TRACECAT__DB_ENCRYPTION_KEY)
