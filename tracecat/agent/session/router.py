@@ -53,17 +53,25 @@ from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
-# SSE headers for Vercel AI SDK streaming responses from POST /messages.
-_VERCEL_SSE_HEADERS = {
+SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
     "Transfer-Encoding": "chunked",
-    "Content-Encoding": "none",
     "Connection": "keep-alive",
     "Keep-Alive": "timeout=120",
     "Pragma": "no-cache",
-    "X-Accel-Buffering": "no",  # Disable nginx buffering
+    "X-Accel-Buffering": "no",
+}
+VERCEL_SSE_HEADERS = {
+    **SSE_HEADERS,
     "x-vercel-ai-ui-message-stream": "v1",
 }
+
+
+def _sse_headers(format: StreamFormat) -> dict[str, str]:
+    """Return SSE headers for the requested stream format."""
+    if format == "vercel":
+        return dict(VERCEL_SSE_HEADERS)
+    return dict(SSE_HEADERS)
 
 
 def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | None:
@@ -518,7 +526,7 @@ async def send_message(
                             format="vercel", message_id=message_id
                         ),
                         media_type="text/event-stream",
-                        headers=_VERCEL_SSE_HEADERS,
+                        headers=_sse_headers("vercel"),
                     )
 
                 stream = await AgentStream.new(
@@ -593,12 +601,19 @@ async def send_message(
                 message_id=message_id,
             ),
             media_type="text/event-stream",
-            headers=_VERCEL_SSE_HEADERS,
+            headers=_sse_headers("vercel"),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        # A decision contradicting one already recorded: the client is acting on
+        # stale state and should refresh, not retry.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
         ) from e
     except ValueError as e:
         raise HTTPException(
@@ -642,15 +657,7 @@ async def stream_session_events(
             detail="Workspace access required",
         )
 
-    headers = {
-        "Cache-Control": "no-cache, no-transform",
-        "Connection": "keep-alive",
-        "Keep-Alive": "timeout=120",
-        "Pragma": "no-cache",
-        "X-Accel-Buffering": "no",  # Disable nginx buffering
-    }
-    if format == "vercel":
-        headers["x-vercel-ai-ui-message-stream"] = "v1"
+    headers = _sse_headers(format)
 
     last_event_id = request.headers.get("Last-Event-ID")
 

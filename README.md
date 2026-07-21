@@ -79,7 +79,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
 - `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
-- `deployments/k8s` is a git submodule under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). It contains the Tracecat Helm chart and EKS deployment templates for internal use only. The Helm chart is distributed as a private OCI artifact hosted in AWS ECR.
+- `deployments/k8s` is a git submodule under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0). It contains the Tracecat Helm chart and EKS deployment templates for internal use only. The Helm chart is distributed as a private OCI artifact hosted in AWS ECR.
 - Any code that gates `ee` features across the repo
 
 Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.

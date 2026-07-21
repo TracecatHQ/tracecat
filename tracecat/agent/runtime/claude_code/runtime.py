@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import (
     AgentDefinition,
+    AssistantMessage,
     HookContext,
     HookInput,
     McpHttpServerConfig,
@@ -44,6 +45,7 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
     SystemMessage,
     ToolResultBlock,
+    ToolUseBlock,
     UserMessage,
 )
 
@@ -564,6 +566,18 @@ class ClaudeAgentRuntime:
                 return alias
         return None
 
+    def _tool_call_requires_approval(
+        self,
+        input_data: HookInput,
+        tool_name: str,
+    ) -> bool:
+        """Whether a tool call requires manual approval."""
+        if self._explicit_subagent_alias_for_tool(input_data, tool_name) is not None:
+            return False
+        if self.tool_approvals is None:
+            return False
+        return self.tool_approvals.get(normalize_mcp_tool_name(tool_name)) is True
+
     @staticmethod
     def _agent_tool_target(tool_input: dict[str, Any]) -> str | None:
         for key in ("subagent_type", "agent_type", "type", "name"):
@@ -969,7 +983,27 @@ class ClaudeAgentRuntime:
 
         Streams APPROVAL_REQUEST event via socket and interrupts the client.
         The orchestrator handles persistence and coordination.
+
+        Root-level tool calls are normally registered ahead of time from the
+        assistant message stream (``_register_assistant_tool_approvals``), in
+        which case this only needs to interrupt. Unregistered calls (e.g.
+        subagent-originated ones) still get their event emitted here.
         """
+        await self._emit_approval_request(tool_name, tool_input, tool_use_id)
+
+        logger.info("Approval request streamed, interrupting", tool_name=tool_name)
+
+        await self._interrupt_once()
+
+    async def _emit_approval_request(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        tool_use_id: str,
+    ) -> None:
+        """Stream an APPROVAL_REQUEST event for a tool call, at most once."""
+        if tool_use_id in self._pending_approval_tool_ids:
+            return
         self._pending_approval_tool_ids.add(tool_use_id)
 
         approval_event = UnifiedStreamEvent.approval_request_event(
@@ -983,11 +1017,60 @@ class ClaudeAgentRuntime:
         )
         await self._event_writer.send_stream_event(approval_event)
 
-        logger.info("Approval request streamed, interrupting", tool_name=tool_name)
+    async def _interrupt_once(self) -> None:
+        """Abort the current turn, at most once per run.
 
-        if self.client is not None:
-            self._was_interrupted = True
-            await self.client.interrupt()
+        ``interrupt()`` is turn-global: the first call aborts the whole turn,
+        so repeat calls are pointless and may race CLI teardown.
+        """
+        if self.client is None or self._was_interrupted:
+            return
+        self._was_interrupted = True
+        await self.client.interrupt()
+
+    async def _register_assistant_tool_approvals(
+        self, message: AssistantMessage
+    ) -> None:
+        """Emit approval requests for gated tool calls in an assistant message.
+
+        Parallel tool calls arrive as N single-block assistant messages
+        (sharing one API message id), all of which stream past *before* the CLI
+        executes anything. The PreToolUse hook cannot capture the siblings: the
+        CLI serializes tool execution, so the interrupt triggered by the first
+        gated hook aborts the turn and the remaining hooks never fire —
+        dropping their approval requests entirely. Emitting each gated call
+        here, at message-stream time, guarantees every parallel approval is
+        streamed before the interrupt lands. The hook then only denies
+        execution and interrupts.
+        """
+        if message.parent_tool_use_id is not None:
+            # Subagent tool calls are handled by the hook fallback.
+            return
+
+        for block in message.content:
+            if not isinstance(block, ToolUseBlock):
+                continue
+            if not self._tool_call_requires_approval(
+                cast(
+                    HookInput,
+                    {
+                        "tool_name": block.name,
+                        "tool_input": block.input or {},
+                    },
+                ),
+                block.name,
+            ):
+                continue
+            await self._emit_approval_request(
+                normalize_mcp_tool_name(block.name),
+                block.input,
+                block.id,
+            )
+            logger.info(
+                "Registered approval request from assistant message",
+                tool_name=block.name,
+                tool_use_id=block.id,
+            )
 
     async def interrupt(self, *, reason: str) -> None:
         """Gracefully stop the in-flight turn via the Claude SDK client.
@@ -1088,12 +1171,7 @@ class ClaudeAgentRuntime:
 
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
-        requires_approval = self._explicit_subagent_alias_for_tool(
-            input_data, tool_name
-        ) is None and (
-            self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
-        )
+        requires_approval = self._tool_call_requires_approval(input_data, tool_name)
 
         if requires_approval:
             # Requires approval - stream request and interrupt
@@ -1719,7 +1797,9 @@ class ClaudeAgentRuntime:
                             # AssistantMessage, UserMessage, etc.
                             await self._emit_new_session_lines()
 
-                            if isinstance(message, UserMessage):
+                            if isinstance(message, AssistantMessage):
+                                await self._register_assistant_tool_approvals(message)
+                            elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
                 finally:
                     stderr_task.cancel()

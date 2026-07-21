@@ -4,6 +4,8 @@ import type {
   AgentSessionEntity,
   AgentSessionRead,
   AgentSessionReadVercel,
+  ApprovalRead,
+  ApprovalStatus,
   ChatReadMinimal,
   ChatReadVercel,
   UIMessage,
@@ -14,7 +16,20 @@ export type ApprovalCard = {
   tool_call_id: string
   tool_name: string
   args?: unknown
+  status?: ApprovalStatus
+  decision?: ApprovalRead["decision"]
+  reason?: string | null
 }
+
+type PersistedApprovalDecision = NonNullable<ApprovalRead["decision"]>
+type ToolApprovedDecision = Extract<
+  PersistedApprovalDecision,
+  { kind: "tool-approved" }
+>
+type ToolDeniedDecision = Extract<
+  PersistedApprovalDecision,
+  { kind: "tool-denied" }
+>
 
 type ServerToolPart = Extract<UIMessage["parts"][number], { state: string }>
 type LegacyToolState =
@@ -393,6 +408,30 @@ export function isApprovalCardArray(data: unknown): data is ApprovalCard[] {
   )
 }
 
+/** Whether a persisted approval decision contains tool argument overrides. */
+export function isToolApprovedDecision(
+  decision: unknown
+): decision is ToolApprovedDecision {
+  return (
+    typeof decision === "object" &&
+    decision !== null &&
+    "kind" in decision &&
+    decision.kind === "tool-approved"
+  )
+}
+
+/** Whether a persisted approval decision denies a tool call. */
+export function isToolDeniedDecision(
+  decision: unknown
+): decision is ToolDeniedDecision {
+  return (
+    typeof decision === "object" &&
+    decision !== null &&
+    "kind" in decision &&
+    decision.kind === "tool-denied"
+  )
+}
+
 /**
  * Concatenates all text parts from a message into a single string.
  * Skips non-text parts and preserves paragraph breaks between multiple parts.
@@ -484,9 +523,12 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         const trace = getTrace(toolCallId)
         recordDedupe(trace, posKey, hasOutput)
 
-        if (state === "input-available") {
+        if (
+          !trace.hasOutput &&
+          (state === "input-streaming" || state === "input-available")
+        ) {
           // OPEN STATE
-          // If we encounter an input-available part, we open a tool call state.
+          // If we encounter an input part, we open a tool call state.
           // A fresh open supersedes any prior open/approval bookkeeping.
           trace.openPos = posKey
           trace.approvalPos = undefined

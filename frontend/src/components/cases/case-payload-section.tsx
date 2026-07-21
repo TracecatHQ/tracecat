@@ -10,6 +10,7 @@ export function CasePayloadSection({ caseData }: { caseData: CaseRead }) {
           src={caseData.payload}
           defaultExpanded={true}
           showControls={true}
+          copyMode="jsonpath-and-payload"
         />
       ) : (
         <NoPaylod />

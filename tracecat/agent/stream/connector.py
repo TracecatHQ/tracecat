@@ -164,6 +164,22 @@ class AgentStream:
         last_data = orjson.loads(last_entries[0][1][tokens.DATA_KEY])
         return last_data != {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}
 
+    async def finish_idle_segment(self) -> None:
+        """Emit a non-terminal boundary for a paused live turn.
+
+        Approval continuations can accept a partial decision set without resuming
+        the workflow. Current readers need a stream boundary so they can finish,
+        but future replay must not treat that boundary as the turn's terminal
+        frame once more output has been appended.
+        """
+        await self.append(
+            {
+                tokens.END_TOKEN: tokens.END_TOKEN_VALUE,
+                "terminal": False,
+                "reason": "approval_pending",
+            }
+        )
+
     async def clear_buffer(self) -> None:
         """Delete the stream buffer for this key.
 
@@ -236,6 +252,10 @@ class AgentStream:
                 data = orjson.loads(fields[tokens.DATA_KEY])
                 current_id = msg_id
                 match data:
+                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE, "terminal": False}:
+                        if await self._has_entry_after(msg_id):
+                            continue
+                        yield StreamEnd(id=msg_id)
                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
                         stream_completed = True
                         yield StreamEnd(id=msg_id)
@@ -315,6 +335,15 @@ class AgentStream:
             # cursor (Last-Event-ID). We only expire the buffer after terminal.
             if stream_completed:
                 await self._expire_completed_stream()
+
+    async def _has_entry_after(self, msg_id: str) -> bool:
+        """Return True when this Redis stream has an entry after ``msg_id``."""
+        entries = await self.client.xrange(
+            self._stream_key,
+            min_id=f"({msg_id}",
+            count=1,
+        )
+        return bool(entries)
 
     async def stream_events(
         self,
