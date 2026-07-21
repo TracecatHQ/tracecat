@@ -49,7 +49,7 @@ describe("batch case hooks", () => {
     expect(chunks.flat()).toEqual(caseIds)
   })
 
-  it("updates cases once and invalidates the cases cache once", async () => {
+  it("updates cases once without invalidating the cases cache", async () => {
     mockBatchUpdateCases.mockResolvedValue({
       results: [{ case_id: "case-1", success: true, error: null }],
       succeeded: 1,
@@ -74,14 +74,12 @@ describe("batch case hooks", () => {
         update: { summary: "Updated" },
       },
     })
-    expect(invalidateQueries).toHaveBeenCalledTimes(1)
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["cases"],
-      exact: false,
-    })
+    // Invalidation is owned by the caller (one refetch per bulk operation,
+    // not per 1000-ID chunk) — the hook itself must not invalidate.
+    expect(invalidateQueries).not.toHaveBeenCalled()
   })
 
-  it("deletes cases once and invalidates the cases cache once", async () => {
+  it("deletes cases once without invalidating the cases cache", async () => {
     mockBatchDeleteCases.mockResolvedValue({
       results: [{ case_id: "case-1", success: true, error: null }],
       succeeded: 1,
@@ -100,10 +98,8 @@ describe("batch case hooks", () => {
       workspaceId: "workspace-1",
       requestBody: { case_ids: ["case-1"] },
     })
-    expect(invalidateQueries).toHaveBeenCalledTimes(1)
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["cases"],
-      exact: false,
-    })
+    // Invalidation is owned by the caller (one refetch per bulk operation,
+    // not per 1000-ID chunk) — the hook itself must not invalidate.
+    expect(invalidateQueries).not.toHaveBeenCalled()
   })
 })
