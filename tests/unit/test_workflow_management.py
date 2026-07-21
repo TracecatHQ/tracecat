@@ -386,9 +386,6 @@ async def test_external_import_publishes_before_online_case_trigger(
             self.session = session
             self.role = role
 
-        async def require_entitlement(self, _entitlement: object) -> None:
-            return None
-
         async def upsert_case_trigger(
             self,
             workflow_id: uuid.UUID,
@@ -521,9 +518,6 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
         def __init__(self, session: Any, role: Role) -> None:
             self.session = session
             self.role = role
-
-        async def require_entitlement(self, _entitlement: object) -> None:
-            return None
 
         async def upsert_case_trigger(
             self,

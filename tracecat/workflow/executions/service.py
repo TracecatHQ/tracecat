@@ -1949,7 +1949,14 @@ class WorkflowExecutionsService:
         workflow_id, _ = exec_id_to_parts(wf_exec_id)
         return AuditEventDetails(
             resource_id=workflow_id,
-            data={"execution_id": wf_exec_id, "operation": "reset"},
+            # Free-text ``reason`` is excluded by the audit content policy;
+            # record only its presence and the requested reset point.
+            data={
+                "execution_id": wf_exec_id,
+                "operation": "reset",
+                "event_id": str(event_id) if event_id is not None else None,
+                "has_reason": reason is not None,
+            },
         )
 
     def _cancel_workflow_execution_audit_details(
@@ -1967,7 +1974,12 @@ class WorkflowExecutionsService:
         workflow_id, _ = exec_id_to_parts(wf_exec_id)
         return AuditEventDetails(
             resource_id=workflow_id,
-            data={"execution_id": wf_exec_id, "operation": "terminate"},
+            # Free-text ``reason`` is excluded by the audit content policy.
+            data={
+                "execution_id": wf_exec_id,
+                "operation": "terminate",
+                "has_reason": reason is not None,
+            },
         )
 
     @audit_log(

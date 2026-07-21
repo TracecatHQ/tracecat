@@ -6,7 +6,7 @@ from ipaddress import ip_address
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from tracecat.contexts import ctx_client_ip, ctx_user_agent
+from tracecat.contexts import RequestAuditContext, ctx_request_audit
 
 _AUDIT_USER_AGENT_PATTERN = re.compile(
     r"^(?P<product>Mozilla|TracecatClient|curl|python-httpx|Claude-Code|Codex)"
@@ -56,8 +56,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
 
-        client_ip_token = ctx_client_ip.set(client_ip)
-        user_agent_token = ctx_user_agent.set(user_agent)
+        audit_token = ctx_request_audit.set(
+            RequestAuditContext(client_ip=client_ip, user_agent=user_agent)
+        )
 
         try:
             request_logger = request.app.state.logger
@@ -77,5 +78,4 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
             return await call_next(request)
         finally:
-            ctx_user_agent.reset(user_agent_token)
-            ctx_client_ip.reset(client_ip_token)
+            ctx_request_audit.reset(audit_token)

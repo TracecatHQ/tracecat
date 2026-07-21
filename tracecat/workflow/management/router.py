@@ -768,23 +768,9 @@ async def _generate_webhook_key_audit_details(
     )
 
 
-async def _revoke_webhook_key_audit_details(
-    role: WorkspaceUserRouteRole,
-    session: AsyncDBSession,
-    workflow_id: AnyWorkflowIDPath,
-) -> AuditEventDetails:
-    webhook_id, api_key_id = await _get_webhook_key_audit_target(
-        role, session, workflow_id
-    )
-    return AuditEventDetails(
-        resource_id=api_key_id,
-        data={
-            "webhook_id": str(webhook_id) if webhook_id is not None else None,
-        },
-    )
-
-
-async def _delete_webhook_key_audit_details(
+# Shared by revoke and delete: both endpoints have identical signatures, so
+# one callback satisfies both decorators.
+async def _webhook_key_target_audit_details(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
@@ -1041,7 +1027,7 @@ async def generate_webhook_api_key(
 @audit_log(
     resource_type="webhook_api_key",
     action="revoke",
-    attempt_metadata=_revoke_webhook_key_audit_details,
+    attempt_metadata=_webhook_key_target_audit_details,
 )
 async def revoke_webhook_api_key(
     role: WorkspaceUserRouteRole,
@@ -1082,7 +1068,7 @@ async def revoke_webhook_api_key(
 @audit_log(
     resource_type="webhook_api_key",
     action="delete",
-    attempt_metadata=_delete_webhook_key_audit_details,
+    attempt_metadata=_webhook_key_target_audit_details,
 )
 async def delete_webhook_api_key(
     role: WorkspaceUserRouteRole,

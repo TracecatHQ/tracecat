@@ -17,7 +17,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_client_ip, ctx_role, ctx_user_agent
+from tracecat.contexts import RequestAuditContext, ctx_request_audit, ctx_role
 from tracecat.db.models import WebhookApiKey
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
@@ -377,7 +377,9 @@ async def _execution_control(mp: pytest.MonkeyPatch, role: Role, operation: str)
     setattr(handle, operation, AsyncMock())
     mp.setattr(service, "handle", MagicMock(return_value=handle))
     await getattr(service, f"{operation}_workflow_execution")(execution_id)
-    data = {"execution_id": execution_id, "operation": operation}
+    data: dict[str, object] = {"execution_id": execution_id, "operation": operation}
+    if operation == "terminate":
+        data["has_reason"] = False
     return _pair("workflow_execution", operation, workflow_id, workflow_id, data)
 
 
@@ -404,7 +406,12 @@ async def _execution_reset(mp: pytest.MonkeyPatch, role: Role):
     )
     mp.setattr(service, "_resolve_reset_event_id", AsyncMock(return_value=1))
     await service.reset_workflow_execution(execution_id, event_id=None)
-    data = {"execution_id": execution_id, "operation": "reset"}
+    data = {
+        "execution_id": execution_id,
+        "operation": "reset",
+        "event_id": None,
+        "has_reason": False,
+    }
     return _pair("workflow_execution", "reset", workflow_id, workflow_id, data)
 
 
@@ -665,13 +672,13 @@ async def test_control_plane_audit_wiring(
     role, calls, wire_events = _role(), [], []
     _capture_events(monkeypatch, calls, wire_events)
     role_token = ctx_role.set(role)
-    client_ip_token = ctx_client_ip.set(_CLIENT_IP)
-    user_agent_token = ctx_user_agent.set(_USER_AGENT)
+    audit_token = ctx_request_audit.set(
+        RequestAuditContext(client_ip=_CLIENT_IP, user_agent=_USER_AGENT)
+    )
     try:
         expected = await case.run(monkeypatch, role)
     finally:
-        ctx_user_agent.reset(user_agent_token)
-        ctx_client_ip.reset(client_ip_token)
+        ctx_request_audit.reset(audit_token)
         ctx_role.reset(role_token)
     expected_events = list(expected)
     assert calls == expected_events
@@ -731,18 +738,20 @@ async def test_bulk_reset_emits_one_event_pair_per_execution(
     assert all(result.ok for result in results)
     for execution_id in execution_ids:
         workflow_id, _ = exec_id_to_parts(execution_id)
-        matching = [
-            call
-            for call in calls
-            if call["data"] == {"execution_id": execution_id, "operation": "reset"}
-        ]
+        expected_data = {
+            "execution_id": execution_id,
+            "operation": "reset",
+            "event_id": None,
+            "has_reason": False,
+        }
+        matching = [call for call in calls if call["data"] == expected_data]
         assert matching == list(
             _pair(
                 "workflow_execution",
                 "reset",
                 workflow_id,
                 workflow_id,
-                {"execution_id": execution_id, "operation": "reset"},
+                expected_data,
             )
         )
 

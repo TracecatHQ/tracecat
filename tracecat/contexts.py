@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime
 
 import loguru
@@ -19,11 +20,20 @@ __all__ = [
     "ctx_interaction",
     "ctx_stream_id",
     "ctx_session",
-    "ctx_client_ip",
-    "ctx_user_agent",
+    "ctx_request_audit",
     "ctx_logical_time",
     "get_env",
+    "RequestAuditContext",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class RequestAuditContext:
+    """Client attribution captured by request middleware for audit events."""
+
+    client_ip: str | None
+    user_agent: str | None
+
 
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role | None] = ContextVar("role", default=None)
@@ -31,8 +41,9 @@ ctx_logger: ContextVar[loguru.Logger | None] = ContextVar("logger", default=None
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
-ctx_client_ip: ContextVar[str | None] = ContextVar("client-ip", default=None)
-ctx_user_agent: ContextVar[str | None] = ContextVar("user-agent", default=None)
+ctx_request_audit: ContextVar[RequestAuditContext | None] = ContextVar(
+    "request-audit", default=None
+)
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)

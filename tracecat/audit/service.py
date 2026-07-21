@@ -1,8 +1,8 @@
 """Fire-and-forget audit webhook delivery with an at-most-once contract.
 
-Events are buffered in an in-memory per-loop queue and posted by a background
-worker; they are lost on process/loop shutdown and on queue overflow. Durable,
-at-least-once delivery arrives with the ENG-1514 spool.
+Each event is posted by its own asyncio task; deliveries are only dropped past
+the in-flight cap, and in-flight tasks are lost on process/loop shutdown.
+Durable, at-least-once delivery arrives with the ENG-1514 spool.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from tracecat.audit.types import (
 )
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_client_ip, ctx_role, ctx_user_agent
+from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
 from tracecat.logger import logger
@@ -56,71 +56,39 @@ class _AuditDelivery:
     request_payload: dict[str, Any]
     headers: dict[str, str] | None
     verify_ssl: bool
-    # Non-sensitive discriminators for drop logging; never the payload contents.
+    # Non-sensitive discriminators for failure logging; never the payload contents.
     resource_type: AuditResourceType
     action: AuditAction
 
 
-@dataclass
-class _DeliveryChannel:
-    queue: asyncio.Queue[_AuditDelivery]
-    worker: asyncio.Task[None]
+# Strong refs to in-flight delivery tasks; done callbacks release them.
+_delivery_tasks: set[asyncio.Task[None]] = set()
+
+# Each in-flight delivery holds one socket/FD. Sized to <=25% of the smallest
+# deployment FD envelope (Fargate default soft ulimit 1024); drains ~25/s even
+# against a hung sink (10s httpx timeout). Recompute if either input changes.
+_MAX_IN_FLIGHT_DELIVERIES = 256
 
 
-# Hard cap on undelivered payloads so a slow or down sink cannot grow memory
-# without bound. Overflow drops the newest event rather than blocking the caller.
-_AUDIT_DELIVERY_QUEUE_MAXSIZE = 1000
-
-# Single FIFO worker per event loop drains deliveries in enqueue order,
-# preserving ATTEMPT->terminal ordering per operation within a process. Keyed by
-# loop so queues never leak across loops (e.g. per-test loops).
-_delivery_channels: dict[asyncio.AbstractEventLoop, _DeliveryChannel] = {}
-
-
-def _get_delivery_queue() -> asyncio.Queue[_AuditDelivery]:
-    loop = asyncio.get_running_loop()
-    # Evict closed loops so short-lived (test) loops don't leak channels.
-    for closed in [other for other in _delivery_channels if other.is_closed()]:
-        del _delivery_channels[closed]
-
-    channel = _delivery_channels.get(loop)
-    if channel is None:
-        queue: asyncio.Queue[_AuditDelivery] = asyncio.Queue(
-            maxsize=_AUDIT_DELIVERY_QUEUE_MAXSIZE
-        )
-        worker = loop.create_task(_drain_deliveries(queue))
-        channel = _DeliveryChannel(queue=queue, worker=worker)
-        _delivery_channels[loop] = channel
-    elif channel.worker.done():
-        # Worker died (CancelledError/BaseException) with items possibly still
-        # queued. Respawn onto the existing queue so nothing is lost.
-        channel.worker = loop.create_task(_drain_deliveries(channel.queue))
-    return channel.queue
-
-
-def _enqueue_delivery(delivery: _AuditDelivery) -> None:
-    """Enqueue without blocking; drop the newest event on overflow and log once."""
-    queue = _get_delivery_queue()
-    try:
-        queue.put_nowait(delivery)
-    except asyncio.QueueFull:
-        # No payload contents in this log line: keeps dropped-event data off the
-        # logging boundary.
+def _spawn_delivery(delivery: _AuditDelivery) -> None:
+    """Post the delivery on its own fire-and-forget task."""
+    # Tasks stranded on closed (e.g. per-test) loops never ran their done
+    # callbacks; evict them so the set doesn't grow across loops.
+    for stranded in [t for t in _delivery_tasks if t.get_loop().is_closed()]:
+        _delivery_tasks.discard(stranded)
+    if len(_delivery_tasks) >= _MAX_IN_FLIGHT_DELIVERIES:
+        # Shed audit load rather than exhaust the process FD budget. No payload
+        # contents or sink URL on this log line.
         logger.warning(
-            "Dropped audit webhook delivery; queue full",
+            "Dropped audit webhook delivery; in-flight limit reached",
             resource_type=delivery.resource_type,
             action=delivery.action,
-            queue_maxsize=_AUDIT_DELIVERY_QUEUE_MAXSIZE,
+            max_in_flight=_MAX_IN_FLIGHT_DELIVERIES,
         )
-
-
-async def _drain_deliveries(queue: asyncio.Queue[_AuditDelivery]) -> None:
-    while True:
-        delivery = await queue.get()
-        try:
-            await _deliver(delivery)
-        finally:
-            queue.task_done()
+        return
+    task = asyncio.get_running_loop().create_task(_deliver(delivery))
+    _delivery_tasks.add(task)
+    task.add_done_callback(_delivery_tasks.discard)
 
 
 async def _deliver(delivery: _AuditDelivery) -> None:
@@ -143,14 +111,17 @@ async def _deliver(delivery: _AuditDelivery) -> None:
             "Failed to deliver audit webhook",
             error_type=type(exc).__name__,
             status_code=getattr(response, "status_code", None),
+            resource_type=delivery.resource_type,
+            action=delivery.action,
         )
 
 
 async def flush_audit_deliveries() -> None:
-    """Wait for all queued audit deliveries to complete. Intended for tests."""
-    channel = _delivery_channels.get(asyncio.get_running_loop())
-    if channel is not None:
-        await channel.queue.join()
+    """Wait for this loop's in-flight audit deliveries. Intended for tests."""
+    loop = asyncio.get_running_loop()
+    tasks = [task for task in _delivery_tasks if task.get_loop() is loop]
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 class AuditService(BaseService):
@@ -342,9 +313,20 @@ class AuditService(BaseService):
         )
 
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
-        """Resolve the delivery synchronously, then enqueue it fire-and-forget."""
-        delivery = await self._build_delivery(webhook_url=webhook_url, payload=payload)
-        _enqueue_delivery(delivery)
+        """Resolve the delivery synchronously, then spawn its delivery task."""
+        try:
+            delivery = await self._build_delivery(
+                webhook_url=webhook_url, payload=payload
+            )
+        except Exception as exc:
+            # Best-effort: a failed settings lookup must never abort the audited
+            # operation, and this path never logs the sink URL.
+            self.logger.warning(
+                "Failed to resolve audit webhook delivery",
+                error_type=type(exc).__name__,
+            )
+            return
+        _spawn_delivery(delivery)
 
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
@@ -476,14 +458,23 @@ class AuditService(BaseService):
             return
 
         actor_label = await self._get_actor_label() if include_actor_label else None
+        request_audit = ctx_request_audit.get()
         payload = self._build_payload(
             resource_type=resource_type,
             action=action,
             resource_id=resource_id,
             status=status,
             actor_label=actor_label,
-            ip_address=ctx_client_ip.get() if include_ip_address else None,
-            user_agent=ctx_user_agent.get() if include_user_agent else None,
+            ip_address=(
+                request_audit.client_ip
+                if include_ip_address and request_audit is not None
+                else None
+            ),
+            user_agent=(
+                request_audit.user_agent
+                if include_user_agent and request_audit is not None
+                else None
+            ),
             data=sanitize_audit_metadata(data),
         )
         await self._post_event(webhook_url=webhook_url, payload=payload)
