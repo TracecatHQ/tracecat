@@ -11,14 +11,93 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
+
 from tracecat.agent.common.types import MCPToolDefinition
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from tracecat.identifiers import OrganizationID
     from tracecat.registry.lock.types import RegistryLock
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
+
+# Results cross the CLI stdout buffer capped at 5MiB
+# (CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES); stay under it with headroom for framing.
+MCP_TOOL_RESULT_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _format_size(num_bytes: int) -> str:
+    """Human-readable byte size."""
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.1f}{unit}" if unit != "B" else f"{int(value)}B"
+        value /= 1024
+    return f"{value:.1f}GB"
+
+
+def _render_content_block(block: ContentBlock) -> str:
+    """Render a single MCP content block as text.
+
+    EmbeddedResource has no `.text`; the payload is nested on `.resource`.
+    """
+    if isinstance(block, TextContent):
+        return block.text
+    if isinstance(block, EmbeddedResource):
+        resource = block.resource
+        if isinstance(resource, TextResourceContents):
+            return resource.text
+        if isinstance(resource, BlobResourceContents):
+            return (
+                f"[binary resource: {resource.uri} ({resource.mimeType or 'unknown'})]"
+            )
+        return f"[resource: {resource.uri}]"
+    if isinstance(block, ImageContent):
+        return f"[image: {block.mimeType}]"
+    if isinstance(block, AudioContent):
+        return f"[audio: {block.mimeType}]"
+    if isinstance(block, ResourceLink):
+        return f"[resource link: {block.uri} ({block.mimeType or 'unknown'})]"
+    return f"[unsupported content block: {type(block).__name__}]"
+
+
+def flatten_mcp_content_blocks(
+    content: Sequence[ContentBlock] | None,
+    *,
+    max_bytes: int = MCP_TOOL_RESULT_MAX_BYTES,
+) -> str:
+    """Flatten every block of an MCP CallToolResult into a single string.
+
+    Truncation is marked loudly: a silent cut is the same failure mode as
+    dropping blocks, since the agent cannot tell it received partial data.
+    """
+    if not content:
+        return ""
+
+    joined = "\n\n".join(_render_content_block(block) for block in content)
+
+    encoded = joined.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return joined
+
+    head = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return (
+        f"{head}\n\n[truncated: {_format_size(len(encoded) - max_bytes)} "
+        f"of {_format_size(len(encoded))} omitted]"
+    )
+
 
 # Anthropic tool names must match this pattern; stdio MCP servers can report
 # names (e.g. "issue.get") that would put invalid entries in allowed_tools.
