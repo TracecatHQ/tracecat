@@ -1,6 +1,5 @@
-import asyncio
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import (
     APIRouter,
@@ -27,7 +26,6 @@ from tracecat import config
 from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
-from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
@@ -45,12 +43,17 @@ from tracecat.agent.tags.definitions_router import (
 )
 from tracecat.agent.tags.router import router as agent_preset_tags_router
 from tracecat.api.common import (
-    add_temporal_search_attributes,
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
     http_exception_handler,
     tracecat_exception_handler,
+)
+from tracecat.api.lifespan import (
+    case_trigger_consumer_lifespan,
+    platform_catalog_load_lifespan,
+    platform_registry_sync_lifespan,
+    temporal_search_attributes_lifespan,
 )
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
@@ -88,7 +91,6 @@ from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
 )
 from tracecat.cases.tags.router import router as case_tags_router
-from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
@@ -126,7 +128,6 @@ from tracecat.organization.management import (
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
-from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
@@ -168,129 +169,48 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # USER_AUTH_SECRET is required for all auth types — UserManager uses it
-    # for password reset and email verification token signing. Validated here
-    # (not in create_app) because the app module is imported at collection time
-    # by tests and OpenAPI generation, before secrets are available.
-    get_user_auth_secret()
-    assert_soft_delete_listener_registered()
+    async with AsyncExitStack() as task_stack:
+        # USER_AUTH_SECRET is required for all auth types — UserManager uses it
+        # for password reset and email verification token signing. Validated here
+        # (not in create_app) because the app module is imported at collection time
+        # by tests and OpenAPI generation, before secrets are available.
+        get_user_auth_secret()
+        assert_soft_delete_listener_registered()
 
-    # Temporal
-    # Run in background to avoid blocking startup
-    asyncio.create_task(add_temporal_search_attributes())
-    logger.debug("Spawned lifespan task to add temporal search attributes")
+        await task_stack.enter_async_context(temporal_search_attributes_lifespan())
 
-    # Storage
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
-    if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
-        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
+        # Storage
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
+        if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
+            await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
 
-    # Workflow bucket with lifecycle expiration
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
-    if config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS > 0:
-        await configure_bucket_lifecycle(
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
-            expiration_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+        # Workflow bucket with lifecycle expiration
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
+        if config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS > 0:
+            await configure_bucket_lifecycle(
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+                expiration_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+            )
+
+        await ensure_default_organization()
+
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await setup_rbac_defaults(session)
+
+        await task_stack.enter_async_context(platform_registry_sync_lifespan())
+        await task_stack.enter_async_context(platform_catalog_load_lifespan())
+        await task_stack.enter_async_context(case_trigger_consumer_lifespan())
+
+        logger.info(
+            "Feature flags",
+            feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS],
         )
+        logger.info("RLS mode", rls_mode=config.TRACECAT__RLS_MODE.value)
+        logger.info("API startup complete")
 
-    await ensure_default_organization()
-
-    async with get_async_session_bypass_rls_context_manager() as session:
-        await setup_rbac_defaults(session)
-
-    # Spawn platform registry sync as background task (non-blocking)
-    # Uses leader election to prevent race conditions across multiple API processes
-    registry_sync_task = asyncio.create_task(
-        sync_platform_registry_on_startup(),
-        name="platform_registry_sync",
-    )
-    logger.debug("Spawned background task for platform registry sync")
-
-    platform_catalog_task = asyncio.create_task(
-        load_platform_catalog_on_startup(),
-        name="platform_catalog_load",
-    )
-    logger.debug("Spawned background task for platform catalog load")
-
-    case_trigger_task = None
-    if config.TRACECAT__CASE_TRIGGERS_ENABLED:
-        case_trigger_task = asyncio.create_task(
-            start_case_trigger_consumer(),
-            name="case_trigger_consumer",
-        )
-        logger.debug("Spawned background task for case trigger consumer")
-
-    logger.info(
-        "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
-    )
-    logger.info("RLS mode", rls_mode=config.TRACECAT__RLS_MODE.value)
-    logger.info("API startup complete")
-
-    yield
-
-    # Gracefully handle the registry sync task during shutdown
-    if not registry_sync_task.done():
-        logger.info("Waiting for platform registry sync task to complete...")
-        try:
-            # Give the task a reasonable time to complete
-            await asyncio.wait_for(registry_sync_task, timeout=10.0)
-            logger.info("Platform registry sync task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform registry sync task did not complete in time, cancelling"
-            )
-            registry_sync_task.cancel()
-            try:
-                await registry_sync_task
-            except asyncio.CancelledError:
-                logger.debug("Platform registry sync task cancelled")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed during shutdown", error=e
-            )
-    else:
-        # Task already completed - retrieve result to surface any exceptions
-        try:
-            registry_sync_task.result()
-            logger.debug("Platform registry sync task had already completed")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed before shutdown", error=e
-            )
-
-    if not platform_catalog_task.done():
-        logger.info("Waiting for platform catalog load task to complete...")
-        try:
-            await asyncio.wait_for(platform_catalog_task, timeout=10.0)
-            logger.info("Platform catalog load task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform catalog load task did not complete in time, cancelling"
-            )
-            platform_catalog_task.cancel()
-            try:
-                await platform_catalog_task
-            except asyncio.CancelledError:
-                logger.debug("Platform catalog load task cancelled")
-        except Exception as e:
-            logger.warning("Platform catalog load task failed during shutdown", error=e)
-    else:
-        try:
-            platform_catalog_task.result()
-            logger.debug("Platform catalog load task had already completed")
-        except Exception as e:
-            logger.warning("Platform catalog load task failed before shutdown", error=e)
-
-    if case_trigger_task is not None:
-        case_trigger_task.cancel()
-        try:
-            await case_trigger_task
-        except asyncio.CancelledError:
-            logger.debug("Case trigger consumer task cancelled")
-        except Exception as e:
-            logger.warning("Case trigger consumer stopped with error", error=e)
+        yield
 
     await close_storage_client_cache()
 
