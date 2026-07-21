@@ -599,6 +599,8 @@ def _inject_provider_credentials(
             data["api_key"] = api_key
             if not data.get("model", "").startswith("mistral/"):
                 data["model"] = f"mistral/{data['model']}"
+            if base_url := creds.get("MISTRAL_BASE_URL"):
+                data["api_base"] = base_url
 
         case "vertex_ai":
             credentials = creds.get("GOOGLE_API_CREDENTIALS")

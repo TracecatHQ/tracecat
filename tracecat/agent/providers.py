@@ -90,7 +90,10 @@ def get_model(
         case "mistral":
             model = MistralModel(
                 model_name=model_name,
-                provider=MistralProvider(api_key=secrets.get("MISTRAL_API_KEY")),
+                # MistralProvider's overloads omit base_url; runtime __init__ accepts it.
+                provider=MistralProvider(  # pyright: ignore[reportCallIssue]
+                    base_url=base_url, api_key=secrets.get("MISTRAL_API_KEY")
+                ),
             )
         case "gemini_vertex" | "vertex_ai":
             credentials = service_account.Credentials.from_service_account_info(

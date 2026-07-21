@@ -40,6 +40,19 @@ def test_mistral_injects_api_key_and_prefixes_model() -> None:
     assert data["model"] == "mistral/mistral-large-latest"
 
 
+def test_mistral_injects_optional_base_url() -> None:
+    data = {"model": "mistral-large-latest"}
+    creds = {
+        "MISTRAL_API_KEY": "test-mistral-key",
+        "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
+    }
+
+    _inject_provider_credentials(data, "mistral", creds)
+
+    assert data["api_key"] == "test-mistral-key"
+    assert data["api_base"] == "https://api.mistral.example/v1"
+
+
 def test_mistral_missing_api_key_raises() -> None:
     data = {"model": "mistral-large-latest"}
 
