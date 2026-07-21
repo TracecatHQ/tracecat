@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Final, Literal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import CaseDurationDefinition
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -68,6 +72,57 @@ async def publish_case_duration_sync(
         reason=reason,
     )
     return message_id
+
+
+ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
+
+
+async def enqueue_rollout_backfill_once() -> None:
+    """Queue a one-time backfill for workspaces with existing definitions.
+
+    Deployments that predate async duration sync materialized duration rows
+    on read; that read-time sync is gone, so cases without a subsequent event
+    would otherwise stay unmaterialized forever. A Redis ``SET NX`` marker
+    keeps replicas and restarts from repeating the enqueue; if Redis loses
+    the marker the backfill re-runs once, which is idempotent.
+    """
+    if not config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+        return
+
+    client = await get_redis_client()
+    acquired = await client.set_if_not_exists(
+        ROLLOUT_BACKFILL_MARKER_KEY,
+        datetime.now(UTC).isoformat(),
+        expire_seconds=None,
+    )
+    if not acquired:
+        return
+
+    try:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(
+                select(CaseDurationDefinition.workspace_id).distinct()
+            )
+            workspace_ids = list(result.scalars().all())
+        for workspace_id in workspace_ids:
+            await publish_case_duration_sync(
+                workspace_id=workspace_id,
+                reason="duration_definition_updated",
+            )
+        logger.info(
+            "Queued rollout duration backfill",
+            workspace_count=len(workspace_ids),
+        )
+    except Exception:
+        # Release the marker so the next boot retries the rollout backfill.
+        try:
+            await client.delete(ROLLOUT_BACKFILL_MARKER_KEY)
+        except Exception:
+            logger.warning(
+                "Failed to release rollout duration backfill marker",
+                key=ROLLOUT_BACKFILL_MARKER_KEY,
+            )
+        raise
 
 
 def enqueue_case_duration_sync_after_commit(

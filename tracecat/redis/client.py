@@ -537,7 +537,7 @@ class RedisClient:
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
     async def set_if_not_exists(
-        self, key: str, value: str, *, expire_seconds: int
+        self, key: str, value: str, *, expire_seconds: int | None
     ) -> bool:
         """Set a value only if the key does not exist (SET NX)."""
         try:
