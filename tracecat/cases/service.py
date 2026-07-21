@@ -1211,9 +1211,9 @@ class CasesService(BaseWorkspaceService):
         """Update multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
         audit_data: dict[str, Any] = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": len(case_ids),
+            "case_count": len(case_ids),
         }
         await self._audit_batch_event(
             action="update",
@@ -1305,8 +1305,8 @@ class CasesService(BaseWorkspaceService):
                 status=AuditEventStatus.FAILURE,
                 data={
                     **audit_data,
-                    "succeeded": 0,
-                    "failed": len(case_ids),
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
                 },
             )
             raise
@@ -1324,8 +1324,8 @@ class CasesService(BaseWorkspaceService):
             else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
-                "succeeded": response.succeeded,
-                "failed": response.failed,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
             },
         )
         return response
@@ -1335,9 +1335,9 @@ class CasesService(BaseWorkspaceService):
         """Delete multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
         audit_data: dict[str, Any] = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": len(case_ids),
+            "case_count": len(case_ids),
         }
         await self._audit_batch_event(
             action="delete",
@@ -1436,8 +1436,8 @@ class CasesService(BaseWorkspaceService):
                 status=AuditEventStatus.FAILURE,
                 data={
                     **audit_data,
-                    "succeeded": 0,
-                    "failed": len(case_ids),
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
                 },
             )
             raise
@@ -1455,8 +1455,8 @@ class CasesService(BaseWorkspaceService):
             else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
-                "succeeded": response.succeeded,
-                "failed": response.failed,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
             },
         )
         return response

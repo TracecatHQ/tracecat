@@ -197,6 +197,7 @@ from tracecat.mcp.config import (
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
+    MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
@@ -2284,6 +2285,7 @@ mcp.add_middleware(
     )
 )
 mcp.add_middleware(MCPInputSizeLimitMiddleware())
+mcp.add_middleware(MCPRequestAuditMiddleware())
 mcp.add_middleware(WatchtowerMonitorMiddleware())
 mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(

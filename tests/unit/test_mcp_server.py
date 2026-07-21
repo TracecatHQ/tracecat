@@ -10435,3 +10435,60 @@ def test_validate_patch_payload_wraps_nested_tracecat_validation_error() -> None
     assert error.details is not None
     assert error.details["type"] == "validation_error"
     assert "interaction" in error.message.lower()
+
+
+@pytest.mark.anyio
+async def test_request_audit_middleware_sets_context_during_tool_call(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from types import SimpleNamespace
+
+    from tracecat.contexts import RequestAuditContext, ctx_request_audit
+    from tracecat.mcp import middleware as mcp_middleware
+
+    fake_request = SimpleNamespace(
+        headers={"X-Forwarded-For": "203.0.113.7, 10.0.0.1", "User-Agent": "curl/8.5"},
+        client=SimpleNamespace(host="10.0.0.2"),
+    )
+    monkeypatch.setattr(mcp_middleware, "get_http_request", lambda: fake_request)
+    mw = mcp_middleware.MCPRequestAuditMiddleware()
+    sentinel = object()
+    seen: dict[str, RequestAuditContext | None] = {}
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        seen["audit"] = ctx_request_audit.get()
+        return cast(ToolResult, sentinel)
+
+    result = await mw.on_call_tool(_make_tool_context(), _call_next)
+    assert result is sentinel
+    audit = seen["audit"]
+    assert audit is not None
+    assert audit.client_ip == "203.0.113.7"
+    assert audit.user_agent == "curl/8.5"
+    assert ctx_request_audit.get() is None
+
+
+@pytest.mark.anyio
+async def test_request_audit_middleware_tolerates_missing_http_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from tracecat.contexts import ctx_request_audit
+    from tracecat.mcp import middleware as mcp_middleware
+
+    def _raise() -> object:
+        raise RuntimeError("no active HTTP request")
+
+    monkeypatch.setattr(mcp_middleware, "get_http_request", _raise)
+    mw = mcp_middleware.MCPRequestAuditMiddleware()
+    sentinel = object()
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        assert ctx_request_audit.get() is None
+        return cast(ToolResult, sentinel)
+
+    result = await mw.on_call_tool(_make_tool_context(), _call_next)
+    assert result is sentinel

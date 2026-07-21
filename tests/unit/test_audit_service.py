@@ -24,13 +24,14 @@ from tracecat.audit.logger import (
     AuditEventDetails,
     audit_log,
 )
+from tracecat.audit.sanitization import sanitize_audit_metadata
 from tracecat.audit.service import (
     AuditService,
     _AuditDelivery,
     _spawn_delivery,
     flush_audit_deliveries,
 )
-from tracecat.audit.types import AuditEvent
+from tracecat.audit.types import AuditEvent, AuditMetadata
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -1639,3 +1640,29 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
 
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
+
+
+def test_sanitize_audit_metadata_keeps_batch_operation_keys():
+    id_a, id_b = str(uuid.uuid4()), str(uuid.uuid4())
+    data = {
+        "is_batch": True,
+        "case_ids": [id_a, id_b],
+        "case_count": 2,
+        "succeeded_count": 1,
+        "failed_count": 1,
+        "description": "raw content must be dropped",
+    }
+    assert sanitize_audit_metadata(data) == {
+        "is_batch": True,
+        "case_ids": [id_a, id_b],
+        "case_count": 2,
+        "succeeded_count": 1,
+        "failed_count": 1,
+    }
+
+
+def test_sanitize_audit_metadata_drops_non_string_id_list_items():
+    id_a = str(uuid.uuid4())
+    # Deliberately ill-typed items to exercise the runtime guard.
+    data = cast(AuditMetadata, {"case_ids": [id_a, 42, None]})
+    assert sanitize_audit_metadata(data) == {"case_ids": [id_a]}

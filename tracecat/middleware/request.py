@@ -42,23 +42,29 @@ def _normalize_audit_user_agent(value: str | None) -> str | None:
     return "other"
 
 
+def build_request_audit_context(request: Request) -> RequestAuditContext:
+    """Derive audit attribution from an HTTP request.
+
+    Leftmost X-Forwarded-For hop, falling back to the socket peer.
+    Client-controlled: informational attribution, not a security control.
+    """
+    client_ip = None
+    if forwarded_for := request.headers.get("X-Forwarded-For"):
+        client_ip = _normalize_client_ip(forwarded_for.split(",", 1)[0].strip())
+    if client_ip is None:
+        client_ip = _normalize_client_ip(
+            request.client.host if request.client is not None else None
+        )
+    user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
+    return RequestAuditContext(client_ip=client_ip, user_agent=user_agent)
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Leftmost X-Forwarded-For hop, falling back to the socket peer.
-        # Client-controlled: informational attribution, not a security control.
-        client_ip = None
-        if forwarded_for := request.headers.get("X-Forwarded-For"):
-            client_ip = _normalize_client_ip(forwarded_for.split(",", 1)[0].strip())
-        if client_ip is None:
-            client_ip = _normalize_client_ip(
-                request.client.host if request.client is not None else None
-            )
+        audit_context = build_request_audit_context(request)
+        client_ip = audit_context.client_ip
 
-        user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
-
-        audit_token = ctx_request_audit.set(
-            RequestAuditContext(client_ip=client_ip, user_agent=user_agent)
-        )
+        audit_token = ctx_request_audit.set(audit_context)
 
         try:
             request_logger = request.app.state.logger

@@ -24,7 +24,7 @@ def sanitize_audit_metadata(
 ) -> dict[str, AuditMetadataValue] | None:
     """Return only operationally necessary, sanitized audit metadata.
 
-    The audit payload accepts stable ``*_id`` identifiers, changed-field names,
+    The audit payload accepts stable ``*_id``/``*_ids`` identifiers, changed-field names,
     a small set of operation discriminators, boolean state summaries, and
     numeric counts. Unknown keys are dropped. This intentionally excludes raw
     bodies, headers, content, inputs, outputs, prompts, tool results, file data,
@@ -59,7 +59,8 @@ def sanitize_audit_metadata(
             safe_items = [
                 item
                 for item in value
-                if redact_sensitive_text(item, redact_emails=True) == item
+                if isinstance(item, str)
+                and redact_sensitive_text(item, redact_emails=True) == item
             ]
             if safe_items:
                 sanitized[key] = safe_items
@@ -73,7 +74,7 @@ def _is_allowed_metadata(key: str, value: AuditMetadataValue) -> bool:
 
     if key.endswith("_id"):
         return isinstance(value, str) or value is None
-    if key == "changed_fields":
+    if key.endswith("_ids") or key == "changed_fields":
         return isinstance(value, list)
     if key in _ALLOWED_METADATA_KEYS:
         return isinstance(value, str) or value is None
