@@ -578,6 +578,9 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         """Apply multiple dropdown selections to a case in a single transaction."""
         if isinstance(case, uuid.UUID):
             case = await self._get_case(case)
+        elif case.workspace_id != self.workspace_id:
+            # Preserve the same tenant scoping _get_case enforces for UUIDs.
+            raise TracecatNotFoundError(f"Case {case.id} not found")
         seen_definition_ids: set[uuid.UUID] = set()
         results: list[CaseDropdownValueRead] = []
 
