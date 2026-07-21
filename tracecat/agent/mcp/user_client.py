@@ -27,6 +27,7 @@ from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.utils import (
     LEGACY_REGISTRY_MCP_SERVER_NAME,
     REGISTRY_MCP_SERVER_NAME,
+    flatten_mcp_content_blocks,
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
@@ -296,13 +297,9 @@ class UserMCPClient:
         async with Client(transport) as client:
             result = await client.call_tool(tool_name, args)
 
-            # Extract result from CallToolResult
-            if result.content and len(result.content) > 0:
-                first_block = result.content[0]
-                # TextContent has a .text attribute
-                return getattr(first_block, "text", str(first_block))
-
-            return ""
+            # Flatten every block: file bodies arrive as EmbeddedResource,
+            # not as the leading TextContent status line.
+            return flatten_mcp_content_blocks(result.content)
 
     @staticmethod
     def _is_tracecat_registry_server_name(server_name: str) -> bool:

@@ -27,7 +27,10 @@ from tracecat.agent.mcp.metadata import (
     extract_proxy_tool_call_id,
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
-from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    action_name_to_mcp_tool_name,
+    flatten_mcp_content_blocks,
+)
 from tracecat.logger import logger
 
 __all__ = [
@@ -119,11 +122,7 @@ def _make_tool_handler(
                     payload,
                 )
 
-            # Extract result text from content
-            result_text = ""
-            if call_result.content and len(call_result.content) > 0:
-                first_block = call_result.content[0]
-                result_text = getattr(first_block, "text", str(first_block))
+            result_text = flatten_mcp_content_blocks(call_result.content)
 
             if call_result.is_error:
                 logger.error(
