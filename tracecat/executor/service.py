@@ -827,10 +827,13 @@ async def invoke_once(
             exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
         raise ExecutionError(info=exec_result) from e
 
-    # Apply secret masking at root level only
-    # Steps don't mask - masking happens once here after all execution completes
+    # Apply secret masking at root level only. Large action results can make this
+    # CPU-bound traversal expensive, so keep it off the activity event loop where
+    # it could otherwise delay heartbeats for every activity on the worker.
     if mask_values:
-        action_result = apply_masks_object(action_result, masks=mask_values)
+        action_result = await asyncio.to_thread(
+            apply_masks_object, action_result, masks=mask_values
+        )
     return action_result
 
 
