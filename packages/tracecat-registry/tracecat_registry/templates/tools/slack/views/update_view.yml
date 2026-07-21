@@ -15,6 +15,14 @@ definition:
       description: >
         Updated view payload for the modal.
         See: https://docs.slack.dev/reference/views/modal-views/
+    hash:
+      description: >
+        Optional view state hash for optimistic concurrency control.
+        Obtained from the response of views.open or a previous views.update.
+        If provided, the update fails with hash_conflict when the view has
+        been modified since. Omit to update unconditionally.
+      type: str | None
+      default: null
   steps:
     - ref: update_view
       action: tools.slack_sdk.call_method
@@ -23,5 +31,5 @@ definition:
         params:
           view_id: ${{ inputs.view_id }}
           view: ${{ inputs.view }}
-          hash: ${{ FN.to_isoformat(FN.utcnow()) }}
+          hash: ${{ inputs.hash }}
   returns: ${{ steps.update_view.result }}
