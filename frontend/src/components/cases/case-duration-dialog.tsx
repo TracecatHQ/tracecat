@@ -275,6 +275,10 @@ export interface CaseDurationDialogProps {
   submitLabel: string
   isSubmitting?: boolean
   initialValues?: CaseDurationFormValues
+  /** Rendered inside the "From event" section, under its header. */
+  startAnchorNotice?: ReactNode
+  /** Rendered inside the "To event" section, under its header. */
+  endAnchorNotice?: ReactNode
 }
 
 export const createEmptyCaseDurationFormValues =
@@ -360,6 +364,8 @@ export function CaseDurationDialog({
   submitLabel,
   isSubmitting = false,
   initialValues,
+  startAnchorNotice,
+  endAnchorNotice,
 }: CaseDurationDialogProps) {
   const form = useForm<CaseDurationFormValues>({
     resolver: zodResolver(formSchema),
@@ -557,6 +563,7 @@ export function CaseDurationDialog({
                   <Timer className="size-3.5 text-muted-foreground" />
                   <span>From event</span>
                 </h4>
+                {startAnchorNotice}
                 <FormField
                   control={form.control}
                   name="start.selection"
@@ -707,6 +714,7 @@ export function CaseDurationDialog({
                   <FlagTriangleRight className="size-3.5 text-muted-foreground" />
                   <span>To event</span>
                 </h4>
+                {endAnchorNotice}
                 <FormField
                   control={form.control}
                   name="end.selection"
