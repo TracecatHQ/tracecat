@@ -253,6 +253,24 @@ class CaseDurationSyncConsumer:
 
             if synced:
                 await self._ack_and_delete(message_ids)
+                continue
+
+            try:
+                await publish_case_duration_sync(
+                    workspace_id=key.workspace_id,
+                    case_id=key.case_id,
+                    reason="duration_definition_backfill",
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to requeue locked case duration sync job",
+                    workspace_id=str(key.workspace_id),
+                    case_id=str(key.case_id),
+                    error=str(e),
+                )
+                continue
+
+            await self._ack_and_delete(message_ids)
 
     async def _ack_and_delete(self, message_ids: list[str]) -> None:
         await self.client.xack(self.stream_key, self.group, message_ids)

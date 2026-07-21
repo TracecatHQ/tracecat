@@ -168,21 +168,28 @@ async def test_consumer_forces_sync_when_backfill_coalesces_with_case_event(
 
 
 @pytest.mark.anyio
-async def test_consumer_leaves_locked_case_jobs_pending(
+async def test_consumer_requeues_locked_case_jobs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = FakeRedisClient()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
     sync_mock = AsyncMock(return_value=False)
+    publish_mock = AsyncMock()
     monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
 
     await consumer._handle_entries(
         [
             (
                 "1-0",
                 {
-                    "workspace_id": str(uuid.uuid4()),
-                    "case_id": str(uuid.uuid4()),
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
                     "reason": "case_event",
                     "event_type": "case_updated",
                 },
@@ -191,6 +198,57 @@ async def test_consumer_leaves_locked_case_jobs_pending(
     )
 
     sync_mock.assert_awaited_once()
+    publish_mock.assert_awaited_once_with(
+        workspace_id=workspace_id,
+        case_id=case_id,
+        reason="duration_definition_backfill",
+    )
+    assert client.acked == [["1-0"]]
+    assert client.deleted == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_leaves_locked_case_jobs_pending_when_requeue_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    sync_mock = AsyncMock(return_value=False)
+    publish_mock = AsyncMock(side_effect=RuntimeError("redis unavailable"))
+    logger_mock = MagicMock()
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.logger.warning",
+        logger_mock,
+    )
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "case_event",
+                    "event_type": "case_updated",
+                },
+            )
+        ]
+    )
+
+    sync_mock.assert_awaited_once()
+    publish_mock.assert_awaited_once_with(
+        workspace_id=workspace_id,
+        case_id=case_id,
+        reason="duration_definition_backfill",
+    )
+    logger_mock.assert_called_once()
     assert client.acked == []
     assert client.deleted == []
 
