@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.cases.durations.materialization import sync_case_duration
@@ -26,13 +27,15 @@ from tracecat.cases.durations.sync_queue import (
     publish_case_duration_sync,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import Case
+from tracecat.db.models import Case, Workspace
 from tracecat.logger import logger
 from tracecat.redis.client import (
     RedisClient,
     StreamGroupNotFoundError,
     get_redis_client,
 )
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
 RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
@@ -266,6 +269,14 @@ class CaseDurationSyncConsumer:
         self, job: DurationDefinitionSyncJob | DurationBackfillSyncJob
     ) -> bool:
         async with get_async_session_bypass_rls_context_manager() as session:
+            if not await self._has_case_addons_entitlement(session, job.workspace_id):
+                logger.debug(
+                    "Skipping case duration backfill; entitlement missing",
+                    workspace_id=str(job.workspace_id),
+                    entitlement=Entitlement.CASE_ADDONS.value,
+                )
+                return True
+
             stmt = (
                 select(Case.surrogate_id, Case.id)
                 .where(Case.workspace_id == job.workspace_id)
@@ -292,6 +303,22 @@ class CaseDurationSyncConsumer:
                 cursor=next_cursor,
             )
         return True
+
+    async def _has_case_addons_entitlement(
+        self,
+        session: AsyncSession,
+        workspace_id: uuid.UUID,
+    ) -> bool:
+        organization_id = await session.scalar(
+            select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        )
+        if organization_id is None:
+            return False
+        return await is_org_entitled(
+            session,
+            organization_id,
+            Entitlement.CASE_ADDONS,
+        )
 
     async def _claim_idle_messages(self) -> None:
         pending = await self.client.xpending_range(

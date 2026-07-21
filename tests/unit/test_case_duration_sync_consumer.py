@@ -8,7 +8,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import materialization
-from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
+from tracecat.cases.durations.consumer import (
+    CaseDurationSyncConsumer,
+    DurationDefinitionSyncJob,
+)
 from tracecat.cases.durations.materialization import (
     _event_types_require_sync,
     _get_service_role,
@@ -16,6 +19,7 @@ from tracecat.cases.durations.materialization import (
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.redis.client import RedisClient, StreamGroupNotFoundError
+from tracecat.tiers.enums import Entitlement
 
 
 class FakeRedisClient:
@@ -228,6 +232,73 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     duration_service.sync_case_durations.assert_awaited_once_with(case_id)
     fake_session.commit.assert_awaited_once()
     fake_session.rollback.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_consumer_skips_backfill_fanout_without_entitlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+    entitlement_gate_mock = AsyncMock(return_value=False)
+    publish_mock = AsyncMock()
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield fake_session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
+    monkeypatch.setattr(
+        consumer,
+        "_has_case_addons_entitlement",
+        entitlement_gate_mock,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
+    job = DurationDefinitionSyncJob(
+        workspace_id=workspace_id,
+        reason="duration_definition_updated",
+    )
+
+    assert await consumer._process_backfill_job(job)
+
+    entitlement_gate_mock.assert_awaited_once_with(fake_session, workspace_id)
+    fake_session.execute.assert_not_awaited()
+    publish_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_consumer_checks_backfill_entitlement_by_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    session = MagicMock()
+    session.scalar = AsyncMock(return_value=organization_id)
+    entitlement_mock = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.is_org_entitled",
+        entitlement_mock,
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
+
+    assert not await consumer._has_case_addons_entitlement(
+        cast(AsyncSession, session), workspace_id
+    )
+
+    session.scalar.assert_awaited_once()
+    entitlement_mock.assert_awaited_once_with(
+        session,
+        organization_id,
+        Entitlement.CASE_ADDONS,
+    )
 
 
 @pytest.mark.anyio
