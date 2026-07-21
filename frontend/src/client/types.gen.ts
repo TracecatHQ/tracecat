@@ -1156,7 +1156,7 @@ export type ApprovalInteraction = {
 }
 
 export type ApprovalMap = {
-  [key: string]: boolean | ToolApproved | ToolDenied
+  [key: string]: ApprovalResult
 }
 
 /**
@@ -1171,16 +1171,13 @@ export type ApprovalRead = {
   } | null
   status: ApprovalStatus
   reason?: string | null
-  decision?:
-    | boolean
-    | {
-        [key: string]: unknown
-      }
-    | null
+  decision?: PersistedApprovalDecision | null
   approved_by?: string | null
   approved_at?: string | null
   created_at: string
 }
+
+export type ApprovalResult = boolean | ToolApproved | ToolDenied
 
 /**
  * Possible states for a deferred tool approval.
@@ -1571,6 +1568,16 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Persisted boolean decision enriched with submission metadata.
+ */
+export type BooleanApprovalDecision = {
+  value: boolean
+  metadata: {
+    [key: string]: unknown
+  }
 }
 
 export type CachePoint = {
@@ -5573,6 +5580,12 @@ export type PayloadChangedEventRead = {
   created_at: string
 }
 
+export type PersistedApprovalDecision =
+  | boolean
+  | ToolApprovedDecision
+  | ToolDeniedDecision
+  | BooleanApprovalDecision
+
 /**
  * Platform audit settings response.
  */
@@ -8061,9 +8074,33 @@ export type ToolApproved = {
   kind?: "tool-approved"
 }
 
+/**
+ * Persisted decision for a tool approved with argument overrides.
+ */
+export type ToolApprovedDecision = {
+  kind: "tool-approved"
+  override_args?: {
+    [key: string]: unknown
+  }
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
+}
+
+/**
+ * Persisted decision for a denied tool call.
+ */
+export type ToolDeniedDecision = {
+  kind: "tool-denied"
+  message?: string
+  metadata?: {
+    [key: string]: unknown
+  }
 }
 
 export type ToolResultBlock = {

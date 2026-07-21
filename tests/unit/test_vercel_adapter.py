@@ -18,13 +18,17 @@ from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage
 
 
-def _approval_message(status: ApprovalStatus) -> ChatMessage:
+def _approval_message(
+    status: ApprovalStatus,
+    *,
+    tool_call_id: str = "toolu_123",
+) -> ChatMessage:
     return ChatMessage(
         id=str(uuid4()),
         kind=MessageKind.APPROVAL_REQUEST,
         approval=ApprovalRead(
             id=uuid4(),
-            tool_call_id="toolu_123",
+            tool_call_id=tool_call_id,
             tool_name="core.cases.list_cases",
             tool_call_args={"limit": 100},
             status=status,
@@ -45,6 +49,19 @@ def test_convert_chat_messages_to_ui_skips_resolved_approval_request() -> None:
     messages = convert_chat_messages_to_ui([_approval_message(ApprovalStatus.APPROVED)])
 
     assert messages == []
+
+
+def test_convert_chat_messages_to_ui_keeps_resolved_card_while_batch_pending() -> None:
+    approved = _approval_message(ApprovalStatus.APPROVED, tool_call_id="toolu_a")
+    pending = _approval_message(ApprovalStatus.PENDING, tool_call_id="toolu_b")
+
+    messages = convert_chat_messages_to_ui([approved, pending])
+    approval_parts = [cast(DataUIPart, message.parts[0]) for message in messages]
+
+    assert [part["data"][0]["status"] for part in approval_parts] == [
+        "approved",
+        "pending",
+    ]
 
 
 def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:

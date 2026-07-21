@@ -11,6 +11,7 @@ from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
@@ -209,7 +210,7 @@ class ApprovalRead(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     status: ApprovalStatus
     reason: str | None = None
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision | None = None
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
     created_at: datetime
