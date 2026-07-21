@@ -3,6 +3,7 @@ import os
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
+from tracecat.secrets import common as secrets_common
 from tracecat.secrets.common import apply_masks, apply_masks_object
 from tracecat.secrets.encryption import (
     decrypt_bytes,
@@ -226,6 +227,34 @@ class TestObjectMasking:
             "key3": {"subkey1": "password123", "subkey2": "No secret"},
         }
         assert apply_masks_object(input_data, []) == input_data
+
+    def test_apply_masks_object_compiles_pattern_once(self, mocker):
+        masks = ["secret", "password"]
+        compile_pattern = mocker.spy(secrets_common, "_compile_mask_pattern")
+
+        result = apply_masks_object(
+            {
+                "key1": "This is a secret message",
+                "key2": ["password", "Another secret"],
+            },
+            masks,
+        )
+
+        assert result == {
+            "key1": "This is a *** message",
+            "key2": ["***", "Another ***"],
+        }
+        compile_pattern.assert_called_once_with(masks)
+
+    def test_apply_masks_object_with_mask_generator(self):
+        masks = (mask for mask in ["secret", "password"])
+
+        result = apply_masks_object(
+            ["secret", {"nested": "password"}],
+            masks,
+        )
+
+        assert result == ["***", {"nested": "***"}]
 
 
 class TestSecurityFeatures:

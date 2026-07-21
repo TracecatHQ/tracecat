@@ -11,6 +11,7 @@ from tracecat_registry import (
 
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatCredentialsError
+from tracecat.executor import service as executor_service
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.secrets import secrets_manager
 
@@ -322,4 +323,58 @@ async def test_extract_templated_secrets_detects_nested_complex_expressions():
             "zendesk.ZENDESK_EMAIL",
             "zendesk.ZENDESK_API_TOKEN",
         ]
+    )
+
+
+@pytest.mark.anyio
+async def test_invoke_once_offloads_root_secret_masking(mocker):
+    role = Role(
+        type="service",
+        organization_id=UUID(int=1),
+        service_id="tracecat-executor",
+    )
+    action_input = mocker.Mock()
+    action_input.task.action = "core.transform.reshape"
+    action_input.registry_lock = {}
+    action_input.exec_context = {}
+    action_result = {"value": "secret"}
+    masked_result = {"value": "***"}
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={"secret"},
+    )
+
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(return_value=action_result),
+    )
+    to_thread = mocker.patch.object(
+        executor_service.asyncio,
+        "to_thread",
+        new=mocker.AsyncMock(return_value=masked_result),
+    )
+
+    result = await executor_service.invoke_once(
+        backend=mocker.Mock(),
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+    )
+
+    assert result == masked_result
+    to_thread.assert_awaited_once_with(
+        executor_service.apply_masks_object,
+        action_result,
+        masks={"secret"},
     )
