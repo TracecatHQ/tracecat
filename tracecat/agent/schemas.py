@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.common.types import AgentUserPrompt
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -50,7 +51,7 @@ class RunAgentArgs(BaseModel):
     # stale key during deserialization.
     model_config = ConfigDict(extra="ignore")
 
-    user_prompt: str
+    user_prompt: AgentUserPrompt
     """User prompt for the agent."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""

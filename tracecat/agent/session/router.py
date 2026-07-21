@@ -1,7 +1,4 @@
-"""Agent Session API router for unified session management.
-
-This router consolidates chat and session endpoints into a unified /agent/sessions API.
-"""
+"""Agent Session API router."""
 
 import uuid
 from typing import Any
@@ -36,13 +33,7 @@ from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
-from tracecat.chat.schemas import (
-    ChatRead,
-    ChatReadMinimal,
-    ChatReadVercel,
-    ChatRequest,
-    ContinueRunRequest,
-)
+from tracecat.chat.schemas import ChatRequest, ContinueRunRequest
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -150,12 +141,8 @@ async def list_sessions(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum number of sessions to return",
     ),
-) -> list[AgentSessionRead | ChatReadMinimal]:
-    """List agent sessions for the current workspace with optional filtering.
-
-    Returns a list of sessions including both active AgentSessions and legacy
-    Chat records. Legacy chats have is_readonly=True.
-    """
+) -> list[AgentSessionRead]:
+    """List agent sessions for the current workspace with optional filtering."""
     if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
         await require_workspace_chat_entitlement_for_entity(
             session=session,
@@ -185,14 +172,10 @@ async def get_session(
     session_id: uuid.UUID,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-) -> AgentSessionReadWithMessages | ChatRead:
-    """Get an agent session or legacy chat with its message history.
-
-    Legacy chats have is_readonly=True.
-    """
+) -> AgentSessionReadWithMessages:
+    """Get an agent session with its message history."""
     svc = AgentSessionService(session, role)
 
-    # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
         await _require_workspace_chat_entitlement_for_session_tree(
@@ -229,33 +212,6 @@ async def get_session(
             messages=messages,
         )
 
-    # Try legacy Chat (user_id remains for legacy Chat model)
-    legacy_chat = await svc.get_legacy_chat(session_id)
-    if legacy_chat:
-        await require_workspace_chat_entitlement_for_entity(
-            session=session,
-            role=role,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-        )
-        messages = await svc.list_messages(session_id)
-        logger.info(
-            "Legacy chat read", session_id=legacy_chat.id, messages=len(messages)
-        )
-        return ChatRead(
-            id=legacy_chat.id,
-            title=legacy_chat.title,
-            user_id=legacy_chat.user_id,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-            entity_id=legacy_chat.entity_id,
-            tools=legacy_chat.tools or [],
-            agent_preset_id=legacy_chat.agent_preset_id,
-            agent_preset_version_id=None,
-            created_at=legacy_chat.created_at,
-            updated_at=legacy_chat.updated_at,
-            last_stream_id=legacy_chat.last_stream_id,
-            messages=messages,
-        )
-
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Session not found",
@@ -268,14 +224,10 @@ async def get_session_vercel(
     session_id: uuid.UUID,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-) -> AgentSessionReadVercel | ChatReadVercel:
-    """Get an agent session or legacy chat with message history in Vercel format.
-
-    Legacy chats have is_readonly=True.
-    """
+) -> AgentSessionReadVercel:
+    """Get an agent session with message history in Vercel UI format."""
     svc = AgentSessionService(session, role)
 
-    # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
         await _require_workspace_chat_entitlement_for_session_tree(
@@ -312,31 +264,6 @@ async def get_session_vercel(
             messages=ui_messages,
         )
 
-    # Try legacy Chat (user_id remains for legacy Chat model)
-    legacy_chat = await svc.get_legacy_chat(session_id)
-    if legacy_chat:
-        await require_workspace_chat_entitlement_for_entity(
-            session=session,
-            role=role,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-        )
-        messages = await svc.list_messages(session_id)
-        ui_messages = vercel.convert_chat_messages_to_ui(messages)
-        return ChatReadVercel(
-            id=legacy_chat.id,
-            title=legacy_chat.title,
-            user_id=legacy_chat.user_id,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-            entity_id=legacy_chat.entity_id,
-            tools=legacy_chat.tools or [],
-            agent_preset_id=legacy_chat.agent_preset_id,
-            agent_preset_version_id=None,
-            created_at=legacy_chat.created_at,
-            updated_at=legacy_chat.updated_at,
-            last_stream_id=legacy_chat.last_stream_id,
-            messages=ui_messages,
-        )
-
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Session not found",
@@ -353,13 +280,6 @@ async def update_session(
 ) -> AgentSessionRead:
     """Update session properties."""
     svc = AgentSessionService(session, role)
-
-    # Check if this is a legacy chat (read-only)
-    if await svc.is_legacy_session(session_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Legacy chat sessions are read-only and cannot be modified",
-        )
 
     agent_session = await svc.get_session(session_id)
     if not agent_session:
@@ -389,12 +309,6 @@ async def remove_session_artifact(
 ) -> AgentSessionArtifactsRead:
     """Remove one artifact from a session's persisted artifact projection."""
     svc = AgentSessionService(session, role)
-
-    if await svc.is_legacy_session(session_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Legacy chat sessions do not support artifacts",
-        )
 
     try:
         agent_session = await svc.get_session(session_id)
@@ -429,13 +343,6 @@ async def delete_session(
     """Delete an agent session."""
     svc = AgentSessionService(session, role)
 
-    # Check if this is a legacy chat (read-only)
-    if await svc.is_legacy_session(session_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Legacy chat sessions are read-only and cannot be deleted",
-        )
-
     agent_session = await svc.get_session(session_id)
     if not agent_session:
         raise HTTPException(
@@ -460,13 +367,10 @@ async def send_message(
     role: WorkspaceActorRouteRole,
     http_request: Request,
 ) -> StreamingResponse:
-    """Send a message to the agent session with streaming response.
+    """Send a message to the agent session and stream the response.
 
-    This endpoint combines message sending with streaming response,
-    compatible with Vercel's AI SDK useChat hook. It:
-    1. Accepts Vercel UI message format or continuation requests
-    2. Starts the agent execution
-    3. Streams the response back in Vercel's data protocol format
+    Compatible with Vercel's AI SDK useChat hook. Starts agent execution
+    and streams the response in Vercel's data protocol format.
     """
     try:
         workspace_id = role.workspace_id
@@ -478,13 +382,6 @@ async def send_message(
 
         message_id: str | None = None
         async with AgentSessionService.with_session(role=role) as svc:
-            # Check if this is a legacy chat (read-only)
-            if await svc.is_legacy_session(session_id):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Legacy chat sessions are read-only and cannot receive new messages",
-                )
-
             agent_session = await svc.validate_turn_request(
                 session_id=session_id,
                 request=request,
@@ -592,7 +489,6 @@ async def send_message(
             start_id="0-0",
         )
 
-        # Create stream and return with Vercel format
         return StreamingResponse(
             stream.sse(
                 http_request.is_disconnected,
@@ -644,12 +540,7 @@ async def stream_session_events(
         default="vercel", description="Streaming format (e.g. 'vercel')"
     ),
 ):
-    """Stream session events via Server-Sent Events (SSE).
-
-    This endpoint provides real-time streaming of AI agent execution steps
-    using Server-Sent Events. It supports automatic reconnection via the
-    Last-Event-ID header.
-    """
+    """Stream session events via Server-Sent Events."""
     workspace_id = role.workspace_id
     if workspace_id is None:
         raise HTTPException(
@@ -659,38 +550,13 @@ async def stream_session_events(
 
     headers = _sse_headers(format)
 
-    last_event_id = request.headers.get("Last-Event-ID")
-
     # Resolve the turn lifecycle. Temporal owns it: we describe the current run
     # live rather than reading a cached DB status. Don't fail if the session row
     # doesn't exist yet (the frontend may connect before it is created).
     async with AgentSessionService.with_session(role=role) as svc:
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
-            # Legacy chat fallback: no Temporal workflow / per-turn key. Keep the
-            # old per-session behaviour driven by the stored cursor.
-            legacy_chat = await svc.get_legacy_chat(session_id)
-            if legacy_chat is None:
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
-            await require_workspace_chat_entitlement_for_entity(
-                session=svc.session,
-                role=role,
-                entity_type=AgentSessionEntity(legacy_chat.entity_type),
-            )
-            last_stream_id = legacy_chat.last_stream_id
-            if last_stream_id is None and not last_event_id:
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
-            start_id = last_event_id or last_stream_id or "0-0"
-            legacy_stream = await AgentStream.new(
-                session_id=session_id, workspace_id=workspace_id
-            )
-            return StreamingResponse(
-                legacy_stream.sse(
-                    request.is_disconnected, last_id=start_id, format=format
-                ),
-                media_type="text/event-stream",
-                headers=headers,
-            )
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
 
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
@@ -758,13 +624,7 @@ async def fork_session(
     session: AsyncDBSession,
     request: AgentSessionForkRequest | None = None,
 ) -> AgentSessionRead:
-    """Fork an existing session to continue conversation post-decision.
-
-    Creates a new session linked to the parent session, allowing users
-    to ask the agent for context after making approval decisions.
-
-    Set entity_type to 'approval' for inbox forks to hide from main chat list.
-    """
+    """Fork an existing session to continue conversation post-decision."""
     try:
         svc = AgentSessionService(session, role)
         parent_session = await svc.get_session(session_id)

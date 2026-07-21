@@ -11,11 +11,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.common import TypedSearchAttributes
 
+from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import BasicChatRequest, ChatRequest
+from tracecat.chat.schemas import BasicChatRequest, ChatRequest, VercelChatRequest
 from tracecat.db.models import AgentSession
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
@@ -179,3 +180,70 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
         role_without_user.workspace_id
     )
     assert TemporalSearchAttr.TRIGGERED_BY_USER_ID.value not in pairs
+
+
+@pytest.mark.anyio
+async def test_run_turn_accepts_vercel_file_only_prompt(
+    role_with_user: Role,
+) -> None:
+    service = AgentSessionService(_build_db_session(), role_with_user)
+    session_id = uuid.uuid4()
+    agent_session = _build_session(role_with_user, session_id=session_id)
+
+    temporal_client = AsyncMock()
+    auto_title = AsyncMock()
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-1",
+            role="user",
+            parts=[
+                {
+                    "type": "file",
+                    "mediaType": "image/png",
+                    "url": "data:image/png;base64,aGVsbG8=",
+                    "filename": "example.png",
+                }
+            ],
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
+        patch.object(service, "auto_title_session_on_first_prompt", auto_title),
+        patch.object(service, "_build_agent_config", _mock_agent_config_context),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        response = await service.run_turn(
+            session_id=session_id,
+            request=cast(ChatRequest, request),
+        )
+
+    assert response is not None
+    auto_title.assert_not_awaited()
+    workflow_args = temporal_client.start_workflow.await_args.args[1]
+    prompt = workflow_args.agent_args.user_prompt
+    assert prompt == [
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "aGVsbG8=",
+                        },
+                    }
+                ],
+            },
+            "parent_tool_use_id": None,
+        }
+    ]

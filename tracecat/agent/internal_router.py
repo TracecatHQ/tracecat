@@ -1,26 +1,33 @@
-"""Internal router for agent execution (SDK/UDF use)."""
+"""Internal router for agent execution (SDK/UDF use).
+
+Serves ``tracecat_registry.sdk.agents.run_agent`` calls from in-sandbox
+registry actions. Runs are dispatched to the durable agent workflow (the
+same execution path as ``ai.agent``) and awaited to completion.
+"""
 
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
-from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, status
-from tracecat_registry import secrets as registry_secrets
+from temporalio.client import WorkflowFailureError
+from temporalio.common import Priority
 
-from tracecat.agent.exceptions import AgentRunError
-from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
+from tracecat import config
 from tracecat.agent.schemas import (
     AgentOutput,
     InternalRunAgentRequest,
+    RunAgentArgs,
 )
-from tracecat.agent.service import AgentManagementService
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.contexts import ctx_role, ctx_session_id
+from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.logger import logger
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
@@ -30,102 +37,40 @@ router = APIRouter(
     include_in_schema=False,
 )
 
-_PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS = {"ollama"}
-_SCALAR_OUTPUT_TYPES: set[str] = {"bool", "float", "int", "str"}
-_LIST_OUTPUT_TYPES: set[str] = {
-    "list[bool]",
-    "list[float]",
-    "list[int]",
-    "list[str]",
-}
 
-
-async def _resolve_run_config(
-    params: InternalRunAgentRequest, agent_svc: AgentManagementService
-) -> AgentConfig:
-    """Resolve runtime config from request config or preset slug."""
-    if params.preset_slug:
-        if agent_svc.presets is None:
-            raise ValueError("Preset-based runs require workspace context.")
-        config = await agent_svc.presets.resolve_agent_preset_config(
-            slug=params.preset_slug,
-            preset_version=params.preset_version,
-        )
-        _reject_unsupported_agents_config(config)
-        return config
-
+def _agent_config_from_request(params: InternalRunAgentRequest) -> AgentConfig | None:
+    """Convert the request's config schema into a workflow AgentConfig."""
     if params.config is None:
-        raise ValueError("Either 'config' or 'preset_slug' must be provided")
-    config = AgentConfig(**params.config.model_dump())
-    _reject_unsupported_agents_config(config)
-    return config
-
-
-def _reject_unsupported_agents_config(config: AgentConfig) -> None:
-    """Reject subagent config on the legacy internal agent runner."""
-    if config.agents.enabled:
-        raise ValueError(
-            "Subagents are not supported by the internal agent run endpoint yet. "
-            "Use agent sessions for subagent-enabled runs."
-        )
-
-
-@asynccontextmanager
-async def _provider_secrets_context(
-    agent_svc: AgentManagementService,
-    model_provider: str,
-    catalog_id: uuid.UUID | None = None,
-):
-    """Set provider credentials in registry secrets context for this request."""
-    if catalog_id is not None:
-        credentials = await agent_svc.get_catalog_credentials(catalog_id)
-        if not credentials:
-            raise ValueError(
-                f"No credentials found for catalog entry '{catalog_id}'. "
-                "Please configure credentials for this model first."
-            )
-        secrets_token = registry_secrets.set_context(credentials)
-        try:
-            yield
-        finally:
-            registry_secrets.reset_context(secrets_token)
-        return
-
-    if model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
-        secrets_token = registry_secrets.set_context({})
-        try:
-            yield
-        finally:
-            registry_secrets.reset_context(secrets_token)
-        return
-
-    credentials = await agent_svc.get_runtime_provider_credentials(model_provider)
-    if not credentials:
-        raise ValueError(
-            f"No credentials found for provider '{model_provider}'. "
-            "Please configure credentials for this provider first."
-        )
-
-    secrets_token = registry_secrets.set_context(credentials)
-    try:
-        yield
-    finally:
-        registry_secrets.reset_context(secrets_token)
-
-
-def _normalize_output_type(
-    output_type: str | dict[str, Any] | None,
-) -> OutputType | None:
-    """Normalize runtime output_type to the narrow OutputType union."""
-    if output_type is None:
         return None
-    if isinstance(output_type, dict):
-        return output_type
-    if output_type in _SCALAR_OUTPUT_TYPES or output_type in _LIST_OUTPUT_TYPES:
-        return cast(OutputType, output_type)
-    raise ValueError(
-        "Invalid output_type. Supported values are: bool, float, int, str, "
-        "list[bool], list[float], list[int], list[str], or an object schema."
+    return AgentConfig(**params.config.model_dump())
+
+
+def build_agent_workflow_args(
+    params: InternalRunAgentRequest,
+    *,
+    role: Role,
+    session_id: uuid.UUID,
+):
+    """Build DurableAgentWorkflow arguments for an internal SDK run."""
+    from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
+
+    agent_args = RunAgentArgs(
+        user_prompt=params.user_prompt,
+        session_id=session_id,
+        config=_agent_config_from_request(params),
+        preset_slug=params.preset_slug,
+        preset_version=params.preset_version,
+        max_requests=params.max_requests,
+        max_tool_calls=params.max_tool_calls,
+    )
+    return AgentWorkflowArgs(
+        role=role,
+        agent_args=agent_args,
+        title="Agent run",
+        # Workflow-initiated runs are hidden from chat lists; SDK runs have no
+        # standalone entity, so the session anchors to itself.
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=session_id,
     )
 
 
@@ -136,48 +81,53 @@ async def run_agent_endpoint(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     params: InternalRunAgentRequest,
-) -> dict[str, Any]:
-    """Execute run_agent() with provided configuration."""
+) -> dict[str, object]:
+    """Run an agent to completion via the durable agent workflow."""
+    from tracecat_ee.agent.types import AgentWorkflowID
+    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
     ctx_role.set(role)
+
+    if params.config is not None and params.config.tool_approvals:
+        await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
+
     session_id = uuid.uuid4()
-    ctx_session_id.set(session_id)
-
     try:
-        agent_svc = AgentManagementService(session, role=role)
-        config = await _resolve_run_config(params, agent_svc)
-        mcp_servers = config.mcp_servers
-
-        if config and config.tool_approvals:
-            await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
-
-        async with _provider_secrets_context(
-            agent_svc, config.model_provider, config.catalog_id
-        ):
-            result: AgentOutput = await runtime_run_agent(
-                user_prompt=params.user_prompt,
-                model_name=config.model_name,
-                model_provider=config.model_provider,
-                actions=config.actions,
-                namespaces=config.namespaces,
-                tool_approvals=config.tool_approvals,
-                mcp_servers=mcp_servers,
-                instructions=config.instructions,
-                output_type=_normalize_output_type(config.output_type),
-                model_settings=config.model_settings,
-                max_tool_calls=params.max_tool_calls or 40,
-                max_requests=params.max_requests,
-                retries=config.retries,
-                base_url=config.base_url,
-            )
-        return result.model_dump(mode="json")
-    except AgentRunError as e:
-        logger.exception("Agent run error", error=e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error_type": e.exc_cls.__name__, "message": e.exc_msg},
-        ) from e
+        workflow_args = build_agent_workflow_args(
+            params, role=role, session_id=session_id
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+
+    client = await get_temporal_client()
+    workflow_id = AgentWorkflowID(session_id)
+    logger.info(
+        "Dispatching internal agent run",
+        workflow_id=str(workflow_id),
+        session_id=str(session_id),
+        preset_slug=params.preset_slug,
+        task_queue=config.TRACECAT__AGENT_QUEUE,
+    )
+    try:
+        result: AgentOutput = await client.execute_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=str(workflow_id),
+            task_queue=config.TRACECAT__AGENT_QUEUE,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            priority=Priority(priority_key=1),
+        )
+    except WorkflowFailureError as e:
+        logger.exception("Internal agent run failed", session_id=str(session_id))
+        cause = e.cause or e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_type": type(cause).__name__,
+                "message": str(cause),
+            },
+        ) from e
+    return result.model_dump(mode="json")

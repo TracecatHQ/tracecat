@@ -1617,21 +1617,15 @@ async def test_stream_session_events_running_always_replays_from_start() -> None
 
 
 @pytest.mark.anyio
-async def test_stream_session_events_requires_entitlement_for_legacy_workspace_chat() -> (
-    None
-):
+async def test_stream_session_events_returns_204_when_session_missing() -> None:
+    """Unknown session ids (including legacy Chat ids) return 204."""
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     role = _make_stream_role(workspace_id)
 
-    legacy_chat = SimpleNamespace(
-        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
-        last_stream_id="1234-0",
-    )
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
         get_session=AsyncMock(return_value=None),
-        get_legacy_chat=AsyncMock(return_value=legacy_chat),
     )
     fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
 
@@ -1644,20 +1638,15 @@ async def test_stream_session_events_requires_entitlement_for_legacy_workspace_c
             "tracecat.agent.session.router.AgentStream.new",
             AsyncMock(return_value=fake_stream),
         ),
-        patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(side_effect=_deny_workspace_chat_entitlement),
-        ),
     ):
         raw = cast(Any, stream_session_events).__wrapped__
-        with pytest.raises(EntitlementRequired):
-            await raw(
-                role=role,
-                request=SimpleNamespace(
-                    headers={"Last-Event-ID": "1234-0"},
-                    is_disconnected=AsyncMock(return_value=False),
-                ),
-                session_id=session_id,
-            )
+        response = await raw(
+            role=role,
+            request=SimpleNamespace(headers={"Last-Event-ID": "1234-0"}),
+            session_id=session_id,
+            format="vercel",
+        )
 
+    assert isinstance(response, Response)
+    assert response.status_code == status.HTTP_204_NO_CONTENT
     fake_stream.sse.assert_not_called()

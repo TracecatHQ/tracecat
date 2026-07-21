@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
+    AgentUserPrompt,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
@@ -39,7 +40,7 @@ class RuntimeInitPayload:
     session_id: uuid.UUID
     mcp_auth_token: str  # JWT for MCP auth
     config: SandboxAgentConfig
-    user_prompt: str
+    user_prompt: AgentUserPrompt
     llm_gateway_auth_token: str
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
@@ -49,6 +50,8 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
@@ -85,6 +88,8 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            max_requests=data.get("max_requests"),
+            max_tool_calls=data.get("max_tool_calls"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,6 +117,10 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.max_requests is not None:
+            result["max_requests"] = self.max_requests
+        if self.max_tool_calls is not None:
+            result["max_tool_calls"] = self.max_tool_calls
         return result
 
 
@@ -155,6 +164,7 @@ class RuntimeEventEnvelope:
     # For type="result" - final usage data from Claude SDK ResultMessage
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     result_duration_ms: int | None = None
     result_output: Any = None
     # For type="log" - structured log forwarding from sandbox
@@ -180,6 +190,7 @@ class RuntimeEventEnvelope:
             error=data.get("error"),
             result_usage=data.get("result_usage"),
             result_num_turns=data.get("result_num_turns"),
+            consumed_tool_calls=data.get("consumed_tool_calls"),
             result_duration_ms=data.get("result_duration_ms"),
             result_output=data.get(
                 "result_output",
@@ -211,6 +222,8 @@ class RuntimeEventEnvelope:
             result["result_usage"] = self.result_usage
         if self.result_num_turns is not None:
             result["result_num_turns"] = self.result_num_turns
+        if self.consumed_tool_calls is not None:
+            result["consumed_tool_calls"] = self.consumed_tool_calls
         if self.result_duration_ms is not None:
             result["result_duration_ms"] = self.result_duration_ms
         if self.result_output is not None:
@@ -280,6 +293,7 @@ class RuntimeEventEnvelope:
         cls,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> RuntimeEventEnvelope:
@@ -288,6 +302,7 @@ class RuntimeEventEnvelope:
             type="result",
             result_usage=usage,
             result_num_turns=num_turns,
+            consumed_tool_calls=consumed_tool_calls,
             result_duration_ms=duration_ms,
             result_output=output,
         )
