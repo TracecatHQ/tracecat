@@ -145,7 +145,9 @@ class TestCaseEventsService:
         test_case,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Create-case and explicit callers can still request inline materialization."""
+        """Inline sync materializes in-transaction and still queues a
+        post-commit job so a definition committed concurrently with this
+        transaction cannot be missed by both sides."""
         enqueue_mock = MagicMock()
         sync_mock = AsyncMock(return_value=None)
 
@@ -166,7 +168,7 @@ class TestCaseEventsService:
         )
 
         sync_mock.assert_awaited_once()
-        enqueue_mock.assert_not_called()
+        enqueue_mock.assert_called_once()
 
     async def test_create_event_syncs_inline_when_async_duration_sync_disabled(
         self,

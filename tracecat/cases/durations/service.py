@@ -214,14 +214,38 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         finally:
             await case_ids.close()
 
-    async def _sync_existing_case_durations_inline_after_commit(self) -> None:
+    async def _sync_existing_case_durations_inline_after_commit(self) -> bool:
+        """Backfill workspace cases through the locked per-case sync path.
+
+        Each case syncs in its own transaction under the case's advisory lock,
+        so two concurrent fallbacks (or a fallback racing the consumer) can no
+        longer insert the same ``(case_id, definition_id)`` row and roll back
+        a whole workspace-wide transaction. Returns False when any case was
+        skipped because its lock was held, so the caller's bounded retry can
+        re-run this backfill.
+        """
+        # Local import: materialization imports this module at import time.
+        from tracecat.cases.durations.materialization import sync_case_duration
+
         async with get_async_session_bypass_rls_context_manager() as session:
-            definition_service = CaseDurationDefinitionService(
-                session=session,
-                role=self.role,
+            stmt = (
+                select(Case.id)
+                .where(Case.workspace_id == self.workspace_id)
+                .order_by(Case.surrogate_id.asc())
             )
-            await definition_service._sync_existing_case_durations_inline()
-            await session.commit()
+            case_ids = list((await session.execute(stmt)).scalars().all())
+
+        all_synced = True
+        for case_id in case_ids:
+            synced = await sync_case_duration(
+                self.workspace_id,
+                case_id,
+                event_types=None,
+            )
+            if synced is False:
+                all_synced = False
+            await asyncio.sleep(0)
+        return all_synced
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID

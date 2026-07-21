@@ -2788,14 +2788,20 @@ class CaseEventsService(BaseWorkspaceService):
 
             AfterCommitQueue.of(self.session).add(_publish_case_event)
 
-        if duration_sync == "inline" or (
+        sync_inline = duration_sync == "inline" or (
             duration_sync == "async" and not config.TRACECAT__CASE_DURATION_SYNC_ENABLED
-        ):
+        )
+        if sync_inline:
             durations_service = CaseDurationService(
                 session=self.session, role=self.role
             )
             await durations_service.sync_case_durations(case)
-        elif duration_sync == "async":
+        if duration_sync != "none" and config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+            # Enqueued even after an inline sync: the in-transaction sync
+            # cannot see a duration definition committed after this
+            # transaction's snapshot, and that definition's backfill can
+            # likewise miss this not-yet-committed case. The coalesced
+            # post-commit job closes that ordering gap.
             enqueue_case_duration_sync_after_commit(
                 self.session,
                 workspace_id=case.workspace_id,
