@@ -85,8 +85,9 @@ async def enqueue_rollout_backfill_once() -> None:
     on read; that read-time sync is gone, so cases without a subsequent event
     would otherwise stay unmaterialized forever. A short-lived Redis lease
     (``SET NX EX``) elects one replica; the marker is made permanent only
-    after every workspace job is queued, so an interrupted pass is retried by
-    a later boot. Re-runs are idempotent.
+    after every workspace job is queued. The consumer retries failed passes;
+    the lease expiry lets another process or the next boot recover from a
+    crash. Re-runs are idempotent.
     """
     client = await get_redis_client()
     acquired = await client.set_if_not_exists(
@@ -109,9 +110,9 @@ async def enqueue_rollout_backfill_once() -> None:
                 reason="duration_definition_updated",
             )
     except Exception:
-        # Release the lease so the next boot retries immediately rather than
-        # waiting out the TTL. CancelledError deliberately bypasses this: the
-        # lease then lapses on its own.
+        # Release the lease so the consumer loop can retry with backoff rather
+        # than waiting out the TTL. CancelledError deliberately bypasses this;
+        # the lease then lapses so the next boot can recover a crashed process.
         try:
             await client.delete(ROLLOUT_BACKFILL_MARKER_KEY)
         except Exception:

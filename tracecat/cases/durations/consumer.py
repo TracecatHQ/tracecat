@@ -107,9 +107,13 @@ class CaseDurationSyncConsumer:
         last_pending_check = monotonic()
         retry_delay = RETRY_BACKOFF_BASE_SECONDS
         group_ready = False
+        rollout_enqueued = False
         started = False
         while True:
             try:
+                if not rollout_enqueued:
+                    await enqueue_rollout_backfill_once()
+                    rollout_enqueued = True
                 if not group_ready:
                     await self._ensure_group()
                     group_ready = True
@@ -174,6 +178,9 @@ class CaseDurationSyncConsumer:
     async def _handle_entries(self, entries: list[tuple[str, dict[str, str]]]) -> None:
         case_jobs: dict[CaseKey, list[str]] = {}
         case_event_types: dict[CaseKey, set[str]] = {}
+        definition_jobs: dict[
+            uuid.UUID, tuple[DurationDefinitionSyncJob, list[str]]
+        ] = {}
         force_sync_keys: set[CaseKey] = set()
         for message_id, fields in entries:
             job = self._parse_job(fields)
@@ -196,6 +203,13 @@ class CaseDurationSyncConsumer:
                 force_sync_keys.add(key)
                 continue
 
+            if isinstance(job, DurationDefinitionSyncJob):
+                if existing := definition_jobs.get(job.workspace_id):
+                    existing[1].append(message_id)
+                else:
+                    definition_jobs[job.workspace_id] = (job, [message_id])
+                continue
+
             try:
                 should_ack = await self._process_backfill_job(job)
             except Exception:
@@ -207,6 +221,19 @@ class CaseDurationSyncConsumer:
                 should_ack = False
             if should_ack:
                 await self._ack_and_delete([message_id])
+
+        for job, message_ids in definition_jobs.values():
+            try:
+                should_ack = await self._process_backfill_job(job)
+            except Exception:
+                logger.exception(
+                    "Failed to process case duration backfill job",
+                    workspace_id=str(job.workspace_id),
+                    reason=job.reason,
+                )
+                should_ack = False
+            if should_ack:
+                await self._ack_and_delete(message_ids)
 
         for key, message_ids in case_jobs.items():
             event_types = None if key in force_sync_keys else case_event_types.get(key)
@@ -347,15 +374,6 @@ class CaseDurationSyncConsumer:
 
 
 async def start_case_duration_sync_consumer() -> None:
-    try:
-        await enqueue_rollout_backfill_once()
-    except Exception as e:
-        # Non-fatal: the consumer must still start; the released marker
-        # lets the next boot retry the rollout backfill.
-        logger.warning(
-            "Failed to queue rollout duration backfill; continuing",
-            error=str(e),
-        )
     client = await get_redis_client()
     consumer = CaseDurationSyncConsumer(client)
     await consumer.run()

@@ -44,6 +44,16 @@ class FakeRedisClient:
         self.calls.append(("xdel", message_ids))
 
 
+@pytest.fixture(autouse=True)
+def rollout_backfill_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.enqueue_rollout_backfill_once",
+        mock,
+    )
+    return mock
+
+
 class FakeScalarResult:
     def __init__(self, value: uuid.UUID | None) -> None:
         self.value = value
@@ -375,6 +385,59 @@ async def test_consumer_acks_successful_backfill_jobs(
     assert cast(Any, job).workspace_id == workspace_id
     assert client.acked == [["1-0"]]
     assert client.deleted == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_coalesces_definition_jobs_by_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    first_workspace_id = uuid.uuid4()
+    second_workspace_id = uuid.uuid4()
+    backfill_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(first_workspace_id),
+                    "reason": "duration_definition_created",
+                },
+            ),
+            (
+                "2-0",
+                {
+                    "workspace_id": str(first_workspace_id),
+                    "reason": "duration_definition_updated",
+                },
+            ),
+            (
+                "3-0",
+                {
+                    "workspace_id": str(second_workspace_id),
+                    "reason": "duration_definition_created",
+                },
+            ),
+            (
+                "4-0",
+                {
+                    "workspace_id": str(first_workspace_id),
+                    "reason": "duration_definition_created",
+                },
+            ),
+        ]
+    )
+
+    assert backfill_mock.await_count == 2
+    assert [call.args[0].workspace_id for call in backfill_mock.await_args_list] == [
+        first_workspace_id,
+        second_workspace_id,
+    ]
+    assert client.acked == [["1-0", "2-0", "4-0"], ["3-0"]]
+    assert client.deleted == [["1-0", "2-0", "4-0"], ["3-0"]]
 
 
 @pytest.mark.anyio
@@ -751,6 +814,34 @@ async def test_consumer_retries_transient_group_creation_failure(
 
     assert ensure_group_mock.await_count == 2
     assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0]
+
+
+@pytest.mark.anyio
+async def test_consumer_retries_rollout_backfill_then_reads_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    rollout_backfill_mock: AsyncMock,
+) -> None:
+    rollout_backfill_mock.side_effect = [ConnectionError("redis unavailable"), None]
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            [],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    ensure_group_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    assert rollout_backfill_mock.await_count == 2
+    ensure_group_mock.assert_awaited_once()
+    assert client.xreadgroup.await_count == 2
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0]
 
 
 @pytest.mark.anyio
