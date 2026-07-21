@@ -1,5 +1,6 @@
 "use client"
 
+import { Table2 } from "lucide-react"
 import { useMemo } from "react"
 import type { CaseTableRowRead, TableRowRead } from "@/client"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
@@ -58,9 +59,7 @@ export function CaseLinkedRowsSection({
   }
 
   if (grouped.length === 0) {
-    return (
-      <p className="p-2 text-sm text-muted-foreground">No linked table rows</p>
-    )
+    return <NoLinkedRows />
   }
 
   return (
@@ -74,6 +73,22 @@ export function CaseLinkedRowsSection({
           workspaceId={workspaceId}
         />
       ))}
+    </div>
+  )
+}
+
+function NoLinkedRows() {
+  return (
+    <div className="flex flex-col items-center justify-center py-4">
+      <div className="mb-3 rounded-full bg-muted/50 p-2">
+        <Table2 className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+        No linked table rows
+      </h3>
+      <p className="max-w-[250px] text-center text-xs text-muted-foreground/75">
+        Rows linked to this case will appear here
+      </p>
     </div>
   )
 }
