@@ -522,6 +522,8 @@ function getProviderDisplayLabel(provider: string): string {
       return "Anthropic"
     case "gemini":
       return "Google Gemini"
+    case "mistral":
+      return "Mistral AI"
     case "openai":
       return "OpenAI"
     case "custom-model-provider":
@@ -543,6 +545,8 @@ function getProviderIconId(provider?: string | null): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:

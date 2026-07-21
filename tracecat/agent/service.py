@@ -372,7 +372,7 @@ class AgentManagementService(BaseOrgService):
 
     async def list_providers(self) -> list[str]:
         """List all available AI model providers."""
-        return sorted({c.provider for c in MODEL_CONFIGS.values()})
+        return sorted(PROVIDER_CREDENTIAL_CONFIGS.keys())
 
     async def list_models(self) -> dict[str, ModelConfig]:
         """List all available AI models."""
@@ -854,9 +854,8 @@ class AgentManagementService(BaseOrgService):
 
     async def get_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at organization level."""
-        providers = await self.list_providers()
         status = {}
-        for provider in providers:
+        for provider in PROVIDER_CREDENTIAL_CONFIGS:
             status[provider] = await self.check_provider_credentials(provider)
         return status
 
@@ -881,9 +880,8 @@ class AgentManagementService(BaseOrgService):
 
     async def get_workspace_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at workspace level."""
-        providers = await self.list_providers()
         status = {}
-        for provider in providers:
+        for provider in PROVIDER_CREDENTIAL_CONFIGS:
             status[provider] = await self.check_workspace_provider_credentials(provider)
         return status
 

@@ -1783,6 +1783,8 @@ function getProviderIconId(provider: string): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:

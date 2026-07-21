@@ -57,6 +57,18 @@ gemini_secret = RegistrySecret(
     - `GEMINI_API_KEY`: Optional Gemini API key.
 """
 
+mistral_secret = RegistrySecret(
+    name="mistral",
+    optional_keys=["MISTRAL_API_KEY"],
+    optional=True,
+)
+"""Mistral API key.
+
+- name: `mistral`
+- optional_keys:
+    - `MISTRAL_API_KEY`: Optional Mistral API key.
+"""
+
 
 bedrock_secret = RegistrySecret(
     name="amazon_bedrock",
@@ -203,6 +215,7 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
     gemini_secret,
+    mistral_secret,
     bedrock_secret,
     custom_model_provider_secret,
     azure_openai_secret,

@@ -8,6 +8,10 @@ model_list:
     litellm_params:
       model: gemini/*
 
+  - model_name: mistral/*
+    litellm_params:
+      model: mistral/*
+
   - model_name: vertex_ai/*
     litellm_params:
       model: vertex_ai/*

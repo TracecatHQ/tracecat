@@ -229,6 +229,18 @@ PROVIDER_CREDENTIAL_CONFIGS = {
             )
         ],
     ),
+    "mistral": ProviderCredentialConfig(
+        provider="mistral",
+        label="Mistral AI",
+        fields=[
+            ProviderCredentialField(
+                key="MISTRAL_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Mistral API key from the La Plateforme console.",
+            )
+        ],
+    ),
     "vertex_ai": ProviderCredentialConfig(
         provider="vertex_ai",
         label="Google Vertex AI",

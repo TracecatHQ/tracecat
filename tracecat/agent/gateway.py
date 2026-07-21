@@ -587,6 +587,19 @@ def _inject_provider_credentials(
             if not data.get("model", "").startswith("gemini/"):
                 data["model"] = f"gemini/{data['model']}"
 
+        case "mistral":
+            api_key = creds.get("MISTRAL_API_KEY")
+            if not api_key:
+                raise ProxyException(
+                    message="Provider credentials incomplete",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["api_key"] = api_key
+            if not data.get("model", "").startswith("mistral/"):
+                data["model"] = f"mistral/{data['model']}"
+
         case "vertex_ai":
             credentials = creds.get("GOOGLE_API_CREDENTIALS")
             project = creds.get("GOOGLE_CLOUD_PROJECT")
