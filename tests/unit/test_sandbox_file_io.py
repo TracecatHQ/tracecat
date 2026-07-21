@@ -193,6 +193,7 @@ def test_copy_tree_preserves_symlinks_instead_of_dereferencing(
     copied = copy_tree_without_following_symlinks(
         source,
         destination,
+        trusted_root=tmp_path,
         max_bytes=1024,
         max_entries=10,
     )
@@ -213,6 +214,7 @@ def test_copy_tree_rejects_special_files(tmp_path: Path) -> None:
         copy_tree_without_following_symlinks(
             source,
             tmp_path / "destination",
+            trusted_root=tmp_path,
             max_bytes=1024,
             max_entries=10,
         )
@@ -228,6 +230,7 @@ def test_copy_tree_rejects_aggregate_bytes_over_limit(tmp_path: Path) -> None:
         copy_tree_without_following_symlinks(
             source,
             tmp_path / "destination",
+            trusted_root=tmp_path,
             max_bytes=3,
             max_entries=10,
         )
@@ -244,9 +247,33 @@ def test_copy_tree_rejects_entries_over_limit(tmp_path: Path) -> None:
         copy_tree_without_following_symlinks(
             source,
             tmp_path / "destination",
+            trusted_root=tmp_path,
             max_bytes=1024,
             max_entries=1,
         )
+
+
+def test_copy_tree_rejects_symlinked_source_parent(tmp_path: Path) -> None:
+    """Package promotion must remain anchored beneath the trusted job root."""
+    trusted_root = tmp_path / "job"
+    trusted_root.mkdir()
+    outside = tmp_path / "outside"
+    source = outside / "site-packages"
+    source.mkdir(parents=True)
+    (source / "package.py").write_text("pass")
+    (trusted_root / "cache").symlink_to(outside, target_is_directory=True)
+
+    destination = tmp_path / "destination"
+    with pytest.raises(SandboxFileSafetyError, match="parent"):
+        copy_tree_without_following_symlinks(
+            trusted_root / "cache" / "site-packages",
+            destination,
+            trusted_root=trusted_root,
+            max_bytes=1024,
+            max_entries=10,
+        )
+
+    assert not destination.exists()
 
 
 def test_file_io_imports_without_posix_flags_and_fails_at_call_time(

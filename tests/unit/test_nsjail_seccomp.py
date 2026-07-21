@@ -118,19 +118,24 @@ def test_worker_pool_config_mounts_action_gateway_socket(tmp_path: Path):
 
 def test_python_install_uses_job_local_uv_cache(tmp_path: Path) -> None:
     """Install sandboxes must not share a globally writable uv cache."""
+    job_dir = tmp_path / "job"
     executor = NsjailExecutor(
         rootfs_path=str(tmp_path / "rootfs"),
         cache_dir=str(tmp_path / "shared-cache"),
     )
 
     config_text = executor._build_config(
-        job_dir=tmp_path / "job",
+        job_dir=job_dir,
         phase="install",
         config=SandboxConfig(),
     )
     env_map = executor._build_env_map(SandboxConfig(), "install")
 
     assert str(tmp_path / "shared-cache" / "uv-cache") not in config_text
+    assert (
+        f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: false }}'
+        in config_text
+    )
     assert env_map["UV_CACHE_DIR"] == "/cache/uv-cache"
 
 

@@ -265,6 +265,7 @@ class SandboxService:
                     copy_tree_without_following_symlinks,
                     site_packages,
                     temp_dest,
+                    trusted_root=job_dir,
                     max_bytes=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
                     max_entries=TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
                 )

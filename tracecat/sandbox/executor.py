@@ -301,13 +301,15 @@ class NsjailExecutor:
 
         # Phase-specific mounts
         if phase == "install":
-            # Writable cache for package installation
+            # Keep installer inputs read-only and expose only the package cache as
+            # writable. This prevents the sandbox from replacing host-visible
+            # paths that are inspected after the jail exits.
             lines.extend(
                 [
                     "",
-                    "# Install phase mounts - writable cache",
+                    "# Install phase mounts - writable cache, read-only inputs",
                     f'mount {{ src: "{job_dir}/cache" dst: "/cache" is_bind: true rw: true }}',
-                    f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
+                    f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: false }}',
                 ]
             )
         else:

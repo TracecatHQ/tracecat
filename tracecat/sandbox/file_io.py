@@ -26,17 +26,18 @@ class _PlatformFlags:
 
 def _platform_flags() -> _PlatformFlags:
     """Return safe open flags, failing closed on unsupported platforms."""
-    directory = getattr(os, "O_DIRECTORY", None)
-    nofollow = getattr(os, "O_NOFOLLOW", None)
-    nonblock = getattr(os, "O_NONBLOCK", None)
-    supports_dir_fd = getattr(os, "supports_dir_fd", frozenset())
+    try:
+        directory = os.O_DIRECTORY
+        nofollow = os.O_NOFOLLOW
+        nonblock = os.O_NONBLOCK
+        supports_dir_fd = os.supports_dir_fd
+    except AttributeError as exc:
+        raise SandboxFileSafetyError(
+            "Safe sandbox file I/O requires a POSIX platform"
+        ) from exc
+
     dir_fd_functions = (os.open, os.mkdir, os.rename, os.unlink)
-    if (
-        directory is None
-        or nofollow is None
-        or nonblock is None
-        or not all(function in supports_dir_fd for function in dir_fd_functions)
-    ):
+    if not all(function in supports_dir_fd for function in dir_fd_functions):
         raise SandboxFileSafetyError("Safe sandbox file I/O requires a POSIX platform")
 
     return _PlatformFlags(
@@ -334,23 +335,48 @@ def copy_tree_without_following_symlinks(
     source: Path,
     destination: Path,
     *,
+    trusted_root: Path,
     max_bytes: int,
     max_entries: int,
 ) -> bool:
     """Copy a stopped sandbox's tree while preserving, not following, symlinks.
 
-    The sandbox process must be stopped before this function is called so the
-    validated tree cannot be changed between validation and copy.
+    The source is first opened beneath ``trusted_root`` without following any
+    parent symlinks. The sandbox process must be stopped before this function is
+    called so the validated tree cannot be changed between validation and copy.
 
     Returns:
         True if a non-empty tree was copied, otherwise False.
     """
     try:
-        source_stat = source.lstat()
+        relative_source = source.relative_to(trusted_root)
+    except ValueError as exc:
+        raise SandboxFileSafetyError(
+            "Sandbox package cache is outside the trusted root"
+        ) from exc
+
+    try:
+        with _open_parent_directory(
+            trusted_root,
+            relative_source,
+            create=False,
+        ) as (parent_fd, directory_name):
+            try:
+                source_fd = os.open(
+                    directory_name,
+                    _platform_flags().directory_open,
+                    dir_fd=parent_fd,
+                )
+            except FileNotFoundError:
+                return False
+            except OSError as exc:
+                raise SandboxFileSafetyError(
+                    "Sandbox package cache is not a safe directory"
+                ) from exc
+            else:
+                os.close(source_fd)
     except FileNotFoundError:
         return False
-    if not stat.S_ISDIR(source_stat.st_mode):
-        raise SandboxFileSafetyError("Sandbox package cache is not a directory")
 
     if max_bytes < 0 or max_entries < 0:
         raise ValueError("max_bytes and max_entries must be non-negative")
