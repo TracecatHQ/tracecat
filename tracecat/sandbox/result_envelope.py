@@ -38,7 +38,7 @@ class _ResultEnvelope(BaseModel):
         return value if value else None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResultEnvelopeOutcome:
     """Decoded result plus whether it came from a valid envelope."""
 

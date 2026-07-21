@@ -17,7 +17,7 @@ import orjson
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _PlatformFlags:
     directory_open: int
     regular_file_read: int
