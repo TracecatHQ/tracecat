@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo } from "react"
 import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
@@ -15,14 +15,11 @@ import {
   normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
 import {
-  type CaseDurationAnchorEventType,
   isCaseDropdownEventType,
-  isCaseDurationAnchorEventType,
   isCaseEventFilterType,
   isCaseFieldEventType,
   isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
-import { Checkbox } from "@/components/ui/checkbox"
 
 interface UpdateCaseDurationDialogProps {
   open: boolean
@@ -36,12 +33,9 @@ interface UpdateCaseDurationDialogProps {
 }
 
 function extractAnchorFormValues(
-  anchor: CaseDurationDefinitionRead["start_anchor"],
-  fallbackEventType: CaseDurationAnchorEventType
+  anchor: CaseDurationDefinitionRead["start_anchor"]
 ): CaseDurationFormValues["start"] {
-  const eventType = isCaseDurationAnchorEventType(anchor.event_type)
-    ? anchor.event_type
-    : fallbackEventType
+  const eventType = anchor.event_type
 
   if (isCaseDropdownEventType(eventType)) {
     const defId = anchor.filters?.dropdown_definition_id
@@ -90,69 +84,9 @@ const getInitialValues = (
   return {
     name: duration.name,
     description: duration.description ?? "",
-    start: extractAnchorFormValues(duration.start_anchor, "case_created"),
-    end: extractAnchorFormValues(duration.end_anchor, "case_closed"),
+    start: extractAnchorFormValues(duration.start_anchor),
+    end: extractAnchorFormValues(duration.end_anchor),
   }
-}
-
-function areStringArraysEqual(left?: string[], right?: string[]): boolean {
-  if (left === right) {
-    return true
-  }
-  if (!left || !right || left.length !== right.length) {
-    return false
-  }
-  return left.every((value, index) => value === right[index])
-}
-
-function areAnchorFormValuesEqual(
-  left: CaseDurationFormValues["start"],
-  right: CaseDurationFormValues["start"]
-): boolean {
-  return (
-    left.selection === right.selection &&
-    left.eventType === right.eventType &&
-    left.dropdownDefinitionId === right.dropdownDefinitionId &&
-    areStringArraysEqual(left.filterValues, right.filterValues) &&
-    areStringArraysEqual(left.dropdownOptionIds, right.dropdownOptionIds)
-  )
-}
-
-function formatLegacyEventType(eventType: string): string {
-  const label = eventType.replace(/_/g, " ")
-  return label.charAt(0).toUpperCase() + label.slice(1)
-}
-
-/**
- * Notice shown for a legacy (no longer selectable) anchor event type, with an
- * explicit opt-in to migrate it. Structural form comparison alone cannot tell
- * "left untouched" apart from "deliberately picked the displayed fallback".
- */
-function LegacyAnchorNotice({
-  legacyEventType,
-  checked,
-  onCheckedChange,
-}: {
-  legacyEventType: string
-  checked: boolean
-  onCheckedChange: (checked: boolean) => void
-}) {
-  return (
-    <div className="space-y-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-      <p>
-        This duration currently uses the legacy “
-        {formatLegacyEventType(legacyEventType)}” event. Saving keeps it unless
-        you change the event or opt in below.
-      </p>
-      <label className="flex items-center gap-2 font-medium text-foreground">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={(value) => onCheckedChange(value === true)}
-        />
-        Replace with the selected event on save
-      </label>
-    </div>
-  )
 }
 
 function buildAnchorPayload(
@@ -178,20 +112,6 @@ export function UpdateCaseDurationDialog({
     [duration]
   )
 
-  const startIsLegacy = Boolean(
-    duration && !isCaseDurationAnchorEventType(duration.start_anchor.event_type)
-  )
-  const endIsLegacy = Boolean(
-    duration && !isCaseDurationAnchorEventType(duration.end_anchor.event_type)
-  )
-  const [migrateStartAnchor, setMigrateStartAnchor] = useState(false)
-  const [migrateEndAnchor, setMigrateEndAnchor] = useState(false)
-
-  useEffect(() => {
-    setMigrateStartAnchor(false)
-    setMigrateEndAnchor(false)
-  }, [open, duration?.id])
-
   const handleSubmit = useCallback(
     async (values: CaseDurationFormValues) => {
       if (!duration) {
@@ -208,24 +128,12 @@ export function UpdateCaseDurationDialog({
         values.end.filterValues,
         values.end
       )
-      const shouldSendStartAnchor =
-        isCaseDurationAnchorEventType(duration.start_anchor.event_type) ||
-        migrateStartAnchor ||
-        !areAnchorFormValuesEqual(values.start, initialValues.start)
-      const shouldSendEndAnchor =
-        isCaseDurationAnchorEventType(duration.end_anchor.event_type) ||
-        migrateEndAnchor ||
-        !areAnchorFormValuesEqual(values.end, initialValues.end)
 
       const payload: CaseDurationDefinitionUpdate = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
-      }
-      if (shouldSendStartAnchor) {
-        payload.start_anchor = buildAnchorPayload(values.start, startFilters)
-      }
-      if (shouldSendEndAnchor) {
-        payload.end_anchor = buildAnchorPayload(values.end, endFilters)
+        start_anchor: buildAnchorPayload(values.start, startFilters),
+        end_anchor: buildAnchorPayload(values.end, endFilters),
       }
 
       try {
@@ -235,14 +143,7 @@ export function UpdateCaseDurationDialog({
         console.error("Failed to update case duration definition", error)
       }
     },
-    [
-      duration,
-      initialValues,
-      migrateStartAnchor,
-      migrateEndAnchor,
-      onOpenChange,
-      onUpdateDuration,
-    ]
+    [duration, onOpenChange, onUpdateDuration]
   )
 
   return (
@@ -261,24 +162,6 @@ export function UpdateCaseDurationDialog({
       isSubmitting={isUpdating}
       initialValues={initialValues}
       onSubmit={handleSubmit}
-      startAnchorNotice={
-        startIsLegacy && duration ? (
-          <LegacyAnchorNotice
-            legacyEventType={duration.start_anchor.event_type}
-            checked={migrateStartAnchor}
-            onCheckedChange={setMigrateStartAnchor}
-          />
-        ) : undefined
-      }
-      endAnchorNotice={
-        endIsLegacy && duration ? (
-          <LegacyAnchorNotice
-            legacyEventType={duration.end_anchor.event_type}
-            checked={migrateEndAnchor}
-            onCheckedChange={setMigrateEndAnchor}
-          />
-        ) : undefined
-      }
     />
   )
 }

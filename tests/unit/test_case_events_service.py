@@ -657,13 +657,14 @@ class TestCaseEventsService:
         )
         assert duplicate_event is None
 
-    async def test_case_viewed_event_syncs_legacy_duration_definitions(
+    async def test_case_viewed_event_syncs_duration_definitions(
         self,
         case_events_service: CaseEventsService,
         test_case,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Legacy case_viewed duration anchors still receive materialization work."""
+        """case_viewed-anchored definitions get async materialization on view,
+        keeping the read path free of synchronous duration recomputes."""
         enqueue_calls: list[dict[str, object]] = []
 
         def fake_enqueue(*args, **kwargs) -> None:
