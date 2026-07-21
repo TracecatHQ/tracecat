@@ -15,6 +15,7 @@ from sqlalchemy import (
     bindparam,
     cast,
     column,
+    delete,
     false,
     func,
     literal,
@@ -25,6 +26,7 @@ from sqlalchemy import case as sql_case
 from sqlalchemy import values as sql_values
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -1175,38 +1177,50 @@ class CaseDurationService(BaseWorkspaceService):
         case_obj = await self._resolve_case(case)
         computations = await self.compute_duration(case_obj)
 
-        stmt = select(CaseDuration).where(
+        seen = [computation.duration_id for computation in computations]
+        if computations:
+            stmt = pg_insert(CaseDuration).values(
+                [
+                    {
+                        "workspace_id": self.workspace_id,
+                        "case_id": case_obj.id,
+                        "definition_id": computation.duration_id,
+                        "start_event_id": computation.start_event_id,
+                        "end_event_id": computation.end_event_id,
+                        "started_at": computation.started_at,
+                        "ended_at": computation.ended_at,
+                        "duration": computation.duration,
+                    }
+                    for computation in computations
+                ]
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["case_id", "definition_id"],
+                set_={
+                    "start_event_id": stmt.excluded.start_event_id,
+                    "end_event_id": stmt.excluded.end_event_id,
+                    "started_at": stmt.excluded.started_at,
+                    "ended_at": stmt.excluded.ended_at,
+                    "duration": stmt.excluded.duration,
+                    "updated_at": func.now(),
+                },
+            )
+            # RETURNING + populate_existing refreshes any CaseDuration rows
+            # already loaded in this session, which the bulk upsert bypasses.
+            upserted = await self.session.scalars(
+                stmt.returning(CaseDuration),
+                execution_options={"populate_existing": True},
+            )
+            upserted.all()
+
+        delete_stmt = delete(CaseDuration).where(
             CaseDuration.workspace_id == self.workspace_id,
             CaseDuration.case_id == case_obj.id,
         )
-        existing_result = await self.session.execute(stmt)
-        existing_by_definition = {
-            entity.definition_id: entity for entity in existing_result.scalars().all()
-        }
+        if computations:
+            delete_stmt = delete_stmt.where(CaseDuration.definition_id.not_in(seen))
+        await self.session.execute(delete_stmt)
 
-        seen_definitions: set[uuid.UUID] = set()
-        for computation in computations:
-            seen_definitions.add(computation.duration_id)
-            entity = existing_by_definition.get(computation.duration_id)
-            if entity is None:
-                entity = CaseDuration(
-                    workspace_id=self.workspace_id,
-                    case_id=case_obj.id,
-                    definition_id=computation.duration_id,
-                )
-
-            entity.start_event_id = computation.start_event_id
-            entity.end_event_id = computation.end_event_id
-            entity.started_at = computation.started_at
-            entity.ended_at = computation.ended_at
-            entity.duration = computation.duration
-            self.session.add(entity)
-
-        for definition_id, entity in existing_by_definition.items():
-            if definition_id not in seen_definitions:
-                await self.session.delete(entity)
-
-        await self.session.flush()
         return computations
 
     async def _ensure_unique_case_duration(
