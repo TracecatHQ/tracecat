@@ -1334,6 +1334,7 @@ def test_duration_anchor_rejects_empty_required_filters(
         CaseEventType.CASE_CREATED,
         CaseEventType.CASE_CLOSED,
         CaseEventType.CASE_REOPENED,
+        CaseEventType.CASE_VIEWED,
     ],
 )
 def test_duration_anchor_allows_empty_filters_for_unfiltered_events(
@@ -1342,14 +1343,6 @@ def test_duration_anchor_allows_empty_filters_for_unfiltered_events(
     anchor = CaseDurationEventAnchor(event_type=event_type)
 
     assert anchor.filters == CaseDurationEventFilters()
-
-
-def test_duration_anchor_accepts_case_viewed() -> None:
-    """case_viewed is a supported anchor (first/last view metrics); its sync
-    cost is carried by the async queue rather than the read path."""
-    anchor = CaseDurationEventAnchor(event_type=CaseEventType.CASE_VIEWED)
-
-    assert anchor.event_type is CaseEventType.CASE_VIEWED
 
 
 @pytest.mark.anyio
