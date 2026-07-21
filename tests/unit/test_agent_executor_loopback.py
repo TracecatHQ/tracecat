@@ -610,6 +610,28 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
 
 
 @pytest.mark.anyio
+async def test_process_runtime_events_preserves_counts_on_limit_error() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_result(
+            num_turns=2,
+            consumed_tool_calls=3,
+        ),
+        RuntimeEventEnvelope.from_error("Agent max_tool_calls exceeded (2)"),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == "Agent max_tool_calls exceeded (2)"
+    assert result.result_num_turns == 2
+    assert result.consumed_tool_calls == 3
+
+
+@pytest.mark.anyio
 async def test_process_runtime_events_fails_zero_work_completion() -> None:
     handler = _make_handler()
     stream = _FakeStream()

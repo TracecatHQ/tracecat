@@ -2828,8 +2828,3 @@ class TestAgentWorkflowStateManagement:
         """Test that workflow properly increments turn counter."""
         # This would be tested in full integration tests
         pass
-
-    async def test_workflow_handles_max_turns(self) -> None:
-        """Test that workflow respects max turns limit (when implemented)."""
-        # Feature not yet implemented but should be tested when added
-        pass

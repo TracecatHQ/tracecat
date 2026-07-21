@@ -144,6 +144,8 @@ class AgentExecutorInput(BaseModel):
     defer_done_on_approval: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -167,6 +169,7 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
     # Tool calls the interrupt aborted mid-flight (errored after cancellation
@@ -422,6 +425,8 @@ class SandboxedAgentExecutor:
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
+            max_requests=self.input.max_requests,
+            max_tool_calls=self.input.max_tool_calls,
         )
 
     async def run(self) -> AgentExecutorResult:
@@ -546,6 +551,7 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.consumed_tool_calls = loopback_result.consumed_tool_calls
         result.cancelled = loopback_result.cancelled
         result.cancelled_reason = loopback_result.cancelled_reason
         result.interrupted_tool_call_ids = (

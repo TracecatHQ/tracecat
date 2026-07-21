@@ -141,6 +141,13 @@ PERSIST_SESSION_ERROR_PATCH = (
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
 
 
+def _remaining_limit(limit: int | None, consumed: int | None) -> int | None:
+    """Return the remaining budget, preserving unlimited and unknown budgets."""
+    if limit is None or consumed is None:
+        return limit
+    return max(0, limit - consumed)
+
+
 @dataclass(frozen=True, slots=True)
 class LLMRouteResolution:
     route_model: str
@@ -1261,6 +1268,8 @@ class DurableAgentWorkflow:
             routes=compiled_run.llm_routes,
         )
         self._approval_stream_v2 = workflow.patched(APPROVAL_STREAM_V2_PATCH)
+        consumed_requests: int | None = 0
+        consumed_tool_calls: int | None = 0
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1279,11 +1288,20 @@ class DurableAgentWorkflow:
             sdk_session_data=load_result.sdk_session_data,
             defer_done_on_approval=self._approval_stream_v2,
             is_fork=load_result.is_fork,
+            max_requests=self.max_requests,
+            max_tool_calls=self.max_tool_calls,
         )
 
         # Run the executor activity
         while True:
             logger.info("Executing agent turn", turn=self._turn)
+            if executor_input.max_requests == 0:
+                raise ApplicationError(
+                    "Agent execution failed: Agent exceeded max_requests limit "
+                    f"({self.max_requests})",
+                    type=AGENT_EXECUTOR_PRE_STREAM_ERROR,
+                    non_retryable=True,
+                )
 
             # Run one executor activity turn with update-driven cancellation.
             if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
@@ -1365,6 +1383,21 @@ class DurableAgentWorkflow:
                     else AGENT_EXECUTOR_PRE_STREAM_ERROR,
                     non_retryable=True,
                 )
+
+            if result.consumed_tool_calls is None:
+                # Legacy and mid-interrupt results cannot prove cross-activity
+                # consumption. Fall back to the original per-activity budgets;
+                # approval pauses are human-gated, so the approximation is bounded.
+                consumed_requests = None
+                consumed_tool_calls = None
+            else:
+                if consumed_requests is not None:
+                    if result.result_num_turns is None:
+                        consumed_requests = None
+                    else:
+                        consumed_requests += result.result_num_turns
+                if consumed_tool_calls is not None:
+                    consumed_tool_calls += result.consumed_tool_calls
 
             if result.approval_requested:
                 logger.info("Agent waiting for approval", session_id=self.session_id)
@@ -1513,6 +1546,12 @@ class DurableAgentWorkflow:
                 # interrupt artifacts with the real tool_result entry; the
                 # runtime only sends a hidden continuation tick. Emit the resumed
                 # model output to the (possibly rotated) post-approval stream.
+                remaining_requests = _remaining_limit(
+                    self.max_requests, consumed_requests
+                )
+                remaining_tool_calls = _remaining_limit(
+                    self.max_tool_calls, consumed_tool_calls
+                )
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
@@ -1530,6 +1569,8 @@ class DurableAgentWorkflow:
                     defer_done_on_approval=self._approval_stream_v2,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
+                    max_requests=remaining_requests,
+                    max_tool_calls=remaining_tool_calls,
                 )
                 self._turn += 1
                 continue

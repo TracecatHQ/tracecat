@@ -113,6 +113,7 @@ class LoopbackResult:
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    consumed_tool_calls: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
     # Tool calls the interrupt aborted mid-flight: calls that either errored
@@ -611,6 +612,7 @@ class LoopbackHandler:
                 await self.send_result(
                     usage=envelope.result_usage,
                     num_turns=envelope.result_num_turns,
+                    consumed_tool_calls=envelope.consumed_tool_calls,
                     duration_ms=envelope.result_duration_ms,
                     output=envelope.result_output,
                 )
@@ -849,6 +851,7 @@ class LoopbackHandler:
         self,
         usage: ResultUsage | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: RuntimeOutput | None = None,
     ) -> None:
@@ -858,6 +861,7 @@ class LoopbackHandler:
         self._result.output = output
         self._result.result_usage = usage
         self._result.result_num_turns = num_turns
+        self._result.consumed_tool_calls = consumed_tool_calls
 
     async def _handle_error(self, error: str) -> bool:
         """Handle a terminal runtime error."""

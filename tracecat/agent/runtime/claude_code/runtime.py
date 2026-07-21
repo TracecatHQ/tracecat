@@ -146,6 +146,7 @@ class RuntimeEventWriter(Protocol):
         self,
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
+        consumed_tool_calls: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
     ) -> None:
@@ -326,6 +327,9 @@ class ClaudeAgentRuntime:
         self._system_prompt_fragments = tuple(system_prompt_fragments)
         # Tracks Stop hook retries within this run to break structured-output loops
         self._stop_hook_retries: int = 0
+        self._max_tool_calls: int | None = None
+        self._counted_tool_use_ids: set[str] = set()
+        self._run_limit_error: str | None = None
 
     @staticmethod
     def _is_manual_compaction_prompt(prompt: str) -> bool:
@@ -1176,6 +1180,26 @@ class ClaudeAgentRuntime:
                 }
             }
 
+        if tool_use_id is not None:
+            self._counted_tool_use_ids.add(tool_use_id)
+            if (
+                self._max_tool_calls is not None
+                and len(self._counted_tool_use_ids) > self._max_tool_calls
+            ):
+                stop_reason = f"Tool call limit ({self._max_tool_calls}) exceeded"
+                self._run_limit_error = (
+                    f"Agent max_tool_calls exceeded ({self._max_tool_calls})"
+                )
+                return {
+                    "continue_": False,
+                    "stopReason": stop_reason,
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": stop_reason,
+                    },
+                }
+
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
         requires_approval = self._tool_call_requires_approval(input_data, tool_name)
@@ -1380,6 +1404,9 @@ class ClaudeAgentRuntime:
             config=payload.config,
             subagents=payload.subagents,
         )
+        self._max_tool_calls = payload.max_tool_calls
+        self._counted_tool_use_ids.clear()
+        self._run_limit_error = None
 
     def _ensure_working_directory(self, session_id: uuid.UUID) -> None:
         """Create the stable Claude cwd used for session resume."""
@@ -1501,6 +1528,11 @@ class ClaudeAgentRuntime:
             include_partial_messages=True,
             resume=resume_session_id,
             fork_session=fork_session,
+            max_turns=(
+                payload.max_requests
+                if payload.max_requests is not None and payload.max_requests > 0
+                else None
+            ),
             thinking=(
                 {"type": "enabled", "budget_tokens": 1024}
                 if payload.config.enable_thinking
@@ -1804,9 +1836,19 @@ class ClaudeAgentRuntime:
                                 if message.structured_output is not None
                                 else message.result
                             )
+                            if (
+                                payload.max_requests is not None
+                                and message.is_error
+                                and message.subtype == "error_max_turns"
+                            ):
+                                self._run_limit_error = (
+                                    "Agent exceeded max_requests limit "
+                                    f"({payload.max_requests})"
+                                )
                             await self._event_writer.send_result(
                                 usage=message.usage,
                                 num_turns=message.num_turns,
+                                consumed_tool_calls=len(self._counted_tool_use_ids),
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
@@ -1822,6 +1864,9 @@ class ClaudeAgentRuntime:
                                 await self._register_assistant_tool_approvals(message)
                             elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
+
+                    if self._run_limit_error is not None:
+                        await self._event_writer.send_error(self._run_limit_error)
                 finally:
                     stderr_task.cancel()
                     try:
@@ -1836,13 +1881,16 @@ class ClaudeAgentRuntime:
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
+            error_message = self._run_limit_error or str(e)
             await self._event_writer.send_log(
                 "error",
                 "Runtime error",
                 error_type=type(e).__name__,
-                error_message=str(e),
+                error_message=error_message,
             )
-            await self._event_writer.send_error(str(e))
+            await self._event_writer.send_error(error_message)
+            if self._run_limit_error is not None:
+                return
             raise
         finally:
             if session_flush_task is not None:
