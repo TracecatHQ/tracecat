@@ -13,7 +13,7 @@ from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalService
 
@@ -129,6 +129,17 @@ async def submit_approvals(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except TracecatConflictError as exc:
+        # Contradicts a decision already recorded: the caller holds stale state.
+        logger.warning(
+            "Conflicting approval decision submitted",
+            session_id=session_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
         ) from exc
     except ValueError as exc:
         logger.warning(

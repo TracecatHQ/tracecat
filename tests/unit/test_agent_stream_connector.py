@@ -267,6 +267,113 @@ async def test_stream_events_expires_buffer_after_terminal_marker() -> None:
 
 
 @pytest.mark.anyio
+async def test_stream_events_yields_nonterminal_idle_boundary_without_expiring() -> (
+    None
+):
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
+    client = SimpleNamespace(
+        xread=AsyncMock(
+            return_value=[
+                (
+                    f"agent-stream:{workspace_id}:{session_id}",
+                    [
+                        (
+                            "1717426372769-0",
+                            {
+                                tokens.DATA_KEY: (
+                                    b'{"[TURN_END]":1,'
+                                    b'"terminal":false,'
+                                    b'"reason":"approval_pending"}'
+                                ),
+                            },
+                        )
+                    ],
+                )
+            ]
+        ),
+        xrange=AsyncMock(return_value=[]),
+        delete=AsyncMock(return_value=1),
+        _get_client=AsyncMock(return_value=raw_client),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    assert len(events) == 1
+    assert isinstance(events[0], StreamEnd)
+    raw_client.expire.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_stream_events_skips_stale_nonterminal_idle_boundary() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
+    client = SimpleNamespace(
+        xread=AsyncMock(
+            return_value=[
+                (
+                    f"agent-stream:{workspace_id}:{session_id}",
+                    [
+                        (
+                            "1717426372769-0",
+                            {
+                                tokens.DATA_KEY: (
+                                    b'{"[TURN_END]":1,'
+                                    b'"terminal":false,'
+                                    b'"reason":"approval_pending"}'
+                                ),
+                            },
+                        ),
+                        (
+                            "1717426372770-0",
+                            {
+                                tokens.DATA_KEY: b'{"type":"text_delta","text":"next"}',
+                            },
+                        ),
+                    ],
+                )
+            ]
+        ),
+        xrange=AsyncMock(return_value=[("1717426372770-0", {})]),
+        delete=AsyncMock(return_value=1),
+        _get_client=AsyncMock(return_value=raw_client),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]), last_id="0-0"
+        )
+    ]
+
+    assert len(events) == 1
+    assert isinstance(events[0], StreamDelta)
+    client.xrange.assert_awaited_once_with(
+        stream._stream_key,
+        min_id="(1717426372769-0",
+        count=1,
+    )
+    raw_client.expire.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_stream_events_does_not_expire_when_not_completed() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
