@@ -18,19 +18,19 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
+from tracecat import config
 from tracecat.logger import logger
 
 
 def _resolve_redis_url() -> str:
-    if not REDIS_URL__ARN:
-        return REDIS_URL
+    if not config.REDIS_URL__ARN:
+        return config.REDIS_URL
 
     logger.info("Retrieving Redis URL from AWS Secrets Manager...")
     try:
         session = boto3.session.Session()
         client = session.client(service_name="secretsmanager")
-        response = client.get_secret_value(SecretId=REDIS_URL__ARN)
+        response = client.get_secret_value(SecretId=config.REDIS_URL__ARN)
     except ClientError as e:
         logger.error(
             "Error retrieving Redis URL from AWS secrets manager.",
@@ -121,7 +121,7 @@ class RedisClient:
         fields: dict[str, Any],
         maxlen: int | None = None,
         approximate: bool = True,
-        expire_seconds: int | None = REDIS_CHAT_TTL_SECONDS,
+        expire_seconds: int | None = config.REDIS_CHAT_TTL_SECONDS,
     ) -> str:
         """Add an entry to a Redis stream with retry logic.
 

@@ -16,8 +16,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
@@ -146,7 +146,7 @@ async def add_temporal_search_attributes():
     This is an idempotent operation and is safe to run multiple times.
     """
     client = await get_temporal_client()
-    namespace = TEMPORAL__CLUSTER_NAMESPACE
+    namespace = config.TEMPORAL__CLUSTER_NAMESPACE
     attrs = {
         TemporalSearchAttr.TRIGGER_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
@@ -188,7 +188,7 @@ async def remove_temporal_search_attributes():
     This is an idempotent operation and is safe to run multiple times.
     """
     client = await get_temporal_client()
-    namespace = TEMPORAL__CLUSTER_NAMESPACE
+    namespace = config.TEMPORAL__CLUSTER_NAMESPACE
     try:
         await client.operator_service.remove_search_attributes(
             RemoveSearchAttributesRequest(

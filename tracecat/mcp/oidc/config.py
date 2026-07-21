@@ -8,8 +8,8 @@ import os
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from tracecat import config
 from tracecat.auth.secrets import get_user_auth_secret
-from tracecat.config import TRACECAT__PUBLIC_API_URL
 
 # --- Fixed internal client ---
 
@@ -44,7 +44,7 @@ def get_issuer_url() -> str:
     This URL appears in discovery documents and JWT ``iss`` claims.
     It is built from the public API URL so browsers can reach it.
     """
-    return f"{TRACECAT__PUBLIC_API_URL.rstrip('/')}{ISSUER_PATH_PREFIX}"
+    return f"{config.TRACECAT__PUBLIC_API_URL.rstrip('/')}{ISSUER_PATH_PREFIX}"
 
 
 def get_internal_discovery_url() -> str:
@@ -54,7 +54,7 @@ def get_internal_discovery_url() -> str:
     (avoids hairpin NAT), falling back to the public API URL.
     """
     internal_api = (
-        os.environ.get("TRACECAT__API_URL") or TRACECAT__PUBLIC_API_URL
+        os.environ.get("TRACECAT__API_URL") or config.TRACECAT__PUBLIC_API_URL
     ).rstrip("/")
     return f"{internal_api}{ISSUER_PATH_PREFIX}/.well-known/openid-configuration"
 

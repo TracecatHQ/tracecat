@@ -20,8 +20,8 @@ from fastapi import APIRouter, Depends, Form, Header, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import RedirectResponse, Response
 
+from tracecat import config
 from tracecat.auth.users import optional_current_active_user
-from tracecat.config import TRACECAT__PUBLIC_APP_URL
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import User
 from tracecat.logger import logger
@@ -87,7 +87,7 @@ def _allowed_redirect_uri() -> str:
 
     The FastMCP proxy's callback is ``{PUBLIC_APP_URL}/auth/callback``.
     """
-    return f"{TRACECAT__PUBLIC_APP_URL.rstrip('/')}/auth/callback"
+    return f"{config.TRACECAT__PUBLIC_APP_URL.rstrip('/')}/auth/callback"
 
 
 def _normalize_default_port_uri(uri: str) -> str:
@@ -257,7 +257,7 @@ async def jwks() -> dict[str, list[dict[str, str]]]:
 
 def _default_resource() -> str:
     """Return the default OAuth resource identifier (the MCP endpoint URL)."""
-    return f"{TRACECAT__PUBLIC_APP_URL.rstrip('/')}/mcp"
+    return f"{config.TRACECAT__PUBLIC_APP_URL.rstrip('/')}/mcp"
 
 
 async def _handle_authorize(
@@ -353,7 +353,7 @@ async def _handle_authorize(
         )
         await store_resume_transaction(txn)
 
-        frontend_base = TRACECAT__PUBLIC_APP_URL.rstrip("/")
+        frontend_base = config.TRACECAT__PUBLIC_APP_URL.rstrip("/")
         logger.info(
             "MCP OIDC: no session, redirecting to login",
             txn_id=txn_id,
