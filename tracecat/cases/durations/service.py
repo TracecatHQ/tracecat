@@ -136,10 +136,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             return self._to_read_model(entity)
 
         set_fields = params.model_fields_set
-        anchor_state_before = (
-            self._anchor_storage_snapshot(entity, "start"),
-            self._anchor_storage_snapshot(entity, "end"),
-        )
+        anchor_state_before = self._anchor_storage_state(entity)
 
         if (new_name := updates.get("name")) is not None:
             await self._ensure_unique_name(new_name, exclude_id=entity.id)
@@ -165,11 +162,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
-        anchor_state_after = (
-            self._anchor_storage_snapshot(entity, "start"),
-            self._anchor_storage_snapshot(entity, "end"),
-        )
-        if anchor_state_after != anchor_state_before:
+        if self._anchor_storage_state(entity) != anchor_state_before:
             await self._backfill_after_definition_change(
                 reason="duration_definition_updated"
             )
@@ -340,10 +333,13 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             f"{prefix}_selection": anchor.selection,
         }
 
-    def _anchor_storage_snapshot(
-        self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
-    ) -> _AnchorStorage:
-        return self._read_anchor_storage(entity, prefix)
+    def _anchor_storage_state(
+        self, entity: CaseDurationDefinitionDB
+    ) -> tuple[_AnchorStorage, _AnchorStorage]:
+        return (
+            self._read_anchor_storage(entity, "start"),
+            self._read_anchor_storage(entity, "end"),
+        )
 
     def _read_anchor_storage(
         self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
