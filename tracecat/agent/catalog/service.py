@@ -1,6 +1,6 @@
 """Service for managing agent model catalog."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypedDict
@@ -42,6 +42,20 @@ class PlatformCatalogEntry:
     model_provider: str
     model_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+_CONTEXT_WINDOW_METADATA_KEYS = ("context_window", "context_length", "max_input_tokens")
+
+
+def context_window_from_metadata(metadata: Mapping[str, Any] | None) -> int | None:
+    """Best-effort context window (tokens) from catalog model metadata."""
+    if not metadata:
+        return None
+    for key in _CONTEXT_WINDOW_METADATA_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+            return int(value)
+    return None
 
 
 class AgentCatalogService(BaseService):
@@ -114,6 +128,33 @@ class AgentCatalogService(BaseService):
         if row is None:
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
+
+    async def get_context_windows(
+        self,
+        *,
+        org_id: UUID,
+        catalog_ids: Collection[UUID],
+    ) -> dict[UUID, int]:
+        """Map visible catalog ids to context windows derived from metadata.
+
+        Rows without a usable window key are omitted.
+        """
+        if not catalog_ids:
+            return {}
+        stmt = select(AgentCatalog.id, AgentCatalog.model_metadata).where(
+            AgentCatalog.id.in_(catalog_ids),
+            sa.or_(
+                AgentCatalog.organization_id == org_id,
+                AgentCatalog.organization_id.is_(None),
+            ),
+        )
+        rows = (await self.session.execute(stmt)).all()
+        windows: dict[UUID, int] = {}
+        for catalog_id, metadata in rows:
+            window = context_window_from_metadata(metadata)
+            if window is not None:
+                windows[catalog_id] = window
+        return windows
 
     async def _enabled_catalog_ids_subquery(
         self,
