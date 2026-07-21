@@ -33,19 +33,9 @@ if TYPE_CHECKING:
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
-# Results cross the CLI stdout buffer capped at 5MiB
-# (CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES); stay under it with headroom for framing.
-MCP_TOOL_RESULT_MAX_BYTES = 4 * 1024 * 1024
 
-
-def _format_size(num_bytes: int) -> str:
-    """Human-readable byte size."""
-    value = float(num_bytes)
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024 or unit == "GB":
-            return f"{value:.1f}{unit}" if unit != "B" else f"{int(value)}B"
-        value /= 1024
-    return f"{value:.1f}GB"
+# Lone surrogates cannot cross JSON serialization.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
 
 def _render_content_block(block: ContentBlock) -> str:
@@ -75,28 +65,18 @@ def _render_content_block(block: ContentBlock) -> str:
 
 def flatten_mcp_content_blocks(
     content: Sequence[ContentBlock] | None,
-    *,
-    max_bytes: int = MCP_TOOL_RESULT_MAX_BYTES,
 ) -> str:
-    """Flatten every block of an MCP CallToolResult into a single string.
+    """Flatten an MCP CallToolResult into one string.
 
-    Truncation is marked loudly: a silent cut is the same failure mode as
-    dropping blocks, since the agent cannot tell it received partial data.
+    Size is bounded upstream by the HTTP byte cap in ``http_limits`` and
+    downstream by the CLI's MAX_MCP_OUTPUT_TOKENS spill-to-file limit.
     """
     if not content:
         return ""
-
-    joined = "\n\n".join(_render_content_block(block) for block in content)
-
-    encoded = joined.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return joined
-
-    head = encoded[:max_bytes].decode("utf-8", errors="ignore")
-    return (
-        f"{head}\n\n[truncated: {_format_size(len(encoded) - max_bytes)} "
-        f"of {_format_size(len(encoded))} omitted]"
-    )
+    text = "\n\n".join(_render_content_block(block) for block in content)
+    if _SURROGATE_RE.search(text):
+        text = text.encode("utf-8", errors="replace").decode("utf-8")
+    return text
 
 
 # Anthropic tool names must match this pattern; stdio MCP servers can report
