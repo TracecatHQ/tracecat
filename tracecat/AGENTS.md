@@ -12,6 +12,7 @@ set for related Python packages in this repo.
 - Use `uv pip install` for package installation.
 - Avoid `type: ignore`. If imports are cyclical, prefer `if TYPE_CHECKING:`.
 - Prefer `frozen=True` dataclasses for immutable value objects.
+- Prefer `slots=True` when defining dataclasses.
 - Prefer `TypedDict` for structured dictionaries and `Protocol` for structural
   typing.
 - Use `TypedDict` with `NotRequired` for optional configuration keys.
