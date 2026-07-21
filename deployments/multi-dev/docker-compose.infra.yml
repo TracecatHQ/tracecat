@@ -27,6 +27,9 @@ services:
   temporal:
     image: temporalio/temporal:1.8.0
     restart: unless-stopped
+    # The image runs as uid 1000 (temporal), but a fresh named volume mounted
+    # at /data is root-owned, so the dev server cannot create its SQLite file.
+    user: root
     command:
       - server
       - start-dev
