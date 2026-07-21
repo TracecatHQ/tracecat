@@ -48,6 +48,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
@@ -2673,7 +2674,7 @@ class Approval(WorkspaceModel):
         nullable=True,
         doc="Optional reason for approval decision",
     )
-    decision: Mapped[bool | dict[str, Any] | None] = mapped_column(
+    decision: Mapped[PersistedApprovalDecision | None] = mapped_column(
         JSONB,
         nullable=True,
         doc=(

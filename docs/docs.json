@@ -425,14 +425,14 @@
   "navbar": {
     "links": [
       {
-        "label": "Support",
+        "label": "Discord",
         "href": "https://discord.com/invite/H4XZwsYzY4"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "https://platform.tracecat.com"
+      "label": "Talk to us",
+      "href": "https://tracecat.com/contact"
     }
   },
   "contextual": {

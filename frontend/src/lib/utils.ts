@@ -6,6 +6,50 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Runs promise-returning tasks with at most `concurrencyLimit` tasks in flight.
+ * Stops scheduling new tasks after the first failure and preserves input order.
+ */
+export async function runWithConcurrencyLimit<T>(
+  tasks: readonly (() => Promise<T>)[],
+  concurrencyLimit: number
+): Promise<T[]> {
+  if (!Number.isInteger(concurrencyLimit) || concurrencyLimit < 1) {
+    throw new RangeError("concurrencyLimit must be a positive integer")
+  }
+
+  const results = new Array<T>(tasks.length)
+  let nextIndex = 0
+  let firstError: unknown
+  let hasError = false
+
+  async function runNext(): Promise<void> {
+    while (!hasError && nextIndex < tasks.length) {
+      const currentIndex = nextIndex
+      const task = tasks[currentIndex]
+      nextIndex += 1
+
+      try {
+        results[currentIndex] = await task()
+      } catch (error) {
+        if (!hasError) {
+          hasError = true
+          firstError = error
+        }
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrencyLimit, tasks.length)
+  await Promise.all(Array.from({ length: workerCount }, () => runNext()))
+
+  if (hasError) {
+    throw firstError
+  }
+
+  return results
+}
+
 // Linear-style design tokens
 export const linearStyles = {
   input: {

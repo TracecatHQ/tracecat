@@ -1061,7 +1061,8 @@ class DurableAgentWorkflow:
             )
 
     @workflow.update
-    def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool:
+        submission = WorkflowApprovalSubmission.model_validate(submission)
         logger.info(
             "Setting approvals",
             approvals=submission.approvals,
@@ -1081,6 +1082,7 @@ class DurableAgentWorkflow:
         # a definitively rejected continuation attempt.
         if submission.new_stream_id is not None:
             self.active_stream_id = submission.new_stream_id
+        return self.approvals.is_ready()
 
     @set_approvals.validator
     def validate_set_approvals(self, submission: WorkflowApprovalSubmission) -> None:

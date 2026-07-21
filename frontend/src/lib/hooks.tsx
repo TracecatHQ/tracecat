@@ -63,6 +63,7 @@ import {
   type CasesListTagsData,
   type CasesListTasksData,
   type CasesSearchCasesData,
+  type CaseTableRowRead,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
@@ -90,6 +91,7 @@ import {
   casesDeleteCase,
   casesDeleteComment,
   casesDeleteTask,
+  casesListCaseRows,
   casesListComments,
   casesListCommentThreads,
   casesListEventsWithUsers,
@@ -3727,6 +3729,7 @@ export function useSearchCases(params: CasesSearchCasesData) {
 interface UseGetCaseOptions {
   enabled?: boolean
 }
+
 export function useGetCase(
   { caseId, workspaceId }: CasesGetCaseData,
   options?: UseGetCaseOptions
@@ -3739,7 +3742,7 @@ export function useGetCase(
     queryKey: ["case", caseId],
     queryFn: async () => {
       const response = await apiClient.get<CaseRead>(`/cases/${caseId}`, {
-        params: { workspace_id: workspaceId, include_rows: true },
+        params: { workspace_id: workspaceId },
       })
       return response.data
     },
@@ -3750,6 +3753,42 @@ export function useGetCase(
     caseData,
     caseDataIsLoading,
     caseDataError,
+  }
+}
+
+const CASE_ROWS_PAGE_SIZE = 200
+
+/** Fetch all linked rows for a case, including hydrated row data. */
+export function useListCaseRows(caseId: string, workspaceId: string) {
+  const {
+    data: caseRows = [],
+    isLoading: caseRowsIsLoading,
+    error: caseRowsError,
+  } = useQuery<CaseTableRowRead[], TracecatApiError>({
+    queryKey: ["case-rows", caseId],
+    queryFn: async () => {
+      const rows: CaseTableRowRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await casesListCaseRows({
+          caseId,
+          workspaceId,
+          limit: CASE_ROWS_PAGE_SIZE,
+          cursor,
+        })
+        rows.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return rows
+    },
+  })
+
+  return {
+    caseRows,
+    caseRowsIsLoading,
+    caseRowsError,
   }
 }
 

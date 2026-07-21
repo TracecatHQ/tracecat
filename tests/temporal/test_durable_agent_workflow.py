@@ -2641,12 +2641,13 @@ async def test_agent_workflow_approval_with_override_args(
                 )
                 assert approval is not None
                 assert approval.status == ApprovalStatus.APPROVED
-                assert isinstance(approval.decision, dict)
-                assert approval.decision["kind"] == "tool-approved"
-                assert "override_args" in approval.decision
+                decision = approval.decision
+                assert isinstance(decision, dict)
+                assert "kind" in decision
+                assert decision["kind"] == "tool-approved"
+                assert "override_args" in decision
                 assert (
-                    approval.decision["override_args"]["url"]
-                    == "https://modified.example.com"
+                    decision["override_args"]["url"] == "https://modified.example.com"
                 )
     except Exception:
         if wf_handle:
@@ -2774,8 +2775,12 @@ async def test_agent_workflow_mixed_approvals_and_rejections(
                     a for a in updated_approvals if a.status == ApprovalStatus.REJECTED
                 ]
                 assert len(rejected) == 1
-                assert isinstance(rejected[0].decision, dict)
-                assert rejected[0].decision["message"] == "Too risky"
+                decision = rejected[0].decision
+                assert isinstance(decision, dict)
+                assert "kind" in decision
+                assert decision["kind"] == "tool-denied"
+                assert "message" in decision
+                assert decision["message"] == "Too risky"
     except Exception:
         if wf_handle:
             try:
