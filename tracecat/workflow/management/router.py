@@ -2,7 +2,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Literal
 
 import orjson
 import yaml
@@ -38,7 +38,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Webhook, WebhookApiKey, Workflow
+from tracecat.db.models import WebhookApiKey, Workflow
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
@@ -712,25 +712,6 @@ async def create_workflow_definition(
 # ----- Workflow Webhooks ----- #
 
 
-async def _webhook_create_audit_result(
-    _result: None,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-    workflow_id: AnyWorkflowIDPath,
-    params: WebhookCreate,
-) -> AuditEventDetails:
-    if role.workspace_id is None:
-        return AuditEventDetails()
-    webhook = await webhook_service.get_webhook(
-        session=session,
-        workspace_id=role.workspace_id,
-        workflow_id=workflow_id,
-    )
-    return AuditEventDetails(
-        resource_id=webhook.id if webhook is not None else None,
-    )
-
-
 async def _get_webhook_key_audit_target(
     role: Role,
     session: AsyncSession,
@@ -802,11 +783,6 @@ async def _webhook_key_audit_result(
     tags=["triggers"],
 )
 @require_scope("workflow:update")
-@audit_log(
-    resource_type="webhook",
-    action="create",
-    terminal_metadata=_webhook_create_audit_result,
-)
 async def create_webhook(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -818,18 +794,12 @@ async def create_webhook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-
-    webhook = Webhook(
-        workspace_id=role.workspace_id,
-        methods=cast(list[str], params.methods),
+    await webhook_service.create_webhook(
+        role=role,
+        session=session,
         workflow_id=workflow_id,
-        status=params.status,
-        allowlisted_cidrs=params.allowlisted_cidrs,
-        include_headers=params.include_headers,
+        params=params,
     )
-    session.add(webhook)
-    await session.commit()
-    await session.refresh(webhook)
 
 
 @router.get(

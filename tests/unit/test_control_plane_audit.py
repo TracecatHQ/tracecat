@@ -89,6 +89,7 @@ def _session() -> SimpleNamespace:
         delete=AsyncMock(),
         execute=AsyncMock(),
         flush=AsyncMock(),
+        info={},
         refresh=AsyncMock(),
         scalar=AsyncMock(),
     )
@@ -434,10 +435,6 @@ async def _schedule(mp: pytest.MonkeyPatch, role: Role, action: str):
             "_get_schedule_with_workflow_lock",
             AsyncMock(return_value=SimpleNamespace(id=schedule_id)),
         )
-        mp.setattr(
-            "tracecat.workflow.schedules.service.add_after_commit_callback",
-            MagicMock(),
-        )
         await service.update_schedule(schedule_id, ScheduleUpdate(status="offline"))
         return _pair(
             "schedule", action, schedule_id, schedule_id, {"changed_fields": ["status"]}
@@ -500,18 +497,12 @@ def _webhook_session() -> SimpleNamespace:
 
 async def _webhook_create(mp: pytest.MonkeyPatch, role: Role):
     session = _webhook_session()
-
-    async def get_created_webhook(**_kwargs: object):
-        return session.add.call_args.args[0]
-
-    mp.setattr(webhook_service, "get_webhook", get_created_webhook)
-    await workflow_management_router.create_webhook(
+    webhook = await webhook_service.create_webhook(
         role=role,
         session=cast(Any, session),
         workflow_id=WorkflowUUID.new_uuid4(),
         params=WebhookCreate(status="online"),
     )
-    webhook = session.add.call_args.args[0]
     return _pair("webhook", "create", None, webhook.id)
 
 

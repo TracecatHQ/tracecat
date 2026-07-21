@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +14,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Webhook
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import WorkflowID
-from tracecat.webhooks.schemas import WebhookUpdate
+from tracecat.webhooks.schemas import WebhookCreate, WebhookUpdate
 
 
 async def _webhook_update_audit_details(
@@ -52,6 +54,36 @@ async def get_webhook(
     )
     result = await session.execute(statement)
     return result.scalars().first()
+
+
+@require_scope("workflow:update")
+@audit_log(
+    resource_type="webhook",
+    action="create",
+    resource_id_attr="id",
+)
+async def create_webhook(
+    *,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowID,
+    params: WebhookCreate,
+) -> Webhook:
+    """Create a webhook for a workflow."""
+    if role.workspace_id is None:
+        raise TracecatAuthorizationError("Webhook creation requires a workspace")
+    webhook = Webhook(
+        workspace_id=role.workspace_id,
+        methods=cast(list[str], params.methods),
+        workflow_id=workflow_id,
+        status=params.status,
+        allowlisted_cidrs=params.allowlisted_cidrs,
+        include_headers=params.include_headers,
+    )
+    session.add(webhook)
+    await session.commit()
+    await session.refresh(webhook)
+    return webhook
 
 
 @require_scope("workflow:update")
