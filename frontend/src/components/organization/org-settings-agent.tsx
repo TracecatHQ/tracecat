@@ -32,6 +32,7 @@ import {
   type VertexAICatalogCreate,
   validateCustomProviderConnection,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -40,6 +41,10 @@ import {
   RbacListContainer,
   RbacListItem,
 } from "@/components/organization/rbac-list-item"
+import {
+  WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES,
+  WorkspaceModelAccessSection,
+} from "@/components/organization/workspace-model-access-section"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1885,6 +1890,10 @@ export function OrgSettingsAgentForm() {
   const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const canManageWorkspaceModelAccess =
+    useScopeCheck(undefined, WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES, {
+      all: true,
+    }) === true
   const [credentialsProvider, setCredentialsProvider] = useState<string | null>(
     null
   )
@@ -2647,7 +2656,7 @@ export function OrgSettingsAgentForm() {
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
             {agentAddonsEnabled
-              ? "The platform catalog stays shared, while each workspace can still restrict itself to a smaller subset of the organization-enabled catalog."
+              ? "The platform catalog stays shared, and workspace subsets are managed at the organization level."
               : "Connect providers here. Upgrade to manage which organization-level models are enabled."}
           </p>
         </div>
@@ -2865,6 +2874,22 @@ export function OrgSettingsAgentForm() {
           </Card>
         )}
       </section>
+
+      {agentAddonsEnabled && canManageWorkspaceModelAccess ? (
+        <section className="space-y-4">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold tracking-tight">
+              Workspace model access
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Restrict each workspace to a subset of the organization-enabled
+              catalog. Workspaces without a subset inherit every
+              organization-enabled model.
+            </p>
+          </div>
+          <WorkspaceModelAccessSection />
+        </section>
+      ) : null}
 
       <AgentCredentialsDialog
         isOpen={credentialsProvider !== null}

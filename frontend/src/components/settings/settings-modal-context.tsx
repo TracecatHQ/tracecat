@@ -7,7 +7,6 @@ export type SettingsSection =
   | "appearance"
   | "workspace-general"
   | "workspace-runtime"
-  | "workspace-models"
   | "workspace-files"
   | "workspace-sync"
 

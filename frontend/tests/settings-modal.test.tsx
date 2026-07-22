@@ -149,6 +149,9 @@ describe("SettingsModal workspace navigation", () => {
     expect(
       screen.getByRole("button", { name: "Workflows" })
     ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "AI models" })
+    ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Git sync" })).toBeInTheDocument()
   })

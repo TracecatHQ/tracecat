@@ -11,7 +11,7 @@ import type {
   AgentCustomProviderRead,
   AgentModelAccessRead,
   ApiError,
-  WorkspaceRead,
+  WorkspaceReadMinimal,
 } from "@/client"
 import {
   disableModel,
@@ -19,7 +19,9 @@ import {
   listCatalog,
   listCustomProviders,
   listEnabledModels,
+  workspacesListWorkspaces,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -34,14 +36,27 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, retryHandler } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
+export const WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES = [
+  "agent:read",
+  "agent:create",
+  "agent:delete",
+  "org:workspace:read",
+]
 
-const workspaceModelSettingsSchema = z
+const workspaceModelAccessSchema = z
   .object({
     inherit_all: z.boolean().default(true),
     catalog_ids: z.array(z.string()).default([]),
@@ -58,7 +73,7 @@ const workspaceModelSettingsSchema = z
     })
   })
 
-type WorkspaceModelSettingsForm = z.infer<typeof workspaceModelSettingsSchema>
+type WorkspaceModelAccessForm = z.infer<typeof workspaceModelAccessSchema>
 
 function getProviderIconId(provider?: string | null): string {
   switch (provider) {
@@ -164,20 +179,139 @@ function getModelSourceLabel(
   return getProviderDisplayLabel(entry.model_provider)
 }
 
+function compareWorkspaces(
+  left: WorkspaceReadMinimal,
+  right: WorkspaceReadMinimal
+) {
+  const nameComparison = left.name.localeCompare(right.name)
+  if (nameComparison !== 0) {
+    return nameComparison
+  }
+  return left.id.localeCompare(right.id)
+}
+
+/**
+ * Select a workspace and manage its AI model subset from organization settings.
+ */
+export function WorkspaceModelAccessSection() {
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
+    string | undefined
+  >()
+  const canManageWorkspaceModelAccess =
+    useScopeCheck(undefined, WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES, {
+      all: true,
+    }) === true
+  const {
+    data: workspaces,
+    error: workspacesError,
+    isLoading: workspacesLoading,
+  } = useQuery<WorkspaceReadMinimal[], ApiError>({
+    queryKey: ["workspaces"],
+    queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000,
+    retry: retryHandler,
+    enabled: canManageWorkspaceModelAccess,
+  })
+  const orderedWorkspaces = useMemo(
+    () => [...(workspaces ?? [])].sort(compareWorkspaces),
+    [workspaces]
+  )
+  const selectedWorkspace = orderedWorkspaces.find(
+    (workspace) => workspace.id === selectedWorkspaceId
+  )
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      return
+    }
+    if (selectedWorkspace) {
+      return
+    }
+    setSelectedWorkspaceId(undefined)
+  }, [selectedWorkspace, selectedWorkspaceId])
+
+  if (!canManageWorkspaceModelAccess) {
+    return null
+  }
+
+  if (workspacesLoading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (workspacesError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Unable to load workspaces</AlertTitle>
+        <AlertDescription>
+          {getApiErrorDetail(workspacesError) ?? "Something went wrong."}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (!orderedWorkspaces.length) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+        No workspaces are available.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <Select
+        onValueChange={setSelectedWorkspaceId}
+        value={selectedWorkspaceId}
+      >
+        <SelectTrigger className="max-w-sm">
+          <SelectValue placeholder="Select a workspace" />
+        </SelectTrigger>
+        <SelectContent>
+          {orderedWorkspaces.map((workspace) => (
+            <SelectItem key={workspace.id} value={workspace.id}>
+              {workspace.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {selectedWorkspace ? (
+        <WorkspaceModelAccessEditor
+          key={selectedWorkspace.id}
+          workspaceId={selectedWorkspace.id}
+          workspaceName={selectedWorkspace.name}
+        />
+      ) : (
+        <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+          Choose a workspace to manage its AI model access.
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface WorkspaceModelAccessEditorProps {
+  workspaceId: string
+  workspaceName: string
+}
+
 /**
  * Manage workspace AI model availability with the branch-style inherit/subset
  * UI, backed by the current catalog and access APIs.
  */
-export function WorkspaceModelSettings({
-  workspace,
-}: {
-  workspace: WorkspaceRead
-}) {
+function WorkspaceModelAccessEditor({
+  workspaceId,
+  workspaceName,
+}: WorkspaceModelAccessEditorProps) {
   const queryClient = useQueryClient()
   const [modelQuery, setModelQuery] = useState("")
   const lastSyncedFormValuesRef = useRef<string | null>(null)
-  const form = useForm<WorkspaceModelSettingsForm>({
-    resolver: zodResolver(workspaceModelSettingsSchema),
+  const form = useForm<WorkspaceModelAccessForm>({
+    resolver: zodResolver(workspaceModelAccessSchema),
     mode: "onChange",
     defaultValues: {
       inherit_all: true,
@@ -230,9 +364,9 @@ export function WorkspaceModelSettings({
   const workspaceAccessRows = useMemo(
     () =>
       (enabledAccessRows ?? []).filter(
-        (row) => row.workspace_id === workspace.id
+        (row) => row.workspace_id === workspaceId
       ),
-    [enabledAccessRows, workspace.id]
+    [enabledAccessRows, workspaceId]
   )
   const orgEnabledCatalogIds = useMemo(
     () => new Set(orgEnabledAccessRows.map((row) => row.catalog_id)),
@@ -331,7 +465,7 @@ export function WorkspaceModelSettings({
   }, [modelQuery, organizationEnabledEntries, providersById])
 
   const updateWorkspaceModelSubset = useMutation({
-    mutationFn: async (values: WorkspaceModelSettingsForm) => {
+    mutationFn: async (values: WorkspaceModelAccessForm) => {
       const desiredCatalogIds = new Set(values.catalog_ids)
       const accessRowsToDisable = values.inherit_all
         ? workspaceAccessRows
@@ -353,7 +487,7 @@ export function WorkspaceModelSettings({
         await enableModel({
           requestBody: {
             catalog_id: catalogId,
-            workspace_id: workspace.id,
+            workspace_id: workspaceId,
           },
         })
       }
@@ -364,11 +498,11 @@ export function WorkspaceModelSettings({
         queryKey: ["organization", "agent-model-access"],
       })
       void queryClient.invalidateQueries({
-        queryKey: ["workspace", workspace.id, "agent-model-access"],
+        queryKey: ["workspace", workspaceId, "agent-models"],
       })
       toast({
         title: "Workspace models updated",
-        description: `Saved the AI model settings for ${workspace.name}.`,
+        description: `Saved the AI model settings for ${workspaceName}.`,
       })
     },
     onError: (error: ApiError) => {
@@ -382,7 +516,7 @@ export function WorkspaceModelSettings({
     },
   })
 
-  async function onSubmit(values: WorkspaceModelSettingsForm) {
+  async function onSubmit(values: WorkspaceModelAccessForm) {
     await updateWorkspaceModelSubset.mutateAsync(values)
   }
 
