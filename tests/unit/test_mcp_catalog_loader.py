@@ -33,6 +33,18 @@ def _clear_catalog_cache() -> None:
     loader._cached_platform_mcp_catalog_entries.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_catalog_cache():  # pyright: ignore[reportUnusedFunction]
+    """Drop cache entries built from stubbed catalog payloads.
+
+    Stubs are undone by monkeypatch, but the process-wide lru_cache would
+    otherwise keep serving the stubbed catalog to later tests on this worker.
+    """
+    _clear_catalog_cache()
+    yield
+    _clear_catalog_cache()
+
+
 def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
     _clear_catalog_cache()
 
