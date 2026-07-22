@@ -72,6 +72,7 @@ async def publish_case_duration_sync(
 
 
 ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
+ROLLOUT_BACKFILL_PENDING_SENTINEL: Final = "pending"
 # Lease TTL covering one enqueue pass. A boot that dies mid-pass (crash or a
 # cancelled lifespan task) simply lets the lease lapse, so a later boot
 # retries instead of permanently skipping the rollout.
@@ -206,25 +207,28 @@ async def enqueue_case_duration_backfill_for_org(
     await enqueue_case_duration_backfill_for_orgs([organization_id])
 
 
-async def enqueue_rollout_backfill_once() -> None:
+async def enqueue_rollout_backfill_once() -> bool:
     """Queue a one-time backfill for workspaces with existing definitions.
 
     Deployments that predate async duration sync materialized duration rows
     on read; that read-time sync is gone, so cases without a subsequent event
     would otherwise stay unmaterialized forever. A short-lived Redis lease
     (``SET NX EX``) elects one replica; the marker is made permanent only
-    after every workspace job is queued. The consumer retries failed passes;
-    the lease expiry lets another process or the next boot recover from a
-    crash. Re-runs are idempotent.
+    after every workspace job is queued. Returns ``True`` when the rollout is
+    complete, either by this call or a prior replica, and ``False`` while
+    another replica's lease is pending or has just lapsed. Losing replicas
+    retry on later consumer iterations, so one can acquire an expired lease
+    after the elected replica crashes. Re-runs are idempotent.
     """
     client = await get_redis_client()
     acquired = await client.set_if_not_exists(
         ROLLOUT_BACKFILL_MARKER_KEY,
-        "pending",
+        ROLLOUT_BACKFILL_PENDING_SENTINEL,
         expire_seconds=ROLLOUT_BACKFILL_LEASE_SECONDS,
     )
     if not acquired:
-        return
+        marker = await client.get(ROLLOUT_BACKFILL_MARKER_KEY)
+        return marker is not None and marker != ROLLOUT_BACKFILL_PENDING_SENTINEL
 
     try:
         async with get_async_session_bypass_rls_context_manager() as session:
@@ -261,6 +265,7 @@ async def enqueue_rollout_backfill_once() -> None:
         "Queued rollout duration backfill",
         workspace_count=len(workspace_ids),
     )
+    return True
 
 
 def enqueue_case_duration_sync_after_commit(

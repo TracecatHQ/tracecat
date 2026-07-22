@@ -12,6 +12,7 @@ from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.durations.sync_queue import (
     ROLLOUT_BACKFILL_LEASE_SECONDS,
     ROLLOUT_BACKFILL_MARKER_KEY,
+    ROLLOUT_BACKFILL_PENDING_SENTINEL,
     enqueue_case_duration_backfill_for_org,
     enqueue_case_duration_backfill_for_orgs,
     enqueue_case_duration_sync_after_commit,
@@ -429,10 +430,12 @@ def _mock_rollout_environment(
     monkeypatch: pytest.MonkeyPatch,
     *,
     marker_acquired: bool,
+    marker_value: str | None = None,
     workspace_ids: list[uuid.UUID],
 ) -> tuple[MagicMock, AsyncMock]:
     redis_mock = MagicMock()
     redis_mock.set_if_not_exists = AsyncMock(return_value=marker_acquired)
+    redis_mock.get = AsyncMock(return_value=marker_value)
     redis_mock.set = AsyncMock()
     redis_mock.delete = AsyncMock()
     monkeypatch.setattr(
@@ -470,7 +473,7 @@ async def test_rollout_backfill_publishes_once_per_workspace(
         monkeypatch, marker_acquired=True, workspace_ids=workspace_ids
     )
 
-    await enqueue_rollout_backfill_once()
+    assert await enqueue_rollout_backfill_once()
 
     assert publish_mock.await_args_list == [
         call(workspace_id=workspace_id, reason="duration_definition_updated")
@@ -503,15 +506,53 @@ async def test_rollout_backfill_keeps_lease_on_cancellation(
 
 
 @pytest.mark.anyio
-async def test_rollout_backfill_skips_when_marker_exists(
+async def test_rollout_backfill_returns_false_while_competing_lease_is_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, publish_mock = _mock_rollout_environment(
-        monkeypatch, marker_acquired=False, workspace_ids=[uuid.uuid4()]
+    redis_mock, publish_mock = _mock_rollout_environment(
+        monkeypatch,
+        marker_acquired=False,
+        marker_value=ROLLOUT_BACKFILL_PENDING_SENTINEL,
+        workspace_ids=[uuid.uuid4()],
     )
 
-    await enqueue_rollout_backfill_once()
+    assert not await enqueue_rollout_backfill_once()
 
+    redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
+    publish_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_rollout_backfill_returns_true_when_permanent_marker_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis_mock, publish_mock = _mock_rollout_environment(
+        monkeypatch,
+        marker_acquired=False,
+        marker_value="2026-07-22T12:00:00+00:00",
+        workspace_ids=[uuid.uuid4()],
+    )
+
+    assert await enqueue_rollout_backfill_once()
+
+    redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
+    publish_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_rollout_backfill_returns_false_when_competing_lease_lapses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis_mock, publish_mock = _mock_rollout_environment(
+        monkeypatch,
+        marker_acquired=False,
+        marker_value=None,
+        workspace_ids=[uuid.uuid4()],
+    )
+
+    assert not await enqueue_rollout_backfill_once()
+
+    redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
     publish_mock.assert_not_awaited()
 
 

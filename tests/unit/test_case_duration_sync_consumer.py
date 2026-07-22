@@ -47,7 +47,7 @@ class FakeRedisClient:
 
 @pytest.fixture(autouse=True)
 def rollout_backfill_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    mock = AsyncMock()
+    mock = AsyncMock(return_value=True)
     monkeypatch.setattr(
         "tracecat.cases.durations.consumer.enqueue_rollout_backfill_once",
         mock,
@@ -1173,7 +1173,7 @@ async def test_consumer_retries_rollout_backfill_then_reads_stream(
     monkeypatch: pytest.MonkeyPatch,
     rollout_backfill_mock: AsyncMock,
 ) -> None:
-    rollout_backfill_mock.side_effect = [ConnectionError("redis unavailable"), None]
+    rollout_backfill_mock.side_effect = [ConnectionError("redis unavailable"), True]
     client = AsyncMock()
     client.xreadgroup = AsyncMock(
         side_effect=[
@@ -1194,6 +1194,35 @@ async def test_consumer_retries_rollout_backfill_then_reads_stream(
     ensure_group_mock.assert_awaited_once()
     assert client.xreadgroup.await_count == 2
     assert [call.args[0] for call in sleep_mock.await_args_list] == [1.0, 0]
+
+
+@pytest.mark.anyio
+async def test_consumer_retries_pending_rollout_until_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    rollout_backfill_mock: AsyncMock,
+) -> None:
+    rollout_backfill_mock.side_effect = [False, True]
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            [],
+            [],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    ensure_group_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    assert rollout_backfill_mock.await_count == 2
+    ensure_group_mock.assert_awaited_once()
+    assert client.xreadgroup.await_count == 3
+    assert [call.args[0] for call in sleep_mock.await_args_list] == [0, 0]
 
 
 @pytest.mark.anyio

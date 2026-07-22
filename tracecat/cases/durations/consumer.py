@@ -113,8 +113,7 @@ class CaseDurationSyncConsumer:
         while True:
             try:
                 if not rollout_enqueued:
-                    await enqueue_rollout_backfill_once()
-                    rollout_enqueued = True
+                    rollout_enqueued = await enqueue_rollout_backfill_once()
                 if not group_ready:
                     await self._ensure_group()
                     group_ready = True
