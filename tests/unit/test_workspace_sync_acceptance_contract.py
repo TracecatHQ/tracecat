@@ -4664,7 +4664,167 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
     )
     assert [version.version for version in versions] == [1, 2]
     assert {version.catalog_id for version in versions} == {local_catalog.id}
-    assert {version.base_url for version in versions} == {source_base_url}
+    assert {version.base_url for version in versions} == {None}
+
+
+@pytest.mark.anyio
+async def test_agent_preset_correlation_clears_source_base_url_for_openai(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Remapping a cross-environment catalog UUID must clear its base URL.
+
+    The deployment-local URL must not send the target's provider credentials to
+    the source deployment's endpoint because OpenAI and Anthropic honor a preset
+    base URL override at the gateway.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    local_catalog = AgentCatalog(
+        id=uuid.uuid4(),
+        organization_id=svc_role.organization_id,
+        model_provider="openai",
+        model_name="gpt-5.2",
+    )
+    session.add(local_catalog)
+    await session.flush()
+    session.add(
+        AgentModelAccess(
+            organization_id=svc_role.organization_id,
+            workspace_id=None,
+            catalog_id=local_catalog.id,
+        )
+    )
+    await session.flush()
+
+    files = _agent_preset_git_tree(
+        source_id="qa-openai-cross-env",
+        slug="qa-openai-cross-env",
+        name="QA OpenAI cross-environment catalog",
+    )
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-openai-cross-env/versions/1.yml"
+    preset_spec = yaml.safe_load(files[preset_path])
+    preset_spec.update(
+        {
+            "catalog_id": str(uuid.uuid4()),
+            "model_provider": "openai",
+            "model_name": "gpt-5.2",
+            "base_url": "https://source-deployment.example.com/v1",
+        }
+    )
+    files[preset_path] = _yaml(preset_spec)
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
+    assert diagnostics == []
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-openai-cross-env",
+        )
+    )
+    assert preset is not None
+    assert preset.catalog_id == local_catalog.id
+    assert preset.base_url is None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == preset.id,
+        )
+    )
+    assert version is not None
+    assert version.catalog_id == local_catalog.id
+    assert version.base_url is None
+
+
+@pytest.mark.anyio
+async def test_agent_preset_dry_run_correlates_catalog_id_without_spurious_diff(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A correlated catalog UUID must not cause a spurious dry-run modification.
+
+    A cross-environment catalog UUID that correlates to the enabled local model must
+    not surface as a spurious agent-preset modification in the dry-run preview; the
+    preview must match what a real import would change (nothing).
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    local_catalog = AgentCatalog(
+        id=uuid.uuid4(),
+        organization_id=svc_role.organization_id,
+        model_provider="custom-model-provider",
+        model_name="qa-preview-correlated-model",
+    )
+    session.add(local_catalog)
+    await session.flush()
+    session.add(
+        AgentModelAccess(
+            organization_id=svc_role.organization_id,
+            workspace_id=None,
+            catalog_id=local_catalog.id,
+        )
+    )
+    await session.flush()
+
+    files = _agent_preset_git_tree(
+        source_id="qa-preview-correlated",
+        slug="qa-preview-correlated",
+        name="QA preview correlated",
+    )
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-preview-correlated/versions/1.yml"
+    preset_spec = yaml.safe_load(files[preset_path])
+    preset_spec.update(
+        {
+            "catalog_id": str(uuid.uuid4()),
+            "model_provider": "custom-model-provider",
+            "model_name": "qa-preview-correlated-model",
+        }
+    )
+    files[preset_path] = _yaml(preset_spec)
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="o" * 40)
+    assert diagnostics == []
+    import_result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert import_result.success is True
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-preview-correlated",
+        )
+    )
+    assert preset is not None
+    assert preset.catalog_id == local_catalog.id
+
+    transport = AsyncMock(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha="p" * 40,
+                tree_sha="preview-tree",
+                files=files,
+            )
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-catalog-preview-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.pull(
+            options=PullOptions(commit_sha="p" * 40, dry_run=True)
+        )
+
+    assert result.success is True
+    assert result.diagnostics == []
+    assert result.resource_diffs == []
+    assert result.message == "Dry run completed - 0 resource change(s) detected"
 
 
 @pytest.mark.anyio

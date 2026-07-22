@@ -394,14 +394,14 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
-            resource_diffs = await self._resource_diffs_for_pull(
-                snapshot,
-                sync_schedules=sync_schedules,
-            )
             (
                 prepared_snapshot,
                 resource_diagnostics,
             ) = await self._prepare_snapshot_for_import(snapshot)
+            resource_diffs = await self._resource_diffs_for_pull(
+                prepared_snapshot,
+                sync_schedules=sync_schedules,
+            )
             workflow_diagnostics = await self._validate_workflow_import(
                 prepared_snapshot
             )
