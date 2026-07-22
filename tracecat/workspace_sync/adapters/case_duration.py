@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any, NamedTuple
+
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
+from tracecat.cases.durations.sync_queue import (
+    enqueue_workspace_case_duration_backfill_after_commit,
+)
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import CaseDurationDefinition
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
@@ -22,6 +29,49 @@ from tracecat.workspace_sync.schemas import (
     CaseDurationResourceSpec,
     WorkspaceSpec,
 )
+
+
+class _DurationMaterializationState(NamedTuple):
+    """Definition fields that affect persisted case-duration calculations."""
+
+    start_event_type: CaseEventType
+    start_selection: CaseDurationAnchorSelection
+    start_timestamp_path: str
+    start_field_filters: dict[str, Any]
+    end_event_type: CaseEventType
+    end_selection: CaseDurationAnchorSelection
+    end_timestamp_path: str
+    end_field_filters: dict[str, Any]
+
+
+def _definition_materialization_state(
+    duration: CaseDurationDefinition,
+) -> _DurationMaterializationState:
+    return _DurationMaterializationState(
+        start_event_type=duration.start_event_type,
+        start_selection=duration.start_selection,
+        start_timestamp_path=duration.start_timestamp_path,
+        start_field_filters=dict(duration.start_field_filters),
+        end_event_type=duration.end_event_type,
+        end_selection=duration.end_selection,
+        end_timestamp_path=duration.end_timestamp_path,
+        end_field_filters=dict(duration.end_field_filters),
+    )
+
+
+def _spec_materialization_state(
+    spec: CaseDurationResourceSpec,
+) -> _DurationMaterializationState:
+    return _DurationMaterializationState(
+        start_event_type=spec.start.event,
+        start_selection=spec.start.selection,
+        start_timestamp_path=spec.start.timestamp_path,
+        start_field_filters=dict(spec.start.field_filters),
+        end_event_type=spec.end.event,
+        end_selection=spec.end.selection,
+        end_timestamp_path=spec.end.timestamp_path,
+        end_field_filters=dict(spec.end.field_filters),
+    )
 
 
 class CaseDurationAdapter(FlatManifestAdapter):
@@ -97,6 +147,7 @@ class CaseDurationAdapter(FlatManifestAdapter):
             owner_label="duration",
         )
         imported: list[ImportedResource] = []
+        requires_backfill = False
         # Sort for deterministic ordering so import results are reproducible.
         for source_id, spec in sorted(durations.items()):
             # Find the row this spec maps to, or None if it should be created.
@@ -121,11 +172,16 @@ class CaseDurationAdapter(FlatManifestAdapter):
             }
             if duration is None:
                 # No existing match: construct a new definition in this workspace.
+                requires_backfill = True
                 duration = CaseDurationDefinition(
                     workspace_id=workspace_service.workspace_id,
                     **attrs,
                 )
             else:
+                if _definition_materialization_state(
+                    duration
+                ) != _spec_materialization_state(spec):
+                    requires_backfill = True
                 # Existing match: overwrite each field in place to reconcile it.
                 for key, value in attrs.items():
                     setattr(duration, key, value)
@@ -133,6 +189,13 @@ class CaseDurationAdapter(FlatManifestAdapter):
             # Flush per duration so duration.id is populated before we record it.
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, duration.id))
+
+        if requires_backfill:
+            enqueue_workspace_case_duration_backfill_after_commit(
+                workspace_service.session,
+                workspace_id=workspace_service.workspace_id,
+                reason="duration_definition_updated",
+            )
         return imported
 
     async def _duration_for_import(

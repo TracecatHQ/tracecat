@@ -207,6 +207,36 @@ async def enqueue_case_duration_backfill_for_org(
     await enqueue_case_duration_backfill_for_orgs([organization_id])
 
 
+async def sync_workspace_case_durations_inline(*, workspace_id: uuid.UUID) -> bool:
+    """Materialize every case in a workspace through the locked sync path.
+
+    Returns false when any case was skipped because another transaction held its
+    advisory lock, allowing the after-commit caller to retry the whole backfill.
+    """
+    # Local import: materialization imports this module at import time.
+    from tracecat.cases.durations.materialization import sync_case_duration
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        stmt = (
+            select(Case.id)
+            .where(Case.workspace_id == workspace_id)
+            .order_by(Case.surrogate_id.asc())
+        )
+        case_ids = list((await session.execute(stmt)).scalars().all())
+
+    all_synced = True
+    for case_id in case_ids:
+        synced = await sync_case_duration(
+            workspace_id,
+            case_id,
+            event_types=None,
+        )
+        if synced is False:
+            all_synced = False
+        await asyncio.sleep(0)
+    return all_synced
+
+
 async def enqueue_rollout_backfill_once() -> bool:
     """Queue a one-time backfill for workspaces with existing definitions.
 
@@ -351,3 +381,22 @@ def enqueue_case_duration_sync_after_commit(
         )
 
     AfterCommitQueue.of(session).add(_publish)
+
+
+def enqueue_workspace_case_duration_backfill_after_commit(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    reason: CaseDurationSyncReason,
+) -> None:
+    """Register a workspace-wide duration backfill after the transaction commits."""
+
+    async def _sync_inline() -> bool:
+        return await sync_workspace_case_durations_inline(workspace_id=workspace_id)
+
+    enqueue_case_duration_sync_after_commit(
+        session,
+        workspace_id=workspace_id,
+        reason=reason,
+        inline_fallback=_sync_inline,
+    )

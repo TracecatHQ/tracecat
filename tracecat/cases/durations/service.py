@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -47,10 +46,10 @@ from tracecat.cases.durations.schemas import (
 from tracecat.cases.durations.sync_queue import (
     CaseDurationSyncReason,
     enqueue_case_duration_sync_after_commit,
+    sync_workspace_case_durations_inline,
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.exceptions import (
@@ -197,28 +196,9 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         skipped because its lock was held, so the caller's bounded retry can
         re-run this backfill.
         """
-        # Local import: materialization imports this module at import time.
-        from tracecat.cases.durations.materialization import sync_case_duration
-
-        async with get_async_session_bypass_rls_context_manager() as session:
-            stmt = (
-                select(Case.id)
-                .where(Case.workspace_id == self.workspace_id)
-                .order_by(Case.surrogate_id.asc())
-            )
-            case_ids = list((await session.execute(stmt)).scalars().all())
-
-        all_synced = True
-        for case_id in case_ids:
-            synced = await sync_case_duration(
-                self.workspace_id,
-                case_id,
-                event_types=None,
-            )
-            if synced is False:
-                all_synced = False
-            await asyncio.sleep(0)
-        return all_synced
+        return await sync_workspace_case_durations_inline(
+            workspace_id=self.workspace_id
+        )
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID

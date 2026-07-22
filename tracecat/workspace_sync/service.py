@@ -22,6 +22,7 @@ from tracecat.db.models import (
     Workspace,
     WorkspaceSyncResourceMapping,
 )
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -931,41 +932,44 @@ class WorkspaceSyncService(SyncMappingService):
         # resources first (workflows may reference them), then workflows, then
         # refresh the sync mappings. Any failure rolls the whole batch back.
         imported_resources: list[ImportedResource] = []
+        queue = AfterCommitQueue.of(self.session)
         try:
-            async with self.session.begin_nested():
-                if has_non_workflow_resources:
-                    imported_resources = await WorkspaceResourceImportService(
-                        session=self.session,
-                        role=self.role,
-                        mapping_provider=self._mapping_provider,
-                    ).import_non_workflow_resources(snapshot.spec)
-                await workflow_importer.import_workflows(
-                    remote_workflows,
-                    sync_schedules=sync_schedules,
-                )
-                await self._upsert_mappings(
-                    [
-                        *(
-                            SyncMappingTarget(
-                                resource_type=SyncResourceType.WORKFLOW.value,
-                                source_id=source_id,
-                                source_path=workflow_source_path(source_id),
-                                local_id=local_ids[source_id],
-                            )
-                            for source_id in sorted(snapshot.spec.workflows)
-                        ),
-                        *(
-                            SyncMappingTarget(
-                                resource_type=imported.resource_type.value,
-                                source_id=imported.source_id,
-                                source_path=imported.source_path,
-                                local_id=imported.local_id,
-                            )
-                            for imported in imported_resources
-                        ),
-                    ]
-                )
-            await self.session.commit()
+            with queue.checkpointed():
+                with queue.deferred():
+                    async with self.session.begin_nested():
+                        if has_non_workflow_resources:
+                            imported_resources = await WorkspaceResourceImportService(
+                                session=self.session,
+                                role=self.role,
+                                mapping_provider=self._mapping_provider,
+                            ).import_non_workflow_resources(snapshot.spec)
+                        await workflow_importer.import_workflows(
+                            remote_workflows,
+                            sync_schedules=sync_schedules,
+                        )
+                        await self._upsert_mappings(
+                            [
+                                *(
+                                    SyncMappingTarget(
+                                        resource_type=SyncResourceType.WORKFLOW.value,
+                                        source_id=source_id,
+                                        source_path=workflow_source_path(source_id),
+                                        local_id=local_ids[source_id],
+                                    )
+                                    for source_id in sorted(snapshot.spec.workflows)
+                                ),
+                                *(
+                                    SyncMappingTarget(
+                                        resource_type=imported.resource_type.value,
+                                        source_id=imported.source_id,
+                                        source_path=imported.source_path,
+                                        local_id=imported.local_id,
+                                    )
+                                    for imported in imported_resources
+                                ),
+                            ]
+                        )
+                await self.session.commit()
         except Exception as e:
             await self.session.rollback()
             return PullResult(

@@ -29,7 +29,7 @@ async def test_after_commit_inline_backfill_syncs_each_case_under_lock(
         yield fresh_session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.service.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(
