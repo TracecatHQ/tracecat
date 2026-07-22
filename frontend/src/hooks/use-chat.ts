@@ -796,15 +796,27 @@ export function serverTranscriptCoversLiveFinalAssistantText(
     return true
   }
 
-  let anchorIndex = -1
-  for (let index = serverMessages.length - 1; index >= 0; index -= 1) {
-    const message = serverMessages[index]
+  // The anchor prompt may not be unique (a user can repeat a question
+  // verbatim), so presence alone cannot prove the final turn is in the
+  // snapshot. Require at least as many occurrences of the prompt as the live
+  // transcript has: a stale snapshot that hides the final turn is missing its
+  // occurrence and fails the count even when an earlier identical prompt —
+  // and an identical earlier answer — would otherwise match.
+  let liveOccurrences = 0
+  for (const message of liveMessages) {
     if (message.role === "user" && messageText(message) === liveUserText) {
-      anchorIndex = index
-      break
+      liveOccurrences += 1
     }
   }
-  if (anchorIndex === -1) {
+  let serverOccurrences = 0
+  let anchorIndex = -1
+  for (const [index, message] of serverMessages.entries()) {
+    if (message.role === "user" && messageText(message) === liveUserText) {
+      serverOccurrences += 1
+      anchorIndex = index
+    }
+  }
+  if (anchorIndex === -1 || serverOccurrences < liveOccurrences) {
     return false
   }
 
@@ -861,6 +873,8 @@ export function decideServerTranscriptAdoption({
 type TranscriptRetryEpisode = {
   completedAttempts: number
   key: string
+  /** `dataUpdatedAt` of the transcript query when the last counted attempt ran. */
+  lastDataUpdatedAt: number
   timers: Set<ReturnType<typeof setTimeout>>
 }
 
@@ -879,10 +893,12 @@ type TranscriptRetryEpisode = {
  * though, making the immediate onFinish refetch omit the just-finished rows.
  * Keep the live transcript until a later server snapshot covers its final
  * assistant text and comparable message count.
- * Rejected snapshots receive a bounded refetch series; after the final retry,
- * a snapshot that passes the count guard is adopted even if its text still
- * differs because the server is canonical at rest. Never adopt or refetch from
- * these timers while streaming/submitted.
+ * Rejected snapshots receive a bounded refetch series; once every retry has
+ * delivered fresh data, a snapshot that passes the count guard is adopted even
+ * if its text still differs because the server is canonical at rest. Failed
+ * refetches do not count toward that bound — an outage must not hand the
+ * transcript to a stale cached snapshot. Never adopt or refetch from these
+ * timers while streaming/submitted.
  */
 export function useAdoptServerTranscript({
   chatId,
@@ -919,9 +935,12 @@ export function useAdoptServerTranscript({
       cancelRetryEpisode()
       if (!chatId) return
 
+      const queryKey = ["chat", chatId, workspaceId, "vercel"]
       const episode: TranscriptRetryEpisode = {
         completedAttempts: 0,
         key,
+        lastDataUpdatedAt:
+          queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
         timers: new Set(),
       }
       retryEpisodeRef.current = episode
@@ -940,9 +959,7 @@ export function useAdoptServerTranscript({
           }
 
           void queryClient
-            .invalidateQueries({
-              queryKey: ["chat", chatId, workspaceId, "vercel"],
-            })
+            .invalidateQueries({ queryKey })
             .catch(() => undefined)
             .then(() => {
               if (
@@ -951,6 +968,16 @@ export function useAdoptServerTranscript({
               ) {
                 return
               }
+              // invalidateQueries resolves even when the refetch fails, so a
+              // transient outage must not exhaust the content guard and hand
+              // the transcript to a stale cached snapshot. Count an attempt
+              // only when the query actually delivered fresh data.
+              const dataUpdatedAt =
+                queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0
+              if (dataUpdatedAt <= episode.lastDataUpdatedAt) {
+                return
+              }
+              episode.lastDataUpdatedAt = dataUpdatedAt
               episode.completedAttempts = Math.max(
                 episode.completedAttempts,
                 attemptIndex + 1

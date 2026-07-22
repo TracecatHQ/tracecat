@@ -190,6 +190,7 @@ describe("useAdoptServerTranscript", () => {
     const queryClient = new QueryClient()
     const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries")
     const setMessages = jest.fn()
+    const queryKey = ["chat", "chat-1", "workspace-1", "vercel"]
     const liveMessages = [
       textMessage("live-user", "user", "Question"),
       textMessage("live-assistant", "assistant", "Stream-only wording"),
@@ -212,15 +213,70 @@ describe("useAdoptServerTranscript", () => {
       { wrapper: createWrapper(queryClient) }
     )
 
-    await advanceTimersBy(1_000)
+    // Each retry only counts toward guard exhaustion when the query delivered
+    // fresh data, so simulate a completed refetch before each timer fires.
+    await advanceTimersBy(1)
+    act(() => {
+      queryClient.setQueryData(queryKey, serverMessages)
+    })
+    await advanceTimersBy(999)
     expect(setMessages).not.toHaveBeenCalled()
+
+    act(() => {
+      queryClient.setQueryData(queryKey, serverMessages)
+    })
     await advanceTimersBy(2_000)
     expect(setMessages).not.toHaveBeenCalled()
+
+    act(() => {
+      queryClient.setQueryData(queryKey, serverMessages)
+    })
     await advanceTimersBy(5_000)
 
     expect(invalidateQueries).toHaveBeenCalledTimes(3)
     expect(setMessages).toHaveBeenCalledWith(serverMessages)
-    expect(jest.getTimerCount()).toBe(0)
+    // No further retry invalidations after adoption (remaining timers belong
+    // to the query cache's own GC, not the retry episode).
+    await advanceTimersBy(10_000)
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    unmount()
+  })
+
+  it("does not exhaust the content guard when refetches deliver no fresh data", async () => {
+    const queryClient = new QueryClient()
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries")
+    const setMessages = jest.fn()
+    const liveMessages = [
+      textMessage("live-user", "user", "Question"),
+      textMessage("live-assistant", "assistant", "Stream-only wording"),
+    ]
+    const serverMessages = [
+      textMessage("server-user", "user", "Question"),
+      textMessage("server-assistant", "assistant", "Canonical wording"),
+    ]
+
+    const { unmount } = renderHook(
+      () =>
+        useAdoptServerTranscript({
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          status: "ready",
+          serverMessages,
+          liveMessages,
+          setMessages,
+        }),
+      { wrapper: createWrapper(queryClient) }
+    )
+
+    // No query data ever lands (transient outage): invalidations run but must
+    // not advance the guard toward stale adoption.
+    await advanceTimersBy(1_000)
+    await advanceTimersBy(2_000)
+    await advanceTimersBy(5_000)
+    await advanceTimersBy(10_000)
+
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    expect(setMessages).not.toHaveBeenCalled()
     unmount()
   })
 
@@ -283,6 +339,29 @@ describe("useAdoptServerTranscript", () => {
     // snapshot lacks even the final turn's user prompt. Old-turn segmentation
     // satisfies the count guard and the previous answer repeats the final
     // text, so only the prompt anchor can prove the turn is missing.
+    const serverMessages = [
+      textMessage("server-user-1", "user", "Question"),
+      textMessage("server-assistant-1a", "assistant", "Same "),
+      textMessage("server-assistant-1b", "assistant", "ans"),
+      textMessage("server-assistant-1c", "assistant", "wer"),
+    ]
+
+    expect(
+      decideServerTranscriptAdoption({ serverMessages, liveMessages })
+    ).toBe("reject-content")
+  })
+
+  it("rejects a stale snapshot when a repeated prompt hides the missing final turn", () => {
+    // The user asked the same question twice and got the same answer. The
+    // stale snapshot hides the whole final turn, but an earlier identical
+    // prompt would anchor-match and its identical answer would cover the
+    // probe. Only the occurrence count proves the final turn is missing.
+    const liveMessages = [
+      textMessage("live-user-1", "user", "Question"),
+      textMessage("live-assistant-1", "assistant", "Same answer"),
+      textMessage("live-user-2", "user", "Question"),
+      textMessage("live-assistant-2", "assistant", "Same answer"),
+    ]
     const serverMessages = [
       textMessage("server-user-1", "user", "Question"),
       textMessage("server-assistant-1a", "assistant", "Same "),
