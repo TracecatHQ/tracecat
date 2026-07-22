@@ -13,6 +13,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import (
     AgentFolder,
@@ -360,6 +361,118 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 AgentPresetSkillBinding(slug=slug, version=version_number)
             )
         return bindings
+
+    async def correlate_catalog_ids(
+        self,
+        workspace_service: SyncMappingService,
+        presets: Mapping[str, AgentPresetResourceSpec],
+    ) -> tuple[dict[str, AgentPresetResourceSpec], list[PullDiagnostic]]:
+        """Re-map source catalog UUIDs to enabled local catalog rows.
+
+        Catalog UUIDs are deployment-local. Preserve an incoming UUID when it is
+        already enabled in this workspace; otherwise correlate it by the portable
+        ``(model_provider, model_name)`` tuple. Unresolvable selections produce
+        diagnostics before import writes begin instead of reaching a foreign-key
+        violation while flushing preset rows.
+        """
+        catalog_service = AgentCatalogService(session=workspace_service.session)
+        enabled_by_catalog_id: dict[uuid.UUID, bool] = {}
+        resolved_by_model: dict[tuple[str, str], uuid.UUID | None] = {}
+        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
+        diagnostics: list[PullDiagnostic] = []
+
+        for source_id, preset in sorted(presets.items()):
+            correlated_versions: dict[int, AgentPresetVersionResourceSpec] = {}
+            for version_number, version in sorted(preset.versions.items()):
+                catalog_id = version.catalog_id
+                if catalog_id is None:
+                    correlated_versions[version_number] = version
+                    continue
+
+                if catalog_id not in enabled_by_catalog_id:
+                    enabled_by_catalog_id[
+                        catalog_id
+                    ] = await catalog_service.is_catalog_id_enabled(
+                        org_id=workspace_service.organization_id,
+                        workspace_id=workspace_service.workspace_id,
+                        catalog_id=catalog_id,
+                    )
+                if enabled_by_catalog_id[catalog_id]:
+                    correlated_versions[version_number] = version
+                    continue
+
+                model_provider = version.model_provider
+                model_name = version.model_name
+                if not model_provider or not model_name:
+                    diagnostics.append(
+                        PullDiagnostic(
+                            workflow_path=self._version_source_path(
+                                source_id, version_number
+                            ),
+                            workflow_title=preset.name,
+                            error_type="validation",
+                            message=(
+                                f"Agent preset {preset.slug!r} version "
+                                f"{version_number} references a non-local model "
+                                "catalog entry but does not include model_provider "
+                                "and model_name for correlation."
+                            ),
+                            details={
+                                "preset_slug": preset.slug,
+                                "preset_version": version_number,
+                                "catalog_id": str(catalog_id),
+                            },
+                        )
+                    )
+                    correlated_versions[version_number] = version
+                    continue
+
+                model_key = (model_provider, model_name)
+                if model_key not in resolved_by_model:
+                    resolved_by_model[
+                        model_key
+                    ] = await catalog_service.resolve_catalog_id_by_model(
+                        org_id=workspace_service.organization_id,
+                        workspace_id=workspace_service.workspace_id,
+                        model_provider=model_provider,
+                        model_name=model_name,
+                    )
+                local_catalog_id = resolved_by_model[model_key]
+                if local_catalog_id is None:
+                    diagnostics.append(
+                        PullDiagnostic(
+                            workflow_path=self._version_source_path(
+                                source_id, version_number
+                            ),
+                            workflow_title=preset.name,
+                            error_type="dependency",
+                            message=(
+                                f"Agent preset {preset.slug!r} version "
+                                f"{version_number} requires model {model_provider!r} / "
+                                f"{model_name!r}, but no matching enabled model is "
+                                "configured for this workspace."
+                            ),
+                            details={
+                                "preset_slug": preset.slug,
+                                "preset_version": version_number,
+                                "catalog_id": str(catalog_id),
+                                "model_provider": model_provider,
+                                "model_name": model_name,
+                            },
+                        )
+                    )
+                    correlated_versions[version_number] = version
+                    continue
+
+                correlated_versions[version_number] = version.model_copy(
+                    update={"catalog_id": local_catalog_id}
+                )
+
+            correlated_presets[source_id] = preset.model_copy(
+                update={"versions": correlated_versions}
+            )
+
+        return correlated_presets, diagnostics
 
     async def import_specs(
         self,
