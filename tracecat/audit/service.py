@@ -1,7 +1,7 @@
 """Fire-and-forget audit webhook delivery with an at-most-once contract.
 
 Each event is posted by its own asyncio task; deliveries are only dropped past
-the in-flight cap, and in-flight tasks are lost on process/loop shutdown.
+the pending cap, and in-flight tasks are lost on process/loop shutdown.
 Durable, at-least-once delivery arrives with the ENG-1514 spool.
 """
 
@@ -69,26 +69,45 @@ class _AuditDelivery:
 # Strong refs to in-flight delivery tasks; done callbacks release them.
 _delivery_tasks: set[asyncio.Task[None]] = set()
 
-# Each in-flight delivery holds one socket/FD. Sized to <=25% of the smallest
-# deployment FD envelope (Fargate default soft ulimit 1024); drains ~25/s even
-# against a hung sink (10s httpx timeout). Recompute if either input changes.
-_MAX_IN_FLIGHT_DELIVERIES = 256
+# Burst-admission bound: pending deliveries past this are dropped. A full
+# backlog is a few MB of suspended tasks; worst-case drain ~10 min
+# (_MAX_CONCURRENT_POSTS slots / 10s httpx timeout against a hung sink).
+_MAX_PENDING_DELIVERIES = 2048
+
+# Socket bound: each active post holds one connection/FD for up to the 10s
+# httpx timeout; 32 stays in the noise of the smallest deployment FD envelope
+# (Fargate default soft ulimit 1024).
+_MAX_CONCURRENT_POSTS = 32
+
+# asyncio primitives bind to their loop; keyed per loop and swept alongside the
+# closed-loop task sweep in _spawn_delivery.
+_post_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
+
+
+def _get_post_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    if (sem := _post_semaphores.get(loop)) is None:
+        sem = _post_semaphores[loop] = asyncio.Semaphore(_MAX_CONCURRENT_POSTS)
+    return sem
 
 
 def _spawn_delivery(delivery: _AuditDelivery) -> None:
     """Post the delivery on its own fire-and-forget task."""
     # Tasks stranded on closed (e.g. per-test) loops never ran their done
-    # callbacks; evict them so the set doesn't grow across loops.
+    # callbacks; evict them and their loops' semaphores so neither container
+    # grows across loops.
     for stranded in [t for t in _delivery_tasks if t.get_loop().is_closed()]:
         _delivery_tasks.discard(stranded)
-    if len(_delivery_tasks) >= _MAX_IN_FLIGHT_DELIVERIES:
-        # Shed audit load rather than exhaust the process FD budget. No payload
+    for closed_loop in [loop for loop in _post_semaphores if loop.is_closed()]:
+        del _post_semaphores[closed_loop]
+    if len(_delivery_tasks) >= _MAX_PENDING_DELIVERIES:
+        # Shed audit load rather than buffer without bound. No payload
         # contents or sink URL on this log line.
         logger.warning(
-            "Dropped audit webhook delivery; in-flight limit reached",
+            "Dropped audit webhook delivery; pending limit reached",
             resource_type=delivery.resource_type,
             action=delivery.action,
-            max_in_flight=_MAX_IN_FLIGHT_DELIVERIES,
+            max_pending=_MAX_PENDING_DELIVERIES,
         )
         return
     task = asyncio.get_running_loop().create_task(_deliver(delivery))
@@ -97,12 +116,16 @@ def _spawn_delivery(delivery: _AuditDelivery) -> None:
 
 
 async def _deliver(delivery: _AuditDelivery) -> None:
-    """Post one resolved delivery. Never uses a DB session."""
+    """Post one resolved delivery, gated by the per-loop socket cap.
+
+    Never uses a DB session.
+    """
     response: httpx.Response | None = None
     try:
-        async with httpx.AsyncClient(
-            timeout=10.0, verify=delivery.verify_ssl
-        ) as client:
+        async with (
+            _get_post_semaphore(),
+            httpx.AsyncClient(timeout=10.0, verify=delivery.verify_ssl) as client,
+        ):
             response = await client.post(
                 delivery.webhook_url,
                 json=delivery.request_payload,

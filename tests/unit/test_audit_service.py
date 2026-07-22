@@ -1156,8 +1156,10 @@ async def fresh_delivery_tasks() -> AsyncIterator[None]:
     """
     loop = asyncio.get_running_loop()
     await _cancel_loop_tasks(loop)
+    audit_service_module._post_semaphores.pop(loop, None)
     yield
     await _cancel_loop_tasks(loop)
+    audit_service_module._post_semaphores.pop(loop, None)
 
 
 @respx.mock
@@ -1383,12 +1385,12 @@ async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
 
 
 @pytest.mark.anyio
-async def test_spawn_delivery_drops_past_in_flight_cap(
+async def test_spawn_delivery_drops_past_pending_cap(
     monkeypatch: pytest.MonkeyPatch,
     fresh_delivery_tasks: None,
 ) -> None:
-    """Past the in-flight cap, spawns shed with a warning; capacity frees on completion."""
-    monkeypatch.setattr(audit_service_module, "_MAX_IN_FLIGHT_DELIVERIES", 2)
+    """Past the pending cap, spawns shed with a warning; capacity frees on completion."""
+    monkeypatch.setattr(audit_service_module, "_MAX_PENDING_DELIVERIES", 2)
     delivered: list[str] = []
     gate = asyncio.Event()
 
@@ -1421,13 +1423,13 @@ async def test_spawn_delivery_drops_past_in_flight_cap(
     drop_warnings = [
         kwargs
         for m, kwargs in warnings
-        if m == "Dropped audit webhook delivery; in-flight limit reached"
+        if m == "Dropped audit webhook delivery; pending limit reached"
     ]
     assert len(drop_warnings) == 1
     dropped = drop_warnings[0]
     assert dropped["resource_type"] == "workflow"
     assert dropped["action"] == "update"
-    assert dropped["max_in_flight"] == 2
+    assert dropped["max_pending"] == 2
     # No payload contents or sink URL on the drop-log boundary.
     all_logs = repr(warnings)
     assert "drop-host" not in all_logs
@@ -1441,15 +1443,20 @@ async def test_spawn_delivery_evicts_closed_loop_tasks(
     """Regression: tasks stranded on closed loops are evicted; no unbounded growth.
 
     A task whose loop closed before it ran never fires its done callback, so
-    _spawn_delivery must sweep those refs out of the module set.
+    _spawn_delivery must sweep those refs out of the module set, along with the
+    closed loops' semaphore entries.
     """
     tasks = audit_service_module._delivery_tasks
+    semaphores = audit_service_module._post_semaphores
 
     # Seed stranded refs whose loops are closed; their callbacks can never run.
     stranded: list[Any] = []
+    dead_loops: list[asyncio.AbstractEventLoop] = []
     for _ in range(5):
         dead_loop = asyncio.new_event_loop()
         dead_loop.close()
+        dead_loops.append(dead_loop)
+        semaphores[dead_loop] = asyncio.Semaphore(1)
         fake_task = MagicMock()
         fake_task.get_loop.return_value = dead_loop
         stranded.append(fake_task)
@@ -1464,6 +1471,43 @@ async def test_spawn_delivery_evicts_closed_loop_tasks(
 
     for fake_task in stranded:
         assert fake_task not in tasks
+    for dead_loop in dead_loops:
+        assert dead_loop not in semaphores
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_gates_concurrent_posts(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_delivery_tasks: None,
+) -> None:
+    """Posts past the socket cap wait on the semaphore; none are dropped."""
+    monkeypatch.setattr(audit_service_module, "_MAX_CONCURRENT_POSTS", 1)
+    gate = asyncio.Event()
+    started: list[str] = []
+
+    async def slow_response(request: httpx.Request) -> httpx.Response:
+        tag = orjson.loads(request.content)["resource_id"]
+        started.append(tag)
+        if tag == "first":
+            await gate.wait()
+        return httpx.Response(200)
+
+    respx.post("https://example.com/audit").mock(side_effect=slow_response)
+
+    _spawn_delivery(_delivery("first"))
+    _spawn_delivery(_delivery("second"))
+
+    # "first" holds the only slot; give "second" ample ticks to (wrongly) post.
+    while "first" not in started:
+        await asyncio.sleep(0)
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert started == ["first"]
+
+    gate.set()
+    await flush_audit_deliveries()
+    assert sorted(started) == ["first", "second"]
 
 
 @pytest.mark.anyio
