@@ -371,9 +371,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         Catalog UUIDs are deployment-local. Preserve an incoming UUID when it is
         already enabled in this workspace; otherwise correlate it by the portable
-        ``(model_provider, model_name)`` tuple. Unresolvable selections produce
-        diagnostics before import writes begin instead of reaching a foreign-key
-        violation while flushing preset rows.
+        ``(model_provider, model_name)`` tuple. When remapping a catalog UUID, clear
+        the snapshot's deployment-local ``base_url`` so the target's catalog
+        credentials are never routed to the source deployment's endpoint. Custom
+        providers re-resolve the URL from local provider configuration at runtime;
+        OpenAI and Anthropic would otherwise honor the stale URL. Unresolvable
+        selections produce diagnostics before import writes begin instead of
+        reaching a foreign-key violation while flushing preset rows.
         """
         catalog_service = AgentCatalogService(session=workspace_service.session)
         enabled_by_catalog_id: dict[uuid.UUID, bool] = {}
@@ -465,7 +469,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     continue
 
                 correlated_versions[version_number] = version.model_copy(
-                    update={"catalog_id": local_catalog_id}
+                    update={"catalog_id": local_catalog_id, "base_url": None}
                 )
 
             correlated_presets[source_id] = preset.model_copy(
