@@ -211,30 +211,10 @@ class CaseDurationSyncConsumer:
                     definition_jobs[job.workspace_id] = (job, [message_id])
                 continue
 
-            try:
-                should_ack = await self._process_backfill_job(job)
-            except Exception:
-                logger.exception(
-                    "Failed to process case duration backfill job",
-                    workspace_id=str(job.workspace_id),
-                    reason=job.reason,
-                )
-                should_ack = False
-            if should_ack:
-                await self._ack_and_delete([message_id])
+            await self._process_backfill_with_retries(job, [message_id])
 
         for job, message_ids in definition_jobs.values():
-            try:
-                should_ack = await self._process_backfill_job(job)
-            except Exception:
-                logger.exception(
-                    "Failed to process case duration backfill job",
-                    workspace_id=str(job.workspace_id),
-                    reason=job.reason,
-                )
-                should_ack = False
-            if should_ack:
-                await self._ack_and_delete(message_ids)
+            await self._process_backfill_with_retries(job, message_ids)
 
         for key, message_ids in case_jobs.items():
             event_types = None if key in force_sync_keys else case_event_types.get(key)
@@ -283,6 +263,47 @@ class CaseDurationSyncConsumer:
                     continue
 
                 await self._ack_and_delete(message_ids)
+
+    async def _process_backfill_with_retries(
+        self,
+        job: DurationDefinitionSyncJob | DurationBackfillSyncJob,
+        message_ids: list[str],
+    ) -> None:
+        for delay in CASE_SYNC_ATTEMPT_DELAYS_SECONDS:
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                processed = await self._process_backfill_job(job)
+            except Exception:
+                logger.exception(
+                    "Failed to process case duration backfill job",
+                    workspace_id=str(job.workspace_id),
+                    reason=job.reason,
+                )
+                continue
+
+            if processed:
+                await self._ack_and_delete(message_ids)
+                return
+
+        try:
+            await publish_case_duration_sync(
+                workspace_id=job.workspace_id,
+                reason=job.reason,
+                cursor=(
+                    job.cursor if isinstance(job, DurationBackfillSyncJob) else None
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to requeue case duration backfill job",
+                workspace_id=str(job.workspace_id),
+                reason=job.reason,
+                error=str(e),
+            )
+            return
+
+        await self._ack_and_delete(message_ids)
 
     async def _ack_and_delete(self, message_ids: list[str]) -> None:
         await self.client.xack(self.stream_key, self.group, message_ids)
