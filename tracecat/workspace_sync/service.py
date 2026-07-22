@@ -398,16 +398,23 @@ class WorkspaceSyncService(SyncMappingService):
                 snapshot,
                 sync_schedules=sync_schedules,
             )
-            workflow_diagnostics = await self._validate_workflow_import(snapshot)
-            if workflow_diagnostics:
+            (
+                prepared_snapshot,
+                resource_diagnostics,
+            ) = await self._prepare_snapshot_for_import(snapshot)
+            workflow_diagnostics = await self._validate_workflow_import(
+                prepared_snapshot
+            )
+            import_diagnostics = [*resource_diagnostics, *workflow_diagnostics]
+            if import_diagnostics:
                 return PullResult(
                     success=False,
                     commit_sha=snapshot.commit_sha,
                     workflows_found=len(snapshot.spec.workflows),
                     workflows_imported=0,
-                    diagnostics=workflow_diagnostics,
+                    diagnostics=import_diagnostics,
                     message=(
-                        f"Import failed: {len(workflow_diagnostics)} validation "
+                        f"Import failed: {len(import_diagnostics)} validation "
                         "error(s) found"
                     ),
                     resource_counts=resource_counts,
@@ -878,6 +885,23 @@ class WorkspaceSyncService(SyncMappingService):
         ]
         return remote_workflows, local_ids
 
+    async def _prepare_snapshot_for_import(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+    ) -> tuple[WorkspaceRemoteSnapshot, list[PullDiagnostic]]:
+        """Resolve deployment-local references before validating or importing."""
+        (
+            correlated_presets,
+            diagnostics,
+        ) = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
+            self,
+            snapshot.spec.agent_presets,
+        )
+        correlated_spec = snapshot.spec.model_copy(
+            update={"agent_presets": correlated_presets}
+        )
+        return snapshot.model_copy(update={"spec": correlated_spec}), diagnostics
+
     async def _import_snapshot(
         self,
         snapshot: WorkspaceRemoteSnapshot,
@@ -886,12 +910,31 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 
-        Validates the workflows, then imports non-workflow resources and
-        workflows inside a nested transaction and upserts every sync mapping. Any
-        failure rolls the transaction back and surfaces a transaction
+        Correlates deployment-local references and validates workflows before
+        importing non-workflow resources and workflows inside a nested transaction.
+        Any write failure rolls the transaction back and surfaces a transaction
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
+        snapshot, resource_diagnostics = await self._prepare_snapshot_for_import(
+            snapshot
+        )
+        if resource_diagnostics:
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=resource_diagnostics,
+                message=(
+                    f"Import failed: {len(resource_diagnostics)} validation "
+                    "error(s) found"
+                ),
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+                files=sorted(snapshot.files),
+                resources=_sync_preview_resources_from_spec(snapshot.spec),
+            )
+
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
 
         # Validate before writing anything; bail out on the first set of errors.
