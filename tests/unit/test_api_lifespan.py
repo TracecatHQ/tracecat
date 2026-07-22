@@ -134,6 +134,41 @@ async def test_lifespan_task_propagates_owner_cancellation_during_cleanup() -> N
 
 
 @pytest.mark.anyio
+async def test_lifespan_task_propagates_suppressed_owner_cancellation() -> None:
+    child_started = asyncio.Event()
+    child_cleanup_started = asyncio.Event()
+    keep_running = asyncio.Event()
+    cleanup_blocker = asyncio.Event()
+    owner_continued = False
+
+    async def run_child() -> None:
+        child_started.set()
+        try:
+            await keep_running.wait()
+        except asyncio.CancelledError:
+            child_cleanup_started.set()
+            try:
+                await cleanup_blocker.wait()
+            except asyncio.CancelledError:
+                return
+
+    async def run_owner() -> None:
+        nonlocal owner_continued
+        async with lifespan_module._lifespan_task(run_child, name="test_child"):
+            await child_started.wait()
+        owner_continued = True
+
+    owner_task = asyncio.create_task(run_owner())
+    await child_cleanup_started.wait()
+    owner_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await owner_task
+
+    assert not owner_continued
+
+
+@pytest.mark.anyio
 async def test_lifespan_task_cancels_after_shutdown_timeout() -> None:
     started = asyncio.Event()
     stopped = asyncio.Event()

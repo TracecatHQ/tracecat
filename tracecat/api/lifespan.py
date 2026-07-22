@@ -25,51 +25,53 @@ async def _stop_lifespan_task(
 ) -> None:
     owner_task = asyncio.current_task()
     owner_cancellation_count = owner_task.cancelling() if owner_task is not None else 0
-    completed_before_shutdown = task.done()
-    if shutdown_timeout is not None and not completed_before_shutdown:
-        logger.info("Waiting for lifespan task to complete", task=name)
+    try:
+        completed_before_shutdown = task.done()
+        if shutdown_timeout is not None and not completed_before_shutdown:
+            logger.info("Waiting for lifespan task to complete", task=name)
+            try:
+                await asyncio.wait_for(task, timeout=shutdown_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "Lifespan task did not complete in time; cancelling",
+                    task=name,
+                    timeout=shutdown_timeout,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Lifespan task failed during shutdown",
+                    task=name,
+                    error=e,
+                )
+                return
+            else:
+                logger.info("Lifespan task completed", task=name)
+                return
+
+        if not task.done():
+            task.cancel()
+
         try:
-            await asyncio.wait_for(task, timeout=shutdown_timeout)
-        except TimeoutError:
-            logger.warning(
-                "Lifespan task did not complete in time; cancelling",
-                task=name,
-                timeout=shutdown_timeout,
-            )
+            await task
+        except asyncio.CancelledError:
+            logger.debug("Lifespan task cancelled", task=name)
         except Exception as e:
             logger.warning(
-                "Lifespan task failed during shutdown",
+                "Lifespan task failed before shutdown"
+                if completed_before_shutdown
+                else "Lifespan task stopped with error",
                 task=name,
                 error=e,
             )
-            return
         else:
-            logger.info("Lifespan task completed", task=name)
-            return
-
-    if not task.done():
-        task.cancel()
-
-    try:
-        await task
-    except asyncio.CancelledError:
+            if completed_before_shutdown:
+                logger.debug("Lifespan task had already completed", task=name)
+    finally:
         if (
             owner_task is not None
             and owner_task.cancelling() > owner_cancellation_count
         ):
-            raise
-        logger.debug("Lifespan task cancelled", task=name)
-    except Exception as e:
-        logger.warning(
-            "Lifespan task failed before shutdown"
-            if completed_before_shutdown
-            else "Lifespan task stopped with error",
-            task=name,
-            error=e,
-        )
-    else:
-        if completed_before_shutdown:
-            logger.debug("Lifespan task had already completed", task=name)
+            raise asyncio.CancelledError
 
 
 @asynccontextmanager
