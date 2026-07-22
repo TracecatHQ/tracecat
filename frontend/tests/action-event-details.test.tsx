@@ -205,27 +205,44 @@ describe("ActionEventDetails input payloads", () => {
     expect(screen.getByTestId("json-view")).toHaveTextContent("first")
   })
 
-  it("renders identical inputs once with the shared-input placeholder", () => {
+  it("shows stream navigation for identical inputs across streams", () => {
     const actionInput = { payload: "shared" }
 
     renderInput([
       createEvent({
         source_event_id: 1,
         action_input: actionInput,
-        stream_id: undefined,
+        stream_id: "scatter:0",
       }),
       createEvent({
         source_event_id: 2,
         action_input: actionInput,
-        stream_id: undefined,
+        stream_id: "scatter:1",
       }),
     ])
 
-    expect(screen.queryByText("Stream 1 of 2")).not.toBeInTheDocument()
-    expect(
-      screen.getByText("Input is the same for all events")
-    ).toBeInTheDocument()
+    // Even when inputs match, each stream stays individually navigable so the
+    // input tab can pin the same stream the result tab is showing.
+    expect(screen.getByText("Stream 2 of 2")).toBeInTheDocument()
     expect(screen.getAllByTestId("json-view")).toHaveLength(1)
+    expect(screen.getByTestId("json-view")).toHaveTextContent("shared")
+  })
+
+  it("renders a single input without stream navigation", () => {
+    renderInput([
+      createEvent({
+        source_event_id: 1,
+        action_input: { payload: "solo" },
+        stream_id: "scatter:0",
+      }),
+    ])
+
+    expect(screen.queryByText(/Stream \d+ of \d+/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Previous stream" })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByTestId("json-view")).toHaveLength(1)
+    expect(screen.getByTestId("json-view")).toHaveTextContent("solo")
   })
 })
 

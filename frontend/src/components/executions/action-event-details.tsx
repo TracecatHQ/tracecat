@@ -67,6 +67,14 @@ export interface ActionEventDetailsProps {
   events: WorkflowExecutionEventCompact[]
   type: ActionEventPayloadType
   presentation?: ActionEventPresentation
+  /**
+   * Controlled stream selection by `source_event_id`. When provided together
+   * with `onSelectedEventIdChange`, the single-stream picker mirrors the
+   * caller's selection instead of tracking it locally, letting the input and
+   * result tabs stay pinned to the same stream.
+   */
+  selectedEventId?: number | null
+  onSelectedEventIdChange?: (id: number) => void
 }
 
 /** Render the input or results for every compact event matching an action ref. */
@@ -77,24 +85,13 @@ export function ActionEventDetails({
   events,
   type,
   presentation = "stack",
+  selectedEventId,
+  onSelectedEventIdChange,
 }: ActionEventDetailsProps) {
   const actionEventsForRef = useMemo(
     () => events.filter((event) => event.action_ref === actionRef),
     [events, actionRef]
   )
-  // Memoized: stringifying every stream input each render is costly while the
-  // execution polls, and react-query's structural sharing keeps `events` stable.
-  const hasDistinctInputs = useMemo(() => {
-    if (type !== "input" || actionEventsForRef.length < 2) {
-      return false
-    }
-    const firstInput = JSON.stringify(
-      actionEventsForRef[0].action_input ?? null
-    )
-    return actionEventsForRef.some(
-      (event) => JSON.stringify(event.action_input ?? null) !== firstInput
-    )
-  }, [type, actionEventsForRef])
 
   if (actionEventsForRef.length === 0) {
     return (
@@ -115,24 +112,14 @@ export function ActionEventDetails({
   }
 
   if (type === "input") {
-    if (hasDistinctInputs) {
-      return (
-        <SingleActionEventPayload
-          events={actionEventsForRef}
-          executionId={executionId}
-          eventRef={actionRef}
-          type="input"
-        />
-      )
-    }
-
     return (
-      <ActionEventContent
-        actionEvent={actionEventsForRef[0]}
+      <SingleActionEventPayload
+        events={actionEventsForRef}
         executionId={executionId}
-        type={type}
         eventRef={actionRef}
-        streamIdPlaceholder="Input is the same for all events"
+        type="input"
+        selectedEventId={selectedEventId}
+        onSelectedEventIdChange={onSelectedEventIdChange}
       />
     )
   }
@@ -143,6 +130,8 @@ export function ActionEventDetails({
         events={actionEventsForRef}
         executionId={executionId}
         eventRef={actionRef}
+        selectedEventId={selectedEventId}
+        onSelectedEventIdChange={onSelectedEventIdChange}
       />
     )
   }
@@ -161,17 +150,29 @@ function SingleActionEventPayload({
   executionId,
   eventRef,
   type = "result",
+  selectedEventId: controlledSelectedEventId,
+  onSelectedEventIdChange,
 }: {
   events: WorkflowExecutionEventCompact[]
   executionId: string
   eventRef: string
   type?: ActionEventPayloadType
+  selectedEventId?: number | null
+  onSelectedEventIdChange?: (id: number) => void
 }) {
   const sortedEvents = useMemo(
     () => [...events].sort(compareActionEvents),
     [events]
   )
-  const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
+  const [localSelectedEventId, setLocalSelectedEventId] = useState<
+    number | null
+  >(null)
+  // Controlled when the caller owns the selection; local otherwise. This lets
+  // the input and result tabs share one pinned stream across tab switches.
+  const isControlled = onSelectedEventIdChange !== undefined
+  const selectedEventId = isControlled
+    ? (controlledSelectedEventId ?? null)
+    : localSelectedEventId
   const pinnedIndex =
     selectedEventId === null
       ? -1
@@ -186,7 +187,11 @@ function SingleActionEventPayload({
   function selectEvent(index: number) {
     const event = sortedEvents[index]
     if (event) {
-      setSelectedEventId(event.source_event_id)
+      if (isControlled) {
+        onSelectedEventIdChange(event.source_event_id)
+      } else {
+        setLocalSelectedEventId(event.source_event_id)
+      }
     }
   }
 
@@ -404,14 +409,12 @@ function ActionEventContent({
   executionId,
   type,
   eventRef,
-  streamIdPlaceholder,
   showStreamDetails = true,
 }: {
   actionEvent: WorkflowExecutionEventCompact
   executionId: string
   type: ActionEventPayloadType
   eventRef: string
-  streamIdPlaceholder?: string
   showStreamDetails?: boolean
 }) {
   const { status, session, stream_id, action_error } = actionEvent
@@ -438,8 +441,7 @@ function ActionEventContent({
     }
   }
 
-  const showSessionTabs =
-    type === "result" && !!session && !action_error && !streamIdPlaceholder
+  const showSessionTabs = type === "result" && !!session && !action_error
 
   if (showSessionTabs && session) {
     return (
@@ -447,12 +449,7 @@ function ActionEventContent({
         <div className="flex flex-wrap items-center gap-2">
           <EventStatusBadge status={status} />
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {showStreamDetails && (
-              <StreamDetails
-                streamId={stream_id}
-                placeholder={streamIdPlaceholder}
-              />
-            )}
+            {showStreamDetails && <StreamDetails streamId={stream_id} />}
             <TabsList className="h-8">
               <TabsTrigger
                 value="session"
@@ -491,12 +488,7 @@ function ActionEventContent({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <EventStatusBadge status={status} />
-        {showStreamDetails && (
-          <StreamDetails
-            streamId={stream_id}
-            placeholder={streamIdPlaceholder}
-          />
-        )}
+        {showStreamDetails && <StreamDetails streamId={stream_id} />}
       </div>
       {type === "result" && action_error ? (
         <ErrorEvent failure={action_error} />
@@ -620,19 +612,9 @@ function ActionResultViewer({
   )
 }
 
-function StreamDetails({
-  streamId,
-  placeholder,
-}: {
-  streamId?: string
-  placeholder?: string
-}) {
+function StreamDetails({ streamId }: { streamId?: string }) {
   if (!streamId) {
-    return (
-      <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
-        <span>{placeholder}</span>
-      </div>
-    )
+    return null
   }
 
   const streamParts = parseStreamId(streamId)

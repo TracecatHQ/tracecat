@@ -69,6 +69,11 @@ function WorkflowExecutionEventDetailTabs({
   const [activeTab, setActiveTab] = useState<ActionEventPayloadType | null>(
     tabItems.at(-1)?.value ?? null
   )
+  // Shared stream selection (by `source_event_id`) so the Input and Result
+  // tabs stay pinned to the same stream. Radix unmounts inactive tabs, so
+  // hoisting selection here survives switching between them. The component is
+  // remounted per action via the parent key, resetting this on action change.
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
 
   if (tabItems.length === 0 || !activeTab) {
     return (
@@ -115,6 +120,8 @@ function WorkflowExecutionEventDetailTabs({
               events={events}
               type="input"
               presentation="single"
+              selectedEventId={selectedEventId}
+              onSelectedEventIdChange={setSelectedEventId}
             />
           </TabsContent>
         )}
@@ -130,6 +137,8 @@ function WorkflowExecutionEventDetailTabs({
               events={events}
               type="result"
               presentation="single"
+              selectedEventId={selectedEventId}
+              onSelectedEventIdChange={setSelectedEventId}
             />
           </TabsContent>
         )}
