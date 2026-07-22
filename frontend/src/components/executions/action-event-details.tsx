@@ -78,9 +78,23 @@ export function ActionEventDetails({
   type,
   presentation = "stack",
 }: ActionEventDetailsProps) {
-  const actionEventsForRef = events.filter(
-    (event) => event.action_ref === actionRef
+  const actionEventsForRef = useMemo(
+    () => events.filter((event) => event.action_ref === actionRef),
+    [events, actionRef]
   )
+  // Memoized: stringifying every stream input each render is costly while the
+  // execution polls, and react-query's structural sharing keeps `events` stable.
+  const hasDistinctInputs = useMemo(() => {
+    if (type !== "input" || actionEventsForRef.length < 2) {
+      return false
+    }
+    const firstInput = JSON.stringify(
+      actionEventsForRef[0].action_input ?? null
+    )
+    return actionEventsForRef.some(
+      (event) => JSON.stringify(event.action_input ?? null) !== firstInput
+    )
+  }, [type, actionEventsForRef])
 
   if (actionEventsForRef.length === 0) {
     return (
@@ -101,13 +115,6 @@ export function ActionEventDetails({
   }
 
   if (type === "input") {
-    const firstInput = JSON.stringify(
-      actionEventsForRef[0].action_input ?? null
-    )
-    const hasDistinctInputs = actionEventsForRef.some(
-      (event) => JSON.stringify(event.action_input ?? null) !== firstInput
-    )
-
     if (hasDistinctInputs) {
       return (
         <SingleActionEventPayload
