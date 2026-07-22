@@ -248,6 +248,50 @@ describe("useAdoptServerTranscript", () => {
     ).toBe("reject-count")
   })
 
+  it("rejects a stale snapshot whose earlier turn repeats the final answer text", () => {
+    const liveMessages = [
+      textMessage("live-user-1", "user", "Question"),
+      textMessage("live-assistant-1", "assistant", "Same answer"),
+      textMessage("live-user-2", "user", "Question again"),
+      textMessage("live-assistant-2", "assistant", "Same answer"),
+    ]
+    // Stale finalize-race snapshot: the earlier turn already contains the
+    // identical text and DB row segmentation makes the snapshot as long as the
+    // live transcript, but the final turn's rows are still hidden. Coverage
+    // must be scoped to the final turn or this would be adopted and the final
+    // bubble dropped.
+    const serverMessages = [
+      textMessage("server-user-1", "user", "Question"),
+      textMessage("server-assistant-1a", "assistant", "Same "),
+      textMessage("server-assistant-1b", "assistant", "answer"),
+      textMessage("server-user-2", "user", "Question again"),
+    ]
+
+    expect(
+      decideServerTranscriptAdoption({ serverMessages, liveMessages })
+    ).toBe("reject-content")
+  })
+
+  it("uses only the count guard when the live transcript ends with a user message", () => {
+    // The finalize race protects the final streamed assistant turn; when the
+    // last live message is a user prompt there is no such turn, so a previous
+    // turn's assistant text must not be used as the coverage probe.
+    const liveMessages = [
+      textMessage("live-user-1", "user", "Question"),
+      textMessage("live-assistant-1", "assistant", "Answer"),
+      textMessage("live-user-2", "user", "New question"),
+    ]
+    const serverMessages = [
+      textMessage("server-user-1", "user", "Question"),
+      textMessage("server-assistant-1", "assistant", "Different text"),
+      textMessage("server-user-2", "user", "New question"),
+    ]
+
+    expect(
+      decideServerTranscriptAdoption({ serverMessages, liveMessages })
+    ).toBe("adopt")
+  })
+
   it("adopts cancelled-turn marker rows that retain the streamed partial text", () => {
     const queryClient = new QueryClient()
     const setMessages = jest.fn()

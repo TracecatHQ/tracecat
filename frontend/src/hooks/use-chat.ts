@@ -712,17 +712,30 @@ export type ServerTranscriptAdoptionDecision =
   | "reject-content"
   | "reject-count"
 
+/** Index of the last user-role message, or -1 when there is none. */
+function lastUserMessageIndex(messages: UIMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      return index
+    }
+  }
+  return -1
+}
+
 /**
  * Concatenate the text parts of the final non-approval assistant message.
  *
- * `null` means there is no comparable text, so callers must fall back to the
- * count guard instead of comparing tool or data parts that serialize
+ * Only the final turn qualifies: the scan stops at the last user message, so
+ * an assistant answer from a previous turn is never used as the coverage
+ * probe. `null` means there is no comparable text, so callers must fall back
+ * to the count guard instead of comparing tool or data parts that serialize
  * differently between the stream and the database.
  */
 export function getFinalLiveAssistantText(
   liveMessages: UIMessage[]
 ): string | null {
-  for (let index = liveMessages.length - 1; index >= 0; index -= 1) {
+  const turnStart = lastUserMessageIndex(liveMessages) + 1
+  for (let index = liveMessages.length - 1; index >= turnStart; index -= 1) {
     const message = liveMessages[index]
     if (message.role !== "assistant" || isApprovalCardMessage(message)) {
       continue
@@ -744,9 +757,14 @@ export function getFinalLiveAssistantText(
 /**
  * Whether the server snapshot contains the live final assistant text.
  *
- * Server text is concatenated across every message so a live assistant bubble
- * can match several database-backed rows. A textless final assistant message
- * is deliberately treated as covered and left to the count guard.
+ * Both sides are scoped to the final turn: the probe is the live assistant
+ * text after the last live user message, and it must appear in the server
+ * text after the last server user message. Comparing whole transcripts would
+ * let a final answer that repeats earlier conversation text mask a snapshot
+ * that still omits the new turn. Text is concatenated across the server
+ * turn's messages so one live assistant bubble can match several
+ * database-backed rows. A textless final turn is deliberately treated as
+ * covered and left to the count guard.
  */
 export function serverTranscriptCoversLiveFinalAssistantText(
   serverMessages: UIMessage[],
@@ -758,7 +776,9 @@ export function serverTranscriptCoversLiveFinalAssistantText(
   }
 
   let serverText = ""
-  for (const message of serverMessages) {
+  for (const message of serverMessages.slice(
+    lastUserMessageIndex(serverMessages) + 1
+  )) {
     for (const part of message.parts) {
       if (part.type === "text") {
         serverText += part.text
