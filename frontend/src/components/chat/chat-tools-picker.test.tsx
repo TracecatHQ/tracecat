@@ -130,6 +130,37 @@ describe("ChatToolsPicker", () => {
     mockToast.mockClear()
   })
 
+  it("does not offer actions excluded from agent toolsets", () => {
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.script.run_python", {
+            default_title: "Run Python",
+            display_group: "Core",
+          }),
+          registryAction("core.script.run_script", {
+            default_title: "Run Script",
+            display_group: "Core",
+          }),
+        ]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      { target: { value: "run" } }
+    )
+
+    expect(screen.queryByText("Run Python")).not.toBeInTheDocument()
+    expect(screen.queryByText("Run Script")).not.toBeInTheDocument()
+    expect(screen.getByText(/No tools found/)).toBeInTheDocument()
+  })
+
   it("disables the add toggle for an unselected tool once the limit is reached", () => {
     const onToolsChange = jest.fn()
     const selected = Array.from({ length: 50 }, (_, i) => `extra.tool.t${i}`)

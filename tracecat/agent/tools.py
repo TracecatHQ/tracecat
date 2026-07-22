@@ -21,10 +21,17 @@ from tracecat_registry import RegistrySecretType
 from tracecat.agent.types import Tool
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.contexts import ctx_role
+from tracecat.dsl.enums import PlatformAction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import (
     IndexedActionResult,
     RegistryActionsService,
+)
+
+# This controls which registry actions are exposed to agents. Execution-policy
+# enforcement is handled separately.
+EXCLUDED_AGENT_ACTIONS: frozenset[str] = frozenset(
+    {PlatformAction.RUN_PYTHON, "core.script.run_script"}
 )
 
 
@@ -272,7 +279,8 @@ async def build_agent_tools(
 
     Args:
         namespaces: Optional list of namespace prefixes to filter by
-        actions: List of canonical action names to build tools for
+        actions: List of canonical action names to build tools for. Excluded agent
+            actions are ignored.
         tool_approvals: Tool approval requirements by tool name
         max_tools: Maximum number of tools allowed
 
@@ -282,7 +290,12 @@ async def build_agent_tools(
     Raises:
         ValueError: If actions are missing/failed or max_tools exceeded
     """
-    if not actions:
+    included_actions = [
+        action_name
+        for action_name in actions or []
+        if action_name not in EXCLUDED_AGENT_ACTIONS
+    ]
+    if not included_actions:
         return BuildToolsResult(tools=[], collected_secrets=set())
 
     tools: list[Tool] = []
@@ -290,13 +303,13 @@ async def build_agent_tools(
 
     async with RegistryActionsService.with_session() as service:
         # Use index-based lookup instead of querying action tables
-        indexed_results = await service.get_actions_from_index(actions)
+        indexed_results = await service.get_actions_from_index(included_actions)
 
         failed_actions: set[str] = set()
 
         # Check for missing actions
         found_actions = set(indexed_results.keys())
-        missing_actions = set(actions) - found_actions
+        missing_actions = set(included_actions) - found_actions
 
         for action_name, indexed_result in indexed_results.items():
             logger.debug(f"Building tool for action: {action_name}")

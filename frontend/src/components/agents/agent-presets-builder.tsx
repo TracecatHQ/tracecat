@@ -164,6 +164,7 @@ import {
   buildDuplicateAgentPresetPayload,
   buildSkillCommandItemValue,
 } from "@/lib/agent-presets"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
@@ -526,6 +527,7 @@ export function AgentPresetsBuilder({
       return []
     }
     return registryActions
+      .filter((action) => isAgentToolSelectable(action.action))
       .map((action) => ({
         ...registryActionToSuggestion(action),
         label: action.default_title ?? action.name,
@@ -697,6 +699,7 @@ export function AgentPresetArtifactView({
       return []
     }
     return registryActions
+      .filter((action) => isAgentToolSelectable(action.action))
       .map((action) => ({
         ...registryActionToSuggestion(action),
         label: action.default_title ?? action.name,

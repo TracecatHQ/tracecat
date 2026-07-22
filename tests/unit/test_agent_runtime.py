@@ -259,7 +259,7 @@ class TestClaudeAgentRuntimeRun:
             "Accept-Encoding": "identity",
         }
 
-    def test_system_prompt_documents_duckdb_cli(
+    def test_system_prompt_documents_command_line_tools(
         self, mock_socket_writer: MagicMock
     ) -> None:
         """Runtime prompt should document local CLI tools available in shell."""
@@ -270,6 +270,9 @@ class TestClaudeAgentRuntimeRun:
         prompt = runtime._build_system_prompt("Preset instructions.")
 
         assert "<CommandLineTools>" in prompt
+        assert "`python3`" in prompt
+        assert "Python 3 is installed in the runtime environment" in prompt
+        assert "Use it through Bash" in prompt
         assert "`duckdb`" in prompt
         assert "DuckDB CLI" in prompt
         assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
