@@ -1,8 +1,10 @@
-"""Fire-and-forget audit webhook delivery with an at-most-once contract.
+"""Fire-and-forget audit webhook delivery with bounded in-memory retries.
 
-Each event is posted by its own asyncio task; deliveries are only dropped past
-the pending cap, and in-flight tasks are lost on process/loop shutdown.
-Durable, at-least-once delivery arrives with the ENG-1514 spool.
+Each event is posted by its own asyncio task; transient failures are retried
+in process. A retry after a lost response can deliver an exact byte-identical
+duplicate. Deliveries are dropped past the pending cap and lost on
+process/loop shutdown. Durable, at-least-once delivery arrives with the
+ENG-1514 spool.
 """
 
 from __future__ import annotations
@@ -20,6 +22,12 @@ from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.sanitization import sanitize_audit_metadata
@@ -70,8 +78,8 @@ class _AuditDelivery:
 _delivery_tasks: set[asyncio.Task[None]] = set()
 
 # Burst-admission bound: pending deliveries past this are dropped. A full
-# backlog is a few MB of suspended tasks; worst-case drain ~10 min
-# (_MAX_CONCURRENT_POSTS slots / 10s httpx timeout against a hung sink).
+# backlog is a few MB of suspended tasks; worst-case drain ~35 min against a
+# hung sink (~33s per slot: 3 timed-out attempts plus backoff, 32 slots).
 _MAX_PENDING_DELIVERIES = 2048
 
 # Socket bound: each active post holds one connection/FD for up to the 10s
@@ -89,6 +97,19 @@ def _get_post_semaphore() -> asyncio.Semaphore:
     if (sem := _post_semaphores.get(loop)) is None:
         sem = _post_semaphores[loop] = asyncio.Semaphore(_MAX_CONCURRENT_POSTS)
     return sem
+
+
+# Retry only failures a fresh attempt can plausibly fix; other 4xx are terminal.
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_DELIVERY_ATTEMPTS = 3
+# Module-level so tests can swap in wait_none().
+_RETRY_WAIT = wait_exponential(multiplier=1, min=1, max=10)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _RETRYABLE_STATUS_CODES
+    return isinstance(exc, httpx.TransportError)
 
 
 def _spawn_delivery(delivery: _AuditDelivery) -> None:
@@ -121,17 +142,28 @@ async def _deliver(delivery: _AuditDelivery) -> None:
     Never uses a DB session.
     """
     response: httpx.Response | None = None
+    attempts = 0
     try:
-        async with (
-            _get_post_semaphore(),
-            httpx.AsyncClient(timeout=10.0, verify=delivery.verify_ssl) as client,
-        ):
-            response = await client.post(
-                delivery.webhook_url,
-                json=delivery.request_payload,
-                headers=delivery.headers,
-            )
-            response.raise_for_status()
+        # One slot spans all attempts; the socket itself is only open per post.
+        async with _get_post_semaphore():
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(_DELIVERY_ATTEMPTS),
+                wait=_RETRY_WAIT,
+                retry=retry_if_exception(_is_retryable),
+                reraise=True,
+            ):
+                with attempt:
+                    attempts = attempt.retry_state.attempt_number
+                    response = None
+                    async with httpx.AsyncClient(
+                        timeout=10.0, verify=delivery.verify_ssl
+                    ) as client:
+                        response = await client.post(
+                            delivery.webhook_url,
+                            json=delivery.request_payload,
+                            headers=delivery.headers,
+                        )
+                        response.raise_for_status()
     except Exception as exc:
         # No exception text or URL on this path: the webhook URL is
         # operator-configured and may carry a credential in its path.
@@ -141,6 +173,7 @@ async def _deliver(delivery: _AuditDelivery) -> None:
             status_code=response.status_code if response is not None else None,
             resource_type=delivery.resource_type,
             action=delivery.action,
+            attempts=attempts,
         )
 
 

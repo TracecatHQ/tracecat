@@ -17,6 +17,7 @@ import respx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import wait_none
 
 from tracecat.audit import service as audit_service_module
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
@@ -1062,7 +1063,8 @@ async def test_post_event_failure_does_not_log_webhook_url(
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
-    assert client_mock.post.await_count == 1
+    # ConnectError is retryable; all attempts exhaust before the warning.
+    assert client_mock.post.await_count == 3
     delivery_warnings = [
         kwargs for m, kwargs in warnings if m == "Failed to deliver audit webhook"
     ]
@@ -1128,6 +1130,12 @@ def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDeliver
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
     )
+
+
+@pytest.fixture(autouse=True)
+def no_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Zero the delivery retry backoff so retry-path tests don't sleep."""
+    monkeypatch.setattr(audit_service_module, "_RETRY_WAIT", wait_none())
 
 
 async def flush_audit_deliveries() -> None:
@@ -1473,6 +1481,57 @@ async def test_spawn_delivery_evicts_closed_loop_tasks(
         assert fake_task not in tasks
     for dead_loop in dead_loops:
         assert dead_loop not in semaphores
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_retries_transient_failure_then_succeeds(
+    fresh_delivery_tasks: None,
+) -> None:
+    """A retryable failure is retried; success on a later attempt logs nothing."""
+    route = respx.post("https://example.com/audit").mock(
+        side_effect=[httpx.Response(503), httpx.Response(200)]
+    )
+
+    warnings: list[str] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append(msg)
+
+    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
+        _spawn_delivery(_delivery("flaky"))
+        await flush_audit_deliveries()
+
+    assert route.call_count == 2
+    assert warnings == []
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_does_not_retry_terminal_status(
+    fresh_delivery_tasks: None,
+) -> None:
+    """Non-retryable 4xx gets exactly one attempt and one warning."""
+    route = respx.post("https://example.com/audit").mock(
+        return_value=httpx.Response(400)
+    )
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
+        _spawn_delivery(_delivery("rejected"))
+        await flush_audit_deliveries()
+
+    assert route.call_count == 1
+    delivery_warnings = [
+        kwargs for m, kwargs in warnings if m == "Failed to deliver audit webhook"
+    ]
+    assert len(delivery_warnings) == 1
+    assert delivery_warnings[0]["status_code"] == 400
+    assert delivery_warnings[0]["attempts"] == 1
 
 
 @respx.mock
