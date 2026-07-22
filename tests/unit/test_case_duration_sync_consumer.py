@@ -21,6 +21,7 @@ from tracecat.cases.durations.materialization import (
 from tracecat.cases.enums import CaseEventType
 from tracecat.redis.client import RedisClient, StreamGroupNotFoundError
 from tracecat.tiers.enums import Entitlement
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 
 
 class FakeRedisClient:
@@ -413,6 +414,51 @@ async def test_consumer_checks_backfill_entitlement_by_organization(
         organization_id,
         Entitlement.CASE_ADDONS,
     )
+
+
+@pytest.mark.anyio
+async def test_consumer_skips_backfill_when_default_tier_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    session = MagicMock()
+    session.scalar = AsyncMock(return_value=organization_id)
+    session.execute = AsyncMock()
+    entitlement_mock = AsyncMock(side_effect=DefaultTierNotConfiguredError())
+    publish_mock = AsyncMock()
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.is_org_entitled",
+        entitlement_mock,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.publish_case_duration_sync",
+        publish_mock,
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, AsyncMock()))
+    job = DurationDefinitionSyncJob(
+        workspace_id=workspace_id,
+        reason="duration_definition_updated",
+    )
+
+    assert await consumer._process_backfill_job(job)
+
+    entitlement_mock.assert_awaited_once_with(
+        session,
+        organization_id,
+        Entitlement.CASE_ADDONS,
+    )
+    session.execute.assert_not_awaited()
+    publish_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio

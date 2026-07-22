@@ -36,6 +36,7 @@ from tracecat.redis.client import (
 )
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 
 RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
 RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
@@ -391,11 +392,18 @@ class CaseDurationSyncConsumer:
         )
         if organization_id is None:
             return False
-        return await is_org_entitled(
-            session,
-            organization_id,
-            Entitlement.CASE_ADDONS,
-        )
+        try:
+            return await is_org_entitled(
+                session,
+                organization_id,
+                Entitlement.CASE_ADDONS,
+            )
+        except DefaultTierNotConfiguredError:
+            logger.debug(
+                "No effective tier configured; treating workspace as not entitled",
+                workspace_id=str(workspace_id),
+            )
+            return False
 
     async def _claim_idle_messages(self) -> None:
         while True:
