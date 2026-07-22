@@ -256,11 +256,13 @@ export function getLoopEventMeta(
   return undefined
 }
 
-function getCompactEventTimestamp(
+/** Effective timestamp of a compact event: close, else start, else schedule time. */
+export function getCompactEventTimestamp(
   event: WorkflowExecutionEventCompact
 ): number {
-  const time = event.close_time || event.start_time || event.schedule_time
-  return new Date(time).getTime()
+  const time = event.close_time ?? event.start_time ?? event.schedule_time
+  const timestamp = new Date(time).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 export function getLatestLoopEventMeta(

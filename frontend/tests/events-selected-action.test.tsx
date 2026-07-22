@@ -4,10 +4,8 @@
 
 import { render, screen } from "@testing-library/react"
 import type React from "react"
-import {
-  ActionEventPane,
-  SuccessEvent,
-} from "@/components/builder/events/events-selected-action"
+import { ActionEventPane } from "@/components/builder/events/events-selected-action"
+import { SuccessEvent } from "@/components/executions/action-event-details"
 import {
   WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
