@@ -54,11 +54,11 @@ async def publish_case_duration_sync(
         fields["cursor"] = str(cursor)
 
     client = await get_redis_client()
+    # Ack + XDEL cleanup bounds the stream; a hard cap would silently drop
+    # unconsumed jobs during consumer outages.
     message_id = await client.xadd(
         stream_key=config.TRACECAT__CASE_DURATION_SYNC_STREAM_KEY,
         fields=fields,
-        maxlen=config.TRACECAT__CASE_DURATION_SYNC_MAXLEN,
-        approximate=True,
         expire_seconds=None,
     )
     logger.debug(

@@ -1019,11 +1019,6 @@ TRACECAT__CASE_DURATION_SYNC_CLAIM_IDLE_MS = int(
 )
 """Idle time before claiming pending duration sync jobs."""
 
-TRACECAT__CASE_DURATION_SYNC_MAXLEN = int(
-    os.environ.get("TRACECAT__CASE_DURATION_SYNC_MAXLEN") or 30000
-)
-"""Approximate max length for the case duration sync stream."""
-
 TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH = int(
     os.environ.get("TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH") or 250
 )

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.durations.sync_queue import (
     ROLLOUT_BACKFILL_LEASE_SECONDS,
@@ -17,6 +18,7 @@ from tracecat.cases.durations.sync_queue import (
     enqueue_case_duration_backfill_for_orgs,
     enqueue_case_duration_sync_after_commit,
     enqueue_rollout_backfill_once,
+    publish_case_duration_sync,
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import CaseDurationDefinition, Organization, Workspace
@@ -36,6 +38,39 @@ def _duration_definition(
         end_timestamp_path="created_at",
         end_field_filters={},
         end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+
+
+@pytest.mark.anyio
+async def test_publish_does_not_cap_unconsumed_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis_mock = MagicMock()
+    redis_mock.xadd = AsyncMock(return_value="1-0")
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.get_redis_client",
+        AsyncMock(return_value=redis_mock),
+    )
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+
+    message_id = await publish_case_duration_sync(
+        workspace_id=workspace_id,
+        case_id=case_id,
+        event_type="case_updated",
+        reason="case_event",
+    )
+
+    assert message_id == "1-0"
+    redis_mock.xadd.assert_awaited_once_with(
+        stream_key=config.TRACECAT__CASE_DURATION_SYNC_STREAM_KEY,
+        fields={
+            "workspace_id": str(workspace_id),
+            "reason": "case_event",
+            "case_id": str(case_id),
+            "event_type": "case_updated",
+        },
+        expire_seconds=None,
     )
 
 
