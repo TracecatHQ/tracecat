@@ -123,13 +123,24 @@ async def enqueue_case_duration_backfill_for_org(
 
             pending_case_ids: list[uuid.UUID] = []
             for case_id in case_ids:
-                synced = await sync_case_duration(
-                    workspace_id,
-                    case_id,
-                    event_types=None,
-                )
-                if synced is False:
+                try:
+                    synced = await sync_case_duration(
+                        workspace_id,
+                        case_id,
+                        event_types=None,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Inline organization duration backfill case sync failed",
+                        organization_id=str(organization_id),
+                        workspace_id=str(workspace_id),
+                        case_id=str(case_id),
+                        error=str(e),
+                    )
                     pending_case_ids.append(case_id)
+                else:
+                    if synced is False:
+                        pending_case_ids.append(case_id)
                 await asyncio.sleep(0)
 
             for delay_seconds in INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS[1:]:
@@ -138,19 +149,30 @@ async def enqueue_case_duration_backfill_for_org(
                 await asyncio.sleep(delay_seconds)
                 retry_case_ids: list[uuid.UUID] = []
                 for case_id in pending_case_ids:
-                    synced = await sync_case_duration(
-                        workspace_id,
-                        case_id,
-                        event_types=None,
-                    )
-                    if synced is False:
+                    try:
+                        synced = await sync_case_duration(
+                            workspace_id,
+                            case_id,
+                            event_types=None,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Inline organization duration backfill case sync failed",
+                            organization_id=str(organization_id),
+                            workspace_id=str(workspace_id),
+                            case_id=str(case_id),
+                            error=str(e),
+                        )
                         retry_case_ids.append(case_id)
+                    else:
+                        if synced is False:
+                            retry_case_ids.append(case_id)
                     await asyncio.sleep(0)
                 pending_case_ids = retry_case_ids
 
             if pending_case_ids:
                 logger.warning(
-                    "Inline organization duration backfill skipped cases; sync lock stayed busy",
+                    "Inline organization duration backfill skipped cases; lock busy or sync failed",
                     organization_id=str(organization_id),
                     workspace_id=str(workspace_id),
                     remaining_case_count=len(pending_case_ids),

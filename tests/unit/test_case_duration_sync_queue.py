@@ -210,6 +210,49 @@ async def test_org_backfill_inline_retry_syncs_lock_contended_case(
 
 
 @pytest.mark.anyio
+async def test_org_backfill_inline_sync_failure_isolated_and_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    failed_workspace_id = uuid.uuid4()
+    failed_case_id = uuid.uuid4()
+    successful_case_id = uuid.uuid4()
+    _mock_org_backfill_environment(
+        monkeypatch,
+        workspace_ids=[failed_workspace_id],
+        case_ids=[failed_case_id, successful_case_id],
+    )
+    sync_mock = AsyncMock(
+        side_effect=[RuntimeError("database unavailable"), True, True]
+    )
+    sleep_mock = AsyncMock()
+    warning_mock = MagicMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.materialization.sync_case_duration",
+        sync_mock,
+    )
+    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.logger.warning", warning_mock
+    )
+
+    await enqueue_case_duration_backfill_for_org(organization_id)
+
+    assert sync_mock.await_args_list == [
+        call(failed_workspace_id, failed_case_id, event_types=None),
+        call(failed_workspace_id, successful_case_id, event_types=None),
+        call(failed_workspace_id, failed_case_id, event_types=None),
+    ]
+    warning_mock.assert_any_call(
+        "Inline organization duration backfill case sync failed",
+        organization_id=str(organization_id),
+        workspace_id=str(failed_workspace_id),
+        case_id=str(failed_case_id),
+        error="database unavailable",
+    )
+
+
+@pytest.mark.anyio
 async def test_org_backfill_inline_lock_stays_busy_logs_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -237,7 +280,7 @@ async def test_org_backfill_inline_lock_stays_busy_logs_warning(
 
     assert sync_mock.await_count == 4
     warning_mock.assert_any_call(
-        "Inline organization duration backfill skipped cases; sync lock stayed busy",
+        "Inline organization duration backfill skipped cases; lock busy or sync failed",
         organization_id=str(organization_id),
         workspace_id=str(failed_workspace_id),
         remaining_case_count=1,
@@ -257,18 +300,37 @@ async def test_org_backfill_inline_failure_does_not_block_other_workspaces(
         case_ids=[uuid.uuid4()],
     )
     sync_mock = AsyncMock(side_effect=RuntimeError("database unavailable"))
+    sleep_mock = AsyncMock()
+    warning_mock = MagicMock()
+    exception_mock = MagicMock()
     monkeypatch.setattr(
         "tracecat.cases.durations.materialization.sync_case_duration",
         sync_mock,
     )
+    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.logger.warning", warning_mock
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.logger.exception", exception_mock
+    )
 
-    await enqueue_case_duration_backfill_for_org(uuid.uuid4())
+    organization_id = uuid.uuid4()
+    await enqueue_case_duration_backfill_for_org(organization_id)
 
     assert publish_mock.await_args_list[-1] == call(
         workspace_id=published_workspace_id,
         reason="duration_definition_updated",
     )
-    sync_mock.assert_awaited_once()
+    assert sync_mock.await_count == 4
+    warning_mock.assert_any_call(
+        "Inline organization duration backfill skipped cases; lock busy or sync failed",
+        organization_id=str(organization_id),
+        workspace_id=str(failed_workspace_id),
+        remaining_case_count=1,
+        attempts=4,
+    )
+    exception_mock.assert_not_called()
 
 
 def _mock_rollout_environment(

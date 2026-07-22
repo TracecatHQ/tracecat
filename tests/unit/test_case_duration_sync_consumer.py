@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import uuid
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1004,6 +1004,70 @@ async def test_consumer_claims_idle_messages_while_stream_is_busy(
     ensure_group_mock.assert_awaited_once()
     handle_entries_mock.assert_awaited_once_with(entries)
     claim_idle_mock.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_claim_idle_messages_drains_all_available_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pending_batches = [
+        [{"message_id": "1-0"}, {"message_id": "2-0"}],
+        [{"message_id": "3-0"}, {"message_id": "4-0"}],
+        [{"message_id": "5-0"}],
+    ]
+    claimed_batches = [
+        [("1-0", {}), ("2-0", {})],
+        [("3-0", {}), ("4-0", {})],
+        [("5-0", {})],
+    ]
+    client = AsyncMock()
+    client.xpending_range = AsyncMock(side_effect=pending_batches)
+    client.xclaim = AsyncMock(side_effect=claimed_batches)
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    consumer.batch = 2
+    handle_entries_mock = AsyncMock()
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    monkeypatch.setattr("tracecat.cases.durations.consumer.asyncio.sleep", sleep_mock)
+
+    await consumer._claim_idle_messages()
+
+    expected_pending_call = call(
+        consumer.stream_key,
+        consumer.group,
+        min_id="-",
+        max_id="+",
+        count=consumer.batch,
+        idle=consumer.claim_idle_ms,
+    )
+    assert client.xpending_range.await_args_list == [expected_pending_call] * 3
+    assert client.xclaim.await_args_list == [
+        call(
+            consumer.stream_key,
+            consumer.group,
+            consumer.consumer_name,
+            consumer.claim_idle_ms,
+            ["1-0", "2-0"],
+        ),
+        call(
+            consumer.stream_key,
+            consumer.group,
+            consumer.consumer_name,
+            consumer.claim_idle_ms,
+            ["3-0", "4-0"],
+        ),
+        call(
+            consumer.stream_key,
+            consumer.group,
+            consumer.consumer_name,
+            consumer.claim_idle_ms,
+            ["5-0"],
+        ),
+    ]
+    assert handle_entries_mock.await_args_list == [
+        call(claimed_batch) for claimed_batch in claimed_batches
+    ]
+    assert sleep_mock.await_args_list == [call(0), call(0)]
 
 
 @pytest.mark.anyio

@@ -12,7 +12,7 @@ from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.tiers import defaults as tier_defaults
-from tracecat.tiers.schemas import OrganizationTierUpdate, TierUpdate
+from tracecat.tiers.schemas import OrganizationTierUpdate, TierCreate, TierUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -35,6 +35,74 @@ def _tier(*, is_default: bool) -> Tier:
         sort_order=0,
         is_active=True,
     )
+
+
+@pytest.mark.anyio
+async def test_create_default_tier_queues_newly_entitled_default_follower(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with patch(
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        new=AsyncMock(),
+    ) as enqueue_mock:
+        await service.create_tier(
+            TierCreate(
+                display_name=f"Tier {uuid.uuid4().hex[:8]}",
+                entitlements={"case_addons": True},
+                is_default=True,
+            )
+        )
+
+    enqueue_mock.assert_any_await(org_id)
+
+
+@pytest.mark.anyio
+async def test_create_non_default_tier_does_not_queue_backfill(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with patch(
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        new=AsyncMock(),
+    ) as enqueue_mock:
+        await service.create_tier(
+            TierCreate(
+                display_name=f"Tier {uuid.uuid4().hex[:8]}",
+                entitlements={"case_addons": True},
+                is_default=False,
+            )
+        )
+
+    enqueue_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio

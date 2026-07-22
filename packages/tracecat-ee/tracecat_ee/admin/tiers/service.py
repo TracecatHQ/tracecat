@@ -65,6 +65,25 @@ class AdminTierService(BasePlatformService):
     @audit_log(resource_type="tier", action="create", resource_id_attr="id")
     async def create_tier(self, params: TierCreate) -> TierRead:
         """Create a new tier."""
+        candidate_org_ids: list[uuid.UUID] = []
+        was_entitled_org_ids: set[uuid.UUID] = set()
+        if params.is_default:
+            candidate_org_ids = list(
+                (
+                    await self.session.scalars(
+                        select(Organization.id)
+                        .outerjoin(
+                            OrganizationTier,
+                            OrganizationTier.organization_id == Organization.id,
+                        )
+                        .where(OrganizationTier.id.is_(None))
+                    )
+                ).all()
+            )
+            was_entitled_org_ids = await self._case_addons_entitled_org_ids(
+                candidate_org_ids
+            )
+
         # If this tier is set as default, unset other defaults
         if params.is_default:
             await self._unset_other_defaults(None)
@@ -89,6 +108,22 @@ class AdminTierService(BasePlatformService):
                 f"Tier with display_name '{params.display_name}' already exists"
             ) from e
         await self.session.refresh(tier)
+        now_entitled_org_ids = await self._case_addons_entitled_org_ids(
+            candidate_org_ids
+        )
+        newly_entitled_org_ids = now_entitled_org_ids - was_entitled_org_ids
+        for org_id in candidate_org_ids:
+            if org_id not in newly_entitled_org_ids:
+                continue
+            try:
+                await enqueue_case_duration_backfill_for_org(org_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to queue case duration backfill for tier create",
+                    tier_id=tier.id,
+                    org_id=org_id,
+                    error=e,
+                )
         return TierRead.model_validate(tier)
 
     @audit_log(resource_type="tier", action="update")

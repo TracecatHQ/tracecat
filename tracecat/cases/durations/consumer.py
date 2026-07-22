@@ -399,29 +399,33 @@ class CaseDurationSyncConsumer:
         )
 
     async def _claim_idle_messages(self) -> None:
-        pending = await self.client.xpending_range(
-            self.stream_key,
-            self.group,
-            min_id="-",
-            max_id="+",
-            count=self.batch,
-            idle=self.claim_idle_ms,
-        )
-        if not pending:
-            return
+        while True:
+            pending = await self.client.xpending_range(
+                self.stream_key,
+                self.group,
+                min_id="-",
+                max_id="+",
+                count=self.batch,
+                idle=self.claim_idle_ms,
+            )
+            if not pending:
+                return
 
-        message_ids = [entry["message_id"] for entry in pending]
-        if not message_ids:
-            return
+            message_ids = [entry["message_id"] for entry in pending]
+            if not message_ids:
+                return
 
-        claimed = await self.client.xclaim(
-            self.stream_key,
-            self.group,
-            self.consumer_name,
-            self.claim_idle_ms,
-            message_ids,
-        )
-        await self._handle_entries(claimed)
+            claimed = await self.client.xclaim(
+                self.stream_key,
+                self.group,
+                self.consumer_name,
+                self.claim_idle_ms,
+                message_ids,
+            )
+            await self._handle_entries(claimed)
+            if len(pending) < self.batch:
+                return
+            await asyncio.sleep(0)
 
 
 async def start_case_duration_sync_consumer() -> None:
