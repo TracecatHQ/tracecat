@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Final, Literal
 
@@ -78,23 +78,30 @@ ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
 ROLLOUT_BACKFILL_LEASE_SECONDS: Final = 600
 
 
-async def enqueue_case_duration_backfill_for_org(
-    organization_id: uuid.UUID,
+async def enqueue_case_duration_backfill_for_orgs(
+    organization_ids: Sequence[uuid.UUID],
 ) -> None:
-    """Queue workspace backfills for an org's workspaces with duration definitions."""
+    """Queue workspace backfills for org workspaces with duration definitions."""
+    if not organization_ids:
+        return
+
+    unique_organization_ids = list(dict.fromkeys(organization_ids))
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
-            select(CaseDurationDefinition.workspace_id)
+            select(
+                Workspace.organization_id,
+                CaseDurationDefinition.workspace_id,
+            )
             .join(
                 Workspace,
                 Workspace.id == CaseDurationDefinition.workspace_id,
             )
-            .where(Workspace.organization_id == organization_id)
+            .where(Workspace.organization_id.in_(unique_organization_ids))
             .distinct()
         )
-        workspace_ids = list(result.scalars().all())
+        organization_workspaces = list(result.tuples().all())
 
-    for workspace_id in workspace_ids:
+    for organization_id, workspace_id in organization_workspaces:
         try:
             await publish_case_duration_sync(
                 workspace_id=workspace_id,
@@ -187,9 +194,16 @@ async def enqueue_case_duration_backfill_for_org(
 
     logger.info(
         "Queued organization duration backfill",
-        organization_id=str(organization_id),
-        workspace_count=len(workspace_ids),
+        organization_count=len(unique_organization_ids),
+        workspace_count=len(organization_workspaces),
     )
+
+
+async def enqueue_case_duration_backfill_for_org(
+    organization_id: uuid.UUID,
+) -> None:
+    """Queue workspace backfills for an org's workspaces with duration definitions."""
+    await enqueue_case_duration_backfill_for_orgs([organization_id])
 
 
 async def enqueue_rollout_backfill_once() -> None:

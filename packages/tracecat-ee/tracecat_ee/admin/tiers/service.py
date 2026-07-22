@@ -11,7 +11,10 @@ from sqlalchemy.orm import selectinload
 
 from tracecat import config
 from tracecat.audit.logger import audit_log
-from tracecat.cases.durations.sync_queue import enqueue_case_duration_backfill_for_org
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_backfill_for_org,
+    enqueue_case_duration_backfill_for_orgs,
+)
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.logger import logger
 from tracecat.service import BasePlatformService
@@ -112,18 +115,17 @@ class AdminTierService(BasePlatformService):
             candidate_org_ids
         )
         newly_entitled_org_ids = now_entitled_org_ids - was_entitled_org_ids
-        for org_id in candidate_org_ids:
-            if org_id not in newly_entitled_org_ids:
-                continue
-            try:
-                await enqueue_case_duration_backfill_for_org(org_id)
-            except Exception as e:
-                logger.warning(
-                    "Failed to queue case duration backfill for tier create",
-                    tier_id=tier.id,
-                    org_id=org_id,
-                    error=e,
-                )
+        try:
+            await enqueue_case_duration_backfill_for_orgs(
+                sorted(newly_entitled_org_ids)
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to queue case duration backfill for tier create",
+                tier_id=tier.id,
+                org_count=len(newly_entitled_org_ids),
+                error=e,
+            )
         return TierRead.model_validate(tier)
 
     @audit_log(resource_type="tier", action="update")
@@ -195,18 +197,17 @@ class AdminTierService(BasePlatformService):
             candidate_org_ids
         )
         newly_entitled_org_ids = now_entitled_org_ids - was_entitled_org_ids
-        for org_id in candidate_org_ids:
-            if org_id not in newly_entitled_org_ids:
-                continue
-            try:
-                await enqueue_case_duration_backfill_for_org(org_id)
-            except Exception as e:
-                logger.warning(
-                    "Failed to queue case duration backfill for tier update",
-                    tier_id=tier_id,
-                    org_id=org_id,
-                    error=e,
-                )
+        try:
+            await enqueue_case_duration_backfill_for_orgs(
+                sorted(newly_entitled_org_ids)
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to queue case duration backfill for tier update",
+                tier_id=tier_id,
+                org_count=len(newly_entitled_org_ids),
+                error=e,
+            )
         return TierRead.model_validate(tier)
 
     @audit_log(resource_type="tier", action="delete")

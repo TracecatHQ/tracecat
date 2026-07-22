@@ -13,6 +13,7 @@ from tracecat.cases.durations.sync_queue import (
     ROLLOUT_BACKFILL_LEASE_SECONDS,
     ROLLOUT_BACKFILL_MARKER_KEY,
     enqueue_case_duration_backfill_for_org,
+    enqueue_case_duration_backfill_for_orgs,
     enqueue_case_duration_sync_after_commit,
     enqueue_rollout_backfill_once,
 )
@@ -116,15 +117,100 @@ async def test_org_backfill_publishes_only_defined_workspaces_for_org(
     assert publish_mock.await_count == 2
 
 
+@pytest.mark.anyio
+async def test_orgs_backfill_publishes_defined_workspaces_for_all_selected_orgs(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_a = Organization(
+        name=f"Duration Org A {uuid.uuid4().hex[:8]}",
+        slug=f"duration-org-a-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    organization_b = Organization(
+        name=f"Duration Org B {uuid.uuid4().hex[:8]}",
+        slug=f"duration-org-b-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    unrelated_organization = Organization(
+        name=f"Unrelated Duration Org {uuid.uuid4().hex[:8]}",
+        slug=f"unrelated-duration-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add_all([organization_a, organization_b, unrelated_organization])
+    await session.flush()
+
+    workspace_a = Workspace(
+        name="Selected org A workspace",
+        organization_id=organization_a.id,
+    )
+    workspace_b = Workspace(
+        name="Selected org B workspace",
+        organization_id=organization_b.id,
+    )
+    unrelated_workspace = Workspace(
+        name="Unrelated org workspace",
+        organization_id=unrelated_organization.id,
+    )
+    session.add_all([workspace_a, workspace_b, unrelated_workspace])
+    await session.flush()
+    session.add_all(
+        [
+            _duration_definition(workspace_id=workspace_a.id, name="Org A"),
+            _duration_definition(workspace_id=workspace_b.id, name="Org B"),
+            _duration_definition(
+                workspace_id=unrelated_workspace.id,
+                name="Unrelated",
+            ),
+        ]
+    )
+    await session.commit()
+
+    session_context_call_count = 0
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        nonlocal session_context_call_count
+        session_context_call_count += 1
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    publish_mock = AsyncMock(return_value="1-0")
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
+        publish_mock,
+    )
+
+    await enqueue_case_duration_backfill_for_orgs(
+        [organization_a.id, organization_b.id]
+    )
+
+    publish_mock.assert_has_awaits(
+        [
+            call(workspace_id=workspace_a.id, reason="duration_definition_updated"),
+            call(workspace_id=workspace_b.id, reason="duration_definition_updated"),
+        ],
+        any_order=True,
+    )
+    assert publish_mock.await_count == 2
+    assert session_context_call_count == 1
+
+
 def _mock_org_backfill_environment(
     monkeypatch: pytest.MonkeyPatch,
     *,
+    organization_id: uuid.UUID,
     workspace_ids: list[uuid.UUID],
     case_ids: list[uuid.UUID],
 ) -> AsyncMock:
     session = MagicMock()
     workspace_result = MagicMock()
-    workspace_result.scalars.return_value.all.return_value = workspace_ids
+    workspace_result.tuples.return_value.all.return_value = [
+        (organization_id, workspace_id) for workspace_id in workspace_ids
+    ]
     case_result = MagicMock()
     case_result.scalars.return_value.all.return_value = case_ids
     session.execute = AsyncMock(side_effect=[workspace_result, case_result])
@@ -155,6 +241,7 @@ async def test_org_backfill_publish_failure_syncs_inline_and_continues(
     case_ids = [uuid.uuid4(), uuid.uuid4()]
     publish_mock = _mock_org_backfill_environment(
         monkeypatch,
+        organization_id=organization_id,
         workspace_ids=[failed_workspace_id, published_workspace_id],
         case_ids=case_ids,
     )
@@ -185,10 +272,12 @@ async def test_org_backfill_publish_failure_syncs_inline_and_continues(
 async def test_org_backfill_inline_retry_syncs_lock_contended_case(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    organization_id = uuid.uuid4()
     failed_workspace_id = uuid.uuid4()
     case_id = uuid.uuid4()
     _mock_org_backfill_environment(
         monkeypatch,
+        organization_id=organization_id,
         workspace_ids=[failed_workspace_id],
         case_ids=[case_id],
     )
@@ -200,7 +289,7 @@ async def test_org_backfill_inline_retry_syncs_lock_contended_case(
     )
     monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
 
-    await enqueue_case_duration_backfill_for_org(uuid.uuid4())
+    await enqueue_case_duration_backfill_for_org(organization_id)
 
     assert sync_mock.await_args_list == [
         call(failed_workspace_id, case_id, event_types=None),
@@ -219,6 +308,7 @@ async def test_org_backfill_inline_sync_failure_isolated_and_retried(
     successful_case_id = uuid.uuid4()
     _mock_org_backfill_environment(
         monkeypatch,
+        organization_id=organization_id,
         workspace_ids=[failed_workspace_id],
         case_ids=[failed_case_id, successful_case_id],
     )
@@ -261,6 +351,7 @@ async def test_org_backfill_inline_lock_stays_busy_logs_warning(
     case_id = uuid.uuid4()
     _mock_org_backfill_environment(
         monkeypatch,
+        organization_id=organization_id,
         workspace_ids=[failed_workspace_id],
         case_ids=[case_id],
     )
@@ -292,10 +383,12 @@ async def test_org_backfill_inline_lock_stays_busy_logs_warning(
 async def test_org_backfill_inline_failure_does_not_block_other_workspaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    organization_id = uuid.uuid4()
     failed_workspace_id = uuid.uuid4()
     published_workspace_id = uuid.uuid4()
     publish_mock = _mock_org_backfill_environment(
         monkeypatch,
+        organization_id=organization_id,
         workspace_ids=[failed_workspace_id, published_workspace_id],
         case_ids=[uuid.uuid4()],
     )
@@ -315,7 +408,6 @@ async def test_org_backfill_inline_failure_does_not_block_other_workspaces(
         "tracecat.cases.durations.sync_queue.logger.exception", exception_mock
     )
 
-    organization_id = uuid.uuid4()
     await enqueue_case_duration_backfill_for_org(organization_id)
 
     assert publish_mock.await_args_list[-1] == call(

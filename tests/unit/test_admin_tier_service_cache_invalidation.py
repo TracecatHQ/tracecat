@@ -57,7 +57,7 @@ async def test_create_default_tier_queues_newly_entitled_default_follower(
     service = AdminTierService(session, cast(PlatformRole, test_admin_role))
 
     with patch(
-        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
         new=AsyncMock(),
     ) as enqueue_mock:
         await service.create_tier(
@@ -68,7 +68,9 @@ async def test_create_default_tier_queues_newly_entitled_default_follower(
             )
         )
 
-    enqueue_mock.assert_any_await(org_id)
+    enqueue_mock.assert_awaited_once()
+    assert enqueue_mock.await_args is not None
+    assert org_id in enqueue_mock.await_args.args[0]
 
 
 @pytest.mark.anyio
@@ -91,7 +93,7 @@ async def test_create_non_default_tier_does_not_queue_backfill(
     service = AdminTierService(session, cast(PlatformRole, test_admin_role))
 
     with patch(
-        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
         new=AsyncMock(),
     ) as enqueue_mock:
         await service.create_tier(
@@ -102,7 +104,7 @@ async def test_create_non_default_tier_does_not_queue_backfill(
             )
         )
 
-    enqueue_mock.assert_not_awaited()
+    enqueue_mock.assert_awaited_once_with([])
 
 
 @pytest.mark.anyio
@@ -420,7 +422,7 @@ async def test_update_tier_grant_queues_only_newly_entitled_org(
             new=AsyncMock(),
         ),
         patch(
-            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
             new=AsyncMock(),
         ) as enqueue_mock,
     ):
@@ -432,7 +434,7 @@ async def test_update_tier_grant_queues_only_newly_entitled_org(
             ),
         )
 
-    enqueue_mock.assert_awaited_once_with(org_a_id)
+    enqueue_mock.assert_awaited_once_with([org_a_id])
 
 
 @pytest.mark.anyio
@@ -457,7 +459,7 @@ async def test_update_tier_activation_queues_newly_entitled_default_follower(
     service = AdminTierService(session, cast(PlatformRole, test_admin_role))
 
     with patch(
-        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
         new=AsyncMock(),
     ) as enqueue_mock:
         await service.update_tier(
@@ -467,7 +469,9 @@ async def test_update_tier_activation_queues_newly_entitled_default_follower(
 
     # Other default-follower orgs in the test database (e.g. the platform
     # org) legitimately flip too; only pin the org this test created.
-    enqueue_mock.assert_any_await(org_id)
+    enqueue_mock.assert_awaited_once()
+    assert enqueue_mock.await_args is not None
+    assert org_id in enqueue_mock.await_args.args[0]
 
 
 @pytest.mark.anyio
@@ -586,7 +590,7 @@ async def test_update_tier_clears_sole_default_without_backfill_error(
     service = AdminTierService(session, cast(PlatformRole, test_admin_role))
 
     with patch(
-        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_orgs",
         new=AsyncMock(),
     ) as enqueue_mock:
         result = await service.update_tier(
@@ -598,7 +602,7 @@ async def test_update_tier_clears_sole_default_without_backfill_error(
         )
 
     assert result.is_default is False
-    enqueue_mock.assert_not_awaited()
+    enqueue_mock.assert_awaited_once_with([])
 
 
 @pytest.mark.anyio
