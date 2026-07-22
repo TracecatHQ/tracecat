@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import socket
 from pathlib import Path
 from typing import Any, cast
@@ -14,12 +15,14 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     INIT_PAYLOAD_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
     LLMBridge,
+    _decode_tool_launch_payload,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_llm_socket_path,
     _resolve_mcp_socket_path,
     _rewrite_mcp_bridge_command_port,
+    _tool_environment,
     _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -200,6 +203,39 @@ def test_rewrite_mcp_bridge_command_port_replaces_dynamic_urls() -> None:
         "--mcp-config",
         '{"url":"http://127.0.0.1:54321/mcp","other":"http://127.0.0.1:4101/mcp"}',
     ]
+
+
+def test_tool_launch_payload_preserves_argv_as_data() -> None:
+    payload = {
+        "argv": ["/bin/bash", "-c", "touch '/work/a b'; echo $HOME"],
+        "env": {"TOKEN": "configured"},
+    }
+    encoded = base64.urlsafe_b64encode(orjson.dumps(payload)).decode("ascii")
+
+    assert _decode_tool_launch_payload(encoded) == payload
+
+
+def test_tool_environment_is_private_and_does_not_inherit_claude_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "must-not-leak")
+
+    env = _tool_environment({"SERVER_TOKEN": "configured"})
+
+    assert env["HOME"] == "/home/tools"
+    assert env["TMPDIR"] == "/home/tools/tmp"
+    assert env["PWD"] == "/work"
+    assert env["SERVER_TOKEN"] == "configured"
+    assert "ANTHROPIC_AUTH_TOKEN" not in env
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["PATH", "HOME", "XDG_CONFIG_HOME", "TMPDIR", "USER", "PWD"],
+)
+def test_tool_environment_rejects_private_boundary_overrides(key: str) -> None:
+    with pytest.raises(RuntimeError, match=rf"cannot override {key}"):
+        _tool_environment({key: "/home/agent"})
 
 
 class _FakeStreamWriter:

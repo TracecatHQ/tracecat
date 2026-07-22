@@ -8,7 +8,10 @@ host virtualenv's Python dependencies.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
+import ctypes
 import json
 import logging
 import os
@@ -28,6 +31,45 @@ DEFAULT_MCP_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "mcp.sock")
 LLM_BRIDGE_HOST = "127.0.0.1"
 TRUSTED_MCP_BRIDGE_PATH = "/mcp"
 MAX_BODY_SIZE = 10 * 1024 * 1024
+TOOL_LAUNCH_MODE = "--tracecat-tool-launch"
+CAP_SETUID = 7
+LINUX_CAPABILITY_VERSION_3 = 0x20080522
+PR_CAP_AMBIENT = 47
+PR_CAP_AMBIENT_CLEAR_ALL = 4
+TOOL_ENVIRONMENT_BOUNDARY_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_STATE_HOME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "USER",
+        "LOGNAME",
+        "PWD",
+    }
+)
+
+
+class _CapabilityHeader(ctypes.Structure):
+    _fields_ = [("version", ctypes.c_uint32), ("pid", ctypes.c_int)]
+
+
+class _CapabilityData(ctypes.Structure):
+    _fields_ = [
+        ("effective", ctypes.c_uint32),
+        ("permitted", ctypes.c_uint32),
+        ("inheritable", ctypes.c_uint32),
+    ]
+
+
+class ToolLaunchPayload(TypedDict):
+    """Trusted wrapper payload for one demoted tool process."""
+
+    argv: list[str]
+    env: dict[str, str]
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -38,6 +80,170 @@ class ClaudeShimInitPayload(TypedDict):
     cwd: str
     mcp_bridge_port: int
     mcp_bridge_fd: NotRequired[int | None]
+
+
+def _required_identity_env(name: str) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        raise RuntimeError(f"{name} is not set")
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
+    if parsed < 0:
+        raise RuntimeError(f"{name} must be non-negative")
+    return parsed
+
+
+def _process_status_fields() -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in Path("/proc/self/status").read_text().splitlines():
+        key, separator, value = line.partition(":")
+        if separator:
+            fields[key] = value.strip()
+    return fields
+
+
+def _capability_sets() -> dict[str, int]:
+    status = _process_status_fields()
+    return {
+        field: int(status.get(field, "0"), 16)
+        for field in ("CapInh", "CapPrm", "CapEff", "CapAmb")
+    }
+
+
+def _verify_claude_identity() -> None:
+    """Verify nsjail retained only the capability needed by the trusted shim."""
+    if os.environ.get("TRACECAT__DISABLE_NSJAIL") == "true":
+        return
+
+    claude_uid = _required_identity_env("TRACECAT__AGENT_CLAUDE_UID")
+    shared_gid = _required_identity_env("TRACECAT__AGENT_SHARED_GID")
+    if (os.getuid(), os.geteuid()) != (claude_uid, claude_uid):
+        raise RuntimeError("Claude shim did not start as the configured Claude UID")
+    if (os.getgid(), os.getegid()) != (shared_gid, shared_gid):
+        raise RuntimeError("Claude shim did not start with the shared work GID")
+
+    expected = 1 << CAP_SETUID
+    capability_sets = _capability_sets()
+    if any(value != expected for value in capability_sets.values()):
+        raise RuntimeError(
+            "Claude shim must start with only CAP_SETUID in every capability set"
+        )
+    if _process_status_fields().get("NoNewPrivs") != "1":
+        raise RuntimeError("Claude shim must start with no_new_privs enabled")
+
+
+def _clear_capability_sets() -> None:
+    """Drop effective, permitted, inheritable, and ambient capabilities."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    data = (_CapabilityData * 2)()
+    header = _CapabilityHeader(version=LINUX_CAPABILITY_VERSION_3, pid=0)
+    if libc.capset(ctypes.byref(header), ctypes.byref(data)) != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+    if libc.prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+
+
+def _tool_environment(configured_env: dict[str, str]) -> dict[str, str]:
+    tool_home = Path("/home/tools")
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(tool_home),
+        "XDG_CONFIG_HOME": str(tool_home / ".config"),
+        "XDG_CACHE_HOME": str(tool_home / ".cache"),
+        "XDG_STATE_HOME": str(tool_home / ".local/state"),
+        "TMPDIR": str(tool_home / "tmp"),
+        "TEMP": str(tool_home / "tmp"),
+        "TMP": str(tool_home / "tmp"),
+        "USER": "tools",
+        "LOGNAME": "tools",
+        "PWD": "/work",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONUNBUFFERED": "1",
+    }
+    for key, value in configured_env.items():
+        if not key or "=" in key or "\x00" in key or "\x00" in value:
+            raise RuntimeError("Tool environment contains an invalid entry")
+        if key in TOOL_ENVIRONMENT_BOUNDARY_KEYS:
+            raise RuntimeError(f"Tool environment cannot override {key}")
+        env[key] = value
+    return env
+
+
+def _decode_tool_launch_payload(encoded_payload: str) -> ToolLaunchPayload:
+    try:
+        decoded = base64.urlsafe_b64decode(encoded_payload.encode("ascii"))
+        raw_payload = json.loads(decoded)
+    except (binascii.Error, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Tool launch payload is malformed") from exc
+    if not isinstance(raw_payload, dict):
+        raise RuntimeError("Tool launch payload must be an object")
+    argv = raw_payload.get("argv")
+    env = raw_payload.get("env")
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(value, str) and value for value in argv)
+    ):
+        raise RuntimeError("Tool launch argv must be a non-empty list[str]")
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in env.items()
+    ):
+        raise RuntimeError("Tool launch env must be a dict[str, str]")
+    return {"argv": argv, "env": env}
+
+
+def _run_demoted_tool(encoded_payload: str) -> None:
+    """Irreversibly demote and replace this process with a configured tool."""
+    if os.environ.get("TRACECAT__DISABLE_NSJAIL") == "true":
+        raise RuntimeError("UID-demoted tool launching is unavailable in direct mode")
+    _verify_claude_identity()
+    payload = _decode_tool_launch_payload(encoded_payload)
+    tool_uid = _required_identity_env("TRACECAT__AGENT_TOOL_UID")
+    shared_gid = _required_identity_env("TRACECAT__AGENT_SHARED_GID")
+
+    os.setresuid(tool_uid, tool_uid, tool_uid)
+    _clear_capability_sets()
+    if (os.getuid(), os.geteuid(), os.getresuid()[2]) != (
+        tool_uid,
+        tool_uid,
+        tool_uid,
+    ):
+        raise RuntimeError("Tool process did not irreversibly enter the tool UID")
+    if (os.getgid(), os.getegid()) != (shared_gid, shared_gid):
+        raise RuntimeError("Tool process lost the shared work GID")
+    if any(_capability_sets().values()):
+        raise RuntimeError("Tool process retained Linux capabilities")
+    if _process_status_fields().get("NoNewPrivs") != "1":
+        raise RuntimeError("Tool process must retain no_new_privs")
+
+    tool_home = Path("/home/tools")
+    for path in (
+        tool_home / ".config",
+        tool_home / ".cache",
+        tool_home / ".local/state",
+        tool_home / "tmp",
+    ):
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chdir("/work")
+    os.umask(0o002)
+    os.execvpe(payload["argv"][0], payload["argv"], _tool_environment(payload["env"]))
+
+
+def _prepare_claude_runtime_home() -> None:
+    home = Path(os.environ["HOME"])
+    for env_name in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "TMPDIR"):
+        Path(os.environ.get(env_name, str(home))).mkdir(
+            parents=True,
+            exist_ok=True,
+            mode=0o700,
+        )
+    os.umask(0o002)
 
 
 class LLMBridge:
@@ -254,6 +460,8 @@ def _rewrite_mcp_bridge_command_port(
 
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
+    _verify_claude_identity()
+    _prepare_claude_runtime_home()
     llm_bridge: LLMBridge | None = None
     mcp_bridge: LLMBridge | None = None
     process: asyncio.subprocess.Process | None = None
@@ -468,6 +676,11 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    if len(sys.argv) == 3 and sys.argv[1] == TOOL_LAUNCH_MODE:
+        _run_demoted_tool(sys.argv[2])
+        return
+    if len(sys.argv) != 1:
+        raise RuntimeError("Unsupported sandbox shim invocation")
     asyncio.run(run_sandboxed_claude_shim())
 
 

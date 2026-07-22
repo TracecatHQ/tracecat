@@ -40,10 +40,20 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_WORK_DIR,
+    JAILED_TOOL_HOME_DIR,
 )
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# The Claude process owns its private runtime state as UID 1000. Model-controlled
+# Bash commands and stdio MCP servers are irreversibly demoted to UID 1001. Both
+# identities use the same mapped group so they can collaborate only through
+# /work.
+AGENT_CLAUDE_UID = 1000
+AGENT_TOOL_UID = 1001
+AGENT_SHARED_GID = 1000
+AGENT_TOOL_OUTSIDE_UID = 100000
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -119,7 +129,17 @@ JAILED_SHIM_ENTRYPOINT_PATH = str(JAILED_AGENT_JOB_DIR / "shim_entrypoint.py")
 AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
+    "XDG_CONFIG_HOME": "/home/agent/.config",
+    "XDG_CACHE_HOME": "/home/agent/.cache",
+    "XDG_STATE_HOME": "/home/agent/.local/state",
+    "TMPDIR": "/home/agent/tmp",
+    "TEMP": "/home/agent/tmp",
+    "TMP": "/home/agent/tmp",
     "USER": "agent",
+    "LOGNAME": "agent",
+    "TRACECAT__AGENT_CLAUDE_UID": str(AGENT_CLAUDE_UID),
+    "TRACECAT__AGENT_TOOL_UID": str(AGENT_TOOL_UID),
+    "TRACECAT__AGENT_SHARED_GID": str(AGENT_SHARED_GID),
     "TRACECAT__DISABLE_NSJAIL": "false",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
@@ -309,9 +329,11 @@ def build_agent_nsjail_config(
         "clone_newipc: true",
         "clone_newuts: true",
         "",
-        "# UID/GID mapping - map container user to sandbox user",
-        f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
-        f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+        "# UID/GID mapping - Claude plus a subordinate tool identity",
+        f'uidmap {{ inside_id: "{AGENT_CLAUDE_UID}" outside_id: "{os.getuid()}" count: 1 use_newidmap: true }}',
+        f'uidmap {{ inside_id: "{AGENT_TOOL_UID}" outside_id: "{AGENT_TOOL_OUTSIDE_UID}" count: 1 use_newidmap: true }}',
+        f'gidmap {{ inside_id: "{AGENT_SHARED_GID}" outside_id: "{os.getgid()}" count: 1 }}',
+        'cap: "CAP_SETUID"',
         "",
         "# Syscall filtering",
         f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
@@ -359,7 +381,7 @@ def build_agent_nsjail_config(
             'mount { src: "/dev/zero" dst: "/dev/zero" is_bind: true rw: false }',
             "",
             "# Temporary filesystems",
-            'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
+            'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M,mode=1777" }',
             "",
             "# Tracecat job mountpoint namespace",
             "# The tmpfs only backs files placed directly under this directory;",
@@ -419,7 +441,7 @@ def build_agent_nsjail_config(
             [
                 "",
                 "# Ephemeral agent work dir",
-                f'mount {{ dst: "{JAILED_AGENT_WORK_DIR}" fstype: "tmpfs" rw: true options: "size=256M" }}',
+                f'mount {{ dst: "{JAILED_AGENT_WORK_DIR}" fstype: "tmpfs" rw: true options: "size=256M,mode=2770,uid={AGENT_CLAUDE_UID},gid={AGENT_SHARED_GID}" }}',
             ]
         )
 
@@ -436,9 +458,17 @@ def build_agent_nsjail_config(
             [
                 "",
                 "# Ephemeral agent home",
-                f'mount {{ dst: "{JAILED_AGENT_HOME_DIR}" fstype: "tmpfs" rw: true options: "size=64M" }}',
+                f'mount {{ dst: "{JAILED_AGENT_HOME_DIR}" fstype: "tmpfs" rw: true options: "size=64M,mode=0700,uid={AGENT_CLAUDE_UID},gid={AGENT_SHARED_GID}" }}',
             ]
         )
+
+    lines.extend(
+        [
+            "",
+            "# Ephemeral private home for model-controlled tool processes",
+            f'mount {{ dst: "{JAILED_TOOL_HOME_DIR}" fstype: "tmpfs" rw: true options: "size=64M,mode=0700,uid={AGENT_TOOL_UID},gid={AGENT_SHARED_GID}" }}',
+        ]
+    )
 
     if skills_dir is not None:
         if session_home_dir is not None:

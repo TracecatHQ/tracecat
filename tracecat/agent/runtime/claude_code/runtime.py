@@ -12,8 +12,10 @@ Key design principles:
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
+import shlex
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -182,6 +184,15 @@ class _StdioMCPServerSpec:
     blocked_approval_tools: set[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _ToolCommandSpec:
+    """Executable configuration for a model-controlled child process."""
+
+    command: str
+    args: list[str]
+    env: dict[str, str]
+
+
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -233,6 +244,23 @@ INTERNET_TOOLS = [
     "WebSearch",
     "WebFetch",
 ]
+
+NATIVE_MUTATION_TOOLS = frozenset({"Write", "Edit"})
+BASE_NATIVE_TOOL_INVENTORY = frozenset(
+    {
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Skill",
+        "ToolSearch",
+    }
+)
+JAILED_TOOL_WRAPPER_COMMAND = "/usr/local/bin/python3"
+JAILED_TOOL_WRAPPER_SCRIPT = "/run/tracecat/job/shim_entrypoint.py"
+JAILED_TOOL_WRAPPER_MODE = "--tracecat-tool-launch"
 
 COMMAND_LINE_TOOLS_PROMPT = (
     "<CommandLineTools>\n"
@@ -301,6 +329,7 @@ class ClaudeAgentRuntime:
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
         self.tool_approvals: dict[str, bool] | None = None
         self._stdio_approval_blocked_tools: set[str] = set()
+        self._available_mcp_tools: set[str] | None = None
         self._runtime_internet_access_enabled: bool = False
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
@@ -376,16 +405,64 @@ class ClaudeAgentRuntime:
         }
 
     @staticmethod
+    def _tool_command_spec(
+        *,
+        command: str,
+        args: Sequence[str] = (),
+        env: dict[str, str] | None = None,
+    ) -> _ToolCommandSpec:
+        """Wrap a model-controlled command with the trusted UID demoter."""
+        configured_env = dict(env or {})
+        if TRACECAT__DISABLE_NSJAIL:
+            return _ToolCommandSpec(
+                command=command,
+                args=list(args),
+                env=configured_env,
+            )
+
+        payload = base64.urlsafe_b64encode(
+            orjson.dumps(
+                {
+                    "argv": [command, *args],
+                    "env": configured_env,
+                }
+            )
+        ).decode("ascii")
+        return _ToolCommandSpec(
+            command=JAILED_TOOL_WRAPPER_COMMAND,
+            args=[
+                "-I",
+                JAILED_TOOL_WRAPPER_SCRIPT,
+                JAILED_TOOL_WRAPPER_MODE,
+                payload,
+            ],
+            env={},
+        )
+
+    @classmethod
+    def _wrapped_bash_input(cls, tool_input: dict[str, Any]) -> dict[str, Any]:
+        """Return a Bash input whose command is passed as opaque wrapper data."""
+        if TRACECAT__DISABLE_NSJAIL:
+            return tool_input
+        original_command = tool_input.get("command")
+        if not isinstance(original_command, str) or not original_command:
+            raise AgentSandboxValidationError("Bash command must be a non-empty string")
+        spec = cls._tool_command_spec(
+            command="/bin/bash",
+            args=("-c", original_command),
+        )
+        return {
+            **tool_input,
+            "command": shlex.join([spec.command, *spec.args]),
+        }
+
+    @staticmethod
     def _mcp_tool_name_for_action(server_name: str, action_name: str) -> str:
         if action_name.startswith("mcp__"):
             concrete_name = action_name
         else:
             concrete_name = action_name_to_mcp_tool_name(action_name)
         return f"mcp__{server_name}__{concrete_name}"
-
-    @staticmethod
-    def _mcp_tool_wildcard_for_server(server_name: str) -> str:
-        return f"mcp__{server_name}__*"
 
     @staticmethod
     def _mcp_tool_name_for_user_mcp_tool(server_name: str, tool_name: str) -> str:
@@ -414,7 +491,10 @@ class ClaudeAgentRuntime:
         tool_names: set[str] = set()
         for server_name in stdio_server_names:
             if server_name not in stdio_tools_by_server:
-                tool_names.add(cls._mcp_tool_wildcard_for_server(server_name))
+                logger.warning(
+                    "Excluding stdio MCP server without a verified tool inventory",
+                    server_name=server_name,
+                )
                 continue
 
             tool_names.update(
@@ -521,14 +601,19 @@ class ClaudeAgentRuntime:
                 suffix += 1
 
             used_names.add(server_name)
+            wrapped_command = cls._tool_command_spec(
+                command=stdio_config["command"],
+                args=stdio_config.get("args", ()),
+                env=stdio_config.get("env"),
+            )
             server_config: dict[str, Any] = {
                 "type": "stdio",
-                "command": stdio_config["command"],
+                "command": wrapped_command.command,
             }
-            if args := stdio_config.get("args"):
-                server_config["args"] = args
-            if env := stdio_config.get("env"):
-                server_config["env"] = env
+            if wrapped_command.args:
+                server_config["args"] = wrapped_command.args
+            if wrapped_command.env:
+                server_config["env"] = wrapped_command.env
             if (timeout := stdio_config.get("timeout")) is not None:
                 server_config["timeout"] = timeout
             servers[server_name] = cast(McpStdioServerConfig, server_config)
@@ -1139,6 +1224,56 @@ class ClaudeAgentRuntime:
             self._interrupt_sent = True
             await self.client.interrupt()
 
+    def _canonical_native_mutation_path(self, raw_path: object) -> str:
+        """Validate and canonicalize a native Write/Edit path beneath /work."""
+        if not isinstance(raw_path, str) or not raw_path or "\x00" in raw_path:
+            raise AgentSandboxValidationError(
+                "Native mutation requires a non-empty file_path without NUL bytes"
+            )
+        if self._cwd is None:
+            raise AgentSandboxValidationError("Runtime work directory is unavailable")
+
+        logical_root = self._cwd
+        host_root_input = self._cwd_setup_path or logical_root
+        requested_path = Path(raw_path)
+        if ".." in requested_path.parts:
+            raise AgentSandboxValidationError(
+                "Native mutation paths cannot contain traversal components"
+            )
+        if requested_path.is_absolute():
+            try:
+                relative_path = requested_path.relative_to(logical_root)
+            except ValueError as exc:
+                raise AgentSandboxValidationError(
+                    "Native mutation is restricted to the runtime work directory"
+                ) from exc
+        else:
+            relative_path = requested_path
+        if relative_path == Path(".") or not relative_path.parts:
+            raise AgentSandboxValidationError(
+                "Native mutation cannot target the work directory itself"
+            )
+
+        try:
+            host_root = host_root_input.resolve(strict=True)
+            candidate = host_root / relative_path
+            resolved_parent = candidate.parent.resolve(strict=True)
+            resolved_parent.relative_to(host_root)
+            canonical_target = resolved_parent / candidate.name
+            if candidate.is_symlink():
+                canonical_target = candidate.resolve(strict=True)
+            canonical_relative = canonical_target.relative_to(host_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise AgentSandboxValidationError(
+                "Native mutation path could not be safely resolved beneath the work directory"
+            ) from exc
+
+        if canonical_relative == Path(".") or not canonical_relative.parts:
+            raise AgentSandboxValidationError(
+                "Native mutation cannot target the work directory itself"
+            )
+        return str(logical_root / canonical_relative)
+
     async def _pre_tool_use_hook(
         self,
         input_data: HookInput,
@@ -1157,6 +1292,48 @@ class ClaudeAgentRuntime:
 
         tool_name: str = input_data.get("tool_name", "")
         tool_input: dict[str, Any] = input_data.get("tool_input", {})
+
+        if (
+            self._available_mcp_tools is not None
+            and tool_name.startswith("mcp__")
+            and tool_name not in self._available_mcp_tools
+        ):
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Tool '{tool_name}' is not in the runtime MCP inventory."
+                    ),
+                }
+            }
+
+        updated_tool_input = tool_input
+        if tool_name in NATIVE_MUTATION_TOOLS:
+            try:
+                canonical_path = self._canonical_native_mutation_path(
+                    tool_input.get("file_path")
+                )
+            except AgentSandboxValidationError as exc:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": str(exc),
+                    }
+                }
+            updated_tool_input = {**tool_input, "file_path": canonical_path}
+        elif tool_name == "Bash":
+            try:
+                updated_tool_input = self._wrapped_bash_input(tool_input)
+            except AgentSandboxValidationError as exc:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": str(exc),
+                    }
+                }
 
         action_name = normalize_mcp_tool_name(tool_name)
         if denial_reason := self._validate_agent_tool_call(
@@ -1229,7 +1406,9 @@ class ClaudeAgentRuntime:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
-        if tool_name in AGENT_TOOL_NAMES:
+        if updated_tool_input is not tool_input:
+            hook_output["updatedInput"] = updated_tool_input
+        elif tool_name in AGENT_TOOL_NAMES:
             sanitized_input = sanitize_agent_tool_input(tool_name, tool_input)
             if sanitized_input != tool_input:
                 hook_output["updatedInput"] = sanitized_input
@@ -1391,6 +1570,7 @@ class ClaudeAgentRuntime:
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
         self._stdio_approval_blocked_tools = set()
+        self._available_mcp_tools = None
         self._agents_enabled = payload.config.agents.enabled
         self._explicit_subagent_aliases = {
             subagent.alias for subagent in payload.subagents
@@ -1446,6 +1626,15 @@ class ClaudeAgentRuntime:
         if self._agents_enabled:
             allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
         return allowed_tools
+
+    def _root_builtin_tool_inventory(self) -> list[str]:
+        """Return the fail-closed Claude built-in tool availability boundary."""
+        inventory = set(BASE_NATIVE_TOOL_INVENTORY)
+        if self._runtime_internet_access_enabled:
+            inventory.update(INTERNET_TOOLS)
+        if self._agents_enabled:
+            inventory.update(AGENT_TOOL_NAMES)
+        return sorted(inventory)
 
     @staticmethod
     def _stdio_tools_system_prompt(
@@ -1533,7 +1722,10 @@ class ClaudeAgentRuntime:
                 if payload.config.enable_thinking
                 else {"type": "disabled"}
             ),
-            setting_sources=["user"],
+            tools=self._root_builtin_tool_inventory(),
+            setting_sources=[],
+            settings="{}",
+            extra_args={"strict-mcp-config": None},
             env=self._sdk_env(payload),
             model=get_litellm_route_model(
                 model_provider=payload.config.model_provider,
@@ -1677,6 +1869,22 @@ class ClaudeAgentRuntime:
             stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
             agent_definitions = self._build_agent_definitions(payload=payload)
+            available_mcp_tools = {
+                tool_name
+                for tool_name in self._root_allowed_tools(
+                    actions=payload.allowed_actions,
+                    stdio_server_names=list(stdio_mcp_servers),
+                    stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
+                )
+                if tool_name.startswith("mcp__")
+            }
+            for definition in (agent_definitions or {}).values():
+                available_mcp_tools.update(
+                    tool_name
+                    for tool_name in (definition.tools or [])
+                    if tool_name.startswith("mcp__")
+                )
+            self._available_mcp_tools = available_mcp_tools
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""

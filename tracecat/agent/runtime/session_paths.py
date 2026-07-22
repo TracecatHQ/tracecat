@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 JAILED_AGENT_HOME_DIR = Path("/home/agent")
+JAILED_TOOL_HOME_DIR = Path("/home/tools")
 JAILED_AGENT_JOB_DIR = Path("/run/tracecat/job")
 JAILED_AGENT_WORK_DIR = Path("/work")
 
@@ -30,8 +31,10 @@ def build_agent_sandbox_path_mapping(
     session_root = Path(tempfile.gettempdir()) / f"tracecat-agent-{session_id}"
     host_home_dir = session_root / "agent-home"
     host_work_dir = session_root / "agent-work-dir"
-    host_home_dir.mkdir(parents=True, exist_ok=True)
-    host_work_dir.mkdir(parents=True, exist_ok=True)
+    host_home_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    host_home_dir.chmod(0o700)
+    host_work_dir.mkdir(parents=True, exist_ok=True, mode=0o2770)
+    host_work_dir.chmod(0o2770)
 
     if disable_nsjail:
         runtime_home_dir = host_home_dir

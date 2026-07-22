@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from tracecat.agent.sandbox.config import (
+    AGENT_CLAUDE_UID,
+    AGENT_SHARED_GID,
+    AGENT_TOOL_OUTSIDE_UID,
+    AGENT_TOOL_UID,
     AgentResourceLimits,
     AgentSandboxConfig,
     build_agent_nsjail_config,
@@ -85,6 +90,48 @@ def test_agent_sandbox_config_includes_seccomp_policy(tmp_path: Path):
     )
 
     _assert_seccomp_config(config_text)
+
+
+def test_agent_sandbox_config_separates_claude_and_tool_identities(
+    tmp_path: Path,
+) -> None:
+    """Claude and model-controlled children must have private homes and one work GID."""
+    session_home = tmp_path / "agent-home"
+    session_work = tmp_path / "agent-work"
+    config_text = build_agent_nsjail_config(
+        rootfs=tmp_path / "rootfs",
+        job_dir=tmp_path / "job",
+        socket_dir=tmp_path / "socket",
+        config=AgentSandboxConfig(),
+        site_packages_dir=tmp_path / "site-packages",
+        llm_socket_path=tmp_path / "llm.sock",
+        session_home_dir=session_home,
+        session_work_dir=session_work,
+    )
+
+    assert (
+        f'uidmap {{ inside_id: "{AGENT_CLAUDE_UID}" outside_id: '
+        f'"{os.getuid()}" count: 1 use_newidmap: true }}'
+    ) in config_text
+    assert (
+        f'uidmap {{ inside_id: "{AGENT_TOOL_UID}" outside_id: '
+        f'"{AGENT_TOOL_OUTSIDE_UID}" count: 1 use_newidmap: true }}'
+    ) in config_text
+    assert f'inside_id: "{AGENT_SHARED_GID}"' in config_text
+    assert 'cap: "CAP_SETUID"' in config_text
+    assert (
+        f'mount {{ src: "{session_home}" dst: "/home/agent" is_bind: true rw: true }}'
+        in config_text
+    )
+    assert (
+        f'mount {{ src: "{session_work}" dst: "/work" is_bind: true rw: true }}'
+        in config_text
+    )
+    assert (
+        'dst: "/home/tools" fstype: "tmpfs" rw: true '
+        f'options: "size=64M,mode=0700,uid={AGENT_TOOL_UID},gid={AGENT_SHARED_GID}"'
+        in config_text
+    )
 
 
 def test_worker_pool_config_includes_seccomp_policy(tmp_path: Path):

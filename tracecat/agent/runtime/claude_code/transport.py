@@ -476,10 +476,17 @@ class SandboxedCLITransport(Transport):
 
     def _build_claude_env_overlay(self) -> dict[str, str]:
         """Build the Claude child env overlay applied inside the shim."""
+        runtime_home = self._path_mapping.runtime_home_dir
         env = {
             "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
             "CLAUDE_AGENT_SDK_VERSION": __version__,
-            "HOME": str(self._path_mapping.runtime_home_dir),
+            "HOME": str(runtime_home),
+            "XDG_CONFIG_HOME": str(runtime_home / ".config"),
+            "XDG_CACHE_HOME": str(runtime_home / ".cache"),
+            "XDG_STATE_HOME": str(runtime_home / ".local/state"),
+            "TMPDIR": str(runtime_home / "tmp"),
+            "TEMP": str(runtime_home / "tmp"),
+            "TMP": str(runtime_home / "tmp"),
             "PWD": str(self._path_mapping.runtime_work_dir),
             **self._options.env,
         }
