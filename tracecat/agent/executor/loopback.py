@@ -99,6 +99,7 @@ class LoopbackInput:
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
     defer_done_on_approval: bool = False
+    defer_done_on_terminal: bool = False
 
 
 @dataclass(kw_only=True, slots=True)
@@ -374,7 +375,7 @@ class LoopbackHandler:
         This helper ensures the stream end marker is emitted exactly once,
         even if multiple code paths could trigger it (e.g., error + finally).
         """
-        if self._should_defer_done_for_approval():
+        if self._should_defer_stream_done():
             if (
                 isinstance(self._stream_sink, FanoutStreamSink)
                 and not self._external_stream_done_emitted
@@ -401,6 +402,11 @@ class LoopbackHandler:
             and self._result.approval_requested
             and self._result.error is None
             and not self._result.cancelled
+        )
+
+    def _should_defer_stream_done(self) -> bool:
+        return (
+            self.input.defer_done_on_terminal or self._should_defer_done_for_approval()
         )
 
     async def _emit_terminal_stream_error(

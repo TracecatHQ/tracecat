@@ -25,6 +25,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
     EmitSessionDoneInputs,
+    EmitSessionErrorInputs,
 )
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -1256,6 +1257,49 @@ class TestRunAgentActivity:
             stream_id=active_stream_id,
         )
         stream.done.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_emit_session_error_can_defer_done(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace_id = mock_role.workspace_id or uuid.uuid4()
+        active_stream_id = uuid.uuid4()
+        agent_session = SimpleNamespace(last_error=None)
+        service = SimpleNamespace(
+            get_session=AsyncMock(return_value=agent_session),
+            session=SimpleNamespace(add=MagicMock(), commit=AsyncMock()),
+        )
+        service_context = AsyncMock()
+        service_context.__aenter__.return_value = service
+        with_session = MagicMock(return_value=service_context)
+        monkeypatch.setattr(
+            "tracecat.agent.session.service.AgentSessionService.with_session",
+            with_session,
+        )
+        stream = SimpleNamespace(error=AsyncMock(), done=AsyncMock())
+        stream_new = AsyncMock(return_value=stream)
+        monkeypatch.setattr(
+            "tracecat_ee.agent.activities.AgentStream.new",
+            stream_new,
+        )
+
+        await AgentActivities().emit_session_error(
+            EmitSessionErrorInputs(
+                role=mock_role,
+                session_id=mock_session_id,
+                workspace_id=workspace_id,
+                active_stream_id=active_stream_id,
+                message="runtime failed",
+                defer_done=True,
+            )
+        )
+
+        assert agent_session.last_error == "runtime failed"
+        stream.error.assert_awaited_once_with("runtime failed")
+        stream.done.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(
