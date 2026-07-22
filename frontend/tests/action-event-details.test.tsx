@@ -5,8 +5,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type React from "react"
+import { ActionEventPane } from "@/components/builder/events/events-selected-action"
 import { ActionEventDetails } from "@/components/executions/action-event-details"
-import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
+import type {
+  WorkflowExecutionEventCompact,
+  WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
 
 jest.mock("@/components/code-block", () => ({
   CodeBlock: ({ children }: { children: React.ReactNode }) => (
@@ -48,6 +52,38 @@ jest.mock("@/components/ui/carousel", () => ({
   Carousel: ({ children }: { children: React.ReactNode }) => children,
   CarouselContent: ({ children }: { children: React.ReactNode }) => children,
   CarouselItem: ({ children }: { children: React.ReactNode }) => children,
+}))
+
+jest.mock("@/components/notifications", () => ({
+  AlertNotification: () => null,
+}))
+
+jest.mock("@/components/ui/select", () => ({
+  Select: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectGroup: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectItem: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectValue: () => null,
+}))
+
+jest.mock("@/providers/builder", () => ({
+  useWorkflowBuilder: () => ({
+    workspaceId: "workspace-1",
+    workflowId: "workflow-1",
+    selectedActionEventRef: "reshape",
+    setSelectedActionEventRef: jest.fn(),
+  }),
 }))
 
 jest.mock("@/lib/stored-object", () => ({
@@ -92,6 +128,22 @@ function renderSingle(events: WorkflowExecutionEventCompact[]) {
       events={events}
       type="result"
       presentation="single"
+    />
+  )
+}
+
+function renderStack(
+  events: WorkflowExecutionEventCompact[],
+  presentation?: "stack"
+) {
+  return render(
+    <ActionEventDetails
+      executionId="exec-1"
+      actionRef="reshape"
+      status="COMPLETED"
+      events={events}
+      type="result"
+      presentation={presentation}
     />
   )
 }
@@ -345,5 +397,126 @@ describe("ActionEventDetails single presentation", () => {
 
     await user.click(screen.getByRole("tab", { name: "Result" }))
     expect(screen.getByTestId("json-view")).toHaveTextContent("final")
+  })
+})
+
+describe("ActionEventDetails stack presentation", () => {
+  it("stacks every stream result at once without stream navigation", () => {
+    const events = [
+      createEvent({
+        source_event_id: 1,
+        action_result: { stream: "alpha" },
+        stream_id: "scatter:0",
+      }),
+      createEvent({
+        source_event_id: 2,
+        action_result: { stream: "beta" },
+        stream_id: "scatter:1",
+      }),
+      createEvent({
+        source_event_id: 3,
+        action_result: { stream: "gamma" },
+        stream_id: "scatter:2",
+      }),
+    ]
+
+    // Exercise both the default and the explicit "stack" presentation.
+    const view = renderStack(events)
+    let payloads = screen
+      .getAllByTestId("json-view")
+      .map((node) => node.textContent)
+    expect(payloads).toEqual([
+      '{"stream":"alpha"}',
+      '{"stream":"beta"}',
+      '{"stream":"gamma"}',
+    ])
+    expect(screen.queryByText(/Stream \d+ of \d+/)).not.toBeInTheDocument()
+    view.unmount()
+
+    renderStack(events, "stack")
+    payloads = screen
+      .getAllByTestId("json-view")
+      .map((node) => node.textContent)
+    expect(payloads).toEqual([
+      '{"stream":"alpha"}',
+      '{"stream":"beta"}',
+      '{"stream":"gamma"}',
+    ])
+    expect(screen.queryByText(/Stream \d+ of \d+/)).not.toBeInTheDocument()
+  })
+
+  it("collapses multiple session streams into one carousel beside plain results", () => {
+    // Two session events (non-adjacent) collapse into a single carousel, while
+    // the plain result renders inline alongside it.
+    const firstSession = createEvent({
+      source_event_id: 1,
+      session: { id: "session-1", events: [] } as never,
+      action_result: { session: "first" },
+      stream_id: "scatter:0",
+    })
+    const plain = createEvent({
+      source_event_id: 2,
+      session: undefined,
+      action_result: { stream: "plain" },
+      stream_id: "scatter:1",
+    })
+    const secondSession = createEvent({
+      source_event_id: 3,
+      session: { id: "session-2", events: [] } as never,
+      action_result: { session: "second" },
+      stream_id: "scatter:2",
+    })
+
+    renderStack([firstSession, plain, secondSession])
+
+    // Exactly one carousel nav is rendered for the grouped session streams.
+    expect(screen.getByText("Stream 1 of 2")).toBeInTheDocument()
+    expect(screen.getAllByText(/Stream \d+ of \d+/)).toHaveLength(1)
+
+    // Both session streams live inside the carousel (session tab is default).
+    expect(screen.getAllByTestId("session-stream")).toHaveLength(2)
+
+    // The plain result renders alongside the carousel, not inside a session tab.
+    const payloads = screen
+      .getAllByTestId("json-view")
+      .map((node) => node.textContent)
+    expect(payloads).toEqual(['{"stream":"plain"}'])
+  })
+
+  it("forwards the builder pane through the stacked presentation", () => {
+    const execution = {
+      id: "exec-1",
+      status: "COMPLETED",
+      events: [
+        createEvent({
+          source_event_id: 1,
+          action_result: { stream: "alpha" },
+          stream_id: "scatter:0",
+        }),
+        createEvent({
+          source_event_id: 2,
+          action_result: { stream: "beta" },
+          stream_id: "scatter:1",
+        }),
+        createEvent({
+          source_event_id: 3,
+          action_result: { stream: "gamma" },
+          stream_id: "scatter:2",
+        }),
+      ],
+    } as unknown as WorkflowExecutionReadCompact
+
+    render(<ActionEventPane execution={execution} type="result" />)
+
+    const payloads = screen
+      .getAllByTestId("json-view")
+      .map((node) => node.textContent)
+    expect(payloads).toEqual([
+      '{"stream":"alpha"}',
+      '{"stream":"beta"}',
+      '{"stream":"gamma"}',
+    ])
+    // Stacked path shows every stream at once, never the single-stream nav.
+    expect(screen.queryByText(/Stream \d+ of \d+/)).not.toBeInTheDocument()
   })
 })
