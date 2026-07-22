@@ -272,6 +272,29 @@ describe("useAdoptServerTranscript", () => {
     ).toBe("reject-content")
   })
 
+  it("rejects a stale snapshot that omits the whole final turn including its prompt", () => {
+    const liveMessages = [
+      textMessage("live-user-1", "user", "Question"),
+      textMessage("live-assistant-1", "assistant", "Same answer"),
+      textMessage("live-user-2", "user", "Question again"),
+      textMessage("live-assistant-2", "assistant", "Same answer"),
+    ]
+    // The mid-turn DB filter hides every row of the active run, so the stale
+    // snapshot lacks even the final turn's user prompt. Old-turn segmentation
+    // satisfies the count guard and the previous answer repeats the final
+    // text, so only the prompt anchor can prove the turn is missing.
+    const serverMessages = [
+      textMessage("server-user-1", "user", "Question"),
+      textMessage("server-assistant-1a", "assistant", "Same "),
+      textMessage("server-assistant-1b", "assistant", "ans"),
+      textMessage("server-assistant-1c", "assistant", "wer"),
+    ]
+
+    expect(
+      decideServerTranscriptAdoption({ serverMessages, liveMessages })
+    ).toBe("reject-content")
+  })
+
   it("uses only the count guard when the live transcript ends with a user message", () => {
     // The finalize race protects the final streamed assistant turn; when the
     // last live message is a user prompt there is no such turn, so a previous

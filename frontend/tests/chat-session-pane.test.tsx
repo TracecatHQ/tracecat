@@ -1745,12 +1745,16 @@ describe("ChatSessionPane", () => {
     it("does not adopt a same-length copy missing final assistant content", () => {
       const setMessages = jest.fn()
       mockLiveMessages(
-        [assistantTurn("live-assistant", "Final streamed answer")],
+        [
+          userTurn("live-user", "Question"),
+          assistantTurn("live-assistant", "Final streamed answer"),
+        ],
         setMessages
       )
 
       render(
         renderSubject([
+          userTurn("server-user", "Question"),
           assistantTurn("server-assistant", "Previous server answer"),
         ])
       )

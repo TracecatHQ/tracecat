@@ -722,6 +722,17 @@ function lastUserMessageIndex(messages: UIMessage[]): number {
   return -1
 }
 
+/** Concatenated text parts of a message ("" when it has none). */
+function messageText(message: UIMessage): string {
+  let text = ""
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      text += part.text
+    }
+  }
+  return text
+}
+
 /**
  * Concatenate the text parts of the final non-approval assistant message.
  *
@@ -755,35 +766,56 @@ export function getFinalLiveAssistantText(
 }
 
 /**
- * Whether the server snapshot contains the live final assistant text.
+ * Whether the server snapshot contains the live transcript's final turn.
  *
- * Both sides are scoped to the final turn: the probe is the live assistant
- * text after the last live user message, and it must appear in the server
- * text after the last server user message. Comparing whole transcripts would
- * let a final answer that repeats earlier conversation text mask a snapshot
- * that still omits the new turn. Text is concatenated across the server
- * turn's messages so one live assistant bubble can match several
- * database-backed rows. A textless final turn is deliberately treated as
- * covered and left to the count guard.
+ * The mid-turn DB filter hides EVERY row tagged with the active run —
+ * including the turn's user prompt — so a stale snapshot omits the whole
+ * final turn, and neither whole-transcript text search nor "after the
+ * server's last user row" reliably identifies the current turn. Coverage is
+ * therefore anchored on the live final turn's user prompt: the last server
+ * user row with identical text. A missing anchor means the snapshot predates
+ * the final turn. Given an anchor, the server text after it must contain the
+ * live final assistant text (concatenated across messages so one live bubble
+ * can match several database-backed rows).
+ *
+ * A promptless final turn (no live user message, or one without text) and a
+ * textless final assistant message are deliberately treated as covered and
+ * left to the count guard — tool, data, and approval parts serialize too
+ * differently between the stream and the database to compare.
  */
 export function serverTranscriptCoversLiveFinalAssistantText(
   serverMessages: UIMessage[],
   liveMessages: UIMessage[]
 ): boolean {
+  const liveUserIndex = lastUserMessageIndex(liveMessages)
+  if (liveUserIndex === -1) {
+    return true
+  }
+  const liveUserText = messageText(liveMessages[liveUserIndex])
+  if (liveUserText === "") {
+    return true
+  }
+
+  let anchorIndex = -1
+  for (let index = serverMessages.length - 1; index >= 0; index -= 1) {
+    const message = serverMessages[index]
+    if (message.role === "user" && messageText(message) === liveUserText) {
+      anchorIndex = index
+      break
+    }
+  }
+  if (anchorIndex === -1) {
+    return false
+  }
+
   const finalAssistantText = getFinalLiveAssistantText(liveMessages)
   if (finalAssistantText === null) {
     return true
   }
 
   let serverText = ""
-  for (const message of serverMessages.slice(
-    lastUserMessageIndex(serverMessages) + 1
-  )) {
-    for (const part of message.parts) {
-      if (part.type === "text") {
-        serverText += part.text
-      }
-    }
+  for (const message of serverMessages.slice(anchorIndex + 1)) {
+    serverText += messageText(message)
   }
   return serverText.includes(finalAssistantText)
 }
