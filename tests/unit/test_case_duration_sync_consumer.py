@@ -964,6 +964,19 @@ async def test_event_types_require_sync_matches_status_changed_aliases() -> None
 
 
 @pytest.mark.anyio
+async def test_event_types_require_sync_always_materializes_case_created() -> None:
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=FakeDefinitionMatchSession().execute)
+
+    assert await _event_types_require_sync(
+        cast(AsyncSession, session),
+        workspace_id=uuid.uuid4(),
+        event_types={"case_created"},
+    )
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_consumer_claims_idle_messages_while_stream_is_busy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -112,6 +112,11 @@ async def _event_types_require_sync(
             )
             return True
 
+    if CaseEventType.CASE_CREATED in parsed_event_types:
+        # Case creation is the initial materialization, so every definition
+        # must get its possibly-placeholder row, like case-scoped backfills.
+        return True
+
     matching_event_types = list(parsed_event_types)
     if (
         any(event_type in STATUS_CHANGED_ALIASES for event_type in parsed_event_types)
