@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import CaseDurationDefinition
+from tracecat.db.models import CaseDurationDefinition, Workspace
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -76,6 +76,35 @@ ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
 # cancelled lifespan task) simply lets the lease lapse, so a later boot
 # retries instead of permanently skipping the rollout.
 ROLLOUT_BACKFILL_LEASE_SECONDS: Final = 600
+
+
+async def enqueue_case_duration_backfill_for_org(
+    organization_id: uuid.UUID,
+) -> None:
+    """Queue workspace backfills for an org's workspaces with duration definitions."""
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(CaseDurationDefinition.workspace_id)
+            .join(
+                Workspace,
+                Workspace.id == CaseDurationDefinition.workspace_id,
+            )
+            .where(Workspace.organization_id == organization_id)
+            .distinct()
+        )
+        workspace_ids = list(result.scalars().all())
+
+    for workspace_id in workspace_ids:
+        await publish_case_duration_sync(
+            workspace_id=workspace_id,
+            reason="duration_definition_updated",
+        )
+
+    logger.info(
+        "Queued organization duration backfill",
+        organization_id=str(organization_id),
+        workspace_count=len(workspace_ids),
+    )
 
 
 async def enqueue_rollout_backfill_once() -> None:

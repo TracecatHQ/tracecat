@@ -8,11 +8,17 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.tiers.service import AdminTierService
 
+from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.tiers.schemas import OrganizationTierUpdate, TierUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def enable_multi_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
 
 def _tier(*, is_default: bool) -> Tier:
@@ -142,3 +148,175 @@ async def test_update_tier_explicit_null_clears_limit(
 
     await session.refresh(tier)
     assert tier.max_concurrent_workflows is None
+
+
+@pytest.mark.anyio
+async def test_update_org_tier_grant_queues_case_duration_backfill(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with (
+        patch(
+            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            new=AsyncMock(),
+        ) as enqueue_mock,
+    ):
+        await service.update_org_tier(
+            org_id,
+            OrganizationTierUpdate(entitlement_overrides={"case_addons": True}),
+        )
+
+    enqueue_mock.assert_awaited_once_with(org_id)
+
+
+@pytest.mark.anyio
+async def test_update_org_tier_without_effective_change_skips_duration_backfill(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with (
+        patch(
+            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            new=AsyncMock(),
+        ) as enqueue_mock,
+    ):
+        await service.update_org_tier(
+            org_id,
+            OrganizationTierUpdate(max_concurrent_actions=4),
+        )
+
+    enqueue_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_update_tier_grant_queues_only_newly_entitled_org(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_a_id = test_admin_role.organization_id
+    assert org_a_id is not None
+    org_a = Organization(
+        id=org_a_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    org_b = Organization(
+        id=uuid.uuid4(),
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    tier = _tier(is_default=False)
+    session.add_all([org_a, org_b, default_tier, tier])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationTier(organization_id=org_a_id, tier_id=tier.id),
+            OrganizationTier(
+                organization_id=org_b.id,
+                tier_id=tier.id,
+                entitlement_overrides={"case_addons": True},
+            ),
+        ]
+    )
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with (
+        patch(
+            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache_many",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            new=AsyncMock(),
+        ) as enqueue_mock,
+    ):
+        await service.update_tier(
+            tier.id,
+            TierUpdate(
+                display_name=tier.display_name,
+                entitlements={"case_addons": True},
+            ),
+        )
+
+    enqueue_mock.assert_awaited_once_with(org_a_id)
+
+
+@pytest.mark.anyio
+async def test_case_duration_backfill_failure_does_not_fail_org_tier_update(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with (
+        patch(
+            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            new=AsyncMock(side_effect=RuntimeError("queue unavailable")),
+        ) as enqueue_mock,
+        patch("tracecat_ee.admin.tiers.service.logger.warning") as warning_mock,
+    ):
+        result = await service.update_org_tier(
+            org_id,
+            OrganizationTierUpdate(entitlement_overrides={"case_addons": True}),
+        )
+
+    assert result.entitlement_overrides == {"case_addons": True}
+    enqueue_mock.assert_awaited_once_with(org_id)
+    warning_mock.assert_called_once()

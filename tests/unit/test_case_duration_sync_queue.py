@@ -8,12 +8,112 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.durations.sync_queue import (
     ROLLOUT_BACKFILL_LEASE_SECONDS,
     ROLLOUT_BACKFILL_MARKER_KEY,
+    enqueue_case_duration_backfill_for_org,
     enqueue_case_duration_sync_after_commit,
     enqueue_rollout_backfill_once,
 )
+from tracecat.cases.enums import CaseEventType
+from tracecat.db.models import CaseDurationDefinition, Organization, Workspace
+
+
+def _duration_definition(
+    *, workspace_id: uuid.UUID, name: str
+) -> CaseDurationDefinition:
+    return CaseDurationDefinition(
+        workspace_id=workspace_id,
+        name=name,
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.CASE_CLOSED,
+        end_timestamp_path="created_at",
+        end_field_filters={},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+
+
+@pytest.mark.anyio
+async def test_org_backfill_publishes_only_defined_workspaces_for_org(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = Organization(
+        name=f"Duration Org {uuid.uuid4().hex[:8]}",
+        slug=f"duration-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    other_organization = Organization(
+        name=f"Other Duration Org {uuid.uuid4().hex[:8]}",
+        slug=f"other-duration-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add_all([organization, other_organization])
+    await session.flush()
+
+    workspace_a = Workspace(
+        name="Defined workspace A",
+        organization_id=organization.id,
+    )
+    workspace_b = Workspace(
+        name="Defined workspace B",
+        organization_id=organization.id,
+    )
+    workspace_without_definitions = Workspace(
+        name="Workspace without definitions",
+        organization_id=organization.id,
+    )
+    other_workspace = Workspace(
+        name="Other org defined workspace",
+        organization_id=other_organization.id,
+    )
+    session.add_all(
+        [
+            workspace_a,
+            workspace_b,
+            workspace_without_definitions,
+            other_workspace,
+        ]
+    )
+    await session.flush()
+    session.add_all(
+        [
+            _duration_definition(workspace_id=workspace_a.id, name="First A"),
+            _duration_definition(workspace_id=workspace_a.id, name="Second A"),
+            _duration_definition(workspace_id=workspace_b.id, name="First B"),
+            _duration_definition(workspace_id=other_workspace.id, name="Other"),
+        ]
+    )
+    await session.commit()
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    publish_mock = AsyncMock(return_value="1-0")
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
+        publish_mock,
+    )
+
+    await enqueue_case_duration_backfill_for_org(organization.id)
+
+    publish_mock.assert_has_awaits(
+        [
+            call(workspace_id=workspace_a.id, reason="duration_definition_updated"),
+            call(workspace_id=workspace_b.id, reason="duration_definition_updated"),
+        ],
+        any_order=True,
+    )
+    assert publish_mock.await_count == 2
 
 
 def _mock_rollout_environment(

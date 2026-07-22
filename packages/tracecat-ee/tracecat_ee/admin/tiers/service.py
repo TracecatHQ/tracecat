@@ -10,9 +10,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
+from tracecat.cases.durations.sync_queue import enqueue_case_duration_backfill_for_org
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.logger import logger
 from tracecat.service import BasePlatformService
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
     DefaultTierNotConfiguredError,
@@ -95,11 +98,39 @@ class AdminTierService(BasePlatformService):
         if not tier:
             raise TierNotFoundError(f"Tier {tier_id} not found")
 
+        update_data = params.model_dump(exclude_unset=True)
+        can_change_case_addons = (
+            "entitlements" in update_data or "is_default" in update_data
+        )
+        candidate_org_ids: list[uuid.UUID] = []
+        was_entitled_by_org: dict[uuid.UUID, bool] = {}
+        if can_change_case_addons:
+            candidate_org_ids = list(
+                (
+                    await self.session.scalars(
+                        select(Organization.id)
+                        .outerjoin(
+                            OrganizationTier,
+                            OrganizationTier.organization_id == Organization.id,
+                        )
+                        .where(
+                            (OrganizationTier.tier_id == tier_id)
+                            | (OrganizationTier.id.is_(None))
+                        )
+                    )
+                ).all()
+            )
+            for org_id in candidate_org_ids:
+                was_entitled_by_org[org_id] = await is_org_entitled(
+                    self.session,
+                    org_id,
+                    Entitlement.CASE_ADDONS,
+                )
+
         # If setting this tier as default, unset other defaults
         if params.is_default is True:
             await self._unset_other_defaults(tier_id)
 
-        update_data = params.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(tier, field, value)
 
@@ -122,6 +153,23 @@ class AdminTierService(BasePlatformService):
                     "Failed to invalidate effective limits cache for tier update",
                     tier_id=tier_id,
                     org_count=len(org_ids),
+                    error=e,
+                )
+        for org_id in candidate_org_ids:
+            now_entitled = await is_org_entitled(
+                self.session,
+                org_id,
+                Entitlement.CASE_ADDONS,
+            )
+            if was_entitled_by_org[org_id] or not now_entitled:
+                continue
+            try:
+                await enqueue_case_duration_backfill_for_org(org_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to queue case duration backfill for tier update",
+                    tier_id=tier_id,
+                    org_id=org_id,
                     error=e,
                 )
         return TierRead.model_validate(tier)
@@ -239,6 +287,11 @@ class AdminTierService(BasePlatformService):
         """Update organization's tier assignment and overrides."""
         # Verify org exists
         await self._verify_org_exists(org_id)
+        was_entitled = await is_org_entitled(
+            self.session,
+            org_id,
+            Entitlement.CASE_ADDONS,
+        )
 
         stmt = (
             select(OrganizationTier)
@@ -274,6 +327,20 @@ class AdminTierService(BasePlatformService):
                 org_id=org_id,
                 error=e,
             )
+        now_entitled = await is_org_entitled(
+            self.session,
+            org_id,
+            Entitlement.CASE_ADDONS,
+        )
+        if not was_entitled and now_entitled:
+            try:
+                await enqueue_case_duration_backfill_for_org(org_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to queue case duration backfill for organization tier update",
+                    org_id=org_id,
+                    error=e,
+                )
 
         # Refresh with tier loaded
         stmt = (
