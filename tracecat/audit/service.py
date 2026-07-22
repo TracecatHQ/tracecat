@@ -177,11 +177,6 @@ async def _deliver(delivery: _AuditDelivery) -> None:
         )
 
 
-# Sentinel org id for the platform sink and for org-sink lookups with no org
-# identity; keeps those entries isolated from any real organization's cache key.
-_PLATFORM_ORG_SENTINEL = uuid.UUID(int=0)
-
-
 async def _fetch_platform_setting(key: str) -> Any | None:
     """Read a platform audit setting on a self-managed session; decrypt if needed."""
     async with get_async_session_bypass_rls_context_manager() as session:
@@ -206,16 +201,16 @@ async def _fetch_platform_setting(key: str) -> Any | None:
 @alru_cache(ttl=30)
 async def _get_audit_setting_cached(
     sink: AuditSink,
-    organization_id: OrganizationID,
+    organization_id: OrganizationID | None,
     key: str,
     default: Any = None,
 ) -> Any | None:
     """Cached audit-setting read keyed by (sink, org, key, default).
 
     Runs on its own session so no request session is captured or hashed; bounded
-    30s staleness. ``organization_id`` may be ``_PLATFORM_ORG_SENTINEL`` for the
-    platform sink or org-sink calls with no org identity. Decrypted values live
-    in process memory only and are never logged.
+    30s staleness. ``organization_id`` is ``None`` for the platform sink or
+    org-sink calls with no org identity. Decrypted values live in process memory
+    only and are never logged.
     """
     logger.debug("Audit setting cache miss", sink=sink, key=key)
     if sink == "platform":
@@ -224,8 +219,8 @@ async def _get_audit_setting_cached(
 
     from tracecat.settings.service import get_setting
 
-    if organization_id == _PLATFORM_ORG_SENTINEL:
-        # No org identity: preserve get_setting(role=None) semantics (default/None).
+    if organization_id is None:
+        # No org identity: preserve get_setting(role=None) semantics.
         return default
     # Minimal org-bound role so get_setting opens its own org-scoped session.
     role = Role(
@@ -303,8 +298,8 @@ class AuditService(BaseService):
 
         organization_id = (
             self.role.organization_id
-            if isinstance(self.role, Role) and self.role.organization_id is not None
-            else _PLATFORM_ORG_SENTINEL
+            if self.audit_sink == "organization" and isinstance(self.role, Role)
+            else None
         )
         return await _get_audit_setting_cached(
             self.audit_sink, organization_id, key, default
