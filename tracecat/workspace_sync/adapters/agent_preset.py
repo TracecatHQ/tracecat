@@ -380,8 +380,31 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         reaching a foreign-key violation while flushing preset rows.
         """
         catalog_service = AgentCatalogService(session=workspace_service.session)
-        enabled_by_catalog_id: dict[uuid.UUID, bool] = {}
-        resolved_by_model: dict[tuple[str, str], uuid.UUID | None] = {}
+        catalog_ids = {
+            version.catalog_id
+            for _, preset in sorted(presets.items())
+            for _, version in sorted(preset.versions.items())
+            if version.catalog_id is not None
+        }
+        enabled_catalog_ids = await catalog_service.enabled_catalog_ids(
+            org_id=workspace_service.organization_id,
+            workspace_id=workspace_service.workspace_id,
+            catalog_ids=catalog_ids,
+        )
+        models = {
+            (version.model_provider, version.model_name)
+            for _, preset in sorted(presets.items())
+            for _, version in sorted(preset.versions.items())
+            if version.catalog_id is not None
+            and version.catalog_id not in enabled_catalog_ids
+            and version.model_provider
+            and version.model_name
+        }
+        resolved_catalog_ids = await catalog_service.resolve_catalog_ids_by_models(
+            org_id=workspace_service.organization_id,
+            workspace_id=workspace_service.workspace_id,
+            models=models,
+        )
         correlated_presets: dict[str, AgentPresetResourceSpec] = {}
         diagnostics: list[PullDiagnostic] = []
 
@@ -393,15 +416,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     correlated_versions[version_number] = version
                     continue
 
-                if catalog_id not in enabled_by_catalog_id:
-                    enabled_by_catalog_id[
-                        catalog_id
-                    ] = await catalog_service.is_catalog_id_enabled(
-                        org_id=workspace_service.organization_id,
-                        workspace_id=workspace_service.workspace_id,
-                        catalog_id=catalog_id,
-                    )
-                if enabled_by_catalog_id[catalog_id]:
+                if catalog_id in enabled_catalog_ids:
                     correlated_versions[version_number] = version
                     continue
 
@@ -432,16 +447,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     continue
 
                 model_key = (model_provider, model_name)
-                if model_key not in resolved_by_model:
-                    resolved_by_model[
-                        model_key
-                    ] = await catalog_service.resolve_catalog_id_by_model(
-                        org_id=workspace_service.organization_id,
-                        workspace_id=workspace_service.workspace_id,
-                        model_provider=model_provider,
-                        model_name=model_name,
-                    )
-                local_catalog_id = resolved_by_model[model_key]
+                local_catalog_id = resolved_catalog_ids.get(model_key)
                 if local_catalog_id is None:
                     diagnostics.append(
                         PullDiagnostic(
