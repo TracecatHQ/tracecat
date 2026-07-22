@@ -5,15 +5,18 @@ These tests verify the request/response schemas for the internal workflow API.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from fastapi import HTTPException
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_409_CONFLICT
+from starlette.status import HTTP_400_BAD_REQUEST
 
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.mcp.schemas import JsonPatchOperation
+from tracecat.workflow.executions import internal_router
 from tracecat.workflow.executions.internal_router import (
     InternalWorkflowCreateRequest,
     InternalWorkflowEditRequest,
@@ -240,6 +243,82 @@ class TestInternalWorkflowEditRequest:
         assert req.patch_ops[0].op == "add"
 
 
+class TestEditWorkflowDocument:
+    """Tests for the internal edit-document route."""
+
+    @pytest.mark.anyio
+    async def test_validate_only_reports_stale_no_op(self, monkeypatch):
+        workflow_id = uuid.uuid4()
+        workflow = SimpleNamespace(
+            id=workflow_id,
+            title="Example workflow",
+            description="Example description",
+            status="offline",
+            version=None,
+            alias=None,
+            entrypoint=None,
+            error_handler=None,
+            expects={},
+            returns=None,
+            config={},
+            actions=[],
+            schedules=[],
+            case_trigger=None,
+            graph_version=1,
+            trigger_position_x=0.0,
+            trigger_position_y=0.0,
+            viewport_x=0.0,
+            viewport_y=0.0,
+            viewport_zoom=1.0,
+        )
+
+        class _WorkflowService:
+            def __init__(self, session: object, role: object) -> None:
+                self.session = session
+                self.role = role
+
+            async def get_workflow(
+                self, wf_id: object, *, for_update: bool = False
+            ) -> object:
+                assert wf_id == workflow_id
+                assert for_update is True
+                return workflow
+
+        monkeypatch.setattr(
+            internal_router,
+            "WorkflowsManagementService",
+            _WorkflowService,
+        )
+        raw_edit_workflow_document = cast(
+            Any,
+            internal_router.edit_workflow_document,
+        ).__wrapped__
+
+        response = await raw_edit_workflow_document(
+            role=SimpleNamespace(),
+            session=object(),
+            workflow_id=workflow_id,
+            params=InternalWorkflowEditRequest(
+                base_revision="stale-revision",
+                patch_ops=[
+                    JsonPatchOperation(
+                        op="replace",
+                        path="/metadata/title",
+                        value=workflow.title,
+                    )
+                ],
+                validate_only=True,
+            ),
+        )
+        payload = response.model_dump(mode="json")
+
+        assert payload["valid"] is True
+        assert payload["validate_only"] is True
+        assert payload["changed_sections"] == []
+        assert payload["no_op"] is True
+        assert payload["rebased"] is True
+
+
 class TestBuildImportDataFromDefinitionYaml:
     """Tests for the copilot YAML -> import-data normalization."""
 
@@ -389,16 +468,6 @@ class TestBuildImportDataFromDefinitionYaml:
 
 class TestRaiseWorkflowEditHttpError:
     """Tests mapping the engine error onto HTTP responses."""
-
-    def test_conflict_maps_to_409(self):
-        err = WorkflowEditError(
-            "Draft revision mismatch", conflict=True, current_revision="rev9"
-        )
-        with pytest.raises(HTTPException) as exc:
-            _raise_workflow_edit_http_error(err)
-        assert exc.value.status_code == HTTP_409_CONFLICT
-        detail = cast(dict[str, Any], exc.value.detail)
-        assert detail["current_revision"] == "rev9"
 
     def test_validation_error_maps_to_400_with_details(self):
         err = WorkflowEditError(

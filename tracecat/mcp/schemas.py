@@ -307,6 +307,12 @@ class WorkflowEditResponse(BaseModel):
     draft_revision: str
     valid: bool | None = None
     validate_only: bool = False
+    changed_sections: list[str] = Field(default_factory=list)
+    """Top-level document sections that changed (e.g. definition, layout)."""
+    no_op: bool = False
+    """True when the patch applied cleanly but produced no change to the document."""
+    rebased: bool = False
+    """True when the patch was replayed against a newer head revision (auto-rebase)."""
 
 
 class WorkflowAuthoringContextRequest(BaseModel):

@@ -233,8 +233,22 @@ class DSLInput(BaseModel):
                 expr_ctxs = extract_expressions(value)
                 for dep in expr_ctxs[ExprContext.ACTIONS]:
                     if dep not in valid_action_refs:
+                        field = key2loc(key)
+                        available = sorted(valid_action_refs)
                         raise TracecatDSLError(
-                            f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'"
+                            f"Action '{action.ref}' references unknown action "
+                            f"'{dep}' in field '{field}'. Was '{dep}' renamed? "
+                            "Renaming an action changes its ref (the slugified "
+                            "title), which does not update `ACTIONS.<ref>` "
+                            "expressions that point at it. Update the expression "
+                            f"to a valid ref. Available refs: {available}.",
+                            detail={
+                                "type": "unknown_action_ref",
+                                "action_ref": action.ref,
+                                "field": field,
+                                "missing_ref": dep,
+                                "available_refs": available,
+                            },
                         )
 
     def _validate_scatter_gather_scopes(self) -> None:

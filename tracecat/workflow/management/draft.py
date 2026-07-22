@@ -39,7 +39,10 @@ from tracecat.dsl.common import (
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.mcp.json_patch import validate_patch_paths
+from tracecat.mcp.json_patch import (
+    apply_json_patch_operations,
+    validate_patch_paths,
+)
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
     WorkflowEditDefinition,
@@ -72,9 +75,8 @@ class WorkflowEditError(Exception):
 
     Callers map this onto their transport error type while preserving the
     message and structured payload. ``code``/``details`` reconstruct the
-    JSON payloads that the MCP server previously embedded directly in
-    ``ToolError`` (``{"type": "validation_error", ...}`` and
-    ``{"type": "conflict", ...}``).
+    ``{"type": "validation_error", ...}`` JSON payload that the MCP server
+    previously embedded directly in ``ToolError``.
     """
 
     def __init__(
@@ -83,15 +85,11 @@ class WorkflowEditError(Exception):
         *,
         code: str | None = None,
         details: dict[str, Any] | None = None,
-        conflict: bool = False,
-        current_revision: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
         self.details = details
-        self.conflict = conflict
-        self.current_revision = current_revision
 
 
 _WORKFLOW_EDITABLE_TOP_LEVEL_PATHS = frozenset(
@@ -703,6 +701,15 @@ async def validate_workflow_edit_document(
         try:
             dsl = workflow_edit_document_to_dsl(document)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
+            # Forward structured validator detail (e.g. unknown_action_ref) so
+            # MCP/REST clients receive it.
+            detail = getattr(exc, "detail", None)
+            if isinstance(detail, dict):
+                raise WorkflowEditError(
+                    f"Invalid workflow definition: {exc}",
+                    code="validation_error",
+                    details=detail,
+                ) from exc
             raise WorkflowEditError(f"Invalid workflow definition: {exc}") from exc
         if validate_definition:
             if session is None or role is None:
@@ -844,6 +851,33 @@ def parse_workflow_edit_request(
     return request
 
 
+def apply_or_rebase_patch(
+    *,
+    head_document: WorkflowEditDocument,
+    request: WorkflowEditRequest,
+    current_revision: str,
+) -> tuple[WorkflowEditDocument, bool]:
+    """Apply the request's patch to the current head document.
+
+    Patches always apply to the latest head, so a stale ``base_revision`` is not
+    an error: it just means the patch is rebased onto the current head and
+    ``rebased`` is ``True``. Actions must be addressed by ref (numeric indexes
+    into ``/definition/actions`` are rejected at apply time); ops on refs deleted
+    by a concurrent edit fail loudly so the caller refetches and retries.
+    Whole-object replaces and ``/schedules``//``/layout`` ops are last-write-wins.
+
+    Returns ``(updated_document, rebased)``. Raises :class:`WorkflowEditError` on
+    an invalid patched payload.
+    """
+    rebased = request.base_revision != current_revision
+    patched_payload = apply_json_patch_operations(
+        document=workflow_edit_document_payload(head_document),
+        patch_ops=request.patch_ops,
+    )
+    updated_document = validate_workflow_patch_payload(patched_payload)
+    return updated_document, rebased
+
+
 async def persist_workflow_edit_document(
     *,
     role: Any,
@@ -851,14 +885,18 @@ async def persist_workflow_edit_document(
     workflow: Workflow,
     original_document: WorkflowEditDocument,
     updated_document: WorkflowEditDocument,
-) -> None:
-    """Persist changes from the editable workflow document back to the draft."""
+) -> set[str]:
+    """Persist changes from the editable workflow document back to the draft.
+
+    Returns the set of top-level document sections that changed (empty when the
+    patch was a no-op).
+    """
     changed_sections = workflow_edit_document_changed_sections(
         original_document,
         updated_document,
     )
     if not changed_sections:
-        return
+        return changed_sections
 
     workflow_id = WorkflowUUID.new(workflow.id)
     layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
@@ -984,6 +1022,7 @@ async def persist_workflow_edit_document(
         await service.session.refresh(workflow, ["schedules"])
     if "case_trigger" in changed_sections:
         await service.session.refresh(workflow, ["case_trigger"])
+    return changed_sections
 
 
 async def replace_workflow_definition_from_dsl(

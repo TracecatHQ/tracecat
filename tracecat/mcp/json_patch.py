@@ -50,36 +50,83 @@ def _decode_json_pointer(path: str) -> list[str]:
     return [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")[1:]]
 
 
+def is_numeric_index_token(token: str) -> bool:
+    """Return True if a token is a well-formed JSON Pointer array index."""
+    return token == "0" or (
+        token.isascii() and token.isdigit() and not token.startswith("0")
+    )
+
+
+def _is_actions_array_prefix(tokens: list[str], depth: int) -> bool:
+    """True when tokens[:depth] addresses the /definition/actions array."""
+    return depth == 2 and tokens[0] == "definition" and tokens[1] == "actions"
+
+
 def _json_pointer_array_index(
     token: str,
     *,
     length: int,
     allow_end: bool = False,
+    array: JsonArray | None = None,
+    reject_numeric_index: bool = False,
 ) -> int:
-    """Convert an array JSON Pointer token to an integer index."""
+    """Convert an array JSON Pointer token to an integer index.
+
+    In addition to RFC 6902 numeric indexes (and ``-`` for append when
+    ``allow_end``), a token may be an **action ref** (a slug) that addresses an
+    element of the array by its ``ref`` field. Refs may be all-digits, so a
+    ref-match takes precedence over numeric-index interpretation. Ref resolution
+    requires the array elements (``array``) and happens against the array being
+    patched at apply time.
+
+    When ``reject_numeric_index`` is set (the ``/definition/actions`` array),
+    an all-digit token that does not match an existing ref is rejected: actions
+    must be addressed by ref, never by positional index.
+    """
     if allow_end and token == "-":
         return length
-    if token != "0" and (
-        not token.isascii() or not token.isdigit() or token.startswith("0")
-    ):
+    # Ref-match wins over index interpretation.
+    if array is not None:
+        for idx, element in enumerate(array):
+            if isinstance(element, dict) and element.get("ref") == token:
+                return idx
+    if reject_numeric_index and token.isascii() and token.isdigit():
+        raise ToolError(
+            f"Address actions by ref, not by numeric index: {token!r}. The "
+            "/definition/actions array does not accept positional indexes; use "
+            "the action's ref (or '-' to append)."
+        )
+    if is_numeric_index_token(token):
+        index = int(token)
+        max_index = length if allow_end else length - 1
+        if index < 0 or index > max_index:
+            raise ToolError(f"Patch array index out of range: {token!r}")
+        return index
+    # Unmatched all-digit non-canonical tokens (e.g. "01") are malformed indexes.
+    if token.isascii() and token.isdigit():
         raise ToolError(f"Invalid array index in patch path: {token!r}")
-    index = int(token)
-    max_index = length if allow_end else length - 1
-    if index < 0 or index > max_index:
-        raise ToolError(f"Patch array index out of range: {token!r}")
-    return index
+    if array is not None:
+        raise ToolError(f"Patch path ref not found in array: {token!r}")
+    raise ToolError(f"Invalid array index in patch path: {token!r}")
 
 
 def _json_pointer_get(document: JsonValue, path: str) -> JsonValue:
     """Resolve a JSON Pointer path against a document."""
     current = document
-    for token in _decode_json_pointer(path):
+    tokens = _decode_json_pointer(path)
+    for depth, token in enumerate(tokens):
         if isinstance(current, dict):
             if token not in current:
                 raise ToolError(f"Patch path not found: {path!r}")
             current = current[token]
         elif isinstance(current, list):
-            index = _json_pointer_array_index(token, length=len(current))
+            ref_lookup = _is_actions_array_prefix(tokens, depth)
+            index = _json_pointer_array_index(
+                token,
+                length=len(current),
+                array=current if ref_lookup else None,
+                reject_numeric_index=ref_lookup,
+            )
             current = current[index]
         else:
             raise ToolError(f"Patch path not found: {path!r}")
@@ -94,19 +141,30 @@ def _json_pointer_get_parent(
     if not tokens:
         raise ToolError("Patching the document root is not supported")
     parent = document
-    for token in tokens[:-1]:
+    for depth, token in enumerate(tokens[:-1]):
         if isinstance(parent, dict):
             if token not in parent:
                 raise ToolError(f"Patch path not found: {path!r}")
             parent = parent[token]
         elif isinstance(parent, list):
-            index = _json_pointer_array_index(token, length=len(parent))
+            ref_lookup = _is_actions_array_prefix(tokens, depth)
+            index = _json_pointer_array_index(
+                token,
+                length=len(parent),
+                array=parent if ref_lookup else None,
+                reject_numeric_index=ref_lookup,
+            )
             parent = parent[index]
         else:
             raise ToolError(f"Patch path not found: {path!r}")
     if not isinstance(parent, (dict, list)):
         raise ToolError(f"Patch path not found: {path!r}")
     return parent, tokens[-1]
+
+
+def _final_token_targets_actions_array(path: str) -> bool:
+    """True when the final token of ``path`` indexes /definition/actions."""
+    return _decode_json_pointer(path)[:-1] == ["definition", "actions"]
 
 
 def _json_pointer_add(document: JsonValue, path: str, value: JsonValue) -> None:
@@ -116,7 +174,14 @@ def _json_pointer_add(document: JsonValue, path: str, value: JsonValue) -> None:
         parent[token] = value
         return
     if isinstance(parent, list):
-        index = _json_pointer_array_index(token, length=len(parent), allow_end=True)
+        ref_lookup = _final_token_targets_actions_array(path)
+        index = _json_pointer_array_index(
+            token,
+            length=len(parent),
+            allow_end=True,
+            array=parent if ref_lookup else None,
+            reject_numeric_index=ref_lookup,
+        )
         parent.insert(index, value)
         return
     raise ToolError(f"Patch path not found: {path!r}")
@@ -130,7 +195,13 @@ def _json_pointer_remove(document: JsonValue, path: str) -> JsonValue:
             raise ToolError(f"Patch path not found: {path!r}")
         return parent.pop(token)
     if isinstance(parent, list):
-        index = _json_pointer_array_index(token, length=len(parent))
+        ref_lookup = _final_token_targets_actions_array(path)
+        index = _json_pointer_array_index(
+            token,
+            length=len(parent),
+            array=parent if ref_lookup else None,
+            reject_numeric_index=ref_lookup,
+        )
         return parent.pop(index)
     raise ToolError(f"Patch path not found: {path!r}")
 
@@ -144,7 +215,13 @@ def _json_pointer_replace(document: JsonValue, path: str, value: JsonValue) -> N
         parent[token] = value
         return
     if isinstance(parent, list):
-        index = _json_pointer_array_index(token, length=len(parent))
+        ref_lookup = _final_token_targets_actions_array(path)
+        index = _json_pointer_array_index(
+            token,
+            length=len(parent),
+            array=parent if ref_lookup else None,
+            reject_numeric_index=ref_lookup,
+        )
         parent[index] = value
         return
     raise ToolError(f"Patch path not found: {path!r}")

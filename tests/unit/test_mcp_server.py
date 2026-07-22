@@ -904,7 +904,6 @@ def test_build_workflow_edit_document_converts_short_legacy_title() -> None:
         )
 
     error = exc_info.value
-    assert not error.conflict
     assert error.code == "validation_error"
     assert error.details is not None
     assert error.details["type"] == "validation_error"
@@ -1258,7 +1257,56 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
 
     assert payload["valid"] is True
     assert payload["validate_only"] is True
+    assert payload["changed_sections"] == ["metadata"]
+    assert payload["no_op"] is False
+    assert payload["rebased"] is False
     assert workflow.title == "Example workflow"
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_reports_stale_no_op(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision="stale-revision",
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": workflow.title,
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["changed_sections"] == []
+    assert payload["no_op"] is True
+    assert payload["rebased"] is True
 
 
 @pytest.mark.anyio
@@ -1839,7 +1887,7 @@ async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
 
 
 @pytest.mark.anyio
-async def test_edit_workflow_rejects_stale_revision(monkeypatch):
+async def test_edit_workflow_rejects_numeric_action_index(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -1881,19 +1929,23 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
+    # Numeric indexes into the actions array are always rejected at apply time,
+    # regardless of staleness: actions must be addressed by ref.
     with pytest.raises(ToolError) as exc_info:
         await _tool(mcp_server.edit_workflow)(
             workspace_id=str(uuid.uuid4()),
             workflow_id=str(workflow_id),
             base_revision="stale-revision",
             patch_ops=[
-                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/0/args/value",
+                    "value": "Updated flow",
+                }
             ],
         )
 
-    payload = cast(dict[str, Any], exc_info.value.args[0])
-    assert payload["status"] == "conflict"
-    assert payload["current_revision"]
+    assert "Address actions by ref" in str(exc_info.value.args[0])
 
 
 @pytest.mark.parametrize(
@@ -10413,3 +10465,164 @@ def test_validate_patch_payload_wraps_nested_tracecat_validation_error() -> None
     assert error.details is not None
     assert error.details["type"] == "validation_error"
     assert "interaction" in error.message.lower()
+
+
+# --- Fix 1: action environment survives the edit round-trip ---------------
+
+
+def test_build_edit_document_preserves_action_environment() -> None:
+    """A control_flow.environment on an action survives build -> patch -> rebuild."""
+    action = _action_stub(control_flow={"environment": "prod"})
+    workflow = _workflow_stub(actions=[action])
+    document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
+    )
+    stmt = document.definition.actions[0]
+    assert stmt.environment == "prod"
+
+
+def test_patch_action_environment_changes_revision() -> None:
+    """Patching an action's environment yields a changed section + new revision."""
+    payload = _minimal_edit_document_payload()
+    original = draft.WorkflowEditDocument.model_validate(payload)
+    original_revision = draft.compute_workflow_edit_revision(original)
+
+    patched_payload = draft.apply_json_patch_operations(
+        document=draft.workflow_edit_document_payload(original),
+        patch_ops=[
+            mcp_server.JsonPatchOperation.model_validate(
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/a/environment",
+                    "value": "staging",
+                }
+            )
+        ],
+    )
+    updated = draft.validate_workflow_patch_payload(patched_payload)
+
+    assert updated.definition.actions[0].environment == "staging"
+    changed = draft.workflow_edit_document_changed_sections(original, updated)
+    assert "definition" in changed
+    assert draft.compute_workflow_edit_revision(updated) != original_revision
+
+
+# --- Fix 5: rebase classification -----------------------------------------
+
+
+def _doc_with_action_refs(*refs: str) -> draft.WorkflowEditDocument:
+    payload = _minimal_edit_document_payload()
+    payload["definition"]["entrypoint"] = {"ref": refs[0], "expects": {}}
+    payload["definition"]["actions"] = [
+        {"ref": ref, "action": "core.transform.reshape", "args": {"value": i}}
+        for i, ref in enumerate(refs)
+    ]
+    return draft.WorkflowEditDocument.model_validate(payload)
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_surfaces_unknown_action_ref_details() -> None:
+    """A stale ``ACTIONS.<ref>`` expression (e.g. after a rename) surfaces the
+    structured ``unknown_action_ref`` detail through the edit path, not an opaque
+    message-only error.
+
+    ``workflow_edit_document_to_dsl`` builds a ``DSLInput`` whose validator raises
+    ``TracecatDSLError`` with a ``detail`` payload; ``validate_workflow_edit_document``
+    must forward it as ``details`` under the ``validation_error`` code. This is a
+    definition-shape check that does not require a DB, so ``validate_definition``
+    is left False.
+    """
+    payload = _minimal_edit_document_payload()
+    # Action ``b`` references ``old_ref`` which does not exist (it was renamed).
+    payload["definition"]["actions"] = [
+        {"ref": "a", "action": "core.transform.reshape", "args": {"value": 1}},
+        {
+            "ref": "b",
+            "action": "core.transform.reshape",
+            "args": {"value": "${{ ACTIONS.old_ref.result }}"},
+        },
+    ]
+    document = draft.WorkflowEditDocument.model_validate(payload)
+
+    with pytest.raises(draft.WorkflowEditError) as exc_info:
+        await draft.validate_workflow_edit_document(
+            document,
+            workflow_id=mcp_server.WorkflowUUID.new_uuid4(),
+            validate_definition=False,
+        )
+
+    error = exc_info.value
+    assert error.code == "validation_error"
+    assert error.details is not None
+    assert error.details["type"] == "unknown_action_ref"
+    assert error.details["missing_ref"] == "old_ref"
+    assert "a" in error.details["available_refs"]
+    assert "b" in error.details["available_refs"]
+
+
+def test_apply_or_rebase_direct_when_revision_matches() -> None:
+    head = _doc_with_action_refs("a", "b")
+    revision = draft.compute_workflow_edit_revision(head)
+    request = draft.parse_workflow_edit_request(
+        base_revision=revision,
+        patch_ops=[
+            {"op": "replace", "path": "/definition/actions/b/args/value", "value": 9}
+        ],
+        validate_only=False,
+    )
+    updated, rebased = draft.apply_or_rebase_patch(
+        head_document=head, request=request, current_revision=revision
+    )
+    assert rebased is False
+    assert updated.definition.actions[1].args["value"] == 9
+
+
+def test_apply_or_rebase_replays_safe_ops_on_stale_base() -> None:
+    head = _doc_with_action_refs("a", "b")
+    revision = draft.compute_workflow_edit_revision(head)
+    request = draft.parse_workflow_edit_request(
+        base_revision="stale-revision",
+        patch_ops=[
+            {"op": "replace", "path": "/definition/actions/b/args/value", "value": 42}
+        ],
+        validate_only=False,
+    )
+    updated, rebased = draft.apply_or_rebase_patch(
+        head_document=head, request=request, current_revision=revision
+    )
+    assert rebased is True
+    assert updated.definition.actions[1].args["value"] == 42
+
+
+def test_apply_or_rebase_rejects_numeric_action_index() -> None:
+    head = _doc_with_action_refs("a", "b")
+    revision = draft.compute_workflow_edit_revision(head)
+    request = draft.parse_workflow_edit_request(
+        base_revision=revision,
+        patch_ops=[
+            {"op": "replace", "path": "/definition/actions/0/args/value", "value": 1}
+        ],
+        validate_only=False,
+    )
+    with pytest.raises(ToolError, match="Address actions by ref"):
+        draft.apply_or_rebase_patch(
+            head_document=head, request=request, current_revision=revision
+        )
+
+
+def test_apply_or_rebase_all_digit_ref_resolves_not_rejected() -> None:
+    head = _doc_with_action_refs("1", "b")  # action ref "1" exists
+    revision = draft.compute_workflow_edit_revision(head)
+    request = draft.parse_workflow_edit_request(
+        base_revision=revision,
+        patch_ops=[
+            {"op": "replace", "path": "/definition/actions/1/args/value", "value": 9}
+        ],
+        validate_only=False,
+    )
+    updated, rebased = draft.apply_or_rebase_patch(
+        head_document=head, request=request, current_revision=revision
+    )
+    assert rebased is False
+    action_1 = next(a for a in updated.definition.actions if a.ref == "1")
+    assert action_1.args["value"] == 9

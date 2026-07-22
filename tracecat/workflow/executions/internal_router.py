@@ -15,7 +15,6 @@ from starlette.status import (
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
-    HTTP_409_CONFLICT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
@@ -45,7 +44,6 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
     WorkflowAuthoringContextRequest,
@@ -65,15 +63,14 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
+    apply_or_rebase_patch,
     build_workflow_edit_document,
     compute_workflow_edit_revision,
     normalize_workflow_edit_document_for_persisted_revision,
     parse_workflow_edit_request,
     persist_workflow_edit_document,
     validate_workflow_edit_document,
-    validate_workflow_patch_payload,
     workflow_edit_document_changed_sections,
-    workflow_edit_document_payload,
 )
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
@@ -393,22 +390,7 @@ class InternalWorkflowEditRequest(BaseModel):
 
 
 def _raise_workflow_edit_http_error(error: WorkflowEditError) -> None:
-    """Map a transport-neutral edit error onto an HTTP error.
-
-    Revision conflicts become 409 (carrying ``current_revision`` so the caller
-    can refetch and retry); everything else becomes 400 with the same message
-    or structured ``details`` payload the engine produced.
-    """
-    if error.conflict:
-        raise HTTPException(
-            status_code=HTTP_409_CONFLICT,
-            detail={
-                "type": "conflict",
-                "status": "conflict",
-                "message": error.message,
-                "current_revision": error.current_revision,
-            },
-        )
+    """Map a transport-neutral edit error onto a 400 HTTP error."""
     raise HTTPException(
         status_code=HTTP_400_BAD_REQUEST,
         detail=error.details if error.details is not None else error.message,
@@ -457,7 +439,8 @@ async def edit_workflow_document(
     """Apply RFC 6902 JSON Patch operations to a workflow draft.
 
     Mirrors the MCP ``edit_workflow`` tool, reusing the shared edit-document
-    engine so behavior matches exactly. A stale ``base_revision`` yields 409.
+    engine so behavior matches exactly. A stale ``base_revision`` is rebased
+    onto the current head (``rebased: true``).
     """
     wf_id = workflow_id  # AnyWorkflowIDPath validates the id -> 422 not 500
     service = WorkflowsManagementService(session, role)
@@ -477,18 +460,11 @@ async def edit_workflow_document(
 
         draft_document = build_workflow_edit_document(workflow)
         current_revision = compute_workflow_edit_revision(draft_document)
-        if request.base_revision != current_revision:
-            raise WorkflowEditError(
-                "Draft revision mismatch",
-                conflict=True,
-                current_revision=current_revision,
-            )
-
-        patched_payload = apply_json_patch_operations(
-            document=workflow_edit_document_payload(draft_document),
-            patch_ops=request.patch_ops,
+        updated_document, rebased = apply_or_rebase_patch(
+            head_document=draft_document,
+            request=request,
+            current_revision=current_revision,
         )
-        updated_document = validate_workflow_patch_payload(patched_payload)
         changed_sections = workflow_edit_document_changed_sections(
             draft_document,
             updated_document,
@@ -516,15 +492,29 @@ async def edit_workflow_document(
                         updated_document
                     )
                 ),
+                changed_sections=sorted(changed_sections),
+                no_op=not changed_sections,
+                rebased=rebased,
             )
 
-        await persist_workflow_edit_document(
+        persisted_sections = await persist_workflow_edit_document(
             role=role,
             service=service,
             workflow=workflow,
             original_document=draft_document,
             updated_document=updated_document,
         )
+        if not persisted_sections:
+            return WorkflowEditResponse(
+                message=(
+                    "no changes detected — document unchanged after applying patch"
+                ),
+                workflow_id=str(workflow.id),
+                draft_revision=current_revision,
+                no_op=True,
+                changed_sections=[],
+                rebased=rebased,
+            )
         await service.session.refresh(
             workflow,
             ["actions", "schedules", "case_trigger"],
@@ -534,13 +524,15 @@ async def edit_workflow_document(
             message=f"Workflow {wf_id} updated successfully",
             workflow_id=str(workflow.id),
             draft_revision=compute_workflow_edit_revision(refreshed_document),
+            changed_sections=sorted(persisted_sections),
+            rebased=rebased,
         )
     except WorkflowEditError as e:
         _raise_workflow_edit_http_error(e)
         raise  # unreachable; satisfies type checker
     except ToolError as e:
-        # apply_json_patch_operations raises ToolError on bad patch application
-        # (bad path/index, failed `test`). Mirror the MCP tool: 400 not 500.
+        # Patch application (inside apply_or_rebase_patch) raises ToolError on a
+        # bad path/index or failed `test`. Mirror the MCP tool: 400 not 500.
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),

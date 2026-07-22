@@ -584,7 +584,14 @@ def _process_file_uploads(
 
 @registry.register(
     namespace="core",
-    description="Perform a HTTP request to a given URL.",
+    description=(
+        "Perform a HTTP request to a given URL. Returns an envelope "
+        "`{status_code, headers, data}`: the response body is under `.data` "
+        "(parsed JSON when the response is JSON, otherwise text, or `None` for "
+        "204). Access the body via `ACTIONS.<ref>.result.data`, and the status "
+        "code / headers via `ACTIONS.<ref>.result.status_code` / "
+        "`ACTIONS.<ref>.result.headers`."
+    ),
     default_title="HTTP request",
     secrets=[mtls_secret, ca_cert_secret],
 )
@@ -615,7 +622,14 @@ async def http_request(
     ] = False,
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
-    """Perform a HTTP request to a given URL."""
+    """Perform a HTTP request to a given URL.
+
+    Returns an envelope ``{status_code, headers, data}``. The response body is
+    under ``data`` (parsed JSON when the response is JSON, otherwise the raw
+    text, or ``None`` for a 204). Reference it downstream as
+    ``ACTIONS.<ref>.result.data`` (and ``.result.status_code`` /
+    ``.result.headers`` for the status code and headers).
+    """
 
     if content is not None and any(
         body is not None for body in (payload, form_data, files)
