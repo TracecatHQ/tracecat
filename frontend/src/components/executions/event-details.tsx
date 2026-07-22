@@ -82,8 +82,10 @@ function WorkflowExecutionEventDetailTabs({
     <div className="size-full min-h-0 overflow-hidden">
       <Tabs
         value={activeTab}
-        onValueChange={(value: string) => {
-          setActiveTab(value as ActionEventPayloadType)
+        onValueChange={(value) => {
+          if (value === "input" || value === "result") {
+            setActiveTab(value)
+          }
         }}
         className="flex h-full min-h-0 flex-col"
       >
