@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import CaseDurationDefinition, Workspace
+from tracecat.db.models import Case, CaseDurationDefinition, Workspace
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -95,10 +95,45 @@ async def enqueue_case_duration_backfill_for_org(
         workspace_ids = list(result.scalars().all())
 
     for workspace_id in workspace_ids:
-        await publish_case_duration_sync(
-            workspace_id=workspace_id,
-            reason="duration_definition_updated",
-        )
+        try:
+            await publish_case_duration_sync(
+                workspace_id=workspace_id,
+                reason="duration_definition_updated",
+            )
+            continue
+        except Exception as e:
+            logger.warning(
+                "Failed to publish organization duration backfill; falling back inline",
+                organization_id=str(organization_id),
+                workspace_id=str(workspace_id),
+                error=str(e),
+            )
+
+        try:
+            # Local import: materialization imports this module at import time.
+            from tracecat.cases.durations.materialization import sync_case_duration
+
+            async with get_async_session_bypass_rls_context_manager() as session:
+                stmt = (
+                    select(Case.id)
+                    .where(Case.workspace_id == workspace_id)
+                    .order_by(Case.surrogate_id.asc())
+                )
+                case_ids = list((await session.execute(stmt)).scalars().all())
+
+            for case_id in case_ids:
+                await sync_case_duration(
+                    workspace_id,
+                    case_id,
+                    event_types=None,
+                )
+                await asyncio.sleep(0)
+        except Exception:
+            logger.exception(
+                "Inline organization duration backfill failed",
+                organization_id=str(organization_id),
+                workspace_id=str(workspace_id),
+            )
 
     logger.info(
         "Queued organization duration backfill",

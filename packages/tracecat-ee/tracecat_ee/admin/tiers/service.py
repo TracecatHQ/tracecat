@@ -121,10 +121,8 @@ class AdminTierService(BasePlatformService):
                 ).all()
             )
             for org_id in candidate_org_ids:
-                was_entitled_by_org[org_id] = await is_org_entitled(
-                    self.session,
+                was_entitled_by_org[org_id] = await self._is_org_case_addons_entitled(
                     org_id,
-                    Entitlement.CASE_ADDONS,
                 )
 
         # If setting this tier as default, unset other defaults
@@ -135,6 +133,7 @@ class AdminTierService(BasePlatformService):
             setattr(tier, field, value)
 
         await self.session.commit()
+        self.session.expire_all()
         await self.session.refresh(tier)
         org_ids = list(
             (
@@ -156,11 +155,7 @@ class AdminTierService(BasePlatformService):
                     error=e,
                 )
         for org_id in candidate_org_ids:
-            now_entitled = await is_org_entitled(
-                self.session,
-                org_id,
-                Entitlement.CASE_ADDONS,
-            )
+            now_entitled = await self._is_org_case_addons_entitled(org_id)
             if was_entitled_by_org[org_id] or not now_entitled:
                 continue
             try:
@@ -205,6 +200,17 @@ class AdminTierService(BasePlatformService):
         result = await self.session.execute(stmt)
         for tier in result.scalars().all():
             tier.is_default = False
+
+    async def _is_org_case_addons_entitled(self, org_id: uuid.UUID) -> bool:
+        """Return whether an org can resolve the case-addons entitlement."""
+        try:
+            return await is_org_entitled(
+                self.session,
+                org_id,
+                Entitlement.CASE_ADDONS,
+            )
+        except DefaultTierNotConfiguredError:
+            return False
 
     # Organization tier operations
 
@@ -287,11 +293,7 @@ class AdminTierService(BasePlatformService):
         """Update organization's tier assignment and overrides."""
         # Verify org exists
         await self._verify_org_exists(org_id)
-        was_entitled = await is_org_entitled(
-            self.session,
-            org_id,
-            Entitlement.CASE_ADDONS,
-        )
+        was_entitled = await self._is_org_case_addons_entitled(org_id)
 
         stmt = (
             select(OrganizationTier)
@@ -319,6 +321,7 @@ class AdminTierService(BasePlatformService):
             setattr(org_tier, field, value)
 
         await self.session.commit()
+        self.session.expire_all()
         try:
             await invalidate_effective_limits_cache(org_id)
         except Exception as e:
@@ -327,11 +330,7 @@ class AdminTierService(BasePlatformService):
                 org_id=org_id,
                 error=e,
             )
-        now_entitled = await is_org_entitled(
-            self.session,
-            org_id,
-            Entitlement.CASE_ADDONS,
-        )
+        now_entitled = await self._is_org_case_addons_entitled(org_id)
         if not was_entitled and now_entitled:
             try:
                 await enqueue_case_duration_backfill_for_org(org_id)

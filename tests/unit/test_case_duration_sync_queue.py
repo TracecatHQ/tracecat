@@ -116,6 +116,97 @@ async def test_org_backfill_publishes_only_defined_workspaces_for_org(
     assert publish_mock.await_count == 2
 
 
+def _mock_org_backfill_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    workspace_ids: list[uuid.UUID],
+    case_ids: list[uuid.UUID],
+) -> AsyncMock:
+    session = MagicMock()
+    workspace_result = MagicMock()
+    workspace_result.scalars.return_value.all.return_value = workspace_ids
+    case_result = MagicMock()
+    case_result.scalars.return_value.all.return_value = case_ids
+    session.execute = AsyncMock(side_effect=[workspace_result, case_result])
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    publish_mock = AsyncMock(side_effect=[ConnectionError("redis unavailable"), "1-0"])
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
+        publish_mock,
+    )
+    return publish_mock
+
+
+@pytest.mark.anyio
+async def test_org_backfill_publish_failure_syncs_inline_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    failed_workspace_id = uuid.uuid4()
+    published_workspace_id = uuid.uuid4()
+    case_ids = [uuid.uuid4(), uuid.uuid4()]
+    publish_mock = _mock_org_backfill_environment(
+        monkeypatch,
+        workspace_ids=[failed_workspace_id, published_workspace_id],
+        case_ids=case_ids,
+    )
+    sync_mock = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.materialization.sync_case_duration",
+        sync_mock,
+    )
+
+    await enqueue_case_duration_backfill_for_org(organization_id)
+
+    assert publish_mock.await_args_list == [
+        call(
+            workspace_id=failed_workspace_id,
+            reason="duration_definition_updated",
+        ),
+        call(
+            workspace_id=published_workspace_id,
+            reason="duration_definition_updated",
+        ),
+    ]
+    assert sync_mock.await_args_list == [
+        call(failed_workspace_id, case_id, event_types=None) for case_id in case_ids
+    ]
+
+
+@pytest.mark.anyio
+async def test_org_backfill_inline_failure_does_not_block_other_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_workspace_id = uuid.uuid4()
+    published_workspace_id = uuid.uuid4()
+    publish_mock = _mock_org_backfill_environment(
+        monkeypatch,
+        workspace_ids=[failed_workspace_id, published_workspace_id],
+        case_ids=[uuid.uuid4()],
+    )
+    sync_mock = AsyncMock(side_effect=RuntimeError("database unavailable"))
+    monkeypatch.setattr(
+        "tracecat.cases.durations.materialization.sync_case_duration",
+        sync_mock,
+    )
+
+    await enqueue_case_duration_backfill_for_org(uuid.uuid4())
+
+    assert publish_mock.await_args_list[-1] == call(
+        workspace_id=published_workspace_id,
+        reason="duration_definition_updated",
+    )
+    sync_mock.assert_awaited_once()
+
+
 def _mock_rollout_environment(
     monkeypatch: pytest.MonkeyPatch,
     *,

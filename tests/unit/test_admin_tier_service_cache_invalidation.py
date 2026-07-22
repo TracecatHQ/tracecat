@@ -88,6 +88,7 @@ async def test_update_tier_invalidates_assigned_organization_caches(
         slug=f"org-{uuid.uuid4().hex[:8]}",
         is_active=True,
     )
+    org_b_id = org_b.id
     session.add_all([org_a, shared_tier, org_b])
     await session.flush()
     session.add_all(
@@ -97,7 +98,7 @@ async def test_update_tier_invalidates_assigned_organization_caches(
                 tier_id=shared_tier.id,
             ),
             OrganizationTier(
-                organization_id=org_b.id,
+                organization_id=org_b_id,
                 tier_id=shared_tier.id,
             ),
         ]
@@ -121,7 +122,7 @@ async def test_update_tier_invalidates_assigned_organization_caches(
     invalidate_many_mock.assert_awaited_once()
     assert invalidate_many_mock.await_args is not None
     invalidated_org_ids = set(invalidate_many_mock.await_args.args[0])
-    assert invalidated_org_ids == {org_a_id, org_b.id}
+    assert invalidated_org_ids == {org_a_id, org_b_id}
 
 
 @pytest.mark.anyio
@@ -185,6 +186,55 @@ async def test_update_org_tier_grant_queues_case_duration_backfill(
         )
 
     enqueue_mock.assert_awaited_once_with(org_id)
+
+
+@pytest.mark.anyio
+async def test_update_org_tier_tier_id_grant_queues_case_duration_backfill(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    tier_without_case_addons = _tier(is_default=True)
+    tier_with_case_addons = _tier(is_default=False)
+    tier_with_case_addons.entitlements = {"case_addons": True}
+    session.add_all([org, tier_without_case_addons, tier_with_case_addons])
+    await session.flush()
+    session.add(
+        OrganizationTier(
+            organization_id=org_id,
+            tier_id=tier_without_case_addons.id,
+        )
+    )
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with (
+        patch(
+            "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+            new=AsyncMock(),
+        ) as enqueue_mock,
+    ):
+        result = await service.update_org_tier(
+            org_id,
+            OrganizationTierUpdate(tier_id=tier_with_case_addons.id),
+        )
+
+    enqueue_mock.assert_awaited_once_with(org_id)
+    assert result.tier_id == tier_with_case_addons.id
+    assert result.tier is not None
+    assert result.tier.id == tier_with_case_addons.id
 
 
 @pytest.mark.anyio
@@ -280,6 +330,42 @@ async def test_update_tier_grant_queues_only_newly_entitled_org(
         )
 
     enqueue_mock.assert_awaited_once_with(org_a_id)
+
+
+@pytest.mark.anyio
+async def test_update_tier_clears_sole_default_without_backfill_error(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    default_tier.entitlements = {"case_addons": True}
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with patch(
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        new=AsyncMock(),
+    ) as enqueue_mock:
+        result = await service.update_tier(
+            default_tier.id,
+            TierUpdate(
+                display_name=default_tier.display_name,
+                is_default=False,
+            ),
+        )
+
+    assert result.is_default is False
+    enqueue_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
