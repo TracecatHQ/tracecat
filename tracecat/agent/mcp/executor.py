@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 from uuid import UUID, uuid4
@@ -51,15 +52,40 @@ class ActionExecutionError(Exception):
     """Raised when action execution fails."""
 
 
+def _script_imports_registry(script: str) -> bool:
+    """Whether the script's import statements reference ``tracecat_registry``."""
+    try:
+        tree = ast.parse(script)
+    except SyntaxError:
+        # Let the sandbox surface the syntax error itself.
+        return False
+    for node in ast.walk(tree):
+        match node:
+            case ast.Import(names=names):
+                if any(
+                    alias.name.partition(".")[0] == "tracecat_registry"
+                    for alias in names
+                ):
+                    return True
+            case ast.ImportFrom(module=str() as module, level=0):
+                if module.partition(".")[0] == "tracecat_registry":
+                    return True
+            case _:
+                pass
+    return False
+
+
 def _validate_run_python_script(action_name: str, args: dict[str, Any]) -> None:
     """Steer Agent-authored scripts away from unavailable registry imports."""
     if action_name != PlatformAction.RUN_PYTHON:
         return
 
     script = args.get("script")
-    # This trivially bypassable scan is UX only. The Action Gateway deny is the
-    # security boundary; catching the common import avoids a wasted sandbox run.
-    if isinstance(script, str) and "tracecat_registry" in script:
+    # This trivially bypassable check is UX only. The Action Gateway deny is the
+    # security boundary; catching the common import statement avoids a wasted
+    # sandbox run. Dynamic imports and mere textual mentions (strings, comments)
+    # are deliberately out of scope.
+    if isinstance(script, str) and _script_imports_registry(script):
         raise ActionNotAllowedError(
             "This environment runs plain Python only. Use your tools for Tracecat "
             "actions instead of importing tracecat_registry."

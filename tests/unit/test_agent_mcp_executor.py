@@ -49,6 +49,39 @@ def test_run_python_plain_script_passes_agent_precheck() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "script",
+    [
+        # Textual mentions in strings/comments are not imports.
+        "def main():\n    return 'error mentions tracecat_registry somewhere'",
+        "# tracecat_registry is unavailable here\ndef main():\n    return 1",
+        # Unparseable scripts fall through to the sandbox's own syntax error.
+        "def main(:\n    import tracecat_registry",
+    ],
+)
+def test_run_python_registry_mention_without_import_passes_precheck(
+    script: str,
+) -> None:
+    executor._validate_run_python_script("core.script.run_python", {"script": script})
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "import tracecat_registry",
+        "import tracecat_registry.sdk as sdk",
+        "from tracecat_registry import sdk",
+        "from tracecat_registry.sdk.client import TracecatClient",
+        "def main():\n    import tracecat_registry\n    return None",
+    ],
+)
+def test_run_python_registry_import_forms_are_rejected(script: str) -> None:
+    with pytest.raises(executor.ActionNotAllowedError):
+        executor._validate_run_python_script(
+            "core.script.run_python", {"script": script}
+        )
+
+
 @pytest.mark.anyio
 async def test_run_python_registry_import_is_rejected_before_workflow_start(
     monkeypatch: pytest.MonkeyPatch,
