@@ -30,6 +30,36 @@ def test_gemini_injects_api_key_and_prefixes_model() -> None:
     assert data["model"] == "gemini/gemini-2.5-flash"
 
 
+def test_mistral_injects_api_key_and_prefixes_model() -> None:
+    data = {"model": "mistral-large-latest"}
+    creds = {"MISTRAL_API_KEY": "test-mistral-key"}
+
+    _inject_provider_credentials(data, "mistral", creds)
+
+    assert data["api_key"] == "test-mistral-key"
+    assert data["model"] == "mistral/mistral-large-latest"
+
+
+def test_mistral_injects_optional_base_url() -> None:
+    data = {"model": "mistral-large-latest"}
+    creds = {
+        "MISTRAL_API_KEY": "test-mistral-key",
+        "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
+    }
+
+    _inject_provider_credentials(data, "mistral", creds)
+
+    assert data["api_key"] == "test-mistral-key"
+    assert data["api_base"] == "https://api.mistral.example/v1"
+
+
+def test_mistral_missing_api_key_raises() -> None:
+    data = {"model": "mistral-large-latest"}
+
+    with pytest.raises(ProxyException):
+        _inject_provider_credentials(data, "mistral", {})
+
+
 def test_filter_allowed_model_settings_still_drops_thinking_for_openai() -> None:
     filtered = _filter_allowed_model_settings(
         {
@@ -254,6 +284,7 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("vertex_ai/*") == "vertex_ai/*"
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
+    assert resolved_model("mistral/*") == "mistral/*"
     # Unqualified names fall through to the hosted_vllm catch-all so custom
     # providers bridge to Chat Completions instead of the Responses API.
     assert resolved_model("custom") == "hosted_vllm/custom"

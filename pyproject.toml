@@ -55,7 +55,7 @@ dependencies = [
     "polyfile==0.5.6",
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
-    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.62.0",
+    "pydantic-ai-slim[anthropic,bedrock,google,mcp,mistral,openai]==1.62.0",
     "pydantic-extra-types==2.11.0",
     "pydantic==2.12.5",
     "pygithub==2.8.1",

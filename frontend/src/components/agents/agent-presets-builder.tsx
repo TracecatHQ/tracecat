@@ -1265,6 +1265,8 @@ function getProviderIconId(provider: string): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:
@@ -1284,6 +1286,8 @@ function getProviderDisplayLabel(provider: string): string {
       return "AWS Bedrock"
     case "gemini":
       return "Google Gemini"
+    case "mistral":
+      return "Mistral AI"
     case "openai":
       return "OpenAI"
     case "vertex_ai":

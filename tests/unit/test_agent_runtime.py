@@ -226,6 +226,7 @@ def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
             "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         ),
         ("azure_openai", "my-deployment", False, "azure/my-deployment"),
+        ("mistral", "mistral-large-latest", False, "mistral/mistral-large-latest"),
         ("custom-model-provider", "custom", False, "custom"),
         ("custom-model-provider", "customer-alias", True, "customer-alias"),
         ("openai", "openai/gpt-5", False, "openai/gpt-5"),
