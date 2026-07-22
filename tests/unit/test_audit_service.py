@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
@@ -29,7 +29,6 @@ from tracecat.audit.service import (
     AuditService,
     _AuditDelivery,
     _spawn_delivery,
-    flush_audit_deliveries,
 )
 from tracecat.audit.types import AuditEvent, AuditMetadata
 from tracecat.auth.types import PlatformRole, Role
@@ -54,6 +53,14 @@ def role() -> Role:
 @pytest.fixture
 def audit_service(role: Role) -> AuditService:
     return AuditService(AsyncMock(), role=role)
+
+
+@pytest.fixture(autouse=True)
+def clear_audit_setting_cache() -> Iterator[None]:
+    """Isolate the module-level audit-setting TTL cache between tests."""
+    audit_service_module._get_audit_setting_cached.cache_clear()
+    yield
+    audit_service_module._get_audit_setting_cached.cache_clear()
 
 
 class _AuditedService(BaseService):
@@ -771,12 +778,112 @@ async def test_platform_role_defaults_to_platform_audit_sink(
         service_id="tracecat-api",
     )
     audit_service = AuditService(AsyncMock(), role=role)
-    get_platform_setting = AsyncMock(return_value="https://example.com/audit")
-    monkeypatch.setattr(audit_service, "_get_platform_setting", get_platform_setting)
+    fetch_platform_setting = AsyncMock(return_value="https://example.com/audit")
+    monkeypatch.setattr(
+        audit_service_module, "_fetch_platform_setting", fetch_platform_setting
+    )
 
     assert audit_service.audit_sink == "platform"
     assert await audit_service._get_webhook_url() == "https://example.com/audit"
-    get_platform_setting.assert_awaited_once_with("audit_webhook_url")
+    fetch_platform_setting.assert_awaited_once_with("audit_webhook_url")
+
+
+@pytest.mark.anyio
+async def test_audit_setting_cache_hits_within_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeat lookup within the TTL is served from cache, not the DB."""
+    role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
+    audit_service = AuditService(AsyncMock(), role=role)
+    fetch = AsyncMock(return_value="https://example.com/audit")
+    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
+
+    first = await audit_service._get_webhook_url()
+    second = await audit_service._get_webhook_url()
+
+    assert first == second == "https://example.com/audit"
+    fetch.assert_awaited_once_with("audit_webhook_url")
+
+
+@pytest.mark.anyio
+async def test_audit_setting_cache_separates_sinks_and_orgs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sink identity and org id are part of the key; no cross-tenant bleed."""
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
+    platform_role = PlatformRole(
+        type="user", user_id=uuid.uuid4(), service_id="tracecat-api"
+    )
+
+    def make_org_service(org_id: uuid.UUID) -> AuditService:
+        return AuditService(
+            AsyncMock(),
+            role=Role(
+                type="user",
+                organization_id=org_id,
+                user_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=ADMIN_SCOPES,
+            ),
+        )
+
+    platform_service = AuditService(AsyncMock(), role=platform_role)
+    monkeypatch.setattr(
+        audit_service_module,
+        "_fetch_platform_setting",
+        AsyncMock(return_value="https://platform.example.com/audit"),
+    )
+
+    org_values = {
+        org_a: "https://org-a.example.com/audit",
+        org_b: "https://org-b.example.com/audit",
+    }
+
+    async def fake_get_setting(
+        key: str, *, role: Role | None = None, session: Any = None, default: Any = None
+    ) -> Any:
+        assert role is not None and role.organization_id is not None
+        return org_values[role.organization_id]
+
+    monkeypatch.setattr("tracecat.settings.service.get_setting", fake_get_setting)
+
+    assert (
+        await platform_service._get_webhook_url()
+        == "https://platform.example.com/audit"
+    )
+    assert (
+        await make_org_service(org_a)._get_webhook_url()
+        == "https://org-a.example.com/audit"
+    )
+    assert (
+        await make_org_service(org_b)._get_webhook_url()
+        == "https://org-b.example.com/audit"
+    )
+
+
+@pytest.mark.anyio
+async def test_audit_setting_cache_clear_restores_fresh_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cache_clear forces the next lookup back to the underlying fetch."""
+    role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
+    audit_service = AuditService(AsyncMock(), role=role)
+    fetch = AsyncMock(
+        side_effect=[
+            "https://first.example.com/audit",
+            "https://second.example.com/audit",
+        ]
+    )
+    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
+
+    assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
+    assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
+
+    audit_service_module._get_audit_setting_cached.cache_clear()
+
+    assert await audit_service._get_webhook_url() == "https://second.example.com/audit"
+    assert fetch.await_count == 2
 
 
 @pytest.mark.anyio
@@ -1021,6 +1128,14 @@ def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDeliver
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
     )
+
+
+async def flush_audit_deliveries() -> None:
+    """Wait for this loop's in-flight audit deliveries."""
+    loop = asyncio.get_running_loop()
+    tasks = [t for t in audit_service_module._delivery_tasks if t.get_loop() is loop]
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 async def _cancel_loop_tasks(loop: asyncio.AbstractEventLoop) -> None:
@@ -1349,45 +1464,6 @@ async def test_spawn_delivery_evicts_closed_loop_tasks(
 
     for fake_task in stranded:
         assert fake_task not in tasks
-
-
-@pytest.mark.anyio
-async def test_flush_audit_deliveries_no_op_without_tasks(
-    fresh_delivery_tasks: None,
-) -> None:
-    """flush_audit_deliveries returns immediately when nothing is in flight."""
-    loop = asyncio.get_running_loop()
-    assert not any(t.get_loop() is loop for t in audit_service_module._delivery_tasks)
-    # Must not raise or hang.
-    await flush_audit_deliveries()
-
-
-@pytest.mark.anyio
-async def test_flush_audit_deliveries_waits_for_in_flight_delivery(
-    fresh_delivery_tasks: None,
-) -> None:
-    """flush blocks until a gated in-flight delivery completes."""
-    completed = asyncio.Event()
-    gate = asyncio.Event()
-
-    async def gated_deliver(delivery: _AuditDelivery) -> None:
-        await gate.wait()
-        completed.set()
-
-    with patch("tracecat.audit.service._deliver", gated_deliver):
-        _spawn_delivery(_delivery("only"))
-        assert not completed.is_set()
-
-        async def release() -> None:
-            await asyncio.sleep(0)
-            gate.set()
-
-        release_task = asyncio.ensure_future(release())
-        # flush must not return until the gated delivery finishes.
-        await flush_audit_deliveries()
-        await release_task
-
-    assert completed.is_set()
 
 
 @pytest.mark.anyio

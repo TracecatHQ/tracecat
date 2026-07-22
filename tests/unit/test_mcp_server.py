@@ -222,6 +222,18 @@ def _action_stub(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**data)
 
 
+def _edit_role() -> Role:
+    """Minimal auditable Role for persist_workflow_edit_document call sites."""
+    return Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"*"}),
+    )
+
+
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
     with pytest.raises(ToolError, match="Invalid workspace ID"):
@@ -1541,7 +1553,7 @@ async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_de
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -1621,7 +1633,7 @@ async def test_persist_workflow_edit_document_skips_reorder_only_changes(
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -2322,7 +2334,7 @@ async def test_persist_workflow_edit_document_applies_metadata_with_definition_c
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -2390,7 +2402,7 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status_
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -2682,7 +2694,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_fields() -> 
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -2750,7 +2762,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_actions() ->
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,
@@ -2807,7 +2819,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_object() -> 
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
     await draft.persist_workflow_edit_document(
-        role=SimpleNamespace(),
+        role=_edit_role(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         original_document=original_document,

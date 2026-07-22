@@ -16,6 +16,7 @@ from typing import Any, Self
 
 import httpx
 import orjson
+from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +34,12 @@ from tracecat.audit.types import (
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_request_audit, ctx_role
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.secrets.encryption import decrypt_value
@@ -110,18 +115,69 @@ async def _deliver(delivery: _AuditDelivery) -> None:
         logger.warning(
             "Failed to deliver audit webhook",
             error_type=type(exc).__name__,
-            status_code=getattr(response, "status_code", None),
+            status_code=response.status_code if response is not None else None,
             resource_type=delivery.resource_type,
             action=delivery.action,
         )
 
 
-async def flush_audit_deliveries() -> None:
-    """Wait for this loop's in-flight audit deliveries. Intended for tests."""
-    loop = asyncio.get_running_loop()
-    tasks = [task for task in _delivery_tasks if task.get_loop() is loop]
-    if tasks:
-        await asyncio.gather(*tasks)
+# Sentinel org id for the platform sink and for org-sink lookups with no org
+# identity; keeps those entries isolated from any real organization's cache key.
+_PLATFORM_ORG_SENTINEL = uuid.UUID(int=0)
+
+
+async def _fetch_platform_setting(key: str) -> Any | None:
+    """Read a platform audit setting on a self-managed session; decrypt if needed."""
+    async with get_async_session_bypass_rls_context_manager() as session:
+        stmt = select(PlatformSetting).where(PlatformSetting.key == key)
+        setting = (await session.execute(stmt)).scalar_one_or_none()
+    if setting is None:
+        return None
+    value = setting.value
+    if setting.is_encrypted:
+        try:
+            value = decrypt_value(value, key=get_db_encryption_key())
+        except (InvalidToken, ValueError) as exc:
+            logger.warning(
+                "Failed to decrypt platform audit setting",
+                key=key,
+                error=redact_sensitive_text(str(exc), redact_emails=True),
+            )
+            return None
+    return orjson.loads(value)
+
+
+@alru_cache(ttl=30)
+async def _get_audit_setting_cached(
+    sink: AuditSink,
+    organization_id: OrganizationID,
+    key: str,
+    default: Any = None,
+) -> Any | None:
+    """Cached audit-setting read keyed by (sink, org, key, default).
+
+    Runs on its own session so no request session is captured or hashed; bounded
+    30s staleness. ``organization_id`` may be ``_PLATFORM_ORG_SENTINEL`` for the
+    platform sink or org-sink calls with no org identity. Decrypted values live
+    in process memory only and are never logged.
+    """
+    logger.debug("Audit setting cache miss", sink=sink, key=key)
+    if sink == "platform":
+        value = await _fetch_platform_setting(key)
+        return default if value is None and default is not None else value
+
+    from tracecat.settings.service import get_setting
+
+    if organization_id == _PLATFORM_ORG_SENTINEL:
+        # No org identity: preserve get_setting(role=None) semantics (default/None).
+        return default
+    # Minimal org-bound role so get_setting opens its own org-scoped session.
+    role = Role(
+        type="service",
+        organization_id=organization_id,
+        service_id="tracecat-service",
+    )
+    return await get_setting(key, role=role, session=None, default=default)
 
 
 class AuditService(BaseService):
@@ -171,39 +227,31 @@ class AuditService(BaseService):
             async with get_async_session_context_manager() as session:
                 yield cls(session, role=role, audit_sink=audit_sink)
 
-    async def _get_platform_setting(self, key: str) -> Any | None:
-        """Fetch a platform setting for platform-scoped audit delivery."""
-        stmt = select(PlatformSetting).where(PlatformSetting.key == key)
-        setting = (await self.session.execute(stmt)).scalar_one_or_none()
-        if setting is None:
-            return None
-
-        value = setting.value
-        if setting.is_encrypted:
-            try:
-                value = decrypt_value(value, key=get_db_encryption_key())
-            except (InvalidToken, ValueError) as exc:
-                self.logger.warning(
-                    "Failed to decrypt platform audit setting",
-                    key=key,
-                    error=redact_sensitive_text(str(exc), redact_emails=True),
-                )
-                return None
-        return orjson.loads(value)
-
     async def _get_audit_setting(self, key: str, *, default: Any = None) -> Any | None:
-        """Fetch an audit setting from the active audit sink."""
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting(key)
-            return default if value is None and default is not None else value
+        """Fetch an audit setting from the active audit sink (30s TTL cache).
 
-        from tracecat.settings.service import get_setting
+        Keyed on (sink, org, key, default) so platform and per-org configs never
+        share an entry. The cache runs its own session, so this stays safe inside
+        a live request session.
+        """
+        if self.audit_sink == "organization" and (
+            isinstance(self.role, Role) and self.role.organization_id is None
+        ):
+            # Rare org-sink role without an org id: skip the cache and let
+            # get_setting resolve the default org, preserving prior semantics.
+            from tracecat.settings.service import get_setting
 
-        return await get_setting(
-            key,
-            role=self.role if isinstance(self.role, Role) else None,
-            session=self.session,
-            default=default,
+            return await get_setting(
+                key, role=self.role, session=self.session, default=default
+            )
+
+        organization_id = (
+            self.role.organization_id
+            if isinstance(self.role, Role) and self.role.organization_id is not None
+            else _PLATFORM_ORG_SENTINEL
+        )
+        return await _get_audit_setting_cached(
+            self.audit_sink, organization_id, key, default
         )
 
     async def _get_webhook_url(self) -> str | None:
@@ -230,7 +278,8 @@ class AuditService(BaseService):
     async def _get_custom_headers(self) -> dict[str, str] | None:
         """Fetch the configured custom headers for the audit webhook.
 
-        Note: Uses get_setting (uncached) to ensure changes take effect immediately.
+        Note: reads are cached with a 30s TTL, so setting changes take effect
+        within that bounded window rather than immediately.
         """
         value = await self._get_audit_setting("audit_webhook_custom_headers")
         if value is None:
@@ -331,8 +380,8 @@ class AuditService(BaseService):
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
             return None
-        if getattr(self.role, "type", None) == "service_account":
-            service_account_id = getattr(self.role, "service_account_id", None)
+        if isinstance(self.role, Role) and self.role.type == "service_account":
+            service_account_id = self.role.service_account_id
             if service_account_id is None:
                 return None
             try:
@@ -379,11 +428,14 @@ class AuditService(BaseService):
     ) -> AuditEvent:
         if self.role is None or self.role.actor_id is None:
             raise ValueError("Audit payload requires an auditable actor")
-        organization_id = getattr(self.role, "organization_id", None)
-        workspace_id = getattr(self.role, "workspace_id", None)
+        # Only org-scoped Role carries org/workspace context; PlatformRole lacks it.
+        organization_id = (
+            self.role.organization_id if isinstance(self.role, Role) else None
+        )
+        workspace_id = self.role.workspace_id if isinstance(self.role, Role) else None
         actor_type = (
             AuditEventActor.SERVICE_ACCOUNT
-            if getattr(self.role, "type", None) == "service_account"
+            if isinstance(self.role, Role) and self.role.type == "service_account"
             else AuditEventActor.USER
         )
         return AuditEvent(
@@ -444,11 +496,11 @@ class AuditService(BaseService):
                 metadata and may identify client software or devices.
         """
 
-        if self.role is None or getattr(self.role, "actor_id", None) is None:
+        if self.role is None or self.role.actor_id is None:
             self.logger.debug(
                 "Skipping audit log",
                 reason="non_auditable_role",
-                role_type=getattr(self.role, "type", None),
+                role_type=self.role.type if self.role is not None else None,
             )
             return
 

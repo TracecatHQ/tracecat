@@ -847,7 +847,7 @@ def parse_workflow_edit_request(
 
 def _workflow_edit_audit_details(
     *,
-    role: Any,
+    role: Role,
     service: WorkflowsManagementService,
     workflow: Workflow,
     original_document: WorkflowEditDocument,
@@ -873,7 +873,7 @@ def _workflow_edit_audit_details(
 )
 async def persist_workflow_edit_document(
     *,
-    role: Any,
+    role: Role,
     service: WorkflowsManagementService,
     workflow: Workflow,
     original_document: WorkflowEditDocument,
