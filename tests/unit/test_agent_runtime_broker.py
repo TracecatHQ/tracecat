@@ -92,6 +92,28 @@ def _stdio_mcp_config(command: str) -> McpStdioServerConfig:
     return {"type": "stdio", "command": command}
 
 
+def test_transport_uses_private_claude_home_for_runtime_state(tmp_path: Path) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+
+    env = transport._build_claude_env_overlay()
+
+    assert (
+        env.items()
+        >= {
+            "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+            "CLAUDE_AGENT_SDK_VERSION": transport_module.__version__,
+            "HOME": "/home/agent",
+            "XDG_CONFIG_HOME": "/home/agent/.config",
+            "XDG_CACHE_HOME": "/home/agent/.cache",
+            "XDG_STATE_HOME": "/home/agent/.local/state",
+            "TMPDIR": "/home/agent/tmp",
+            "TEMP": "/home/agent/tmp",
+            "TMP": "/home/agent/tmp",
+            "PWD": "/work",
+        }.items()
+    )
+
+
 class _FakeSandboxProcess:
     stdin = object()
     stdout = object()

@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pwd
 import shutil
+import stat
 import sys
 import tempfile
 import uuid
@@ -47,6 +49,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_WORK_DIR,
 )
 from tracecat.agent.sandbox.config import (
+    AGENT_TOOL_OUTSIDE_UID,
     JAILED_SHIM_ENTRYPOINT_PATH,
     AgentSandboxConfig,
     build_agent_env_map,
@@ -63,6 +66,8 @@ BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
 SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
 SESSION_WORK_DIR_ENV_VAR = "TRACECAT__AGENT_SESSION_WORK_DIR"
 CLAUDE_SHIM_STDIO_LIMIT_BYTES = 5 * 1024 * 1024
+NEWUIDMAP_PATH = Path("/usr/bin/newuidmap")
+SUBUID_PATH = Path("/etc/subuid")
 
 
 @dataclass(frozen=True)
@@ -123,6 +128,85 @@ def _get_tracecat_pkg_dir() -> Path:
 
     # tracecat.__file__ is /app/tracecat/__init__.py, we want /app/tracecat
     return Path(tracecat.__file__).parent
+
+
+def _subuid_file_allows(*, owner_names: set[str], outside_uid: int) -> bool:
+    """Return whether /etc/subuid assigns the requested identity to this user."""
+    try:
+        lines = SUBUID_PATH.read_text().splitlines()
+    except OSError as exc:
+        raise AgentSandboxExecutionError(
+            f"Could not read subordinate UID configuration: {SUBUID_PATH}"
+        ) from exc
+
+    for line in lines:
+        try:
+            owner, start_text, count_text = line.split(":", maxsplit=2)
+            start = int(start_text)
+            count = int(count_text)
+        except ValueError:
+            continue
+        if owner in owner_names and start <= outside_uid < start + count:
+            return True
+    return False
+
+
+def _validate_tool_uid_mapping() -> None:
+    """Fail closed unless the executor can create the subordinate tool UID map."""
+    try:
+        helper_stat = NEWUIDMAP_PATH.stat()
+    except OSError as exc:
+        raise AgentSandboxExecutionError(
+            f"Required UID mapping helper is unavailable: {NEWUIDMAP_PATH}"
+        ) from exc
+
+    if (
+        helper_stat.st_uid != 0
+        or not stat.S_ISREG(helper_stat.st_mode)
+        or not helper_stat.st_mode & stat.S_ISUID
+        or not os.access(NEWUIDMAP_PATH, os.X_OK)
+    ):
+        raise AgentSandboxExecutionError(
+            f"UID mapping helper must be a root-owned setuid executable: {NEWUIDMAP_PATH}"
+        )
+
+    try:
+        username = pwd.getpwuid(os.getuid()).pw_name
+    except KeyError as exc:
+        raise AgentSandboxExecutionError(
+            "Executor UID has no passwd entry for subordinate UID validation"
+        ) from exc
+    owner_names = {username, str(os.getuid())}
+    if not _subuid_file_allows(
+        owner_names=owner_names,
+        outside_uid=AGENT_TOOL_OUTSIDE_UID,
+    ):
+        raise AgentSandboxExecutionError(
+            "Executor subordinate UID range does not contain the configured tool UID"
+        )
+
+
+def _prepare_runtime_directories(
+    *,
+    session_home_dir: Path | None,
+    session_work_dir: Path | None,
+) -> None:
+    """Create the private Claude home and shared setgid work directory."""
+    if session_home_dir is not None:
+        session_home_dir.mkdir(parents=True, exist_ok=True)
+        session_home_dir.chmod(0o700)
+        for relative_path in (
+            Path(".config"),
+            Path(".cache"),
+            Path(".local/state"),
+            Path("tmp"),
+        ):
+            private_dir = session_home_dir / relative_path
+            private_dir.mkdir(parents=True, exist_ok=True)
+            private_dir.chmod(0o700)
+    if session_work_dir is not None:
+        session_work_dir.mkdir(parents=True, exist_ok=True)
+        session_work_dir.chmod(0o2770)
 
 
 async def spawn_jailed_runtime(
@@ -290,6 +374,12 @@ async def _spawn_direct_runtime(
         JAILED_CONTROL_SOCKET_PATH,
     )
 
+    logger.warning("Agent runtime is using direct mode without UID or mount isolation")
+    _prepare_runtime_directories(
+        session_home_dir=session_home_dir,
+        session_work_dir=session_work_dir,
+    )
+
     control_socket_path = socket_dir / CONTROL_SOCKET_NAME
     shim_script_path = (
         _get_tracecat_pkg_dir() / "agent" / "sandbox" / BROKER_SHIM_SCRIPT_NAME
@@ -328,11 +418,15 @@ async def _spawn_direct_runtime(
         if value := os.environ.get(key):
             env[key] = value
     if session_home_dir is not None:
-        session_home_dir.mkdir(parents=True, exist_ok=True)
         env[SESSION_HOME_ENV_VAR] = str(session_home_dir)
         env["HOME"] = str(session_home_dir)
+        env["XDG_CONFIG_HOME"] = str(session_home_dir / ".config")
+        env["XDG_CACHE_HOME"] = str(session_home_dir / ".cache")
+        env["XDG_STATE_HOME"] = str(session_home_dir / ".local/state")
+        env["TMPDIR"] = str(session_home_dir / "tmp")
+        env["TEMP"] = str(session_home_dir / "tmp")
+        env["TMP"] = str(session_home_dir / "tmp")
     if session_work_dir is not None:
-        session_work_dir.mkdir(parents=True, exist_ok=True)
         env[SESSION_WORK_DIR_ENV_VAR] = str(session_work_dir)
     await _sync_direct_skills_dir(
         skills_dir=skills_dir,
@@ -382,6 +476,7 @@ async def _spawn_nsjail_runtime(
         raise AgentSandboxExecutionError(f"Rootfs not found: {rootfs}")
     if not nsjail.exists():
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
+    _validate_tool_uid_mapping()
     if llm_socket_path is not None and not llm_socket_path.exists():
         raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
     if mcp_socket_path is None:
@@ -403,10 +498,10 @@ async def _spawn_nsjail_runtime(
     jailed_init_payload_path = job_dir / "init.json"
 
     try:
-        if session_home_dir is not None:
-            session_home_dir.mkdir(parents=True, exist_ok=True)
-        if session_work_dir is not None:
-            session_work_dir.mkdir(parents=True, exist_ok=True)
+        _prepare_runtime_directories(
+            session_home_dir=session_home_dir,
+            session_work_dir=session_work_dir,
+        )
         if skills_dir is not None:
             skills_dir.mkdir(parents=True, exist_ok=True)
             if session_home_dir is not None:

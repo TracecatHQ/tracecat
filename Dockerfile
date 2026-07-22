@@ -96,6 +96,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 RUN useradd -m -u 1000 sandbox && \
+    useradd -M -u 1001 -g sandbox -d /home/tools -s /usr/sbin/nologin tools && \
     mkdir -p /workspace /work /cache /packages /home/sandbox && \
     chown sandbox:sandbox /workspace /work /cache /packages /home/sandbox
 
@@ -121,7 +122,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates jq \
     libnl-route-3-200 libprotobuf32 libcap2-bin util-linux \
-    passt squashfs-tools \
+    passt squashfs-tools uidmap \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -189,6 +190,7 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
 
 # Create apiuser for non-root runtime (required for pasta userspace networking)
 RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
+    usermod --add-subuids 100000-100000 apiuser && \
     mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
     chown -R apiuser:apiuser /home/apiuser
 

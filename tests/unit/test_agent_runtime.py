@@ -6,7 +6,9 @@ Tests the runtime execution with mocked Claude SDK.
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
+import shlex
 import tempfile
 import uuid
 from dataclasses import replace
@@ -199,6 +201,14 @@ def make_hook_context() -> HookContext:
 def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
     """Extract hookSpecificOutput from result."""
     return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
+
+
+def decode_tool_wrapper_payload(encoded_payload: str) -> dict[str, Any]:
+    """Decode a trusted tool-wrapper payload for assertions."""
+    return cast(
+        dict[str, Any],
+        orjson.loads(base64.urlsafe_b64decode(encoded_payload.encode("ascii"))),
+    )
 
 
 def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
@@ -943,8 +953,8 @@ class TestClaudeAgentRuntimeRun:
         }
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
-            "mcp__local-tools__*",
         }
+        assert "mcp__local-tools__*" not in (options.tools or [])
 
     @pytest.mark.anyio
     async def test_root_agent_uses_verified_stdio_tool_inventory(
@@ -1013,6 +1023,14 @@ class TestClaudeAgentRuntimeRun:
             "mcp__tracecat-registry__core__http_request",
             "mcp__sentinel-one__list_alerts",
         }
+        assert set(options.tools or []) == {
+            *runtime_module.BASE_NATIVE_TOOL_INVENTORY,
+            *runtime_module.INTERNET_TOOLS,
+        }
+        assert options.setting_sources == []
+        assert options.settings == "{}"
+        assert options.extra_args == {"strict-mcp-config": None}
+        assert "FutureMutationTool" not in (options.tools or [])
         assert "Verified stdio MCP tools configured for this agent" in (
             options.system_prompt
         )
@@ -1020,6 +1038,44 @@ class TestClaudeAgentRuntimeRun:
         assert "list_alerts: List alerts" in options.system_prompt
         assert "delete_alert" not in options.system_prompt
         assert "legacy_alert" not in options.system_prompt
+
+    def test_stdio_mcp_commands_use_the_uid_demoter_in_nsjail(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+
+        spec = ClaudeAgentRuntime._stdio_mcp_server_spec(
+            source_configs=[
+                cast(
+                    Any,
+                    {
+                        "type": "stdio",
+                        "name": "local-tools",
+                        "command": "npx",
+                        "args": ["-y", "example-mcp"],
+                        "env": {"API_TOKEN": "configured-token"},
+                        "tools": [{"name": "lookup"}],
+                    },
+                )
+            ],
+            name_prefix="subagent-analyst",
+        )
+
+        server = spec.servers["subagent-analyst-local-tools"]
+        assert server["command"] == runtime_module.JAILED_TOOL_WRAPPER_COMMAND
+        wrapper_args = server.get("args")
+        assert wrapper_args is not None
+        assert wrapper_args[:3] == [
+            "-I",
+            runtime_module.JAILED_TOOL_WRAPPER_SCRIPT,
+            runtime_module.JAILED_TOOL_WRAPPER_MODE,
+        ]
+        assert decode_tool_wrapper_payload(wrapper_args[3]) == {
+            "argv": ["npx", "-y", "example-mcp"],
+            "env": {"API_TOKEN": "configured-token"},
+        }
+        assert "env" not in server
 
     @pytest.mark.anyio
     async def test_root_agent_sanitizes_stdio_tool_inventory_and_approvals(
@@ -1317,6 +1373,7 @@ class TestClaudeAgentRuntimeRun:
                             "name": "local-tools",
                             "command": "uvx",
                             "args": ["example-mcp"],
+                            "tools": [{"name": "lookup_local"}],
                         }
                     ],
                     "tool_approvals": {"core.lookup_ip": True},
@@ -1392,7 +1449,7 @@ class TestClaudeAgentRuntimeRun:
             },
         ]
         assert agent_def.tools == [
-            "mcp__subagent-analyst-local-tools__*",
+            "mcp__subagent-analyst-local-tools__lookup_local",
             "mcp__tracecat-registry-analyst__core__lookup_ip",
         ]
         internet_tools = set(runtime_module.INTERNET_TOOLS)
@@ -2250,6 +2307,172 @@ class TestClaudeAgentRuntimePreToolUseHook:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
+
+    @pytest.mark.anyio
+    async def test_unconfigured_future_mcp_tool_is_denied(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._available_mcp_tools = {"mcp__approved__lookup"}
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__approved__future_mutation",
+                tool_input={"path": "/home/agent/session.jsonl"},
+                tool_use_id="call-future",
+            ),
+            tool_use_id="call-future",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output["permissionDecision"] == "deny"
+        assert (
+            "not in the runtime MCP inventory"
+            in hook_output["permissionDecisionReason"]
+        )
+
+    @pytest.mark.anyio
+    async def test_bash_command_is_wrapped_as_opaque_data_in_nsjail(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        original_command = "printf '%s' \"$HOME\"; touch '/work/a b'"
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="Bash",
+                tool_input={"command": original_command},
+                tool_use_id="call-bash",
+            ),
+            tool_use_id="call-bash",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        wrapped_command = hook_output["updatedInput"]["command"]
+        wrapper_argv = shlex.split(wrapped_command)
+        assert wrapper_argv[:4] == [
+            runtime_module.JAILED_TOOL_WRAPPER_COMMAND,
+            "-I",
+            runtime_module.JAILED_TOOL_WRAPPER_SCRIPT,
+            runtime_module.JAILED_TOOL_WRAPPER_MODE,
+        ]
+        assert decode_tool_wrapper_payload(wrapper_argv[4]) == {
+            "argv": ["/bin/bash", "-c", original_command],
+            "env": {},
+        }
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("tool_name", ["Write", "Edit"])
+    async def test_native_mutation_is_canonicalized_beneath_work(
+        self,
+        tool_name: str,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        host_work = tmp_path / "work"
+        (host_work / "nested").mkdir(parents=True)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            cwd=Path("/work"),
+            cwd_setup_path=host_work,
+        )
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name=tool_name,
+                tool_input={"file_path": "nested/output.txt", "content": "safe"},
+                tool_use_id=f"call-{tool_name.lower()}",
+            ),
+            tool_use_id=f"call-{tool_name.lower()}",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output["permissionDecision"] == "allow"
+        assert hook_output["updatedInput"]["file_path"] == "/work/nested/output.txt"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "raw_path",
+        [
+            "/home/agent/.claude/session.jsonl",
+            "/work",
+            "../agent-home/session.jsonl",
+            "missing-parent/output.txt",
+            "bad\x00path",
+        ],
+    )
+    async def test_native_mutation_denies_unsafe_paths(
+        self,
+        raw_path: str,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        host_work = tmp_path / "work"
+        host_work.mkdir()
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            cwd=Path("/work"),
+            cwd_setup_path=host_work,
+        )
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="Write",
+                tool_input={"file_path": raw_path, "content": "unsafe"},
+                tool_use_id="call-write",
+                agent_id="child-1",
+                agent_type="analyst",
+            ),
+            tool_use_id="call-write",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output["permissionDecision"] == "deny"
+
+    @pytest.mark.anyio
+    async def test_native_mutation_denies_symlink_escape(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        host_work = tmp_path / "work"
+        outside = tmp_path / "agent-home"
+        host_work.mkdir()
+        outside.mkdir()
+        (host_work / "escape").symlink_to(outside, target_is_directory=True)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            cwd=Path("/work"),
+            cwd_setup_path=host_work,
+        )
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="Edit",
+                tool_input={"file_path": "/work/escape/session.jsonl"},
+                tool_use_id="call-edit",
+            ),
+            tool_use_id="call-edit",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output["permissionDecision"] == "deny"
 
     @pytest.mark.anyio
     async def test_tool_requires_approval(
