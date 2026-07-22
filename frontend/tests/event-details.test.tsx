@@ -3,71 +3,36 @@
  */
 
 import { render, screen } from "@testing-library/react"
-import type React from "react"
+import userEvent from "@testing-library/user-event"
 import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
-import {
-  isCollectionStoredObject,
-  isExternalStoredObject,
-} from "@/lib/stored-object"
 
-jest.mock("@/components/code-block", () => ({
-  CodeBlock: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-}))
-
-jest.mock("@/components/executions/collection-object-result", () => ({
-  CollectionObjectResult: ({
-    copyMode,
-    copyPrefix,
+jest.mock("@/components/executions/action-event-details", () => ({
+  ActionEventDetails: ({
+    actionRef,
+    events,
+    executionId,
+    status,
+    type,
+    presentation,
   }: {
-    copyMode?: string
-    copyPrefix?: string
+    actionRef: string
+    events: WorkflowExecutionEventCompact[]
+    executionId: string
+    status: string
+    type: string
+    presentation: string
   }) => (
     <div
-      data-testid="collection-result"
-      data-copy-mode={copyMode}
-      data-copy-prefix={copyPrefix}
+      data-testid={`action-${type}`}
+      data-action-ref={actionRef}
+      data-event-count={events.length}
+      data-execution-id={executionId}
+      data-status={status}
+      data-presentation={presentation}
     />
   ),
 }))
-
-jest.mock("@/components/executions/external-object-result", () => ({
-  ExternalObjectResult: () => null,
-}))
-
-jest.mock("@/components/json-viewer", () => ({
-  JsonViewWithControls: ({
-    src,
-    copyMode,
-    copyPrefix,
-  }: {
-    src: unknown
-    copyMode?: string
-    copyPrefix?: string
-  }) => (
-    <div
-      data-testid="json-view"
-      data-copy-mode={copyMode}
-      data-copy-prefix={copyPrefix}
-    >
-      {JSON.stringify(src)}
-    </div>
-  ),
-}))
-
-jest.mock("@/lib/stored-object", () => ({
-  isCollectionStoredObject: jest.fn(() => false),
-  isExternalStoredObject: jest.fn(() => false),
-}))
-
-const mockIsCollectionStoredObject =
-  isCollectionStoredObject as jest.MockedFunction<
-    typeof isCollectionStoredObject
-  >
-const mockIsExternalStoredObject =
-  isExternalStoredObject as jest.MockedFunction<typeof isExternalStoredObject>
 
 function createEvent(
   overrides: Partial<WorkflowExecutionEventCompact> = {}
@@ -89,82 +54,76 @@ function createEvent(
 }
 
 describe("WorkflowExecutionEventDetailView", () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-    mockIsCollectionStoredObject.mockReturnValue(false)
-    mockIsExternalStoredObject.mockReturnValue(false)
-  })
-
-  it("passes dual copy mode to the input JSON viewer", () => {
-    render(
-      <WorkflowExecutionEventDetailView
-        event={createEvent({ action_result: null })}
-        executionId="exec-1"
-      />
-    )
-
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-mode",
-      "jsonpath-and-payload"
-    )
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-prefix",
-      "ACTIONS.reshape"
-    )
-  })
-
-  it("passes result prefixes to the result JSON viewer", () => {
-    render(
-      <WorkflowExecutionEventDetailView
-        event={createEvent({ action_input: null })}
-        executionId="exec-1"
-      />
-    )
-
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-prefix",
-      "ACTIONS.reshape.result"
-    )
-  })
-
-  it("uses TRIGGER prefixes for trigger input", () => {
-    render(
-      <WorkflowExecutionEventDetailView
-        event={createEvent({
-          action_ref: "__workflow_trigger__",
-          action_name: "Trigger",
-          action_result: null,
-        })}
-        executionId="exec-1"
-      />
-    )
-
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-prefix",
-      "TRIGGER"
-    )
-  })
-
-  it("passes dual copy mode to collection results", () => {
-    mockIsCollectionStoredObject.mockReturnValue(true)
+  it("keeps workflow trigger payloads under Input", () => {
+    const trigger = createEvent({
+      action_ref: "__workflow_trigger__",
+      action_name: "Trigger",
+      action_result: null,
+    })
 
     render(
       <WorkflowExecutionEventDetailView
-        event={createEvent({
-          action_input: null,
-          action_result: { object_type: "collection" },
-        })}
+        actionRef="__workflow_trigger__"
+        events={[trigger]}
         executionId="exec-1"
+        executionStatus="COMPLETED"
       />
     )
 
-    expect(screen.getByTestId("collection-result")).toHaveAttribute(
-      "data-copy-mode",
-      "jsonpath-and-payload"
+    expect(screen.getByRole("tab", { name: "Input" })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("tab", { name: "Result" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByTestId("action-input")).toHaveAttribute(
+      "data-presentation",
+      "single"
     )
-    expect(screen.getByTestId("collection-result")).toHaveAttribute(
-      "data-copy-prefix",
-      "ACTIONS.reshape.result"
+  })
+
+  it("shows an explicit Result surface for null non-trigger results", () => {
+    render(
+      <WorkflowExecutionEventDetailView
+        actionRef="reshape"
+        events={[createEvent({ action_result: null })]}
+        executionId="exec-1"
+        executionStatus="COMPLETED"
+      />
+    )
+
+    expect(screen.getByRole("tab", { name: "Result" })).toHaveAttribute(
+      "data-state",
+      "active"
+    )
+    expect(screen.getByTestId("action-result")).toHaveAttribute(
+      "data-action-ref",
+      "reshape"
+    )
+  })
+
+  it("passes the whole execution to both grouped payload tabs", async () => {
+    const user = userEvent.setup()
+    const events = [
+      createEvent({ source_event_id: 1, stream_id: "scatter:0" }),
+      createEvent({ source_event_id: 2, stream_id: "scatter:1" }),
+    ]
+
+    render(
+      <WorkflowExecutionEventDetailView
+        actionRef="reshape"
+        events={events}
+        executionId="exec-1"
+        executionStatus="RUNNING"
+      />
+    )
+
+    expect(screen.getByTestId("action-result")).toHaveAttribute(
+      "data-event-count",
+      "2"
+    )
+    await user.click(screen.getByRole("tab", { name: "Input" }))
+    expect(screen.getByTestId("action-input")).toHaveAttribute(
+      "data-status",
+      "RUNNING"
     )
   })
 })
