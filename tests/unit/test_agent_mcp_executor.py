@@ -19,6 +19,7 @@ from tracecat.workflow.executions.enums import TemporalSearchAttr
 def _build_claims(
     *,
     scopes: frozenset[str] | None = frozenset({"action:core.http_request:execute"}),
+    allowed_actions: list[str] | None = None,
 ) -> MCPTokenClaims:
     session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
     return MCPTokenClaims(
@@ -27,7 +28,9 @@ def _build_claims(
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
-        allowed_actions=["core.http_request"],
+        allowed_actions=(
+            allowed_actions if allowed_actions is not None else ["core.http_request"]
+        ),
         scopes=scopes,
     )
 
@@ -37,6 +40,35 @@ def _build_registry_lock() -> RegistryLock:
         origins={"tracecat_registry": "test-version"},
         actions={"core.http_request": "tracecat_registry"},
     )
+
+
+def test_run_python_plain_script_passes_agent_precheck() -> None:
+    executor._validate_run_python_script(
+        "core.script.run_python",
+        {"script": "def main():\n    return 'plain Python'"},
+    )
+
+
+@pytest.mark.anyio
+async def test_run_python_registry_import_is_rejected_before_workflow_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execute_action_workflow = AsyncMock()
+    monkeypatch.setattr(executor, "_execute_action_workflow", execute_action_workflow)
+
+    with pytest.raises(executor.ActionNotAllowedError) as exc_info:
+        await executor.execute_action(
+            "core.script.run_python",
+            {"script": "import tracecat_registry\n\ndef main():\n    return None"},
+            _build_claims(allowed_actions=["core.script.run_python"]),
+            _build_registry_lock(),
+        )
+
+    assert str(exc_info.value) == (
+        "This environment runs plain Python only. Use your tools for Tracecat "
+        "actions instead of importing tracecat_registry."
+    )
+    execute_action_workflow.assert_not_awaited()
 
 
 @pytest.mark.anyio

@@ -23,6 +23,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
@@ -48,6 +49,21 @@ class ActionNotAllowedError(Exception):
 
 class ActionExecutionError(Exception):
     """Raised when action execution fails."""
+
+
+def _validate_run_python_script(action_name: str, args: dict[str, Any]) -> None:
+    """Steer Agent-authored scripts away from unavailable registry imports."""
+    if action_name != PlatformAction.RUN_PYTHON:
+        return
+
+    script = args.get("script")
+    # This trivially bypassable scan is UX only. The Action Gateway deny is the
+    # security boundary; catching the common import avoids a wasted sandbox run.
+    if isinstance(script, str) and "tracecat_registry" in script:
+        raise ActionNotAllowedError(
+            "This environment runs plain Python only. Use your tools for Tracecat "
+            "actions instead of importing tracecat_registry."
+        )
 
 
 def build_tracecat_mcp_role(
@@ -112,6 +128,8 @@ async def execute_action(
         raise ActionNotAllowedError(
             f"Action '{action_name}' is not in allowed actions for this token"
         )
+
+    _validate_run_python_script(action_name, args)
 
     role = build_role_from_claims(claims)
     ctx_role.set(role)

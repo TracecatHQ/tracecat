@@ -12,6 +12,7 @@ import re
 from typing import TYPE_CHECKING
 
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.dsl.enums import PlatformAction
 
 if TYPE_CHECKING:
     from tracecat.identifiers import OrganizationID
@@ -23,6 +24,17 @@ LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 # Anthropic tool names must match this pattern; stdio MCP servers can report
 # names (e.g. "issue.get") that would put invalid entries in allowed_tools.
 STDIO_MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
+RUN_PYTHON_AGENT_DESCRIPTION_NOTE = (
+    "Registry imports (`tracecat_registry`) are unavailable in agent sessions; "
+    "write plain Python."
+)
+
+
+def _agent_action_description(action_name: str, description: str) -> str:
+    """Add Agent-session constraints to a registry action description."""
+    if action_name == PlatformAction.RUN_PYTHON:
+        return f"{description.rstrip()} {RUN_PYTHON_AGENT_DESCRIPTION_NOTE}"
+    return description
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -172,10 +184,12 @@ async def fetch_tool_definitions(
                 # Use interface from manifest
                 json_schema = manifest_action.interface["expects"]
 
+                description = (
+                    action_data.index_entry.description or f"Execute {action_name}"
+                )
                 definitions[action_name] = MCPToolDefinition(
                     name=action_name,
-                    description=action_data.index_entry.description
-                    or f"Execute {action_name}",
+                    description=_agent_action_description(action_name, description),
                     parameters_json_schema=json_schema,
                 )
 
@@ -221,7 +235,10 @@ async def fetch_tool_definitions_for_lock(
             )
             definitions[action_name] = MCPToolDefinition(
                 name=action_name,
-                description=manifest_action.description or f"Execute {action_name}",
+                description=_agent_action_description(
+                    action_name,
+                    manifest_action.description or f"Execute {action_name}",
+                ),
                 parameters_json_schema=manifest_action.interface["expects"],
             )
             logger.debug(

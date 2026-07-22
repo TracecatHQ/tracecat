@@ -52,11 +52,11 @@ and do not require `allow_network: true`.
 
 ### Agent tool permissions
 
-When an Agent uses `core.script.run_python`, SDK calls are limited to
-the Agent's configured registry actions and the caller's permissions.
-`ctx.variables` is unavailable because workspace variable reads are
-not registry actions. Use `${{ VARS.<variable_name>.<key> }}` in the
-Agent instructions or surrounding workflow instead. See [Secrets and
+Agent-authored `core.script.run_python` scripts cannot use the Tracecat
+SDK because the Action Gateway is unavailable to them. Write plain
+Python in the script and use Agent tools to run Tracecat actions
+instead. Use `${{ VARS.<variable_name>.<key> }}` in Agent instructions
+or the surrounding workflow for workspace variables. See [Secrets and
 variables](/agents/secrets-variables).
 
 Use `ctx.tables.insert_rows` to write multiple rows in one request.
