@@ -9650,6 +9650,8 @@ export type WorkspaceMember = {
   last_name: string | null
   email: string
   role_name: string
+  via_group?: boolean
+  via_direct?: boolean
 }
 
 export type WorkspaceMembershipCreate = {
