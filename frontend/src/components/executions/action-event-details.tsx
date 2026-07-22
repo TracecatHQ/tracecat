@@ -101,6 +101,24 @@ export function ActionEventDetails({
   }
 
   if (type === "input") {
+    const firstInput = JSON.stringify(
+      actionEventsForRef[0].action_input ?? null
+    )
+    const hasDistinctInputs = actionEventsForRef.some(
+      (event) => JSON.stringify(event.action_input ?? null) !== firstInput
+    )
+
+    if (hasDistinctInputs) {
+      return (
+        <SingleActionEventPayload
+          events={actionEventsForRef}
+          executionId={executionId}
+          eventRef={actionRef}
+          type="input"
+        />
+      )
+    }
+
     return (
       <ActionEventContent
         actionEvent={actionEventsForRef[0]}
@@ -114,7 +132,7 @@ export function ActionEventDetails({
 
   if (presentation === "single") {
     return (
-      <SingleActionEventResult
+      <SingleActionEventPayload
         events={actionEventsForRef}
         executionId={executionId}
         eventRef={actionRef}
@@ -131,14 +149,16 @@ export function ActionEventDetails({
   )
 }
 
-function SingleActionEventResult({
+function SingleActionEventPayload({
   events,
   executionId,
   eventRef,
+  type = "result",
 }: {
   events: WorkflowExecutionEventCompact[]
   executionId: string
   eventRef: string
+  type?: ActionEventPayloadType
 }) {
   const sortedEvents = useMemo(
     () => [...events].sort(compareActionEvents),
@@ -184,7 +204,7 @@ function SingleActionEventResult({
         key={actionEvent.source_event_id}
         actionEvent={actionEvent}
         executionId={executionId}
-        type="result"
+        type={type}
         eventRef={eventRef}
         showStreamDetails={false}
       />
@@ -389,100 +409,101 @@ function ActionEventContent({
 }) {
   const { status, session, stream_id, action_error } = actionEvent
 
-  switch (status) {
-    case "SCHEDULED":
-      return (
-        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-          <span>Action is scheduled...</span>
-        </div>
-      )
-    case "STARTED":
-      if (session) {
-        return <ActionSessionStream session={session} />
-      }
-      return (
-        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-          <span>Action is running...</span>
-        </div>
-      )
-    default: {
-      const showSessionTabs =
-        type === "result" && !!session && !action_error && !streamIdPlaceholder
-
-      if (showSessionTabs && session) {
+  if (type === "result") {
+    switch (status) {
+      case "SCHEDULED":
         return (
-          <Tabs defaultValue="session" className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <EventStatusBadge status={status} />
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                {showStreamDetails && (
-                  <StreamDetails
-                    streamId={stream_id}
-                    placeholder={streamIdPlaceholder}
-                  />
-                )}
-                <TabsList className="h-8">
-                  <TabsTrigger
-                    value="session"
-                    disableUnderline
-                    className="h-6 text-xs"
-                  >
-                    Session
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="result"
-                    disableUnderline
-                    className="h-6 text-xs"
-                  >
-                    Result
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-            </div>
-            <TabsContent value="session" className="mt-1">
-              <ActionSessionStream session={session} />
-            </TabsContent>
-            <TabsContent value="result" className="mt-1">
-              <ActionResultViewer
-                result={actionEvent.action_result}
-                eventRef={eventRef}
-                executionId={executionId}
-                eventId={actionEvent.source_event_id}
-                defaultExpanded={true}
-              />
-            </TabsContent>
-          </Tabs>
+          <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+            <span>Action is scheduled...</span>
+          </div>
         )
-      }
+      case "STARTED":
+        if (session) {
+          return <ActionSessionStream session={session} />
+        }
+        return (
+          <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+            <span>Action is running...</span>
+          </div>
+        )
+    }
+  }
 
-      return (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <EventStatusBadge status={status} />
+  const showSessionTabs =
+    type === "result" && !!session && !action_error && !streamIdPlaceholder
+
+  if (showSessionTabs && session) {
+    return (
+      <Tabs defaultValue="session" className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <EventStatusBadge status={status} />
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {showStreamDetails && (
               <StreamDetails
                 streamId={stream_id}
                 placeholder={streamIdPlaceholder}
               />
             )}
+            <TabsList className="h-8">
+              <TabsTrigger
+                value="session"
+                disableUnderline
+                className="h-6 text-xs"
+              >
+                Session
+              </TabsTrigger>
+              <TabsTrigger
+                value="result"
+                disableUnderline
+                className="h-6 text-xs"
+              >
+                Result
+              </TabsTrigger>
+            </TabsList>
           </div>
-          {type === "result" && action_error ? (
-            <ErrorEvent failure={action_error} />
-          ) : (
-            <SuccessEvent
-              event={actionEvent}
-              type={type}
-              eventRef={eventRef}
-              executionId={executionId}
-              eventId={actionEvent.source_event_id}
-            />
-          )}
         </div>
-      )
-    }
+        <TabsContent value="session" className="mt-1">
+          <ActionSessionStream session={session} />
+        </TabsContent>
+        <TabsContent value="result" className="mt-1">
+          <ActionResultViewer
+            result={actionEvent.action_result}
+            eventRef={eventRef}
+            executionId={executionId}
+            eventId={actionEvent.source_event_id}
+            defaultExpanded={true}
+          />
+        </TabsContent>
+      </Tabs>
+    )
   }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <EventStatusBadge status={status} />
+        {showStreamDetails && (
+          <StreamDetails
+            streamId={stream_id}
+            placeholder={streamIdPlaceholder}
+          />
+        )}
+      </div>
+      {type === "result" && action_error ? (
+        <ErrorEvent failure={action_error} />
+      ) : (
+        <SuccessEvent
+          event={actionEvent}
+          type={type}
+          eventRef={eventRef}
+          executionId={executionId}
+          eventId={actionEvent.source_event_id}
+        />
+      )}
+    </div>
+  )
 }
 
 function EventStatusBadge({

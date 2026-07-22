@@ -96,6 +96,87 @@ function renderSingle(events: WorkflowExecutionEventCompact[]) {
   )
 }
 
+function renderInput(events: WorkflowExecutionEventCompact[]) {
+  return render(
+    <ActionEventDetails
+      executionId="exec-1"
+      actionRef="reshape"
+      status="RUNNING"
+      events={events}
+      type="input"
+    />
+  )
+}
+
+describe("ActionEventDetails input payloads", () => {
+  it.each([
+    ["STARTED", "Action is running..."],
+    ["SCHEDULED", "Action is scheduled..."],
+  ] as const)(
+    "renders the input for a %s event instead of the result placeholder",
+    (status, placeholder) => {
+      renderInput([
+        createEvent({
+          status,
+          action_input: { payload: status.toLowerCase() },
+          action_result: null,
+        }),
+      ])
+
+      expect(screen.getByTestId("json-view")).toHaveTextContent(
+        status.toLowerCase()
+      )
+      expect(screen.queryByText(placeholder)).not.toBeInTheDocument()
+    }
+  )
+
+  it("navigates distinct inputs in chronological stream order", () => {
+    const first = createEvent({
+      source_event_id: 1,
+      close_time: "2026-03-13T17:16:35Z",
+      action_input: { payload: "first" },
+      stream_id: "scatter:0",
+    })
+    const latest = createEvent({
+      source_event_id: 2,
+      close_time: "2026-03-13T17:16:36Z",
+      action_input: { payload: "latest" },
+      stream_id: "scatter:1",
+    })
+
+    renderInput([latest, first])
+
+    expect(screen.getByText("Stream 2 of 2")).toBeInTheDocument()
+    expect(screen.getByTestId("json-view")).toHaveTextContent("latest")
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous stream" }))
+    expect(screen.getByTestId("json-view")).toHaveTextContent("first")
+  })
+
+  it("renders identical inputs once with the shared-input placeholder", () => {
+    const actionInput = { payload: "shared" }
+
+    renderInput([
+      createEvent({
+        source_event_id: 1,
+        action_input: actionInput,
+        stream_id: undefined,
+      }),
+      createEvent({
+        source_event_id: 2,
+        action_input: actionInput,
+        stream_id: undefined,
+      }),
+    ])
+
+    expect(screen.queryByText("Stream 1 of 2")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Input is the same for all events")
+    ).toBeInTheDocument()
+    expect(screen.getAllByTestId("json-view")).toHaveLength(1)
+  })
+})
+
 describe("ActionEventDetails single presentation", () => {
   it("starts at the latest stream and navigates in chronological order", () => {
     const first = createEvent({

@@ -4,7 +4,7 @@ import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import { MessageCircle } from "lucide-react"
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import type { Session_Any_ } from "@/client"
 import {
   Conversation,
@@ -54,7 +54,6 @@ export function ActionSessionStream({ session }: { session: Session_Any_ }) {
 
 function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
   const workspaceId = useWorkspaceId()
-  const [_lastError, setLastError] = useState<string | null>(null)
 
   const transport = useMemo(() => {
     return new DefaultChatTransport({
@@ -76,7 +75,6 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
     transport,
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
