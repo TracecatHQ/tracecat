@@ -9,11 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.cases.durations.sync_queue import enqueue_case_duration_backfill_for_org
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.logger import logger
 from tracecat.service import BasePlatformService
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.exceptions import (
@@ -99,11 +101,12 @@ class AdminTierService(BasePlatformService):
             raise TierNotFoundError(f"Tier {tier_id} not found")
 
         update_data = params.model_dump(exclude_unset=True)
-        can_change_case_addons = (
-            "entitlements" in update_data or "is_default" in update_data
+        can_change_case_addons = any(
+            field in update_data
+            for field in ("entitlements", "is_default", "is_active")
         )
         candidate_org_ids: list[uuid.UUID] = []
-        was_entitled_by_org: dict[uuid.UUID, bool] = {}
+        was_entitled_org_ids: set[uuid.UUID] = set()
         if can_change_case_addons:
             candidate_org_ids = list(
                 (
@@ -120,10 +123,9 @@ class AdminTierService(BasePlatformService):
                     )
                 ).all()
             )
-            for org_id in candidate_org_ids:
-                was_entitled_by_org[org_id] = await self._is_org_case_addons_entitled(
-                    org_id,
-                )
+            was_entitled_org_ids = await self._case_addons_entitled_org_ids(
+                candidate_org_ids
+            )
 
         # If setting this tier as default, unset other defaults
         if params.is_default is True:
@@ -154,9 +156,12 @@ class AdminTierService(BasePlatformService):
                     org_count=len(org_ids),
                     error=e,
                 )
+        now_entitled_org_ids = await self._case_addons_entitled_org_ids(
+            candidate_org_ids
+        )
+        newly_entitled_org_ids = now_entitled_org_ids - was_entitled_org_ids
         for org_id in candidate_org_ids:
-            now_entitled = await self._is_org_case_addons_entitled(org_id)
-            if was_entitled_by_org[org_id] or not now_entitled:
+            if org_id not in newly_entitled_org_ids:
                 continue
             try:
                 await enqueue_case_duration_backfill_for_org(org_id)
@@ -211,6 +216,62 @@ class AdminTierService(BasePlatformService):
             )
         except DefaultTierNotConfiguredError:
             return False
+
+    async def _case_addons_entitled_org_ids(
+        self, candidate_org_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return candidate org IDs entitled to case add-ons."""
+        if not candidate_org_ids:
+            return set()
+        if not config.TRACECAT__EE_MULTI_TENANT:
+            if tier_defaults.DEFAULT_ENTITLEMENTS.case_addons:
+                return set(candidate_org_ids)
+            return set()
+
+        org_tier_result = await self.session.execute(
+            select(OrganizationTier)
+            .options(selectinload(OrganizationTier.tier))
+            .where(OrganizationTier.organization_id.in_(candidate_org_ids))
+        )
+        org_tiers_by_org_id = {
+            org_tier.organization_id: org_tier
+            for org_tier in org_tier_result.scalars().all()
+        }
+        default_tier = (
+            await self.session.execute(
+                select(Tier).where(
+                    Tier.is_default.is_(True),
+                    Tier.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        entitled_org_ids: set[uuid.UUID] = set()
+        for org_id in candidate_org_ids:
+            org_tier = org_tiers_by_org_id.get(org_id)
+
+            # Deliberately mirrors is_org_entitled: override, assigned tier,
+            # then the active default tier.
+            if org_tier is not None:
+                override = (org_tier.entitlement_overrides or {}).get(
+                    Entitlement.CASE_ADDONS.value
+                )
+                if override is not None:
+                    if override:
+                        entitled_org_ids.add(org_id)
+                    continue
+
+            tier = (
+                org_tier.tier
+                if org_tier is not None and org_tier.tier is not None
+                else default_tier
+            )
+            if tier is not None and (tier.entitlements or {}).get(
+                Entitlement.CASE_ADDONS.value,
+                False,
+            ):
+                entitled_org_ids.add(org_id)
+        return entitled_org_ids
 
     # Organization tier operations
 
@@ -321,6 +382,7 @@ class AdminTierService(BasePlatformService):
             setattr(org_tier, field, value)
 
         await self.session.commit()
+        org_tier_id = org_tier.id
         self.session.expire_all()
         try:
             await invalidate_effective_limits_cache(org_id)
@@ -345,7 +407,7 @@ class AdminTierService(BasePlatformService):
         stmt = (
             select(OrganizationTier)
             .options(selectinload(OrganizationTier.tier))
-            .where(OrganizationTier.id == org_tier.id)
+            .where(OrganizationTier.id == org_tier_id)
         )
         result = await self.session.execute(stmt)
         org_tier = result.scalar_one()

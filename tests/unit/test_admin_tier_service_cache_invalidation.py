@@ -11,6 +11,7 @@ from tracecat_ee.admin.tiers.service import AdminTierService
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import Organization, OrganizationTier, Tier
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.schemas import OrganizationTierUpdate, TierUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -66,6 +67,40 @@ async def test_update_org_tier_invalidates_effective_limits_cache(
 
     assert result.max_concurrent_actions == 4
     invalidate_mock.assert_awaited_once_with(org_id)
+
+
+@pytest.mark.anyio
+async def test_update_org_tier_completes_in_single_tenant_mode(
+    session: AsyncSession,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with patch(
+        "tracecat_ee.admin.tiers.service.invalidate_effective_limits_cache",
+        new=AsyncMock(),
+    ):
+        result = await service.update_org_tier(
+            org_id,
+            OrganizationTierUpdate(max_concurrent_actions=4),
+        )
+
+    assert result.organization_id == org_id
+    assert result.max_concurrent_actions == 4
 
 
 @pytest.mark.anyio
@@ -330,6 +365,136 @@ async def test_update_tier_grant_queues_only_newly_entitled_org(
         )
 
     enqueue_mock.assert_awaited_once_with(org_a_id)
+
+
+@pytest.mark.anyio
+async def test_update_tier_activation_queues_newly_entitled_default_follower(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    default_tier = _tier(is_default=True)
+    default_tier.is_active = False
+    default_tier.entitlements = {"case_addons": True}
+    session.add_all([org, default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    with patch(
+        "tracecat_ee.admin.tiers.service.enqueue_case_duration_backfill_for_org",
+        new=AsyncMock(),
+    ) as enqueue_mock:
+        await service.update_tier(
+            default_tier.id,
+            TierUpdate(display_name=default_tier.display_name, is_active=True),
+        )
+
+    # Other default-follower orgs in the test database (e.g. the platform
+    # org) legitimately flip too; only pin the org this test created.
+    enqueue_mock.assert_any_await(org_id)
+
+
+@pytest.mark.anyio
+async def test_case_addons_entitled_org_ids_resolves_overrides_and_tiers(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    override_org_id = test_admin_role.organization_id
+    assert override_org_id is not None
+    assigned_org_id = uuid.uuid4()
+    follower_org_id = uuid.uuid4()
+    orgs = [
+        Organization(
+            id=org_id,
+            name=f"Org {uuid.uuid4().hex[:8]}",
+            slug=f"org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        for org_id in (override_org_id, assigned_org_id, follower_org_id)
+    ]
+    default_tier = _tier(is_default=True)
+    default_tier.entitlements = {"case_addons": True}
+    granting_tier = _tier(is_default=False)
+    granting_tier.entitlements = {"case_addons": True}
+    denying_tier = _tier(is_default=False)
+    session.add_all([*orgs, default_tier, granting_tier, denying_tier])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationTier(
+                organization_id=override_org_id,
+                tier_id=denying_tier.id,
+                entitlement_overrides={"case_addons": True},
+            ),
+            OrganizationTier(
+                organization_id=assigned_org_id,
+                tier_id=granting_tier.id,
+            ),
+        ]
+    )
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    entitled_org_ids = await service._case_addons_entitled_org_ids(
+        [override_org_id, assigned_org_id, follower_org_id]
+    )
+
+    assert entitled_org_ids == {
+        override_org_id,
+        assigned_org_id,
+        follower_org_id,
+    }
+
+
+@pytest.mark.anyio
+async def test_case_addons_entitled_org_ids_requires_active_default(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    org_id = test_admin_role.organization_id
+    assert org_id is not None
+    org = Organization(
+        id=org_id,
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    inactive_default_tier = _tier(is_default=True)
+    inactive_default_tier.is_active = False
+    inactive_default_tier.entitlements = {"case_addons": True}
+    session.add_all([org, inactive_default_tier])
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    assert await service._case_addons_entitled_org_ids([org_id]) == set()
+
+
+@pytest.mark.anyio
+async def test_case_addons_entitled_org_ids_uses_single_tenant_defaults(
+    session: AsyncSession,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"case_addons": True}),
+    )
+    org_ids = [uuid.uuid4(), uuid.uuid4()]
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    assert await service._case_addons_entitled_org_ids(org_ids) == set(org_ids)
 
 
 @pytest.mark.anyio

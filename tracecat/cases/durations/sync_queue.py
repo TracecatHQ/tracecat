@@ -121,13 +121,41 @@ async def enqueue_case_duration_backfill_for_org(
                 )
                 case_ids = list((await session.execute(stmt)).scalars().all())
 
+            pending_case_ids: list[uuid.UUID] = []
             for case_id in case_ids:
-                await sync_case_duration(
+                synced = await sync_case_duration(
                     workspace_id,
                     case_id,
                     event_types=None,
                 )
+                if synced is False:
+                    pending_case_ids.append(case_id)
                 await asyncio.sleep(0)
+
+            for delay_seconds in INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS[1:]:
+                if not pending_case_ids:
+                    break
+                await asyncio.sleep(delay_seconds)
+                retry_case_ids: list[uuid.UUID] = []
+                for case_id in pending_case_ids:
+                    synced = await sync_case_duration(
+                        workspace_id,
+                        case_id,
+                        event_types=None,
+                    )
+                    if synced is False:
+                        retry_case_ids.append(case_id)
+                    await asyncio.sleep(0)
+                pending_case_ids = retry_case_ids
+
+            if pending_case_ids:
+                logger.warning(
+                    "Inline organization duration backfill skipped cases; sync lock stayed busy",
+                    organization_id=str(organization_id),
+                    workspace_id=str(workspace_id),
+                    remaining_case_count=len(pending_case_ids),
+                    attempts=len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS),
+                )
         except Exception:
             logger.exception(
                 "Inline organization duration backfill failed",

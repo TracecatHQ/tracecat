@@ -158,7 +158,7 @@ async def test_org_backfill_publish_failure_syncs_inline_and_continues(
         workspace_ids=[failed_workspace_id, published_workspace_id],
         case_ids=case_ids,
     )
-    sync_mock = AsyncMock(return_value=False)
+    sync_mock = AsyncMock(return_value=True)
     monkeypatch.setattr(
         "tracecat.cases.durations.materialization.sync_case_duration",
         sync_mock,
@@ -179,6 +179,70 @@ async def test_org_backfill_publish_failure_syncs_inline_and_continues(
     assert sync_mock.await_args_list == [
         call(failed_workspace_id, case_id, event_types=None) for case_id in case_ids
     ]
+
+
+@pytest.mark.anyio
+async def test_org_backfill_inline_retry_syncs_lock_contended_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    _mock_org_backfill_environment(
+        monkeypatch,
+        workspace_ids=[failed_workspace_id],
+        case_ids=[case_id],
+    )
+    sync_mock = AsyncMock(side_effect=[False, True])
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.materialization.sync_case_duration",
+        sync_mock,
+    )
+    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
+
+    await enqueue_case_duration_backfill_for_org(uuid.uuid4())
+
+    assert sync_mock.await_args_list == [
+        call(failed_workspace_id, case_id, event_types=None),
+        call(failed_workspace_id, case_id, event_types=None),
+    ]
+    sleep_mock.assert_any_await(0.5)
+
+
+@pytest.mark.anyio
+async def test_org_backfill_inline_lock_stays_busy_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    failed_workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    _mock_org_backfill_environment(
+        monkeypatch,
+        workspace_ids=[failed_workspace_id],
+        case_ids=[case_id],
+    )
+    sync_mock = AsyncMock(return_value=False)
+    sleep_mock = AsyncMock()
+    warning_mock = MagicMock()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.materialization.sync_case_duration",
+        sync_mock,
+    )
+    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.sync_queue.logger.warning", warning_mock
+    )
+
+    await enqueue_case_duration_backfill_for_org(organization_id)
+
+    assert sync_mock.await_count == 4
+    warning_mock.assert_any_call(
+        "Inline organization duration backfill skipped cases; sync lock stayed busy",
+        organization_id=str(organization_id),
+        workspace_id=str(failed_workspace_id),
+        remaining_case_count=1,
+        attempts=4,
+    )
 
 
 @pytest.mark.anyio
