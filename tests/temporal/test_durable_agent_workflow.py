@@ -118,6 +118,24 @@ def enable_agent_approvals_entitlement(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+async def close_shared_redis_client():
+    """Close the shared Redis client while this test's event loop is alive.
+
+    Tests that register the real ``create_session_activity`` initialize the
+    module-level ``RedisClient`` (stream-cursor reset) on the current test's
+    event loop. anyio gives every test a fresh loop, so without closing here
+    the pooled connection outlives its loop and the next caller to touch it —
+    e.g. the concurrency-limits fixture's defensive ``close()`` — raises
+    "Event loop is closed".
+    """
+    yield
+    from tracecat.redis.client import get_redis_client
+
+    client = await get_redis_client()
+    await client.close()
+
+
 # =============================================================================
 # Mock Activity Factories
 # =============================================================================
