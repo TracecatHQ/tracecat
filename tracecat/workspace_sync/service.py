@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -129,6 +129,13 @@ class ProjectableWorkflowClosure:
 
     workflows: list[Workflow]
     dsl_by_id: dict[uuid.UUID, DSLInput]
+
+
+class PreparedSnapshot(NamedTuple):
+    """Snapshot with deployment-local references resolved, plus any diagnostics."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    diagnostics: list[PullDiagnostic]
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,18 +401,15 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
-            (
-                prepared_snapshot,
-                resource_diagnostics,
-            ) = await self._prepare_snapshot_for_import(snapshot)
+            prepared = await self._prepare_snapshot_for_import(snapshot)
             resource_diffs = await self._resource_diffs_for_pull(
-                prepared_snapshot,
+                prepared.snapshot,
                 sync_schedules=sync_schedules,
             )
             workflow_diagnostics = await self._validate_workflow_import(
-                prepared_snapshot
+                prepared.snapshot
             )
-            import_diagnostics = [*resource_diagnostics, *workflow_diagnostics]
+            import_diagnostics = [*prepared.diagnostics, *workflow_diagnostics]
             if import_diagnostics:
                 return PullResult(
                     success=False,
@@ -888,7 +892,7 @@ class WorkspaceSyncService(SyncMappingService):
     async def _prepare_snapshot_for_import(
         self,
         snapshot: WorkspaceRemoteSnapshot,
-    ) -> tuple[WorkspaceRemoteSnapshot, list[PullDiagnostic]]:
+    ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
         (
             correlated_presets,
@@ -900,7 +904,10 @@ class WorkspaceSyncService(SyncMappingService):
         correlated_spec = snapshot.spec.model_copy(
             update={"agent_presets": correlated_presets}
         )
-        return snapshot.model_copy(update={"spec": correlated_spec}), diagnostics
+        return PreparedSnapshot(
+            snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
+            diagnostics=diagnostics,
+        )
 
     async def _import_snapshot(
         self,
@@ -916,9 +923,8 @@ class WorkspaceSyncService(SyncMappingService):
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
-        snapshot, resource_diagnostics = await self._prepare_snapshot_for_import(
-            snapshot
-        )
+        prepared = await self._prepare_snapshot_for_import(snapshot)
+        snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
         if resource_diagnostics:
             return PullResult(
                 success=False,
