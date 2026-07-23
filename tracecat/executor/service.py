@@ -28,7 +28,6 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
-from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLEnvironment,
@@ -80,17 +79,13 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
-def _execution_origin_for_action(
-    action_name: str, role: Role
-) -> ExecutionOrigin | None:
+def _execution_origin_for_action(role: Role) -> ExecutionOrigin | None:
     """Attest Python authored by an Agent at the trusted executor boundary."""
-    if (
-        action_name == PlatformAction.RUN_PYTHON
-        and role.type == "service"
-        and role.service_id == "tracecat-mcp"
-    ):
-        return "agent"
-    return None
+    match role:
+        case Role(type="service", service_id="tracecat-mcp"):
+            return "agent"
+        case _:
+            return None
 
 
 @dataclass
@@ -749,7 +744,7 @@ async def prepare_resolved_context(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
-        execution_origin=_execution_origin_for_action(action_name, role),
+        execution_origin=_execution_origin_for_action(role),
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
