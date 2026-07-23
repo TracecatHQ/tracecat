@@ -136,8 +136,6 @@ class EmitSessionErrorInputs(BaseModel):
     # error path has already streamed the error inline via the loopback, so it
     # persists-only; pre-stream failures stream too.
     should_stream: bool = True
-    # The workflow emits END after finalizing the turn when this is true.
-    defer_done: bool = False
 
 
 class EmitSessionDoneInputs(BaseModel):
@@ -172,11 +170,9 @@ class EmitSessionCancelledInputs(BaseModel):
     """Whether to also push the cancelled frame onto the live stream.
 
     False when the executor loopback already emitted the notice; the activity
-    then only persists the timeline marker row. END is emitted here only when
-    ``defer_done`` is false.
+    then only persists the timeline marker row. The workflow owns the terminal
+    END after finalizing the turn.
     """
-    # The workflow emits END after finalizing the turn when this is true.
-    defer_done: bool = False
 
 
 class _SessionStreamInputs(Protocol):
@@ -537,8 +533,8 @@ class AgentActivities:
         signal the inbox reads) and, for pre-stream failures, also pushes the
         error onto the SSE stream since those happen before the loopback is
         wired up. The runtime path streams inline already and passes
-        ``should_stream=False`` to persist-only. A patch-gated workflow can set
-        ``defer_done`` so this activity leaves END to the post-finalize boundary.
+        ``should_stream=False`` to persist-only. The workflow owns the terminal
+        END after finalizing the turn.
 
         Best-effort: a persistence failure must not mask the agent's real error
         or abort propagation, so it is logged and swallowed.
@@ -570,8 +566,6 @@ class AgentActivities:
 
         stream = await self._open_session_stream(args)
         await stream.error(args.message)
-        if not args.defer_done:
-            await stream.done()
 
     @staticmethod
     async def _open_session_stream(args: _SessionStreamInputs) -> AgentStream:
@@ -597,8 +591,8 @@ class AgentActivities:
         divider survives DB reloads. Stream emission is conditional: approval
         -wait cancels happen outside a running executor activity and must push
         the cancelled frame here, while executor cancels already emitted it
-        from the loopback (``emit_stream=False``). ``defer_done`` leaves END to
-        the workflow's post-finalize boundary.
+        from the loopback (``emit_stream=False``). The workflow owns the
+        terminal END after finalizing the turn.
         """
         # Local import: tracecat.agent.session.service imports tracecat_ee
         # modules, so a top-level import here would create a cycle.
@@ -623,8 +617,6 @@ class AgentActivities:
                 tool_call_ids=args.interrupted_tool_call_ids,
             )
         )
-        if not args.defer_done:
-            await stream.done()
 
     @activity.defn
     async def execute_remote_mcp_tool(self, args: ExecuteRemoteMCPToolArgs) -> str:

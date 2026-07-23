@@ -18,7 +18,6 @@ from tracecat_ee.agent.workflows.durable import (
     FINALIZE_TURN_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     PERSIST_SESSION_ERROR_PATCH,
-    TERMINAL_END_AFTER_FINALIZE_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
@@ -89,7 +88,7 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
 
 
-def test_legacy_workflow_rotates_stream_from_new_approval_update() -> None:
+def test_workflow_rotates_stream_from_new_approval_update() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -102,7 +101,6 @@ def test_legacy_workflow_rotates_stream_from_new_approval_update() -> None:
     previous_stream_id = uuid.uuid4()
     new_stream_id = uuid.uuid4()
     workflow_instance.active_stream_id = previous_stream_id
-    workflow_instance._approval_stream_v2 = False
 
     cast(Any, workflow_instance.set_approvals)(
         WorkflowApprovalSubmission(
@@ -261,18 +259,23 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
     ):
         result = await workflow_instance.run(workflow_args)
 
-    # run() gates the search-attribute upsert, terminal END reordering, and
-    # finalize_turn behind patch markers; legacy histories see False for all.
+    # Search-attribute upsert and finalize_turn retain their independent patch
+    # gates. Redis completion is workflow-owned unconditionally.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
-        ((TERMINAL_END_AFTER_FINALIZE_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
+    emit_terminal_done_mock.assert_awaited_once_with(None)
     assert result == expected_output
 
 
@@ -314,9 +317,7 @@ async def test_run_emits_captured_terminal_done_after_finalize_failure() -> None
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=lambda patch_id: (
-                patch_id in {TERMINAL_END_AFTER_FINALIZE_PATCH, FINALIZE_TURN_PATCH}
-            ),
+            side_effect=lambda patch_id: patch_id == FINALIZE_TURN_PATCH,
         ),
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -381,7 +382,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False, False, False, False],
+            side_effect=[False, False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -399,6 +400,11 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
             AsyncMock(),
         ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
     ):
         with pytest.raises(ActivityError):
             await workflow_instance.run(workflow_args)
@@ -408,12 +414,12 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     # emit_session_error, preserving the legacy command shape.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
-        ((TERMINAL_END_AFTER_FINALIZE_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
         ((PERSIST_SESSION_ERROR_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
     execute_activity_mock.assert_not_awaited()
+    emit_terminal_done_mock.assert_awaited_once_with(None)
 
 
 @pytest.mark.anyio

@@ -491,11 +491,7 @@ def _preserved_agents_binding(
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
-TERMINAL_END_AFTER_FINALIZE_PATCH = "durable-agent-terminal-end-after-finalize-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
-# Gates the approval-stream lifecycle as one capability: persist approvals before
-# closing the pause stream, rotate continuations, and best-effort stream closure.
-APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
 @workflow.defn
@@ -518,8 +514,6 @@ class DurableAgentWorkflow:
         self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
-        self._approval_stream_v2 = False
-        self._terminal_end_after_finalize = False
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
@@ -887,9 +881,6 @@ class DurableAgentWorkflow:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
         if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
             self._upsert_tracecat_search_attributes()
-        self._terminal_end_after_finalize = workflow.patched(
-            TERMINAL_END_AFTER_FINALIZE_PATCH
-        )
         logger.debug(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )
@@ -930,8 +921,7 @@ class DurableAgentWorkflow:
             terminal_stream_id = self.active_stream_id
             if workflow.patched(FINALIZE_TURN_PATCH):
                 await self._finalize_turn()
-            if self._terminal_end_after_finalize:
-                await self._emit_terminal_done(terminal_stream_id)
+            await self._emit_terminal_done(terminal_stream_id)
 
     async def _finalize_turn(self) -> None:
         """Clear active-turn pointers at terminal (compare-and-clear by run_id)."""
@@ -989,7 +979,6 @@ class DurableAgentWorkflow:
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
                     should_stream=should_stream,
-                    defer_done=self._terminal_end_after_finalize,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1030,7 +1019,6 @@ class DurableAgentWorkflow:
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
                     emit_stream=emit_stream,
-                    defer_done=self._terminal_end_after_finalize,
                     interrupted_tool_call_ids=interrupted_tool_call_ids,
                     # Pin the marker to this run explicitly: the session row's
                     # curr_run_id may already point at a newer turn by the time
@@ -1061,8 +1049,8 @@ class DurableAgentWorkflow:
                     active_stream_id=active_stream_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
-                # Idempotent: a retry may append a duplicate END after an
-                # ambiguous failure, which clients already tolerate.
+                # Retry-safe: an ambiguous failure may append a duplicate END,
+                # which clients already tolerate.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as emit_error:
@@ -1282,8 +1270,6 @@ class DurableAgentWorkflow:
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
         )
-        self._approval_stream_v2 = workflow.patched(APPROVAL_STREAM_V2_PATCH)
-
         # Prepare executor input
         executor_input = AgentExecutorInput(
             session_id=self.session_id,
@@ -1299,8 +1285,6 @@ class DurableAgentWorkflow:
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
-            defer_done_on_approval=self._approval_stream_v2,
-            defer_done_on_terminal=self._terminal_end_after_finalize,
             is_fork=load_result.is_fork,
         )
 
@@ -1411,8 +1395,7 @@ class DurableAgentWorkflow:
                         tool_call_parts,
                         request_metadata=request_metadata,
                     )
-                if self._approval_stream_v2:
-                    await self._emit_approval_pause_done()
+                await self._emit_approval_pause_done()
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
@@ -1550,8 +1533,6 @@ class DurableAgentWorkflow:
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
                     sdk_session_data=reload_result.sdk_session_data,
-                    defer_done_on_approval=self._approval_stream_v2,
-                    defer_done_on_terminal=self._terminal_end_after_finalize,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )

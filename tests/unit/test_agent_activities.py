@@ -1259,7 +1259,7 @@ class TestRunAgentActivity:
         stream.done.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_emit_session_error_can_defer_done(
+    async def test_emit_session_error_leaves_done_to_workflow(
         self,
         mock_role: Role,
         mock_session_id: uuid.UUID,
@@ -1293,7 +1293,6 @@ class TestRunAgentActivity:
                 workspace_id=workspace_id,
                 active_stream_id=active_stream_id,
                 message="runtime failed",
-                defer_done=True,
             )
         )
 

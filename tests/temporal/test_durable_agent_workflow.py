@@ -626,7 +626,6 @@ async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         del call_count
-        assert input.defer_done_on_terminal is True
         return AgentExecutorResult(
             success=False,
             error="runtime exploded",
@@ -668,7 +667,6 @@ async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
     assert emitted_errors[0].session_id == mock_session_id
     assert emitted_errors[0].message == "Agent execution failed: runtime exploded"
     assert emitted_errors[0].should_stream is False
-    assert emitted_errors[0].defer_done is True
     assert len(emitted_done) == 1
     assert call_order == ["persist_error", "emit_session_done"]
 
@@ -689,7 +687,6 @@ async def test_agent_workflow_streams_executor_pre_stream_failure(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         del call_count
-        assert input.defer_done_on_terminal is True
         return AgentExecutorResult(
             success=False,
             error="executor setup failed",
@@ -727,7 +724,6 @@ async def test_agent_workflow_streams_executor_pre_stream_failure(
     assert emitted_errors[0].session_id == mock_session_id
     assert emitted_errors[0].message == "Agent execution failed: executor setup failed"
     assert emitted_errors[0].should_stream is True
-    assert emitted_errors[0].defer_done is True
     assert len(emitted_done) == 1
 
 
@@ -800,7 +796,6 @@ async def test_terminal_end_observes_publishable_final_history(
     async def mock_run_agent_activity(
         input: AgentExecutorInput,
     ) -> AgentExecutorResult:
-        assert input.defer_done_on_terminal is True
         assert input.active_stream_id == active_stream_id
         assert input.curr_run_id == mock_session_id
         async with AgentSessionService.with_session(role=input.role) as service:
@@ -924,7 +919,6 @@ async def test_executor_cancellation_persists_marker_before_terminal_end(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         del call_count
-        assert input.defer_done_on_terminal is True
         return AgentExecutorResult(
             success=True,
             cancelled=True,
@@ -960,7 +954,6 @@ async def test_executor_cancellation_persists_marker_before_terminal_end(
         input: EmitSessionCancelledInputs,
     ) -> None:
         assert input.emit_stream is False
-        assert input.defer_done is True
         await agent_activities.emit_session_cancelled(input)
 
     workflow_args = AgentWorkflowArgs(
@@ -1025,8 +1018,6 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         assert call_count == 0
-        assert input.defer_done_on_approval is True
-        assert input.defer_done_on_terminal is True
         return AgentExecutorResult(
             success=True,
             approval_requested=True,
@@ -1056,7 +1047,6 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
     async def persist_cancelled_notice(input: EmitSessionCancelledInputs) -> None:
         cancelled_inputs.append(input)
         assert input.emit_stream is True
-        assert input.defer_done is True
         async with AgentSessionService.with_session(role=input.role) as service:
             await service.append_cancelled_marker(
                 input.session_id,
@@ -1478,7 +1468,6 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
 
         if run_agent_call_count == 0:
             assert input.active_stream_id == initial_stream_id
-            assert input.defer_done_on_terminal is True
             assistant_uuid = str(uuid.uuid4())
             async with AgentSessionService.with_session(role=input.role) as service:
                 session = await service.get_session(input.session_id)
@@ -1563,7 +1552,6 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         assert input.sdk_session_id == "sdk-session"
         assert input.sdk_session_data is None
         assert input.active_stream_id == rotated_stream_id
-        assert input.defer_done_on_terminal is True
 
         resumed_after_approval.set()
         run_agent_call_count += 1
