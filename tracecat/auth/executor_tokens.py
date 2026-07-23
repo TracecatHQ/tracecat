@@ -33,7 +33,7 @@ class ExecutorTokenPayload(BaseModel):
     """Payload extracted from a verified executor JWT."""
 
     workspace_id: WorkspaceID
-    user_id: UserID | None
+    user_id: UserID | None = None
     service_id: InternalServiceID | None = None
     execution_origin: ExecutionOrigin | None = None
     wf_id: str
@@ -95,15 +95,6 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
         raise ValueError("Invalid executor token subject")
 
     try:
-        token_payload = ExecutorTokenPayload(
-            workspace_id=payload["workspace_id"],
-            user_id=payload.get("user_id"),
-            service_id=payload.get("service_id"),
-            execution_origin=payload.get("execution_origin"),
-            wf_id=payload["wf_id"],
-            wf_exec_id=payload["wf_exec_id"],
-        )
-    except (KeyError, ValidationError) as exc:
+        return ExecutorTokenPayload.model_validate(payload)
+    except ValidationError as exc:
         raise ValueError("Executor token payload is invalid") from exc
-
-    return token_payload
