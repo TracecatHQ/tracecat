@@ -14,6 +14,8 @@ import type {
   WorkspaceSyncExportPreview,
 } from "@/client"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
+import { Toast, ToastProvider, ToastViewport } from "@/components/ui/toast"
+import { toast } from "@/components/ui/use-toast"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -39,6 +41,10 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkflowSync: jest.fn(),
   useWorkspaceSyncExport: jest.fn(),
   useWorkspaceSyncExportPreview: jest.fn(),
+}))
+
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: jest.fn(),
 }))
 
 beforeAll(() => {
@@ -523,6 +529,61 @@ describe("WorkspaceSyncSettings", () => {
     expect(
       screen.getByText("workflows/root/definition.yml")
     ).toBeInTheDocument()
+  })
+
+  it("renders the workspace push review request as an external link", async () => {
+    const user = userEvent.setup()
+    const prUrl = "https://github.com/test-org/repo-a/pull/42"
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+    })
+    mockExportWorkspace.mockResolvedValue({
+      commit: {
+        status: "committed",
+        sha: "a".repeat(40),
+        ref: "sync/workspace-test",
+        base_ref: "main",
+        pr_url: prUrl,
+        message: "Export workspace config",
+      },
+      files: ["tracecat.json"],
+    })
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("button", { name: "Push & open PR" }))
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pull request ready",
+          description: "Export workspace config",
+          action: expect.anything(),
+        })
+      )
+    })
+
+    const toastOptions = jest.mocked(toast).mock.calls[0][0]
+    render(
+      <ToastProvider>
+        <Toast open>{toastOptions.action}</Toast>
+        <ToastViewport />
+      </ToastProvider>
+    )
+
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "href",
+      prUrl
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "target",
+      "_blank"
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer"
+    )
   })
 
   it("keeps pull actions available after previewing changes", async () => {
