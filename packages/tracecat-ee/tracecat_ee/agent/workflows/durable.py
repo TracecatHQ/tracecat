@@ -492,6 +492,7 @@ def _preserved_agents_binding(
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
+APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
 @workflow.defn
@@ -1270,6 +1271,13 @@ class DurableAgentWorkflow:
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
         )
+        # Replay bridge for histories that recorded the v2 marker. Keep this
+        # until those histories have drained. This does not make pre-v2
+        # histories that already advanced past an approval pause compatible
+        # with the now-unconditional emit_session_done command; verify that no
+        # such executions remain RUNNING before rollout.
+        workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
+
         # Prepare executor input
         executor_input = AgentExecutorInput(
             session_id=self.session_id,
