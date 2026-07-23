@@ -1,10 +1,10 @@
-"""Enforce ``run_python`` provenance at the Action Gateway boundary.
+"""Enforce code provenance at the Action Gateway boundary.
 
-Agent-authored ``core.script.run_python`` code is denied Action Gateway access
-entirely. Signed executor-token provenance keeps registry-template scripts on
-the trusted workflow path, while legacy executions and non-``run_python``
-callers remain governed by the gateway routes' normal authentication and RBAC.
-The health route is exempt so sandbox connectivity checks continue to work.
+Agent-authored code is denied Action Gateway access entirely. The deny is based
+only on signed executor-token provenance. Registry-template code and unattested
+executions remain governed by the gateway routes' normal authentication and
+RBAC. The health route is exempt so sandbox connectivity checks continue to
+work.
 
 A selective route-to-registry-action capability map lived in this module
 through PR-history commit ``d8752f707``. Recover it from history if a future
@@ -17,7 +17,6 @@ from fastapi import HTTPException, Request, status
 from fastapi.routing import APIRoute
 
 from tracecat.auth.executor_tokens import verify_executor_token
-from tracecat.dsl.enums import PlatformAction
 
 GatewayMethod = Literal["DELETE", "GET", "PATCH", "POST"]
 
@@ -69,7 +68,7 @@ def _action_not_allowed_error() -> HTTPException:
 
 
 async def enforce_agent_action_capability(request: Request) -> None:
-    """Deny Action Gateway access to Agent-authored ``run_python`` scripts."""
+    """Deny Action Gateway access when the token attests Agent-authored code."""
     authorization = request.headers.get("authorization", "")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
@@ -82,18 +81,10 @@ async def enforce_agent_action_capability(request: Request) -> None:
         # The normal route authentication dependency owns invalid credentials.
         return
 
-    if claims.action != PlatformAction.RUN_PYTHON or claims.allowed_actions is None:
-        # ``None`` marks an execution created before the Agent-grant patch. Keep
-        # those in-flight Temporal histories on their recorded legacy behavior,
-        # and leave non-``run_python`` callers to the normal route auth.
-        return
-
-    if claims.execution_origin == "registry_template":
-        # A run-python step inside a registry-locked template is trusted code,
-        # not agent-authored Python. Exempt it from the Agent gateway deny as
-        # ordinary workflow steps already are; the route's own caller-scope RBAC
-        # still governs it. Provenance is signed and stamped only at the
-        # template-step boundary, so it is unforgeable.
+    if claims.execution_origin != "agent":
+        # Unattested legacy tokens, workflow steps, and agent-invoked registry
+        # actions remain on their normal route-auth path, as does explicitly
+        # attested registry-template code.
         return
 
     route_key = _request_route_key(request)

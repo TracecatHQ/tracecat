@@ -28,6 +28,7 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLEnvironment,
@@ -406,7 +407,6 @@ async def _prepare_step_context(
         user_id=role.user_id,
         service_id=role.service_id,
         scopes=role.scopes,
-        allowed_actions=input.allowed_actions,
         action=step_action,
         # This step's definition comes from an immutable registry-locked
         # template resolved from ``input.registry_lock``, not from an agent.
@@ -744,8 +744,13 @@ async def prepare_resolved_context(
         user_id=role.user_id,
         service_id=role.service_id,
         scopes=role.scopes,
-        allowed_actions=input.allowed_actions,
         action=input.task.action,
+        execution_origin=(
+            "agent"
+            if input.task.action == PlatformAction.RUN_PYTHON
+            and input.allowed_actions is not None
+            else None
+        ),
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )

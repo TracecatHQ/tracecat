@@ -11,16 +11,13 @@ from tracecat import config
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
-# Attested provenance of the step definition a token was minted for — who
-# authored the code/configuration being executed, independent of which action
-# runs it. ``registry_template`` marks a step inside an immutable,
-# registry-locked template; that definition is trusted by the lock. The claim
-# is signed and stamped only at the trusted template-step boundary, so an
-# agent-authored token can never forge it. ``None`` means unattested: ordinary
-# mints and legacy tokens carry no claim, and consumers must not infer trust
-# from its absence. How provenance changes authorization for a given action is
-# gateway policy, not token semantics.
-ExecutionOrigin = Literal["registry_template"]
+# Attested provenance of who authored the code being executed. ``agent`` is
+# stamped only where caller-supplied arguments become the executing code
+# (today, the ``run_python`` dispatch on the agent path). ``registry_template``
+# is stamped at the trusted template-step boundary. ``None`` means unattested:
+# legacy tokens, workflow steps, and agent-invoked registry actions whose code
+# is registry-authored.
+ExecutionOrigin = Literal["agent", "registry_template"]
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
 EXECUTOR_TOKEN_AUDIENCE = "tracecat-api"
@@ -40,17 +37,15 @@ REQUIRED_CLAIMS = (
 class ExecutorTokenPayload(BaseModel):
     """Signed authorization context for sandbox-originated SDK calls.
 
-    ``scopes`` is the caller Role bound. ``allowed_actions`` is the independent
-    Agent toolset bound. ``action`` identifies the sandbox action that minted the
-    token, so the gateway can restrict user-authored run-python code without
-    changing ordinary workflow execution.
+    ``scopes`` is the caller Role bound. ``action`` identifies the sandbox action
+    that minted the token. ``execution_origin`` attests who authored the code when
+    a trusted mint boundary can establish its provenance.
     """
 
     workspace_id: WorkspaceID
     user_id: UserID | None
     service_id: InternalServiceID | None = None
     scopes: frozenset[str] | None = None
-    allowed_actions: frozenset[str] | None = None
     action: str | None = None
     execution_origin: ExecutionOrigin | None = None
     wf_id: str
@@ -63,7 +58,6 @@ def mint_executor_token(
     user_id: UserID | None,
     service_id: InternalServiceID = "tracecat-executor",
     scopes: frozenset[str] | None = None,
-    allowed_actions: frozenset[str] | None = None,
     action: str | None = None,
     execution_origin: ExecutionOrigin | None = None,
     wf_id: str,
@@ -87,13 +81,10 @@ def mint_executor_token(
     }
     if scopes is not None:
         payload["scopes"] = sorted(scopes)
-    if allowed_actions is not None:
-        payload["allowed_actions"] = sorted(allowed_actions)
     if action is not None:
         payload["action"] = action
     # Only positively attested provenance is written; an absent claim verifies
-    # as ``None`` (unattested), keeping legacy tokens fail-closed toward
-    # enforcement.
+    # as ``None`` (unattested).
     if execution_origin is not None:
         payload["execution_origin"] = execution_origin
 
@@ -129,7 +120,6 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
             user_id=payload.get("user_id"),
             service_id=payload.get("service_id"),
             scopes=payload.get("scopes"),
-            allowed_actions=payload.get("allowed_actions"),
             action=payload.get("action"),
             execution_origin=payload.get("execution_origin"),
             wf_id=payload["wf_id"],

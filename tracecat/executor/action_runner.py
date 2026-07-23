@@ -29,7 +29,6 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -318,20 +317,7 @@ class ActionRunner:
                 ACTION_GATEWAY_SANDBOX_SOCKET
             )
 
-            # Mint an executor token for SDK calls
-            if role.workspace_id is None:
-                raise ValueError("workspace_id is required for sandbox execution")
-            executor_token = mint_executor_token(
-                workspace_id=role.workspace_id,
-                user_id=role.user_id,
-                service_id=role.service_id,
-                scopes=role.scopes,
-                allowed_actions=input.allowed_actions,
-                action=input.task.action,
-                wf_id=str(input.run_context.wf_id),
-                wf_exec_id=str(input.run_context.wf_run_id),
-            )
-            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
+            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
 
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",
