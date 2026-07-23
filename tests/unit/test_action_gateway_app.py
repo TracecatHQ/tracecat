@@ -157,6 +157,46 @@ def test_agent_script_cannot_reach_gateway(
 
 
 @pytest.mark.parametrize(
+    "authorization_format",
+    [
+        pytest.param("Bearer  {token}", id="double-space"),
+        pytest.param("Bearer {token} ", id="trailing-space"),
+    ],
+)
+def test_agent_script_denied_despite_header_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+    authorization_format: str,
+) -> None:
+    """Whitespace route authentication tolerates must not bypass the deny."""
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    app = FastAPI(dependencies=[Depends(enforce_agent_script_gateway_access)])
+
+    async def operation() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_api_route("/internal/cases", operation, methods=["GET"])
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        execution_origin="agent",
+        root_action=PlatformAction.RUN_PYTHON,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/internal/cases",
+            headers={"Authorization": authorization_format.format(token=token)},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == (
+        "agent_script_gateway_disabled"
+    )
+
+
+@pytest.mark.parametrize(
     ("execution_origin", "root_action"),
     [
         pytest.param(None, None, id="legacy-unattested"),

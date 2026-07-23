@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException, Request, status
 
+from tracecat.auth.credentials import get_bearer_token
 from tracecat.auth.executor_tokens import ExecutorTokenPayload, verify_executor_token
 from tracecat.dsl.enums import PlatformAction
 
@@ -28,9 +29,10 @@ def _agent_script_gateway_disabled_error() -> HTTPException:
 
 async def enforce_agent_script_gateway_access(request: Request) -> None:
     """Deny Action Gateway access when the token attests Agent-authored code."""
-    authorization = request.headers.get("authorization", "")
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    # Parse with the same helper as route authentication so a header this
+    # policy skips is one route authentication rejects too.
+    token = get_bearer_token(request)
+    if token is None:
         # The normal route authentication dependency owns missing credentials.
         return
 
