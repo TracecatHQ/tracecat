@@ -135,11 +135,11 @@ describe("ChatToolsPicker", () => {
       <ChatToolsPicker
         registryActions={[
           registryAction("core.script.run_python", {
-            default_title: "Run Python",
+            default_title: "Run Python script",
             display_group: "Core",
           }),
-          registryAction("core.script.run_script", {
-            default_title: "Run Script",
+          registryAction("core.http_request", {
+            default_title: "HTTP Request",
             display_group: "Core",
           }),
         ]}
@@ -153,12 +153,12 @@ describe("ChatToolsPicker", () => {
 
     fireEvent.change(
       screen.getByPlaceholderText("Search capabilities & tools..."),
-      { target: { value: "run" } }
+      { target: { value: "request" } }
     )
 
-    expect(screen.queryByText("Run Python")).not.toBeInTheDocument()
-    expect(screen.queryByText("Run Script")).not.toBeInTheDocument()
-    expect(screen.getByText(/No tools found/)).toBeInTheDocument()
+    // Excluded action is not offered, but ordinary core.* actions still are.
+    expect(screen.queryByText("Run Python script")).not.toBeInTheDocument()
+    expect(screen.getByText("HTTP Request")).toBeInTheDocument()
   })
 
   it("disables the add toggle for an unselected tool once the limit is reached", () => {

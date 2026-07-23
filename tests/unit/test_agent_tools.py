@@ -125,16 +125,9 @@ class TestBuildAgentTools:
     """Tests for shared agent tool filtering."""
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize(
-        "action_name",
-        ["core.script.run_python", "core.script.run_script"],
-    )
-    async def test_excludes_agent_actions_before_registry_lookup(
-        self,
-        action_name: str,
-    ) -> None:
+    async def test_excludes_agent_actions_before_registry_lookup(self) -> None:
         """Excluded actions are unavailable to every agent harness."""
-        result = await build_agent_tools(actions=[action_name])
+        result = await build_agent_tools(actions=["core.script.run_python"])
 
         assert result.tools == []
         assert result.collected_secrets == set()

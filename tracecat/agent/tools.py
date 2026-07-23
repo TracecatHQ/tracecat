@@ -30,9 +30,7 @@ from tracecat.registry.actions.service import (
 
 # This controls which registry actions are exposed to agents. Execution-policy
 # enforcement is handled separately.
-EXCLUDED_AGENT_ACTIONS: frozenset[str] = frozenset(
-    {PlatformAction.RUN_PYTHON, "core.script.run_script"}
-)
+EXCLUDED_AGENT_ACTIONS: frozenset[str] = frozenset({PlatformAction.RUN_PYTHON})
 
 
 class ToolExecutionError(Exception):
