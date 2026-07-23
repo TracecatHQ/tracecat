@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import sqlalchemy as sa
 import yaml
@@ -13,6 +13,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.catalog.schemas import ModelKey
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import (
@@ -55,6 +56,13 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
+
+
+class CorrelatedAgentPresets(NamedTuple):
+    """Preset specs with local catalog ids resolved, plus any diagnostics."""
+
+    presets: dict[str, AgentPresetResourceSpec]
+    diagnostics: list[PullDiagnostic]
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -366,7 +374,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         presets: Mapping[str, AgentPresetResourceSpec],
-    ) -> tuple[dict[str, AgentPresetResourceSpec], list[PullDiagnostic]]:
+    ) -> CorrelatedAgentPresets:
         """Re-map source catalog UUIDs to enabled local catalog rows.
 
         Catalog UUIDs are deployment-local. Preserve an incoming UUID when it is
@@ -392,7 +400,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             catalog_ids=catalog_ids,
         )
         models = {
-            (version.model_provider, version.model_name)
+            ModelKey(version.model_provider, version.model_name)
             for _, preset in sorted(presets.items())
             for _, version in sorted(preset.versions.items())
             if version.catalog_id is not None
@@ -446,7 +454,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     correlated_versions[version_number] = version
                     continue
 
-                model_key = (model_provider, model_name)
+                model_key = ModelKey(model_provider, model_name)
                 local_catalog_id = resolved_catalog_ids.get(model_key)
                 if local_catalog_id is None:
                     diagnostics.append(
@@ -482,7 +490,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 update={"versions": correlated_versions}
             )
 
-        return correlated_presets, diagnostics
+        return CorrelatedAgentPresets(
+            presets=correlated_presets,
+            diagnostics=diagnostics,
+        )
 
     async def import_specs(
         self,
