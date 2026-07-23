@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from typing import cast
+from typing import Any, cast
 
 import pytest
+from fastapi import HTTPException
 
+from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
@@ -211,6 +214,81 @@ async def test_agent_folder_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        agent_catalog_router.list_catalog,
+        agent_catalog_router.get_catalog_entry,
+    ],
+)
+async def test_agent_catalog_read_scope_guards(endpoint: AsyncEndpoint) -> None:
+    await _assert_endpoint_requires_scope(endpoint, "agent:read")
+
+
+@pytest.mark.anyio
+async def test_agent_catalog_list_accepts_service_account_with_scope() -> None:
+    # Managed service-account key is authorized by its granted scopes.
+    endpoint = cast(AsyncEndpoint, agent_catalog_router.list_catalog)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"agent:create"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_agent_catalog_reads_reject_workspace_bound_service_accounts() -> None:
+    # A tc_ws_sk_ key resolves on org routes; it must not see the org-wide catalog.
+    workspace_id = uuid.uuid4()
+    bound_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        bound_workspace_id=workspace_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+    session = cast(Any, None)  # Guard raises before the session is touched
+    token = ctx_role.set(bound_role)
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await agent_catalog_router.list_catalog(role=bound_role, session=session)
+        assert exc_info.value.status_code == 403
+
+        with pytest.raises(HTTPException) as exc_info:
+            await agent_catalog_router.get_catalog_entry(
+                catalog_id=uuid.uuid4(), role=bound_role, session=session
+            )
+        assert exc_info.value.status_code == 403
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
