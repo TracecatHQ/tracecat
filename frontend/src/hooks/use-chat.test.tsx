@@ -318,17 +318,20 @@ describe("useAdoptServerTranscript", () => {
       textMessage("server-assistant", "assistant", "Canonical wording"),
     ]
 
-    const { unmount } = renderHook(
-      () =>
+    const { rerender, unmount } = renderHook(
+      ({ server }: { server: UIMessage[] }) =>
         useAdoptServerTranscript({
           chatId: "chat-1",
           workspaceId: "workspace-1",
           status: "ready",
-          serverMessages,
+          serverMessages: server,
           liveMessages,
           setMessages,
         }),
-      { wrapper: createWrapper(queryClient) }
+      {
+        initialProps: { server: serverMessages },
+        wrapper: createWrapper(queryClient),
+      }
     )
 
     // The first two refetches fail (no fresh data); only the third delivers.
@@ -342,6 +345,18 @@ describe("useAdoptServerTranscript", () => {
     await advanceTimersBy(5_000)
 
     expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    expect(setMessages).not.toHaveBeenCalled()
+
+    // The failed series retires the episode: a later snapshot change starts a
+    // fresh retry series instead of leaving eventual adoption unreachable.
+    rerender({
+      server: [
+        textMessage("server-user", "user", "Question"),
+        textMessage("server-assistant", "assistant", "Rewritten wording"),
+      ],
+    })
+    await advanceTimersBy(1_000)
+    expect(invalidateQueries).toHaveBeenCalledTimes(4)
     expect(setMessages).not.toHaveBeenCalled()
     unmount()
   })

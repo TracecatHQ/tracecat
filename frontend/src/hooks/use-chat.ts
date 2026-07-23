@@ -972,12 +972,27 @@ export function useAdoptServerTranscript({
               // slot index, which would retroactively credit failed slots.
               const dataUpdatedAt =
                 queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0
-              if (dataUpdatedAt <= episode.lastDataUpdatedAt) {
+              const delivered = dataUpdatedAt > episode.lastDataUpdatedAt
+              if (delivered) {
+                episode.lastDataUpdatedAt = dataUpdatedAt
+                episode.completedAttempts += 1
+              }
+              const exhausted =
+                episode.completedAttempts >=
+                ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS.length
+              if (episode.timers.size === 0 && !exhausted) {
+                // The series ran out of timers without enough delivered
+                // refetches. Retire the episode so a future server snapshot
+                // change can start a fresh series — otherwise eventual
+                // adoption would be permanently unreachable. No revision bump:
+                // there is nothing to re-decide until new data arrives, so a
+                // quiet outage does not turn into an endless polling loop.
+                retryEpisodeRef.current = null
                 return
               }
-              episode.lastDataUpdatedAt = dataUpdatedAt
-              episode.completedAttempts += 1
-              setRetryRevision((revision) => revision + 1)
+              if (delivered) {
+                setRetryRevision((revision) => revision + 1)
+              }
             })
         }, delayMs)
         episode.timers.add(timer)
