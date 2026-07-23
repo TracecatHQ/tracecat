@@ -8,7 +8,7 @@ from tracecat.dsl.enums import PlatformAction
 ACTION_GATEWAY_HEALTH_PATH = "/internal/health"
 
 
-def _action_not_allowed_error() -> HTTPException:
+def _agent_script_gateway_disabled_error() -> HTTPException:
     """Build the 403 raised for Action Gateway calls from Agent scripts."""
     return HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -48,6 +48,6 @@ async def enforce_agent_script_gateway_access(request: Request) -> None:
             execution_origin="agent",
             root_action=PlatformAction.RUN_PYTHON,
         ):
-            raise _action_not_allowed_error()
+            raise _agent_script_gateway_disabled_error()
         case _:
             return
