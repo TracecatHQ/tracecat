@@ -11,8 +11,8 @@ from tracecat import config
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
-ExecutionOrigin = Literal["agent"]
-"""Attested provenance for code authored by an Agent."""
+ExecutionOrigin = Literal["agent", "workflow"]
+"""Trusted entry point that initiated an executor action."""
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
 EXECUTOR_TOKEN_AUDIENCE = "tracecat-api"
@@ -36,6 +36,7 @@ class ExecutorTokenPayload(BaseModel):
     user_id: UserID | None = None
     service_id: InternalServiceID | None = None
     execution_origin: ExecutionOrigin | None = None
+    root_action: str | None = None
     wf_id: str
     wf_exec_id: str
 
@@ -46,6 +47,7 @@ def mint_executor_token(
     user_id: UserID | None,
     service_id: InternalServiceID = "tracecat-executor",
     execution_origin: ExecutionOrigin | None = None,
+    root_action: str | None = None,
     wf_id: str,
     wf_exec_id: str,
     ttl_seconds: int | None = None,
@@ -67,6 +69,8 @@ def mint_executor_token(
     }
     if execution_origin is not None:
         payload["execution_origin"] = execution_origin
+    if root_action is not None:
+        payload["root_action"] = root_action
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 

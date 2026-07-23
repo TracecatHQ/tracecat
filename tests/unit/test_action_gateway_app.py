@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
+from tracecat.dsl.enums import PlatformAction
 from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import (
     create_app,
@@ -137,6 +138,7 @@ def test_agent_script_cannot_reach_gateway(
         workspace_id=uuid.uuid4(),
         user_id=None,
         execution_origin="agent",
+        root_action=PlatformAction.RUN_PYTHON,
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
@@ -154,8 +156,23 @@ def test_agent_script_cannot_reach_gateway(
     )
 
 
-def test_unattested_execution_keeps_normal_gateway_access(
+@pytest.mark.parametrize(
+    ("execution_origin", "root_action"),
+    [
+        pytest.param(None, None, id="legacy-unattested"),
+        pytest.param("agent", None, id="legacy-agent-token"),
+        pytest.param("agent", "core.cases.list_cases", id="agent-registry-action"),
+        pytest.param(
+            "workflow",
+            PlatformAction.RUN_PYTHON,
+            id="workflow-authored-python",
+        ),
+    ],
+)
+def test_other_executions_keep_normal_gateway_access(
     monkeypatch: pytest.MonkeyPatch,
+    execution_origin: ExecutionOrigin | None,
+    root_action: str | None,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     app = FastAPI(dependencies=[Depends(enforce_agent_script_gateway_access)])
@@ -167,6 +184,8 @@ def test_unattested_execution_keeps_normal_gateway_access(
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
+        execution_origin=execution_origin,
+        root_action=root_action,
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
@@ -194,6 +213,7 @@ def test_agent_script_can_reach_gateway_health(
         workspace_id=uuid.uuid4(),
         user_id=None,
         execution_origin="agent",
+        root_action=PlatformAction.RUN_PYTHON,
         wf_id="wf-1",
         wf_exec_id="run-1",
     )

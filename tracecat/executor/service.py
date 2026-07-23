@@ -79,13 +79,28 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
-def _execution_origin_for_action(role: Role) -> ExecutionOrigin | None:
-    """Attest Python authored by an Agent at the trusted executor boundary."""
+def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
+    """Classify the trusted entry point that dispatched an executor action."""
     match role:
         case Role(type="service", service_id="tracecat-mcp"):
             return "agent"
         case _:
-            return None
+            return "workflow"
+
+
+def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
+    """Mint SDK credentials carrying the root action's trusted provenance."""
+    if role.workspace_id is None:
+        raise ValueError("workspace_id is required for action execution")
+    return mint_executor_token(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        service_id=role.service_id,
+        execution_origin=_execution_origin_for_role(role),
+        root_action=input.task.action,
+        wf_id=str(input.run_context.wf_id),
+        wf_exec_id=str(input.run_context.wf_run_id),
+    )
 
 
 @dataclass
@@ -407,16 +422,8 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
-    # Mint new executor token for step (required for SDK authentication)
-    if role.workspace_id is None:
-        raise ValueError("workspace_id is required for template step execution")
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
-    )
+    # Mint a fresh step token while retaining the root action's provenance.
+    executor_token = _mint_action_executor_token(input, role)
 
     # Reuse parent secrets/variables, use pre-evaluated args
     return ResolvedContext(
@@ -740,14 +747,7 @@ async def prepare_resolved_context(
         mask_values = set(secret_projection.mask_values)
 
     # Generate executor token for SDK authentication
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        execution_origin=_execution_origin_for_action(role),
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
-    )
+    executor_token = _mint_action_executor_token(input, role)
 
     resolved_context = ResolvedContext(
         secrets=secrets,

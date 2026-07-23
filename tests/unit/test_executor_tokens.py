@@ -14,6 +14,7 @@ from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.executor_tokens import (
     EXECUTOR_TOKEN_AUDIENCE,
     EXECUTOR_TOKEN_ISSUER,
+    ExecutionOrigin,
     mint_executor_token,
     verify_executor_token,
 )
@@ -50,24 +51,29 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     assert verified.wf_id == wf_id
     assert verified.wf_exec_id == wf_exec_id
     assert verified.execution_origin is None
+    assert verified.root_action is None
 
 
+@pytest.mark.parametrize("execution_origin", ["agent", "workflow"])
 def test_executor_token_preserves_execution_origin(
     monkeypatch: pytest.MonkeyPatch,
-):
+    execution_origin: ExecutionOrigin,
+) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
-        execution_origin="agent",
+        execution_origin=execution_origin,
+        root_action="core.script.run_python",
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
 
     verified = verify_executor_token(token)
 
-    assert verified.execution_origin == "agent"
+    assert verified.execution_origin == execution_origin
+    assert verified.root_action == "core.script.run_python"
 
 
 def test_verify_executor_token_expired(monkeypatch: pytest.MonkeyPatch):

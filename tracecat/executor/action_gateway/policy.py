@@ -2,7 +2,8 @@
 
 from fastapi import HTTPException, Request, status
 
-from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.executor_tokens import ExecutorTokenPayload, verify_executor_token
+from tracecat.dsl.enums import PlatformAction
 
 ACTION_GATEWAY_HEALTH_PATH = "/internal/health"
 
@@ -39,10 +40,14 @@ async def enforce_agent_script_gateway_access(request: Request) -> None:
         # The normal route authentication dependency owns invalid credentials.
         return
 
-    if claims.execution_origin != "agent":
-        return
-
     if request.url.path == ACTION_GATEWAY_HEALTH_PATH:
         return
 
-    raise _action_not_allowed_error()
+    match claims:
+        case ExecutorTokenPayload(
+            execution_origin="agent",
+            root_action=PlatformAction.RUN_PYTHON,
+        ):
+            raise _action_not_allowed_error()
+        case _:
+            return
