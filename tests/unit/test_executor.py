@@ -138,6 +138,43 @@ def make_registry_lock(action: str, origin: str = "tracecat_registry") -> Regist
     )
 
 
+@pytest.mark.parametrize(
+    ("action_name", "role", "expected"),
+    [
+        pytest.param(
+            "core.script.run_python",
+            Role(type="service", service_id="tracecat-mcp"),
+            "agent",
+            id="agent-authored-python",
+        ),
+        pytest.param(
+            "core.http_request",
+            Role(type="service", service_id="tracecat-mcp"),
+            None,
+            id="agent-registry-action",
+        ),
+        pytest.param(
+            "core.script.run_python",
+            Role(type="user", service_id="tracecat-mcp"),
+            None,
+            id="standalone-mcp-user",
+        ),
+        pytest.param(
+            "core.script.run_python",
+            Role(type="service", service_id="tracecat-executor"),
+            None,
+            id="workflow-authored-python",
+        ),
+    ],
+)
+def test_execution_origin_for_action(
+    action_name: str,
+    role: Role,
+    expected: str | None,
+) -> None:
+    assert executor_service._execution_origin_for_action(action_name, role) == expected
+
+
 async def run_action_test(input: RunActionInput, role: Role) -> Any:
     """Test helper: execute action using production code path.
 

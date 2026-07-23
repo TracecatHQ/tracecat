@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
 
-import jwt
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -11,21 +9,15 @@ from fastapi.testclient import TestClient
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
-from tracecat.auth.executor_tokens import (
-    EXECUTOR_TOKEN_AUDIENCE,
-    EXECUTOR_TOKEN_ISSUER,
-    EXECUTOR_TOKEN_SUBJECT,
-    ExecutionOrigin,
-    mint_executor_token,
-)
+from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import (
     create_app,
     request_logging_middleware,
     validation_exception_handler,
 )
-from tracecat.executor.action_gateway.capabilities import (
-    enforce_agent_action_capability,
+from tracecat.executor.action_gateway.policy import (
+    enforce_agent_script_gateway_access,
 )
 
 
@@ -124,30 +116,18 @@ def test_action_gateway_validation_errors_are_json_safe() -> None:
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        pytest.param(
-            "GET",
-            "/internal/cases",
-            id="registry-action",
-        ),
-        pytest.param(
-            "POST",
-            "/internal/workflows/run",
-            id="sdk-operation",
-        ),
-        pytest.param(
-            "POST",
-            "/internal/agent/run",
-            id="nested-agent-run",
-        ),
+        pytest.param("GET", "/internal/cases", id="registry-action"),
+        pytest.param("POST", "/internal/workflows/run", id="sdk-operation"),
+        pytest.param("POST", "/internal/agent/run", id="nested-agent-run"),
     ],
 )
-def test_agent_run_python_denies_previously_allowed_gateway_routes(
+def test_agent_script_cannot_reach_gateway(
     monkeypatch: pytest.MonkeyPatch,
     method: str,
     path: str,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+    app = FastAPI(dependencies=[Depends(enforce_agent_script_gateway_access)])
 
     async def operation() -> dict[str, bool]:
         return {"ok": True}
@@ -156,8 +136,6 @@ def test_agent_run_python_denies_previously_allowed_gateway_routes(
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
-        scopes=frozenset({"*"}),
-        action="core.script.run_python",
         execution_origin="agent",
         wf_id="wf-1",
         wf_exec_id="run-1",
@@ -176,98 +154,37 @@ def test_agent_run_python_denies_previously_allowed_gateway_routes(
     )
 
 
-def test_gateway_deny_depends_only_on_execution_origin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Only tokens attesting Agent authorship receive the gateway deny."""
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
-
-    async def list_cases() -> dict[str, bool]:
-        return {"ok": True}
-
-    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
-
-    def _mint(origin: ExecutionOrigin | None) -> str:
-        return mint_executor_token(
-            workspace_id=uuid.uuid4(),
-            user_id=None,
-            scopes=frozenset({"*"}),
-            action="core.script.run_python",
-            execution_origin=origin,
-            wf_id="wf-1",
-            wf_exec_id="run-1",
-        )
-
-    agent_token = _mint("agent")
-    template_token = _mint("registry_template")
-    unattested_token = _mint(None)
-
-    with TestClient(app) as client:
-        agent_response = client.get(
-            "/internal/cases", headers={"Authorization": f"Bearer {agent_token}"}
-        )
-        template_response = client.get(
-            "/internal/cases",
-            headers={"Authorization": f"Bearer {template_token}"},
-        )
-        unattested_response = client.get(
-            "/internal/cases",
-            headers={"Authorization": f"Bearer {unattested_token}"},
-        )
-
-    assert agent_response.status_code == 403
-    assert agent_response.json()["detail"]["error"]["code"] == (
-        "agent_script_gateway_disabled"
-    )
-    assert template_response.status_code == 200
-    assert template_response.json() == {"ok": True}
-    assert unattested_response.status_code == 200
-    assert unattested_response.json() == {"ok": True}
-
-
-def test_agent_gateway_hard_deny_does_not_depend_on_route_mapping(
+def test_unattested_execution_keeps_normal_gateway_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+    app = FastAPI(dependencies=[Depends(enforce_agent_script_gateway_access)])
 
-    async def list_cases() -> dict[str, bool]:
+    async def operation() -> dict[str, bool]:
         return {"ok": True}
 
-    app.add_api_route("/internal/cases", list_cases, methods=["GET"])
-    app.add_api_route("/internal/cases", list_cases, methods=["POST"])
-    app.add_api_route("/internal/cases-alias", list_cases, methods=["GET"])
+    app.add_api_route("/internal/cases", operation, methods=["GET"])
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
-        scopes=frozenset({"*"}),
-        action="core.script.run_python",
-        execution_origin="agent",
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
-    headers = {"Authorization": f"Bearer {token}"}
 
     with TestClient(app) as client:
-        responses = [
-            client.get("/internal/cases", headers=headers),
-            client.post("/internal/cases", headers=headers),
-            client.get("/internal/cases-alias", headers=headers),
-        ]
+        response = client.get(
+            "/internal/cases",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
-    assert all(response.status_code == 403 for response in responses)
-    assert all(
-        response.json()["detail"]["error"]["code"] == "agent_script_gateway_disabled"
-        for response in responses
-    )
+    assert response.status_code == 200
 
 
-def test_agent_run_python_can_reach_gateway_health(
+def test_agent_script_can_reach_gateway_health(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
+    app = FastAPI(dependencies=[Depends(enforce_agent_script_gateway_access)])
 
     async def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -276,8 +193,6 @@ def test_agent_run_python_can_reach_gateway_health(
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
-        scopes=frozenset({"*"}),
-        action="core.script.run_python",
         execution_origin="agent",
         wf_id="wf-1",
         wf_exec_id="run-1",
@@ -290,107 +205,13 @@ def test_agent_run_python_can_reach_gateway_health(
         )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
 
 
-def _preset_probe_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    """Mount a stand-in agent route behind the wholesale gateway dependency."""
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    app = FastAPI(dependencies=[Depends(enforce_agent_action_capability)])
-
-    async def run_agent() -> dict[str, bool]:
-        return {"ran": True}
-
-    app.add_api_route("/internal/agent/run", run_agent, methods=["POST"])
-    return app
-
-
-def _preset_run_token(*, action: str) -> str:
-    return mint_executor_token(
-        workspace_id=uuid.uuid4(),
-        user_id=None,
-        scopes=frozenset({"*"}),
-        action=action,
-        wf_id="wf-1",
-        wf_exec_id="run-1",
-    )
-
-
-def test_preset_run_mcp_servers_allowed_for_non_run_python(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An ordinary workflow caller keeps preset MCP integrations."""
-    app = _preset_probe_app(monkeypatch)
-    token = _preset_run_token(action="ai.preset_agent")
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/internal/agent/run",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "preset_slug": "p",
-                "resolved_actions": [],
-                "resolved_mcp_servers": [{"url": "https://mcp.test", "id": "x"}],
-            },
-        )
-
-    assert response.status_code == 200
-
-
-def test_preset_run_legacy_token_is_not_enforced(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A pre-grant token keeps its recorded legacy behavior."""
-    app = _preset_probe_app(monkeypatch)
-    now = datetime.now(UTC)
-    payload = {
-        "iss": EXECUTOR_TOKEN_ISSUER,
-        "aud": EXECUTOR_TOKEN_AUDIENCE,
-        "sub": EXECUTOR_TOKEN_SUBJECT,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(seconds=60)).timestamp()),
-        "workspace_id": str(uuid.uuid4()),
-        "user_id": None,
-        "scopes": ["*"],
-        "allowed_actions": ["core.script.run_python"],
-        "action": "core.script.run_python",
-        "wf_id": "wf-1",
-        "wf_exec_id": "run-1",
-    }
-    token = jwt.encode(payload, "test-service-key", algorithm="HS256")
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/internal/agent/run",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"preset_slug": "p", "resolved_actions": ["core.cases.delete_case"]},
-        )
-
-    assert response.status_code == 200
-
-
-def test_agent_invoked_registry_action_token_is_not_enforced(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An Agent-invoked registry action remains governed by normal route auth."""
-    app = _preset_probe_app(monkeypatch)
-    token = _preset_run_token(action="tools.example.tool")
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/internal/agent/run",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"preset_slug": "p", "resolved_actions": ["core.cases.delete_case"]},
-        )
-
-    assert response.status_code == 200
-
-
-def test_all_action_gateway_routes_enforce_agent_capabilities() -> None:
+def test_all_action_gateway_routes_enforce_agent_script_policy() -> None:
     app = create_app()
 
     for route in iter_effective_api_routes(app):
         dependency_calls = {
             dependency.call for dependency in route.dependant.dependencies
         }
-        assert enforce_agent_action_capability in dependency_calls, route.path
+        assert enforce_agent_script_gateway_access in dependency_calls, route.path

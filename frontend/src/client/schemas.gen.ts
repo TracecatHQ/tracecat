@@ -21623,21 +21623,6 @@ export const $RunActionInput = {
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
     },
-    allowed_actions: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-          uniqueItems: true,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Allowed Actions",
-    },
   },
   type: "object",
   required: ["task", "exec_context", "run_context", "registry_lock"],

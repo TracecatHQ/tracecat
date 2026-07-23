@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never
 from uuid import UUID, uuid4
@@ -24,7 +23,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
@@ -52,52 +50,11 @@ class ActionExecutionError(Exception):
     """Raised when action execution fails."""
 
 
-def _script_imports_registry(script: str) -> bool:
-    """Whether the script's import statements reference ``tracecat_registry``."""
-    try:
-        tree = ast.parse(script)
-    except SyntaxError:
-        # Let the sandbox surface the syntax error itself.
-        return False
-    for node in ast.walk(tree):
-        match node:
-            case ast.Import(names=names):
-                if any(
-                    alias.name.partition(".")[0] == "tracecat_registry"
-                    for alias in names
-                ):
-                    return True
-            case ast.ImportFrom(module=str() as module, level=0):
-                if module.partition(".")[0] == "tracecat_registry":
-                    return True
-            case _:
-                pass
-    return False
-
-
-def _validate_run_python_script(action_name: str, args: dict[str, Any]) -> None:
-    """Steer Agent-authored scripts away from unavailable registry imports."""
-    if action_name != PlatformAction.RUN_PYTHON:
-        return
-
-    script = args.get("script")
-    # This trivially bypassable check is UX only. The Action Gateway deny is the
-    # security boundary; catching the common import statement avoids a wasted
-    # sandbox run. Dynamic imports and mere textual mentions (strings, comments)
-    # are deliberately out of scope.
-    if isinstance(script, str) and _script_imports_registry(script):
-        raise ActionNotAllowedError(
-            "This environment runs plain Python only. Use your tools for Tracecat "
-            "actions instead of importing tracecat_registry."
-        )
-
-
 def build_tracecat_mcp_role(
     *,
     workspace_id: UUID | None,
     organization_id: UUID | None,
     user_id: UUID | None,
-    scopes: frozenset[str] | None = None,
 ) -> Role:
     """Build the trusted MCP service role for action execution."""
     return Role(
@@ -106,9 +63,7 @@ def build_tracecat_mcp_role(
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user_id,
-        scopes=scopes
-        if scopes is not None
-        else SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
 
 
@@ -118,7 +73,6 @@ def build_role_from_claims(claims: MCPTokenClaims) -> Role:
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
-        scopes=claims.scopes,
     )
 
 
@@ -155,26 +109,12 @@ async def execute_action(
             f"Action '{action_name}' is not in allowed actions for this token"
         )
 
-    _validate_run_python_script(action_name, args)
-
     role = build_role_from_claims(claims)
     ctx_role.set(role)
 
     logger.info("Executing action via executor workflow", action_name=action_name)
 
-    # A missing scope snapshot identifies an MCP token created by a pre-patch
-    # Agent history. Do not propagate only half of the new dual authorization
-    # context, because that would turn its existing tool list into a deny-all
-    # gateway grant. Those histories retain their recorded legacy behavior.
-    execution_grant = (
-        frozenset(claims.allowed_actions) if claims.scopes is not None else None
-    )
-    run_input = build_run_input(
-        action_name,
-        args,
-        registry_lock,
-        allowed_actions=execution_grant,
-    )
+    run_input = build_run_input(action_name, args, registry_lock)
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
         workflow_id=build_agent_tool_workflow_id(),
@@ -207,7 +147,6 @@ def build_run_input(
     execution_id: UUID | None = None,
     logical_time: datetime | None = None,
     environment: str = "default",
-    allowed_actions: frozenset[str] | None = None,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
 
@@ -236,7 +175,6 @@ def build_run_input(
         run_context=run_context,
         exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
         registry_lock=registry_lock,
-        allowed_actions=allowed_actions,
     )
 
 

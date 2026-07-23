@@ -114,8 +114,6 @@ class MCPTokenClaims(BaseModel):
     """Organization UUID for authorization context."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
-    scopes: frozenset[str] | None = None
-    """Authoritative caller scopes captured for this Agent execution."""
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
     """User-defined MCP server configurations for proxying tool calls."""
     allowed_internal_tools: list[str] = Field(default_factory=list)
@@ -137,7 +135,6 @@ def mint_mcp_token(
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
     allowed_actions: list[str],
-    scopes: frozenset[str] | None = None,
     session_id: uuid.UUID,
     registry_lock: RegistryLock,
     user_id: UserID | None = None,
@@ -161,7 +158,6 @@ def mint_mcp_token(
         workspace_id: Workspace UUID for authorization context
         organization_id: Organization UUID for authorization context
         allowed_actions: Set of allowed action names
-        scopes: Effective caller scopes captured for this Agent execution
         session_id: Agent session ID for traceability
         registry_lock: Registry lock resolved for this token's registry actions
         user_id: Optional user ID for audit/traceability
@@ -195,7 +191,6 @@ def mint_mcp_token(
             parent_agent_workflow_id=parent_agent_workflow_id,
             parent_agent_run_id=parent_agent_run_id,
             allowed_actions=allowed_actions,
-            scopes=scopes,
             user_mcp_servers=user_mcp_servers or [],
             allowed_internal_tools=allowed_internal_tools or [],
             internal_tool_context=internal_tool_context,

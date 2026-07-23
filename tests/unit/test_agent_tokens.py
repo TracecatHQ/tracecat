@@ -38,7 +38,6 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
         organization_id=organization_id,
         user_id=user_id,
         allowed_actions=["core.http_request"],
-        scopes=frozenset({"action:core.http_request:execute"}),
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
@@ -52,7 +51,6 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
     assert claims.user_id == user_id
     assert claims.parent_agent_workflow_id == f"agent/{session_id}"
     assert claims.parent_agent_run_id == "run-123"
-    assert claims.scopes == frozenset({"action:core.http_request:execute"})
     assert claims.registry_lock == _registry_lock()
 
 

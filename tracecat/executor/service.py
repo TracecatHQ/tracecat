@@ -11,7 +11,7 @@ from aiocache import Cache
 from sqlalchemy import and_, or_, select, union_all
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
 from tracecat.contexts import (
@@ -78,6 +78,19 @@ from tracecat.variables.service import VariablesService
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+
+def _execution_origin_for_action(
+    action_name: str, role: Role
+) -> ExecutionOrigin | None:
+    """Attest Python authored by an Agent at the trusted executor boundary."""
+    if (
+        action_name == PlatformAction.RUN_PYTHON
+        and role.type == "service"
+        and role.service_id == "tracecat-mcp"
+    ):
+        return "agent"
+    return None
 
 
 @dataclass
@@ -406,13 +419,6 @@ async def _prepare_step_context(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
-        scopes=role.scopes,
-        action=step_action,
-        # This step's definition comes from an immutable registry-locked
-        # template resolved from ``input.registry_lock``, not from an agent.
-        # Attest that provenance so gateway policy can trust template-authored
-        # steps (caller-scope RBAC still applies).
-        execution_origin="registry_template",
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
@@ -743,14 +749,7 @@ async def prepare_resolved_context(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
         service_id=role.service_id,
-        scopes=role.scopes,
-        action=input.task.action,
-        execution_origin=(
-            "agent"
-            if input.task.action == PlatformAction.RUN_PYTHON
-            and input.allowed_actions is not None
-            else None
-        ),
+        execution_origin=_execution_origin_for_action(action_name, role),
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )

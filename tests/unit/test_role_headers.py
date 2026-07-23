@@ -67,15 +67,6 @@ class TestRoleToHeaders:
         assert "x-tracecat-role-organization-id" not in headers
         assert "x-tracecat-role-scopes" not in headers
 
-    def test_to_headers_preserves_explicit_empty_scopes(self) -> None:
-        role = Role(
-            type="service",
-            service_id="tracecat-runner",
-            scopes=frozenset(),
-        )
-
-        assert role.to_headers()["x-tracecat-role-scopes"] == ""
-
     def test_to_headers_includes_service_account_metadata(self) -> None:
         service_account_id = uuid4()
         workspace_id = uuid4()
@@ -196,30 +187,6 @@ class TestAuthenticateServiceRoundtrip:
 
         assert role is not None
         assert role.scopes == frozenset({"workflow:read", "cases:write"})
-
-    async def test_authenticate_service_preserves_explicit_empty_scopes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
-        )
-        monkeypatch.setattr(
-            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
-            ["tracecat-runner"],
-        )
-        request = MagicMock()
-        request.headers = MockHeaders(
-            {
-                "x-tracecat-role-service-id": "tracecat-runner",
-                "x-tracecat-role-scopes": "",
-            }
-        )
-
-        role = await _authenticate_service(request, api_key="test-key")
-
-        assert role is not None
-        assert role.scopes == frozenset()
-        assert await compute_effective_scopes(role) == frozenset()
 
     async def test_authenticate_service_derives_org_from_workspace(
         self, monkeypatch: pytest.MonkeyPatch

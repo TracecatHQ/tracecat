@@ -10,17 +10,12 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from tracecat.agent.mcp import executor
 from tracecat.agent.tokens import MCPTokenClaims
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-def _build_claims(
-    *,
-    scopes: frozenset[str] | None = frozenset({"action:core.http_request:execute"}),
-    allowed_actions: list[str] | None = None,
-) -> MCPTokenClaims:
+def _build_claims() -> MCPTokenClaims:
     session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
     return MCPTokenClaims(
         workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
@@ -28,10 +23,7 @@ def _build_claims(
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
-        allowed_actions=(
-            allowed_actions if allowed_actions is not None else ["core.http_request"]
-        ),
-        scopes=scopes,
+        allowed_actions=["core.http_request"],
     )
 
 
@@ -42,91 +34,11 @@ def _build_registry_lock() -> RegistryLock:
     )
 
 
-def test_run_python_plain_script_passes_agent_precheck() -> None:
-    executor._validate_run_python_script(
-        "core.script.run_python",
-        {"script": "def main():\n    return 'plain Python'"},
-    )
-
-
-@pytest.mark.parametrize(
-    "script",
-    [
-        # Textual mentions in strings/comments are not imports.
-        "def main():\n    return 'error mentions tracecat_registry somewhere'",
-        "# tracecat_registry is unavailable here\ndef main():\n    return 1",
-        # Unparseable scripts fall through to the sandbox's own syntax error.
-        "def main(:\n    import tracecat_registry",
-    ],
-)
-def test_run_python_registry_mention_without_import_passes_precheck(
-    script: str,
-) -> None:
-    executor._validate_run_python_script("core.script.run_python", {"script": script})
-
-
-@pytest.mark.parametrize(
-    "script",
-    [
-        "import tracecat_registry",
-        "import tracecat_registry.sdk as sdk",
-        "from tracecat_registry import sdk",
-        "from tracecat_registry.sdk.client import TracecatClient",
-        "def main():\n    import tracecat_registry\n    return None",
-    ],
-)
-def test_run_python_registry_import_forms_are_rejected(script: str) -> None:
-    with pytest.raises(executor.ActionNotAllowedError):
-        executor._validate_run_python_script(
-            "core.script.run_python", {"script": script}
-        )
-
-
 @pytest.mark.anyio
-async def test_run_python_registry_import_is_rejected_before_workflow_start(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    execute_action_workflow = AsyncMock()
-    monkeypatch.setattr(executor, "_execute_action_workflow", execute_action_workflow)
-
-    with pytest.raises(executor.ActionNotAllowedError) as exc_info:
-        await executor.execute_action(
-            "core.script.run_python",
-            {"script": "import tracecat_registry\n\ndef main():\n    return None"},
-            _build_claims(allowed_actions=["core.script.run_python"]),
-            _build_registry_lock(),
-        )
-
-    assert str(exc_info.value) == (
-        "This environment runs plain Python only. Use your tools for Tracecat "
-        "actions instead of importing tracecat_registry."
-    )
-    execute_action_workflow.assert_not_awaited()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("scopes", "expected_execution_grant"),
-    [
-        pytest.param(
-            frozenset({"action:core.http_request:execute"}),
-            frozenset({"core.http_request"}),
-            id="scoped-agent",
-        ),
-        pytest.param(None, None, id="legacy-pre-patch-agent"),
-        pytest.param(
-            frozenset(),
-            frozenset({"core.http_request"}),
-            id="scopeless-new-agent-not-legacy",
-        ),
-    ],
-)
 async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(
     monkeypatch: pytest.MonkeyPatch,
-    scopes: frozenset[str] | None,
-    expected_execution_grant: frozenset[str] | None,
 ) -> None:
-    claims = _build_claims(scopes=scopes)
+    claims = _build_claims()
     monkeypatch.setattr(
         executor, "build_agent_tool_workflow_id", lambda: "agent-tool/tool-wf-123"
     )
@@ -153,14 +65,6 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
     )
 
     call = fake_client.execute_workflow.await_args
-    workflow_input = call.args[1]
-    expected_role_scopes = (
-        claims.scopes
-        if claims.scopes is not None
-        else SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
-    )
-    assert workflow_input.role.scopes == expected_role_scopes
-    assert workflow_input.run_input.allowed_actions == expected_execution_grant
     assert call.kwargs["id"] == "agent-tool/tool-wf-123"
     assert call.kwargs["memo"] == {
         "parent_agent_workflow_id": f"agent/{claims.session_id}",

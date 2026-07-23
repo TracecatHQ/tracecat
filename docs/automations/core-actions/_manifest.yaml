@@ -81,15 +81,6 @@ pages:
           SDK calls use the workflow's internal authenticated execution context
           and do not require `allow_network: true`.
 
-          ### Agent tool permissions
-
-          Agent-authored `core.script.run_python` scripts cannot use the Tracecat
-          SDK because the Action Gateway is unavailable to them. Write plain
-          Python in the script and use Agent tools to run Tracecat actions
-          instead. Use `${{ VARS.<variable_name>.<key> }}` in Agent instructions
-          or the surrounding workflow for workspace variables. See [Secrets and
-          variables](/agents/secrets-variables).
-
           Use `ctx.tables.insert_rows` to write multiple rows in one request.
           For large inputs, transform the records first and split them into
           bounded batches. The destination table must already contain matching

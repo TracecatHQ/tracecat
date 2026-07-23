@@ -9,7 +9,6 @@ from fastapi import (
     APIRouter,
     Depends,
     FastAPI,
-    HTTPException,
     Request,
     Response,
     status,
@@ -19,8 +18,8 @@ from fastapi.responses import ORJSONResponse
 from pydantic_core import to_jsonable_python
 
 from tracecat.contexts import ctx_role
-from tracecat.executor.action_gateway.capabilities import (
-    enforce_agent_action_capability,
+from tracecat.executor.action_gateway.policy import (
+    enforce_agent_script_gateway_access,
 )
 from tracecat.logger import logger
 
@@ -165,6 +164,8 @@ def _include_internal_routers(app: FastAPI) -> None:
 
 def _add_exception_handlers(app: FastAPI) -> None:
     """Install API-compatible exception handlers on the action gateway."""
+    from fastapi import HTTPException
+
     from tracecat.api.common import (
         generic_exception_handler,
         http_exception_handler,
@@ -188,7 +189,7 @@ def create_app(**kwargs) -> FastAPI:
     """Create the executor-local action gateway app."""
     dependencies = [
         *kwargs.pop("dependencies", ()),
-        Depends(enforce_agent_action_capability),
+        Depends(enforce_agent_script_gateway_access),
     ]
     app = FastAPI(
         title="Tracecat Action Gateway",

@@ -14,8 +14,6 @@ from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.executor_tokens import (
     EXECUTOR_TOKEN_AUDIENCE,
     EXECUTOR_TOKEN_ISSUER,
-    EXECUTOR_TOKEN_SUBJECT,
-    ExecutionOrigin,
     mint_executor_token,
     verify_executor_token,
 )
@@ -40,8 +38,6 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
-        scopes=frozenset({"*"}),
-        action="core.script.run_python",
         wf_id=wf_id,
         wf_exec_id=wf_exec_id,
         ttl_seconds=60,
@@ -51,79 +47,27 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
 
     assert verified.workspace_id == workspace_id
     assert verified.user_id == user_id
-    assert verified.scopes == frozenset({"*"})
-    assert verified.action == "core.script.run_python"
     assert verified.wf_id == wf_id
     assert verified.wf_exec_id == wf_exec_id
-    # Ordinary mints carry no attested provenance.
     assert verified.execution_origin is None
 
 
-@pytest.mark.parametrize("origin", ["agent", "registry_template"])
 def test_executor_token_preserves_execution_origin(
     monkeypatch: pytest.MonkeyPatch,
-    origin: ExecutionOrigin,
 ):
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     token = mint_executor_token(
         workspace_id=uuid.uuid4(),
         user_id=None,
-        scopes=frozenset({"*"}),
-        action="core.script.run_python",
-        execution_origin=origin,
+        execution_origin="agent",
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
 
     verified = verify_executor_token(token)
 
-    assert verified.execution_origin == origin
-
-
-def test_executor_token_without_origin_claim_is_unattested(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """A legacy token minted before the provenance claim verifies as unattested."""
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-
-    now = datetime.now(UTC)
-    payload = {
-        "iss": EXECUTOR_TOKEN_ISSUER,
-        "aud": EXECUTOR_TOKEN_AUDIENCE,
-        "sub": EXECUTOR_TOKEN_SUBJECT,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(seconds=60)).timestamp()),
-        "workspace_id": str(uuid.uuid4()),
-        "user_id": None,
-        "action": "core.script.run_python",
-        "wf_id": "wf-1",
-        "wf_exec_id": "run-1",
-    }
-    token = jwt.encode(payload, "test-service-key", algorithm="HS256")
-
-    verified = verify_executor_token(token)
-
-    assert verified.execution_origin is None
-
-
-def test_executor_token_preserves_explicit_empty_scopes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-
-    token = mint_executor_token(
-        workspace_id=uuid.uuid4(),
-        user_id=None,
-        scopes=frozenset(),
-        action="core.script.run_python",
-        wf_id="wf-1",
-        wf_exec_id="run-1",
-    )
-
-    verified = verify_executor_token(token)
-
-    assert verified.scopes == frozenset()
+    assert verified.execution_origin == "agent"
 
 
 def test_verify_executor_token_expired(monkeypatch: pytest.MonkeyPatch):
@@ -208,8 +152,6 @@ async def test_role_dependency_executor_token_populates_org_context(
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
-        scopes=frozenset({"action:core.cases.list_cases:execute", "case:read"}),
-        action="core.script.run_python",
         wf_id="wf-1",
         wf_exec_id="run-1",
         ttl_seconds=60,
@@ -235,9 +177,6 @@ async def test_role_dependency_executor_token_populates_org_context(
     assert resolved.workspace_id == workspace_id
     assert resolved.user_id == user_id
     assert resolved.organization_id == organization_id
-    assert resolved.scopes == frozenset(
-        {"action:core.cases.list_cases:execute", "case:read"}
-    )
 
 
 @pytest.mark.anyio

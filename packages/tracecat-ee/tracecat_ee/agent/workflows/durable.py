@@ -90,7 +90,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
-    from tracecat.authz.scopes import backfill_legacy_role_scopes
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
@@ -140,10 +139,6 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
-# Starts signing the caller scope snapshot and resolved Agent toolset into the
-# MCP/executor chain. The legacy branch preserves deterministic replay for Agent
-# workflow histories created before this authorization boundary existed.
-AGENT_EXECUTION_GRANT_PATCH = "durable-agent-execution-grant-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +162,6 @@ def _build_approved_tool_run_input(
     run_id: uuid.UUID,
     execution_id: uuid.UUID,
     logical_time: datetime,
-    allowed_actions: frozenset[str] | None = None,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -178,7 +172,6 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
-        allowed_actions=allowed_actions,
     )
 
 
@@ -244,7 +237,6 @@ def _start_registry_tool_call(
     registry_lock: RegistryLock,
     service_role: Role,
     logical_time: datetime,
-    allowed_actions: frozenset[str] | None = None,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -257,7 +249,6 @@ def _start_registry_tool_call(
                 run_id=workflow.uuid4(),
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
-                allowed_actions=allowed_actions,
             ),
             service_role,
         ],
@@ -533,8 +524,6 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
-        self._execution_scopes: frozenset[str] | None = None
-        self._root_execution_allowed_actions: frozenset[str] | None = None
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -697,7 +686,6 @@ class DurableAgentWorkflow:
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
-            scopes=self._execution_scopes,
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,
             parent_agent_run_id=info.run_id,
@@ -1213,21 +1201,6 @@ class DurableAgentWorkflow:
 
         # Resolve root and subagent tool definitions in one activity, while
         # preserving partitioned outputs for scope-specific tokens and tools.
-        execution_grant_enabled = workflow.patched(AGENT_EXECUTION_GRANT_PATCH)
-        if execution_grant_enabled:
-            execution_scopes = self.role.scopes
-            if not execution_scopes:
-                # A pre-RBAC parent DSL/schedule role can deserialize with no
-                # scope snapshot, encoded as either ``None`` or an empty frozenset
-                # (both are documented pre-migration defaults). Reconstruct it from
-                # the role's legacy fields (pure, deterministic — replay-safe) so
-                # this new Agent grant is enforced instead of either disabling the
-                # ceiling (``None``) or denying every configured tool (empty).
-                execution_scopes = backfill_legacy_role_scopes(self.role).scopes
-            # Never propagate ``None`` on the patched branch: an unresolvable
-            # legacy role fails closed to an empty scope set (deny-all), not the
-            # overloaded legacy sentinel.
-            self._execution_scopes = execution_scopes or frozenset()
         compiled_run = await self._compile_agent_run(
             cfg=cfg,
             subagents=agents_result.subagents,
@@ -1235,8 +1208,6 @@ class DurableAgentWorkflow:
         )
         root_registry_lock = compiled_run.registry_lock
         allowed_actions = compiled_run.root.tool_definitions
-        if execution_grant_enabled:
-            self._root_execution_allowed_actions = frozenset(allowed_actions)
 
         logger.debug(
             "Resolved tool definitions",
@@ -1757,7 +1728,6 @@ class DurableAgentWorkflow:
             workspace_id=self.role.workspace_id,
             organization_id=self.role.organization_id,
             user_id=self.role.user_id,
-            scopes=self._execution_scopes,
         )
         pending_results: list[PendingToolResult] = []
         cancelled_tool_call_ids: list[str] = []
@@ -1797,10 +1767,6 @@ class DurableAgentWorkflow:
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
-                            # The lock includes recursive template steps that are
-                            # executable only as part of the approved template.
-                            # The Agent grant contains only exposed tool names.
-                            allowed_actions=self._root_execution_allowed_actions,
                         )
                     )
                     result = PendingToolResult(

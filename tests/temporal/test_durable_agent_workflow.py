@@ -93,6 +93,7 @@ from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
@@ -1039,12 +1040,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             },
             registry_lock=RegistryLock(
                 origins={"tracecat_registry": "test-version"},
-                actions={
-                    "core.http_request": "tracecat_registry",
-                    # Simulate a recursive template dependency. It belongs in
-                    # the lock, but must not become an Agent-callable action.
-                    "core.cases.list_cases": "tracecat_registry",
-                },
+                actions={"core.http_request": "tracecat_registry"},
             ),
         )
         return BuildAgentToolDefsResult(
@@ -1292,8 +1288,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     assert captured_executor_roles[0].workspace_id == svc_role.workspace_id
     assert captured_executor_roles[0].organization_id == svc_role.organization_id
     assert captured_executor_roles[0].user_id == svc_role.user_id
-    assert captured_executor_roles[0].scopes == svc_role.scopes
-    assert captured_run_inputs[0].allowed_actions == frozenset({"core.http_request"})
+    assert captured_executor_roles[0].scopes == SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
 
     async with AgentSessionService.with_session(role=svc_role) as service:
         history = await service.get_session_history(mock_session_id)

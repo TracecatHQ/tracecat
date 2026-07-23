@@ -1,17 +1,6 @@
 from __future__ import annotations
 
-from tracecat.agent.mcp.utils import _agent_action_description, normalize_mcp_tool_name
-
-
-def test_run_python_agent_description_disallows_registry_imports() -> None:
-    description = _agent_action_description(
-        "core.script.run_python", "Execute a Python script."
-    )
-
-    assert description == (
-        "Execute a Python script. Registry imports (`tracecat_registry`) are "
-        "unavailable in agent sessions; write plain Python."
-    )
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 
 
 def test_normalize_mcp_tool_name_canonical_registry_prefix() -> None:

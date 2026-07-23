@@ -556,8 +556,6 @@ class RunActionInput(BaseModel):
     """ID for a streamable session, if any."""
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
-    allowed_actions: frozenset[str] | None = None
-    """Signed Agent action ceiling for nested SDK calls, when applicable."""
 
     @model_validator(mode="before")
     @classmethod

@@ -100,7 +100,7 @@ class Role(BaseModel):
             headers["x-tracecat-role-bound-workspace-id"] = str(self.bound_workspace_id)
         if self.organization_id is not None:
             headers["x-tracecat-role-organization-id"] = str(self.organization_id)
-        if self.scopes is not None:
+        if self.scopes:
             headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
         if self.service_account_id is not None:
             headers["x-tracecat-role-service-account-id"] = str(self.service_account_id)

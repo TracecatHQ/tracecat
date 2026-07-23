@@ -11,13 +11,8 @@ from tracecat import config
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
-# Attested provenance of who authored the code being executed. ``agent`` is
-# stamped only where caller-supplied arguments become the executing code
-# (today, the ``run_python`` dispatch on the agent path). ``registry_template``
-# is stamped at the trusted template-step boundary. ``None`` means unattested:
-# legacy tokens, workflow steps, and agent-invoked registry actions whose code
-# is registry-authored.
-ExecutionOrigin = Literal["agent", "registry_template"]
+ExecutionOrigin = Literal["agent"]
+"""Attested provenance for code authored by an Agent."""
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
 EXECUTOR_TOKEN_AUDIENCE = "tracecat-api"
@@ -35,18 +30,11 @@ REQUIRED_CLAIMS = (
 
 
 class ExecutorTokenPayload(BaseModel):
-    """Signed authorization context for sandbox-originated SDK calls.
-
-    ``scopes`` is the caller Role bound. ``action`` identifies the sandbox action
-    that minted the token. ``execution_origin`` attests who authored the code when
-    a trusted mint boundary can establish its provenance.
-    """
+    """Payload extracted from a verified executor JWT."""
 
     workspace_id: WorkspaceID
     user_id: UserID | None
     service_id: InternalServiceID | None = None
-    scopes: frozenset[str] | None = None
-    action: str | None = None
     execution_origin: ExecutionOrigin | None = None
     wf_id: str
     wf_exec_id: str
@@ -57,8 +45,6 @@ def mint_executor_token(
     workspace_id: WorkspaceID,
     user_id: UserID | None,
     service_id: InternalServiceID = "tracecat-executor",
-    scopes: frozenset[str] | None = None,
-    action: str | None = None,
     execution_origin: ExecutionOrigin | None = None,
     wf_id: str,
     wf_exec_id: str,
@@ -79,12 +65,6 @@ def mint_executor_token(
         "wf_id": wf_id,
         "wf_exec_id": wf_exec_id,
     }
-    if scopes is not None:
-        payload["scopes"] = sorted(scopes)
-    if action is not None:
-        payload["action"] = action
-    # Only positively attested provenance is written; an absent claim verifies
-    # as ``None`` (unattested).
     if execution_origin is not None:
         payload["execution_origin"] = execution_origin
 
@@ -119,8 +99,6 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
             workspace_id=payload["workspace_id"],
             user_id=payload.get("user_id"),
             service_id=payload.get("service_id"),
-            scopes=payload.get("scopes"),
-            action=payload.get("action"),
             execution_origin=payload.get("execution_origin"),
             wf_id=payload["wf_id"],
             wf_exec_id=payload["wf_exec_id"],
