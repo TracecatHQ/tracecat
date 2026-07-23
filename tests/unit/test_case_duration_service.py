@@ -49,6 +49,18 @@ def stub_case_duration_entitlements() -> Iterator[None]:
             "has_entitlement",
             new=AsyncMock(return_value=False),
         ),
+        patch(
+            "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 
@@ -71,6 +83,132 @@ def make_case_create(
             "severity": severity,
         }
     )
+
+
+@pytest.mark.anyio
+async def test_create_definition_enqueues_backfill_after_commit(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_created"
+
+
+@pytest.mark.anyio
+async def test_update_definition_skips_backfill_for_metadata_only_changes(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    calls.clear()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            name="Renamed Duration",
+            description="Updated description",
+        ),
+    )
+
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_update_definition_enqueues_backfill_after_anchor_change(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
+            ),
+        ),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_updated"
 
 
 @pytest.mark.anyio
@@ -109,6 +247,7 @@ async def test_compute_case_durations_from_events(
     assert value.end_event_id is None
     assert value.duration is None
 
+    await duration_service.sync_case_durations(case)
     initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     initial_duration = await session.execute(initial_stmt)
     initial_record = initial_duration.scalar_one()
@@ -130,6 +269,7 @@ async def test_compute_case_durations_from_events(
     assert value.duration is not None
     assert value.duration.total_seconds() >= 0
 
+    await duration_service.sync_case_durations(updated_case)
     duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     stored_duration = await session.execute(duration_stmt)
     record = stored_duration.scalar_one()
@@ -1040,6 +1180,7 @@ def test_duration_anchor_rejects_empty_required_filters(
         CaseEventType.CASE_CREATED,
         CaseEventType.CASE_CLOSED,
         CaseEventType.CASE_REOPENED,
+        CaseEventType.CASE_VIEWED,
     ],
 )
 def test_duration_anchor_allows_empty_filters_for_unfiltered_events(

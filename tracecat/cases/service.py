@@ -2,6 +2,7 @@ import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from typing import cast as typing_cast
 
@@ -29,8 +30,11 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_sync_after_commit,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -2736,6 +2740,7 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
+        sync_durations: bool = True,
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2743,8 +2748,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is performed automatically after each event is created,
-        so callers do not need to call sync_case_durations separately.
+        Duration sync is queued after commit, with an inline fallback when
+        Redis publication fails.
         """
 
         db_event = CaseEvent(
@@ -2779,9 +2784,20 @@ class CaseEventsService(BaseWorkspaceService):
 
             AfterCommitQueue.of(self.session).add(_publish_case_event)
 
-        # Auto-sync durations whenever an event is created
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        if sync_durations:
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
+            )
 
         return db_event
 
@@ -2818,7 +2834,10 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        return await self.create_event(case=case, event=CaseViewedEvent())
+        return await self.create_event(
+            case=case,
+            event=CaseViewedEvent(),
+        )
 
 
 class CaseTasksService(BaseWorkspaceService):

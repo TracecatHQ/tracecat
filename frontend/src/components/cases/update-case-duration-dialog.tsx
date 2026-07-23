@@ -4,6 +4,8 @@ import { useCallback, useMemo } from "react"
 import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
+  CaseDurationEventAnchor,
+  CaseDurationEventFilters,
 } from "@/client"
 import {
   buildDurationFilters,
@@ -33,12 +35,14 @@ interface UpdateCaseDurationDialogProps {
 function extractAnchorFormValues(
   anchor: CaseDurationDefinitionRead["start_anchor"]
 ): CaseDurationFormValues["start"] {
-  if (isCaseDropdownEventType(anchor.event_type)) {
+  const eventType = anchor.event_type
+
+  if (isCaseDropdownEventType(eventType)) {
     const defId = anchor.filters?.dropdown_definition_id
     const optionIds = normalizeFilterValues(anchor.filters?.dropdown_option_ids)
     return {
       selection: anchor.selection ?? "first",
-      eventType: anchor.event_type,
+      eventType,
       filterValues: [],
       dropdownDefinitionId: typeof defId === "string" ? defId : undefined,
       dropdownOptionIds: optionIds,
@@ -48,7 +52,7 @@ function extractAnchorFormValues(
   const filterValues = normalizeFilterValues(getAnchorFilterValues(anchor))
   return {
     selection: anchor.selection ?? "first",
-    eventType: anchor.event_type,
+    eventType,
     filterValues,
     dropdownDefinitionId: undefined,
     dropdownOptionIds: [],
@@ -85,6 +89,17 @@ const getInitialValues = (
   }
 }
 
+function buildAnchorPayload(
+  anchor: CaseDurationFormValues["start"],
+  filters?: CaseDurationEventFilters | null
+): CaseDurationEventAnchor {
+  return {
+    event_type: anchor.eventType,
+    selection: anchor.selection,
+    ...(filters ? { filters } : {}),
+  }
+}
+
 export function UpdateCaseDurationDialog({
   open,
   onOpenChange,
@@ -117,16 +132,8 @@ export function UpdateCaseDurationDialog({
       const payload: CaseDurationDefinitionUpdate = {
         name: values.name.trim(),
         description: values.description?.trim() || null,
-        start_anchor: {
-          event_type: values.start.eventType,
-          selection: values.start.selection,
-          ...(startFilters ? { filters: startFilters } : {}),
-        },
-        end_anchor: {
-          event_type: values.end.eventType,
-          selection: values.end.selection,
-          ...(endFilters ? { filters: endFilters } : {}),
-        },
+        start_anchor: buildAnchorPayload(values.start, startFilters),
+        end_anchor: buildAnchorPayload(values.end, endFilters),
       }
 
       try {

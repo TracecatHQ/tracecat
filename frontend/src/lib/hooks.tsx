@@ -3988,6 +3988,10 @@ export function useCaseDurations({
     queryKey: ["case-durations", caseId, workspaceId],
     queryFn: async () => await listCaseDurations(workspaceId, caseId),
     enabled: Boolean(caseId && workspaceId) && enabled,
+    // Durations materialize asynchronously (Redis consumer), so a mutation's
+    // one-shot invalidation can read before the worker finishes. Poll while
+    // the case is open so the recomputed values eventually appear.
+    refetchInterval: 5000,
   })
 
   return {

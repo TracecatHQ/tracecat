@@ -3,7 +3,7 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 import boto3
 import redis.asyncio as redis
@@ -14,12 +14,28 @@ from redis.typing import KeyT, StreamIdT
 from tenacity import (
     retry,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
 
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+
+class StreamGroupNotFoundError(ResponseError):
+    """The stream or consumer group is missing (Redis ``NOGROUP``).
+
+    Subclasses ``ResponseError`` with the original server message so existing
+    callers that match on ``ResponseError`` keep working, while new callers can
+    branch on this type instead of inspecting error text.
+    """
+
+
+def _response_error_code(error: ResponseError) -> str:
+    """Return the RESP error code: the leading token of the server reply."""
+    message = str(error)
+    return message.split(" ", 1)[0] if message else ""
 
 
 def _resolve_redis_url() -> str:
@@ -47,6 +63,27 @@ def _resolve_redis_url() -> str:
 
     logger.info("Successfully retrieved Redis URL from AWS Secrets Manager")
     return secret_string
+
+
+class PendingEntry(TypedDict):
+    """One entry from the detailed XPENDING form (``xpending_range``).
+
+    These four keys are produced by redis-py's ``parse_xpending_range`` callback,
+    which zips the server's four detail fields into a dict per entry, so the
+    shape is stable while redis-py stays pinned. Values are decoded ``str``
+    because the client is created with ``decode_responses=True``; a Redis URL
+    overriding that would break these annotations.
+
+    References:
+    - Redis XPENDING: https://redis.io/docs/latest/commands/xpending/
+    - redis-py parser (v7.1.0):
+      https://github.com/redis/redis-py/blob/v7.1.0/redis/_parsers/helpers.py#L364-L366
+    """
+
+    message_id: str
+    consumer: str
+    time_since_delivered: int
+    times_delivered: int
 
 
 class RedisClient:
@@ -223,7 +260,7 @@ class RedisClient:
                 name=stream_key, groupname=group_name, id=id, mkstream=mkstream
             )
         except ResponseError as e:
-            if ignore_busygroup and "BUSYGROUP" in str(e):
+            if ignore_busygroup and _response_error_code(e) == "BUSYGROUP":
                 logger.debug(
                     "Redis consumer group already exists",
                     stream_key=stream_key,
@@ -251,7 +288,8 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((RedisError, RuntimeError)),
+        retry=retry_if_exception_type((RedisError, RuntimeError))
+        & retry_if_not_exception_type(StreamGroupNotFoundError),
     )
     async def xreadgroup(
         self,
@@ -261,7 +299,11 @@ class RedisClient:
         count: int | None = None,
         block: int | None = None,
     ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
-        """Read from Redis streams using a consumer group."""
+        """Read from Redis streams using a consumer group.
+
+        Raises :class:`StreamGroupNotFoundError` (not retried) when the stream
+        or consumer group does not exist, so callers can recreate the group.
+        """
         try:
             client = await self._get_client()
             return await client.xreadgroup(
@@ -271,6 +313,18 @@ class RedisClient:
                 count=count,
                 block=block,
             )
+        except ResponseError as e:
+            if _response_error_code(e) == "NOGROUP":
+                raise StreamGroupNotFoundError(*e.args) from e
+            logger.error(
+                "Failed to read from Redis consumer group",
+                streams=list(streams.keys()),
+                group_name=group_name,
+                consumer_name=consumer_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
         except (RedisError, RuntimeError) as e:
             logger.error(
                 "Failed to read from Redis consumer group",
@@ -309,6 +363,25 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
+    async def xdel(self, stream_key: str, message_ids: list[str]) -> int:
+        """Delete messages from a Redis stream."""
+        try:
+            client = await self._get_client()
+            return await client.xdel(stream_key, *message_ids)
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to delete Redis stream messages",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
     async def xpending_range(
         self,
         stream_key: str,
@@ -319,7 +392,7 @@ class RedisClient:
         *,
         consumer: str | None = None,
         idle: int | None = None,
-    ) -> list[Any]:
+    ) -> list[PendingEntry]:
         """Fetch pending messages in a consumer group."""
         try:
             client = await self._get_client()
@@ -464,7 +537,7 @@ class RedisClient:
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
     async def set_if_not_exists(
-        self, key: str, value: str, *, expire_seconds: int
+        self, key: str, value: str, *, expire_seconds: int | None
     ) -> bool:
         """Set a value only if the key does not exist (SET NX)."""
         try:
