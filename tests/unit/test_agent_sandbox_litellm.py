@@ -854,7 +854,8 @@ async def _run_full_claude_harness_runtime_case(
     assert any(request.get("model") == "customer-alias" for request in proxy.requests)
 
     assert stream_sink.errors == []
-    assert stream_sink.done_count == 1
+    # Terminal END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
 
 
 async def _run_mcp_compression_initialize_case(
@@ -1070,7 +1071,8 @@ async def _run_mcp_compression_initialize_case(
             request["accept_encoding"] == "identity" for request in mcp_proxy.requests
         )
         assert stream_sink.errors == []
-        assert stream_sink.done_count == 1
+        # Terminal END is emitted by the workflow, not the executor loopback.
+        assert stream_sink.done_count == 0
     else:
         assert result.success is False
         assert result.error == "Unexpected error: Control request timeout: initialize"
@@ -1532,7 +1534,8 @@ async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_
         StreamEventType.APPROVAL_REQUEST
     ]
     assert stream_sink.errors == []
-    assert stream_sink.done_count == 1
+    # Approval-pause END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
     assert persisted_session_lines == []
 
     assert fake_proxy.started is True
@@ -1618,7 +1621,8 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
 
     assert [event.type for event in stream_sink.events] == [StreamEventType.TEXT_DELTA]
     assert stream_sink.errors == []
-    assert stream_sink.done_count == 1
+    # Terminal END is emitted by the workflow, not the executor loopback.
+    assert stream_sink.done_count == 0
     assert persisted_session_lines == [
         ("child-sdk-session", session_line, False),
     ]
