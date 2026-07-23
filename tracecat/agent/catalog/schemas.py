@@ -1,9 +1,20 @@
 """Schemas for agent model catalog."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class ModelKey(NamedTuple):
+    """Portable identity of a catalog model across deployments.
+
+    ``catalog_id`` is a random per-environment UUID, so this pair is the stable
+    identifier used to correlate an imported model with a local catalog row.
+    """
+
+    model_provider: str
+    model_name: str
 
 
 class AgentCatalogRead(BaseModel):

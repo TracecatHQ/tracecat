@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
+    ModelKey,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.types import Role
@@ -1236,37 +1237,37 @@ async def test_resolve_catalog_ids_by_models_matches_single_item_selection(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    preferred_key = ("batch-provider", "org-preferred-model")
-    duplicate_key = ("batch-custom-provider", "duplicate-model")
-    fallback_key = ("batch-provider", "platform-fallback-model")
-    unknown_key = ("batch-provider", "unknown-model")
+    preferred_key = ModelKey("batch-provider", "org-preferred-model")
+    duplicate_key = ModelKey("batch-custom-provider", "duplicate-model")
+    fallback_key = ModelKey("batch-provider", "platform-fallback-model")
+    unknown_key = ModelKey("batch-provider", "unknown-model")
 
     preferred_platform_row = AgentCatalog(
         organization_id=None,
         custom_provider_id=None,
-        model_provider=preferred_key[0],
-        model_name=preferred_key[1],
+        model_provider=preferred_key.model_provider,
+        model_name=preferred_key.model_name,
         model_metadata={},
     )
     preferred_org_row = AgentCatalog(
         organization_id=svc_organization.id,
         custom_provider_id=None,
-        model_provider=preferred_key[0],
-        model_name=preferred_key[1],
+        model_provider=preferred_key.model_provider,
+        model_name=preferred_key.model_name,
         model_metadata={},
     )
     disabled_org_row = AgentCatalog(
         organization_id=svc_organization.id,
         custom_provider_id=None,
-        model_provider=fallback_key[0],
-        model_name=fallback_key[1],
+        model_provider=fallback_key.model_provider,
+        model_name=fallback_key.model_name,
         model_metadata={},
     )
     fallback_platform_row = AgentCatalog(
         organization_id=None,
         custom_provider_id=None,
-        model_provider=fallback_key[0],
-        model_name=fallback_key[1],
+        model_provider=fallback_key.model_provider,
+        model_name=fallback_key.model_name,
         model_metadata={},
     )
     duplicate_rows: list[AgentCatalog] = []
@@ -1282,8 +1283,8 @@ async def test_resolve_catalog_ids_by_models_matches_single_item_selection(
             AgentCatalog(
                 organization_id=svc_organization.id,
                 custom_provider_id=provider.id,
-                model_provider=duplicate_key[0],
-                model_name=duplicate_key[1],
+                model_provider=duplicate_key.model_provider,
+                model_name=duplicate_key.model_name,
                 model_metadata={},
             )
         )
@@ -1320,11 +1321,9 @@ async def test_resolve_catalog_ids_by_models_matches_single_item_selection(
         duplicate_key: expected_duplicate_id,
         fallback_key: fallback_platform_row.id,
     }
-    for model_provider, model_name in models:
-        assert resolved.get(
-            (model_provider, model_name)
-        ) == await service.resolve_catalog_id_by_model(
+    for model_key in models:
+        assert resolved.get(model_key) == await service.resolve_catalog_id_by_model(
             org_id=svc_organization.id,
-            model_provider=model_provider,
-            model_name=model_name,
+            model_provider=model_key.model_provider,
+            model_name=model_key.model_name,
         )

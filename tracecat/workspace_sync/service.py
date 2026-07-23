@@ -894,19 +894,16 @@ class WorkspaceSyncService(SyncMappingService):
         snapshot: WorkspaceRemoteSnapshot,
     ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
-        (
-            correlated_presets,
-            diagnostics,
-        ) = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
+        correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
             self,
             snapshot.spec.agent_presets,
         )
         correlated_spec = snapshot.spec.model_copy(
-            update={"agent_presets": correlated_presets}
+            update={"agent_presets": correlated.presets}
         )
         return PreparedSnapshot(
             snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
-            diagnostics=diagnostics,
+            diagnostics=correlated.diagnostics,
         )
 
     async def _import_snapshot(

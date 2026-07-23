@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.schemas import AgentCatalogRead, ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess
@@ -291,9 +291,9 @@ class AgentCatalogService(BaseService):
         self,
         *,
         org_id: UUID,
-        models: Collection[tuple[str, str]],
+        models: Collection[ModelKey],
         workspace_id: UUID | None = None,
-    ) -> dict[tuple[str, str], UUID]:
+    ) -> dict[ModelKey, UUID]:
         """Resolve enabled local catalog ids for multiple model tuples.
 
         This has parity with ``resolve_catalog_id_by_model`` for every input
@@ -332,11 +332,11 @@ class AgentCatalogService(BaseService):
                 AgentCatalog.id.asc(),
             )
         )
-        resolved: dict[tuple[str, str], UUID] = {}
+        resolved: dict[ModelKey, UUID] = {}
         for model_provider, model_name, catalog_id in (
             await self.session.execute(stmt)
         ).tuples():
-            resolved.setdefault((model_provider, model_name), catalog_id)
+            resolved.setdefault(ModelKey(model_provider, model_name), catalog_id)
         return resolved
 
     async def list_catalog(
