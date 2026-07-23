@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import orjson
 import pytest
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
@@ -242,7 +241,11 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_execute_action_sets_sdk_context_env(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test direct subprocess execution sets SDK auth/context env vars."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
@@ -253,6 +256,7 @@ class TestActionRunner:
 
         success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
         captured_env: dict[str, str] = {}
+        monkeypatch.setenv("TRACECAT__API_URL", "http://internal-api.invalid")
 
         resolved_context = ResolvedContext(
             secrets={},
@@ -294,7 +298,7 @@ class TestActionRunner:
             )
 
         assert result == {"data": "test"}
-        assert captured_env["TRACECAT__API_URL"] == config.TRACECAT__API_URL
+        assert "TRACECAT__API_URL" not in captured_env
         assert captured_env["TRACECAT__WORKSPACE_ID"] == resolved_context.workspace_id
         assert captured_env["TRACECAT__WORKFLOW_ID"] == resolved_context.workflow_id
         assert captured_env["TRACECAT__RUN_ID"] == resolved_context.run_id
@@ -372,6 +376,69 @@ class TestActionRunner:
         assert (
             captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"]
             == "/var/run/tracecat/action-gateway.sock"
+        )
+
+    @pytest.mark.anyio
+    async def test_execute_sandboxed_omits_api_url(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sandboxed actions expose the gateway socket, not the API address."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        captured_env: dict[str, str] = {}
+
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+        )
+
+        class FakeNsjailExecutor:
+            async def execute_action(
+                self,
+                job_dir: Path,
+                sandbox_config: action_runner.ActionSandboxConfig,
+            ) -> MagicMock:
+                del job_dir
+                captured_env.update(sandbox_config.env_vars)
+                return MagicMock(success=True, output={"data": "test"})
+
+        monkeypatch.setattr(action_runner, "NsjailExecutor", FakeNsjailExecutor)
+        monkeypatch.setattr(
+            action_runner,
+            "mint_executor_token",
+            lambda **_kwargs: "test-executor-token",
+        )
+
+        result = await runner._execute_sandboxed(
+            input=mock_run_action_input,
+            role=mock_role,
+            registry_paths=[base_dir],
+            secret_projection=_empty_secret_projection(),
+            resolved_context=resolved_context,
+            env_vars={"TRACECAT__API_URL": "http://internal-api.invalid"},
+            timeout=10.0,
+        )
+
+        assert result == {"data": "test"}
+        assert "TRACECAT__API_URL" not in captured_env
+        assert captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"] == str(
+            action_runner.ACTION_GATEWAY_SANDBOX_SOCKET
         )
 
     @pytest.mark.anyio
