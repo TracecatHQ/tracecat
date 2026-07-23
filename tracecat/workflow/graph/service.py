@@ -3,6 +3,8 @@
 Implements the canonical graph API with optimistic concurrency.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -11,6 +13,8 @@ from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
@@ -32,6 +36,14 @@ from tracecat.workflow.management.schemas import (
 type EdgeSourceType = Literal["trigger", "udf"]
 type EdgeHandle = Literal["success", "error"]
 
+_STRUCTURAL_OPERATION_TYPES = {
+    "add_node",
+    "update_node",
+    "delete_node",
+    "add_edge",
+    "delete_edge",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class EdgeDedupKey:
@@ -45,13 +57,38 @@ class WorkflowGraphService(BaseWorkspaceService):
 
     service_name = "workflow_graph"
 
-    _STRUCTURAL_OPS = {
-        "add_node",
-        "update_node",
-        "delete_node",
-        "add_edge",
-        "delete_edge",
-    }
+    _STRUCTURAL_OPS = _STRUCTURAL_OPERATION_TYPES
+
+    def _graph_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        base_version: int,
+        operations: list[GraphOperation],
+    ) -> AuditEventDetails:
+        changed_fields = sorted(
+            {
+                (
+                    "definition"
+                    if operation.type in _STRUCTURAL_OPERATION_TYPES
+                    else "layout"
+                )
+                for operation in operations
+            }
+        )
+        return AuditEventDetails(data={"changed_fields": changed_fields})
+
+    # Gradual form: a named signature fails pyright's name check; _graph_audit_details keeps P pinned.
+    @staticmethod
+    def _graph_audit_result(
+        result: GraphResponse | None, *args: Any, **kwargs: Any
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            status=(
+                AuditEventStatus.SUCCESS
+                if result is not None
+                else AuditEventStatus.FAILURE
+            )
+        )
 
     async def get_graph(self, workflow_id: WorkflowID) -> GraphResponse | None:
         """Get the canonical graph projection from Actions.
@@ -90,6 +127,12 @@ class WorkflowGraphService(BaseWorkspaceService):
             },
         )
 
+    @audit_log(
+        resource_type="workflow",
+        action="update",
+        attempt_metadata=_graph_audit_details,
+        terminal_metadata=_graph_audit_result,
+    )
     async def apply_operations(
         self,
         workflow_id: WorkflowID,
@@ -101,7 +144,6 @@ class WorkflowGraphService(BaseWorkspaceService):
         Returns 409 if base_version doesn't match current graph_version.
         """
         workflow_uuid = WorkflowUUID.new(workflow_id)
-
         # Load workflow with FOR UPDATE lock
         stmt = (
             select(Workflow)
@@ -117,6 +159,25 @@ class WorkflowGraphService(BaseWorkspaceService):
 
         if workflow is None:
             return None
+        return await self.apply_operations_to_locked_workflow(
+            workflow,
+            base_version=base_version,
+            operations=operations,
+        )
+
+    async def apply_operations_to_locked_workflow(
+        self,
+        workflow: Workflow,
+        *,
+        base_version: int,
+        operations: list[GraphOperation],
+    ) -> GraphResponse:
+        """Apply operations to a workflow locked by the caller.
+
+        This compositional entry point does not perform another lookup or emit
+        an independent audit event. The caller owns the workflow lock and the
+        surrounding operation's audit lifecycle.
+        """
 
         # Check version for optimistic concurrency
         if workflow.graph_version != base_version:

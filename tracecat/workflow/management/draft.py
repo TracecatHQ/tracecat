@@ -28,6 +28,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.db.common import DBConstraints
 from tracecat.db.models import Action, Workflow
@@ -844,19 +845,47 @@ def parse_workflow_edit_request(
     return request
 
 
-async def persist_workflow_edit_document(
+def _workflow_edit_audit_details(
     *,
-    role: Any,
+    role: Role,
     service: WorkflowsManagementService,
     workflow: Workflow,
     original_document: WorkflowEditDocument,
     updated_document: WorkflowEditDocument,
+    changed_sections: set[str] | None = None,
+) -> AuditEventDetails:
+    if changed_sections is None:
+        changed_sections = workflow_edit_document_changed_sections(
+            original_document,
+            updated_document,
+        )
+    return AuditEventDetails(
+        resource_id=WorkflowUUID.new(workflow.id),
+        data={"changed_fields": sorted(changed_sections)},
+        emit=bool(changed_sections),
+    )
+
+
+@audit_log(
+    resource_type="workflow",
+    action="update",
+    attempt_metadata=_workflow_edit_audit_details,
+)
+async def persist_workflow_edit_document(
+    *,
+    role: Role,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    original_document: WorkflowEditDocument,
+    updated_document: WorkflowEditDocument,
+    changed_sections: set[str] | None = None,
 ) -> None:
     """Persist changes from the editable workflow document back to the draft."""
-    changed_sections = workflow_edit_document_changed_sections(
-        original_document,
-        updated_document,
-    )
+    if changed_sections is None:
+        changed_sections = workflow_edit_document_changed_sections(
+            original_document,
+            updated_document,
+        )
     if not changed_sections:
         return
 

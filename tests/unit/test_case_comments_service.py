@@ -213,7 +213,7 @@ class TestCaseCommentsService:
             AuditEventStatus.SUCCESS.value,
         ]
         assert all(event.resource_type == "case_comment" for event in audit_events)
-        assert audit_events[-1].data["content"] == comment_create_params.content
+        assert "content" not in audit_events[-1].data
 
         # Retrieve comment
         retrieved_comment = await case_comments_service.get_comment(created_comment.id)
@@ -279,6 +279,8 @@ class TestCaseCommentsService:
         assert (
             workflow_audits[0].data["wf_exec_id"] == created_comment.workflow_wf_exec_id
         )
+        assert "workflow_alias" not in workflow_audits[0].data
+        assert all("content" not in event.data for event in comment_audits)
 
         await session.delete(workflow)
         await session.commit()
@@ -801,7 +803,7 @@ class TestCaseCommentsService:
             AuditEventStatus.ATTEMPT.value,
             AuditEventStatus.SUCCESS.value,
         ]
-        assert update_audits[-1].data["content"] == update_params.content
+        assert "content" not in update_audits[-1].data
 
     async def test_update_reply_emits_reply_activity(
         self,

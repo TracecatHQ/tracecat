@@ -197,9 +197,9 @@ def _assert_batch_audit_calls(
     terminal_status: AuditEventStatus = AuditEventStatus.SUCCESS,
 ) -> None:
     base_data = {
-        "batch": True,
+        "is_batch": True,
         "case_ids": [str(case_id) for case_id in case_ids],
-        "count": len(case_ids),
+        "case_count": len(case_ids),
     }
     assert mock_create_event.await_args_list == [
         call(
@@ -214,7 +214,7 @@ def _assert_batch_audit_calls(
             action=action,
             resource_id=None,
             status=terminal_status,
-            data={**base_data, "succeeded": succeeded, "failed": failed},
+            data={**base_data, "succeeded_count": succeeded, "failed_count": failed},
         ),
     ]
 
@@ -1280,9 +1280,9 @@ class TestCasesService:
 
         mock_rollback.assert_awaited_once()
         base_data = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": 2,
+            "case_count": 2,
         }
         assert mock_audit.await_args_list == [
             call(
@@ -1297,7 +1297,7 @@ class TestCasesService:
                 action="update",
                 resource_id=None,
                 status=AuditEventStatus.FAILURE,
-                data={**base_data, "succeeded": 0, "failed": 2},
+                data={**base_data, "succeeded_count": 0, "failed_count": 2},
             ),
         ]
 
