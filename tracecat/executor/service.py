@@ -408,11 +408,11 @@ async def _prepare_step_context(
         scopes=role.scopes,
         allowed_actions=input.allowed_actions,
         action=step_action,
-        # This step is code inside a registry-locked template resolved from
-        # ``input.registry_lock``, not agent-authored Python. Mark it so the
-        # Action Gateway exempts a nested ``run_python`` step from the Agent
-        # toolset ceiling (caller-scope RBAC still applies).
-        run_python_origin="registry_template",
+        # This step's definition comes from an immutable registry-locked
+        # template resolved from ``input.registry_lock``, not from an agent.
+        # Attest that provenance so gateway policy can trust template-authored
+        # steps (caller-scope RBAC still applies).
+        execution_origin="registry_template",
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )

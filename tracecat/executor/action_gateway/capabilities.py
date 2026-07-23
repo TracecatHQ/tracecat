@@ -88,7 +88,7 @@ async def enforce_agent_action_capability(request: Request) -> None:
         # and leave non-``run_python`` callers to the normal route auth.
         return
 
-    if claims.run_python_origin == "registry_template":
+    if claims.execution_origin == "registry_template":
         # A run-python step inside a registry-locked template is trusted code,
         # not agent-authored Python. Exempt it from the Agent gateway deny as
         # ordinary workflow steps already are; the route's own caller-scope RBAC

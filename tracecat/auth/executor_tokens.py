@@ -11,14 +11,16 @@ from tracecat import config
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
-# Provenance of a ``core.script.run_python`` token. ``agent`` is untrusted,
-# model/user-authored root Python bounded by the Agent toolset ceiling.
-# ``registry_template`` marks a run-python step that lives inside an immutable,
-# registry-locked template; that code is trusted by the lock, so the gateway
-# exempts it from the toolset ceiling while caller-scope RBAC still applies.
-# The claim is signed and stamped only at the trusted template-step boundary,
-# so an agent-authored token can never forge it. Absent claim => ``agent``.
-RunPythonOrigin = Literal["agent", "registry_template"]
+# Attested provenance of the step definition a token was minted for — who
+# authored the code/configuration being executed, independent of which action
+# runs it. ``registry_template`` marks a step inside an immutable,
+# registry-locked template; that definition is trusted by the lock. The claim
+# is signed and stamped only at the trusted template-step boundary, so an
+# agent-authored token can never forge it. ``None`` means unattested: ordinary
+# mints and legacy tokens carry no claim, and consumers must not infer trust
+# from its absence. How provenance changes authorization for a given action is
+# gateway policy, not token semantics.
+ExecutionOrigin = Literal["registry_template"]
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
 EXECUTOR_TOKEN_AUDIENCE = "tracecat-api"
@@ -50,7 +52,7 @@ class ExecutorTokenPayload(BaseModel):
     scopes: frozenset[str] | None = None
     allowed_actions: frozenset[str] | None = None
     action: str | None = None
-    run_python_origin: RunPythonOrigin = "agent"
+    execution_origin: ExecutionOrigin | None = None
     wf_id: str
     wf_exec_id: str
 
@@ -63,7 +65,7 @@ def mint_executor_token(
     scopes: frozenset[str] | None = None,
     allowed_actions: frozenset[str] | None = None,
     action: str | None = None,
-    run_python_origin: RunPythonOrigin = "agent",
+    execution_origin: ExecutionOrigin | None = None,
     wf_id: str,
     wf_exec_id: str,
     ttl_seconds: int | None = None,
@@ -89,10 +91,11 @@ def mint_executor_token(
         payload["allowed_actions"] = sorted(allowed_actions)
     if action is not None:
         payload["action"] = action
-    # Only the non-default provenance is written; absent claim verifies as
-    # ``agent``, keeping legacy tokens fail-closed toward enforcement.
-    if run_python_origin != "agent":
-        payload["run_python_origin"] = run_python_origin
+    # Only positively attested provenance is written; an absent claim verifies
+    # as ``None`` (unattested), keeping legacy tokens fail-closed toward
+    # enforcement.
+    if execution_origin is not None:
+        payload["execution_origin"] = execution_origin
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
@@ -128,7 +131,7 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
             scopes=payload.get("scopes"),
             allowed_actions=payload.get("allowed_actions"),
             action=payload.get("action"),
-            run_python_origin=payload.get("run_python_origin", "agent"),
+            execution_origin=payload.get("execution_origin"),
             wf_id=payload["wf_id"],
             wf_exec_id=payload["wf_exec_id"],
         )

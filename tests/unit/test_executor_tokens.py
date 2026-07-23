@@ -58,8 +58,8 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     assert verified.action == "core.script.run_python"
     assert verified.wf_id == wf_id
     assert verified.wf_exec_id == wf_exec_id
-    # Provenance defaults to the enforced ``agent`` origin.
-    assert verified.run_python_origin == "agent"
+    # Ordinary mints carry no attested provenance.
+    assert verified.execution_origin is None
 
 
 def test_executor_token_preserves_registry_template_origin(
@@ -73,20 +73,20 @@ def test_executor_token_preserves_registry_template_origin(
         scopes=frozenset({"*"}),
         allowed_actions=frozenset({"tools.example.template"}),
         action="core.script.run_python",
-        run_python_origin="registry_template",
+        execution_origin="registry_template",
         wf_id="wf-1",
         wf_exec_id="run-1",
     )
 
     verified = verify_executor_token(token)
 
-    assert verified.run_python_origin == "registry_template"
+    assert verified.execution_origin == "registry_template"
 
 
-def test_executor_token_without_origin_claim_defaults_to_agent(
+def test_executor_token_without_origin_claim_is_unattested(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """A legacy token minted before the provenance claim verifies as ``agent``."""
+    """A legacy token minted before the provenance claim verifies as unattested."""
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
     now = datetime.now(UTC)
@@ -106,7 +106,7 @@ def test_executor_token_without_origin_claim_defaults_to_agent(
 
     verified = verify_executor_token(token)
 
-    assert verified.run_python_origin == "agent"
+    assert verified.execution_origin is None
 
 
 def test_executor_token_preserves_explicit_empty_authority(

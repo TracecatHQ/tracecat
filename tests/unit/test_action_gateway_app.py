@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
 from tracecat.auth.executor_tokens import (
-    RunPythonOrigin,
+    ExecutionOrigin,
     mint_executor_token,
 )
 from tracecat.executor.action_gateway import app as action_gateway_app
@@ -187,7 +187,7 @@ def test_registry_template_run_python_skips_agent_gateway_deny(
 
     app.add_api_route("/internal/cases", list_cases, methods=["GET"])
 
-    def _mint(origin: RunPythonOrigin) -> str:
+    def _mint(origin: ExecutionOrigin | None) -> str:
         return mint_executor_token(
             workspace_id=uuid.uuid4(),
             user_id=None,
@@ -196,12 +196,12 @@ def test_registry_template_run_python_skips_agent_gateway_deny(
                 {"core.script.run_python", "tools.example.template"}
             ),
             action="core.script.run_python",
-            run_python_origin=origin,
+            execution_origin=origin,
             wf_id="wf-1",
             wf_exec_id="run-1",
         )
 
-    agent_token = _mint("agent")
+    agent_token = _mint(None)
     template_token = _mint("registry_template")
 
     with TestClient(app) as client:
