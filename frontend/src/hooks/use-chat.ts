@@ -945,10 +945,7 @@ export function useAdoptServerTranscript({
       }
       retryEpisodeRef.current = episode
 
-      for (const [
-        attemptIndex,
-        delayMs,
-      ] of ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS.entries()) {
+      for (const delayMs of ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS) {
         const timer = setTimeout(() => {
           episode.timers.delete(timer)
           if (
@@ -970,18 +967,16 @@ export function useAdoptServerTranscript({
               }
               // invalidateQueries resolves even when the refetch fails, so a
               // transient outage must not exhaust the content guard and hand
-              // the transcript to a stale cached snapshot. Count an attempt
-              // only when the query actually delivered fresh data.
+              // the transcript to a stale cached snapshot. Count only the
+              // attempts that actually delivered fresh data — never the timer
+              // slot index, which would retroactively credit failed slots.
               const dataUpdatedAt =
                 queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0
               if (dataUpdatedAt <= episode.lastDataUpdatedAt) {
                 return
               }
               episode.lastDataUpdatedAt = dataUpdatedAt
-              episode.completedAttempts = Math.max(
-                episode.completedAttempts,
-                attemptIndex + 1
-              )
+              episode.completedAttempts += 1
               setRetryRevision((revision) => revision + 1)
             })
         }, delayMs)

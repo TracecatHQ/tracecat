@@ -304,6 +304,48 @@ describe("useAdoptServerTranscript", () => {
     ).toBe("reject-count")
   })
 
+  it("does not adopt when only the final retry delivered fresh data", async () => {
+    const queryClient = new QueryClient()
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries")
+    const setMessages = jest.fn()
+    const queryKey = ["chat", "chat-1", "workspace-1", "vercel"]
+    const liveMessages = [
+      textMessage("live-user", "user", "Question"),
+      textMessage("live-assistant", "assistant", "Stream-only wording"),
+    ]
+    const serverMessages = [
+      textMessage("server-user", "user", "Question"),
+      textMessage("server-assistant", "assistant", "Canonical wording"),
+    ]
+
+    const { unmount } = renderHook(
+      () =>
+        useAdoptServerTranscript({
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          status: "ready",
+          serverMessages,
+          liveMessages,
+          setMessages,
+        }),
+      { wrapper: createWrapper(queryClient) }
+    )
+
+    // The first two refetches fail (no fresh data); only the third delivers.
+    // One successful refetch must not exhaust a guard that promises three —
+    // counting the timer slot index would retroactively credit the failures.
+    await advanceTimersBy(1_000)
+    await advanceTimersBy(2_000)
+    act(() => {
+      queryClient.setQueryData(queryKey, serverMessages)
+    })
+    await advanceTimersBy(5_000)
+
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    expect(setMessages).not.toHaveBeenCalled()
+    unmount()
+  })
+
   it("rejects a stale snapshot whose earlier turn repeats the final answer text", () => {
     const liveMessages = [
       textMessage("live-user-1", "user", "Question"),
