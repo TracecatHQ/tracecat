@@ -10,7 +10,7 @@ These tests verify the end-to-end workflow behavior including:
 import asyncio
 import os
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +21,7 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
+from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -49,6 +50,7 @@ from tracecat_ee.agent.approvals.service import (
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
+    APPROVAL_STREAM_V2_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
@@ -383,6 +385,29 @@ async def replay_durable_agent_workflow_history(
         data_converter=temporal_client.data_converter,
     ).replay_workflow(history, raise_on_replay_failure=False)
     assert replay_result.replay_failure is None
+
+
+async def recorded_patch_ids(
+    temporal_client: Client,
+    history: WorkflowHistory,
+) -> set[str]:
+    """Decode patch IDs recorded in a workflow history."""
+    patch_ids: set[str] = set()
+    for event in history.events:
+        if not event.HasField("marker_recorded_event_attributes"):
+            continue
+        attributes = event.marker_recorded_event_attributes
+        if attributes.marker_name != "core_patch":
+            continue
+        if "patch-data" not in attributes.details:
+            continue
+        patch_data = await temporal_client.data_converter.decode(
+            attributes.details["patch-data"].payloads
+        )
+        for data in patch_data:
+            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
+                patch_ids.add(data["id"])
+    return patch_ids
 
 
 async def fetch_history_after_completed_workflow_task(
@@ -775,6 +800,102 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_replays_approval_stream_v2_patch_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deprecated bridge must replay suspended histories with the v2 marker."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    approval_done_emitted = asyncio.Event()
+
+    def approval_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del input
+        assert call_count == 0
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call-1",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [item.tool_call_id for item in input.approvals] == ["call-1"]
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Request an approved action",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=["core.http_request"],
+                tool_approvals={"core.http_request": True},
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    activities = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(approval_executor),
+        mock_record_approval_requests,
+        create_mock_emit_session_done_activity(done_event=approval_done_emitted),
+    ]
+
+    # Simulate the prior worker version at the exact production call site:
+    # patched() records the v2 marker, while deprecate_patch() preserves replay
+    # compatibility without writing that marker into new histories.
+    with monkeypatch.context() as legacy_patch:
+        legacy_patch.setattr(
+            temporal_workflow,
+            "deprecate_patch",
+            temporal_workflow.patched,
+        )
+        async with agent_worker_factory(
+            temporal_client,
+            task_queue=queue,
+            custom_activities=activities,
+        ):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+            await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+            marked_history = await fetch_history_after_completed_workflow_task(
+                wf_handle
+            )
+
+    await wf_handle.terminate(reason="Replay regression history captured")
+    assert APPROVAL_STREAM_V2_PATCH in await recorded_patch_ids(
+        temporal_client,
+        marked_history,
+    )
+    await replay_durable_agent_workflow_history(temporal_client, marked_history)
 
 
 @pytest.mark.anyio
