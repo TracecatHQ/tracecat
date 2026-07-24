@@ -6,12 +6,67 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tracecat.agent.session.activities import (
+    FinalizeTurnInput,
     PendingToolResult,
     ReconcileToolResultsInput,
+    finalize_turn_activity,
     reconcile_tool_results_activity,
 )
 from tracecat.auth.types import Role
 from tracecat.storage.object import ExternalObject, ObjectRef
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "emit_terminal_done",
+    [False, True],
+    ids=["legacy-workflow", "combined-workflow"],
+)
+async def test_finalize_turn_activity_bridges_workflow_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    emit_terminal_done: bool,
+) -> None:
+    service = AsyncMock()
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = service
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentSessionService.with_session",
+        MagicMock(return_value=ctx),
+    )
+
+    role = Role(
+        type="service",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        service_id="tracecat-service",
+    )
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    active_stream_id = uuid.uuid4()
+    input = FinalizeTurnInput(
+        role=role,
+        session_id=session_id,
+        run_id=run_id,
+        active_stream_id=active_stream_id,
+        emit_terminal_done=emit_terminal_done,
+    )
+
+    result = await finalize_turn_activity(input)
+
+    if emit_terminal_done:
+        assert result is not None
+        assert result.terminal_done_emitted is True
+        service.finalize_turn.assert_awaited_once_with(
+            session_id,
+            run_id,
+            active_stream_id=active_stream_id,
+        )
+        service.clear_turn_pointers.assert_not_awaited()
+    else:
+        assert result is None
+        service.clear_turn_pointers.assert_awaited_once_with(session_id, run_id)
+        service.finalize_turn.assert_not_awaited()
 
 
 @pytest.mark.anyio

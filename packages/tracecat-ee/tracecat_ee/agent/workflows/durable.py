@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         FinalizeTurnInput,
+        FinalizeTurnResult,
         LoadSessionInput,
         LoadSessionMessagesInput,
         LoadSessionResult,
@@ -491,9 +492,8 @@ def _preserved_agents_binding(
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
+FINALIZE_TURN_WITH_END_PATCH = "durable-agent-finalize-turn-with-end-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
-# Gates the approval-stream lifecycle as one capability: persist approvals before
-# closing the pause stream, rotate continuations, and best-effort stream closure.
 APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
 
@@ -517,7 +517,6 @@ class DurableAgentWorkflow:
         self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
-        self._approval_stream_v2 = False
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
@@ -920,13 +919,28 @@ class DurableAgentWorkflow:
             # Terminal boundary only: approval-pause awaits inside the executor
             # loop and never reaches here. Clear the active-turn pointers so the
             # mid-turn DB filter releases the final rows and reconnect -> 204.
-            # Patch-gated: finalize_turn_activity is a new command, so old
-            # histories recorded before this change must not replay it.
-            if workflow.patched(FINALIZE_TURN_PATCH):
-                await self._finalize_turn()
+            # The v2 patch folds Redis END into finalize_turn_activity. The
+            # legacy branch preserves histories that recorded a standalone END,
+            # with or without pointer cleanup, while the activity-result fallback
+            # covers a v2 workflow whose task is picked up by a pre-v2 worker.
+            terminal_stream_id = self.active_stream_id
+            if workflow.patched(FINALIZE_TURN_WITH_END_PATCH):
+                await self._finalize_turn(
+                    terminal_stream_id,
+                    emit_terminal_done=True,
+                )
+            else:
+                if workflow.patched(FINALIZE_TURN_PATCH):
+                    await self._finalize_turn(None, emit_terminal_done=False)
+                await self._emit_terminal_done(terminal_stream_id)
 
-    async def _finalize_turn(self) -> None:
-        """Clear active-turn pointers at terminal (compare-and-clear by run_id)."""
+    async def _finalize_turn(
+        self,
+        active_stream_id: uuid.UUID | None,
+        *,
+        emit_terminal_done: bool,
+    ) -> None:
+        """Finalize terminal state and bridge workers without combined support."""
         # Use the workflow-id token (same as the persisted curr_run_id), not
         # args.agent_args.curr_run_id, which is None for DSL/workflow callers and
         # would skip cleanup. workflow.info() is replay-safe.
@@ -934,25 +948,36 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         try:
-            await workflow.execute_activity(
+            result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
                 FinalizeTurnInput(
                     role=self.role,
                     session_id=self.session_id,
                     run_id=run_id,
+                    active_stream_id=active_stream_id,
+                    emit_terminal_done=emit_terminal_done,
                 ),
-                start_to_close_timeout=timedelta(seconds=10),
-                # Idempotent (compare-and-clear by run_id); retry so a transient
-                # failure doesn't leave curr_run_id set and hide the final row.
+                # Preserve the two former 10-second operation budgets when DB
+                # cleanup and Redis completion run inside one activity.
+                start_to_close_timeout=timedelta(
+                    seconds=20 if emit_terminal_done else 10
+                ),
+                # Retry-safe: pointer cleanup is compare-and-clear by run_id,
+                # and clients tolerate an ambiguous duplicate END.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:
             logger.warning(
-                "Failed to finalize agent turn pointers",
+                "Failed to finalize agent turn",
                 session_id=str(self.session_id),
                 run_id=str(run_id),
+                active_stream_id=str(active_stream_id),
                 error=str(exc),
             )
+            return
+
+        if emit_terminal_done and (result is None or not result.terminal_done_emitted):
+            await self._emit_terminal_done(active_stream_id)
 
     async def _finalize_session_error(
         self, message: str, *, should_stream: bool
@@ -1036,6 +1061,30 @@ class DurableAgentWorkflow:
             logger.warning(
                 "Failed to emit agent session cancelled notice",
                 session_id=self.session_id,
+                error=str(emit_error),
+            )
+
+    async def _emit_terminal_done(self, active_stream_id: uuid.UUID | None) -> None:
+        """Close the stream for legacy histories or a legacy-worker fallback."""
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_done,
+                EmitSessionDoneInputs(
+                    role=self.role,
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    active_stream_id=active_stream_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                # Retry-safe: an ambiguous failure may append a duplicate END,
+                # which clients already tolerate.
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit terminal agent stream done",
+                session_id=self.session_id,
+                active_stream_id=str(active_stream_id),
                 error=str(emit_error),
             )
 
@@ -1248,7 +1297,12 @@ class DurableAgentWorkflow:
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
         )
-        self._approval_stream_v2 = workflow.patched(APPROVAL_STREAM_V2_PATCH)
+        # Replay bridge for histories that recorded the v2 marker. Keep this
+        # until those histories have drained. This does not make pre-v2
+        # histories that already advanced past an approval pause compatible
+        # with the now-unconditional emit_session_done command; verify that no
+        # such executions remain RUNNING before rollout.
+        workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1265,7 +1319,6 @@ class DurableAgentWorkflow:
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
-            defer_done_on_approval=self._approval_stream_v2,
             is_fork=load_result.is_fork,
         )
 
@@ -1376,8 +1429,7 @@ class DurableAgentWorkflow:
                         tool_call_parts,
                         request_metadata=request_metadata,
                     )
-                if self._approval_stream_v2:
-                    await self._emit_approval_pause_done()
+                await self._emit_approval_pause_done()
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
@@ -1515,7 +1567,6 @@ class DurableAgentWorkflow:
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
                     sdk_session_data=reload_result.sdk_session_data,
-                    defer_done_on_approval=self._approval_stream_v2,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )

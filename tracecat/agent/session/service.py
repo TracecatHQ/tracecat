@@ -1012,12 +1012,12 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.refresh(agent_session)
         return agent_session
 
-    async def finalize_turn(
+    async def clear_turn_pointers(
         self,
         session_id: uuid.UUID,
         run_id: uuid.UUID,
     ) -> None:
-        """Clear the active-turn pointers at terminal (compare-and-clear).
+        """Clear the active-turn pointers with a compare-and-clear update.
 
         Nulls ``curr_run_id`` and ``active_stream_id`` only while the session
         still points at ``run_id``. The compare guards against a newer turn that
@@ -1037,6 +1037,33 @@ class AgentSessionService(BaseWorkspaceService):
         )
         await self.session.execute(stmt)
         await self.session.commit()
+
+    async def finalize_turn(
+        self,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        *,
+        active_stream_id: uuid.UUID | None,
+    ) -> None:
+        """Publish terminal DB state, then close the captured Redis stream.
+
+        When this method returns, this run no longer owns the session's active
+        pointers and its captured stream contains ``END``. Both operations are
+        retry-safe: the database update is compare-and-clear by ``run_id``, and
+        clients tolerate duplicate terminal stream markers.
+
+        Args:
+            session_id: Agent session being finalized.
+            run_id: Run that is relinquishing ownership of the active pointers.
+            active_stream_id: Stream captured by that run before pointer cleanup.
+        """
+        await self.clear_turn_pointers(session_id, run_id)
+        stream = await AgentStream.new(
+            workspace_id=self.workspace_id,
+            session_id=session_id,
+            stream_id=active_stream_id,
+        )
+        await stream.done()
 
     async def append_cancelled_marker(
         self,
