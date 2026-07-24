@@ -265,7 +265,7 @@ def get_role_from_user(
     )
 
 
-def _get_bearer_token(request: Request) -> str | None:
+def get_bearer_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return None
@@ -792,7 +792,7 @@ async def _authenticate_executor(
     require_workspace: Literal["yes", "no", "optional"],
 ) -> Role:
     """Authenticate executor via JWT bearer token and return Role."""
-    token = _get_bearer_token(request)
+    token = get_bearer_token(request)
     if not token:
         logger.info("Missing executor bearer token")
         raise HTTPException(
