@@ -301,10 +301,13 @@ source_env_file() {
 # Get list of running cluster numbers for this worktree (used for auto-selection)
 # Cluster numbers for THIS worktree and topology.
 #
-# Pass "include_stopped" when choosing which cluster to reuse: a stopped
-# project keeps its volumes, so `down` followed by `up` must land on the same
-# number. Without it the second `up` allocates a fresh number and the first
-# cluster's data is stranded under a project nothing references any more.
+# Pass "include_stopped" when choosing which cluster to reuse. `docker compose
+# down` REMOVES a project's containers, so the project disappears from
+# `docker compose ls -a` entirely while its volumes, database, Temporal
+# namespace and minted secrets all survive. Looking only at Compose projects
+# therefore misses a stack that is merely stopped, and `up` would allocate a
+# fresh number and strand the previous stack's data. Volumes are the durable
+# record, so scan those too.
 #
 # Commands that act on a live cluster (logs, ps, attach) want running only.
 get_running_clusters() {
@@ -315,14 +318,31 @@ get_running_clusters() {
     local prefix
     prefix=$(cluster_prefix)
 
-    docker compose ls "${ls_args[@]}" --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
-        if [[ "$project" == ${prefix}* ]]; then
-            local num="${project#"$prefix"}"
-            if [[ "$num" =~ ^[0-9]+$ ]]; then
-                echo "$num"
+    {
+        # Bash 3.2 (macOS) errors on "${arr[@]}" for an empty array under
+        # `set -u`; use the same guarded expansion as the rest of this script.
+        docker compose ls ${ls_args[@]+"${ls_args[@]}"} --format json 2>/dev/null \
+            | jq -r '.[].Name' 2>/dev/null | while read -r project; do
+            if [[ "$project" == ${prefix}* ]]; then
+                local num="${project#"$prefix"}"
+                if [[ "$num" =~ ^[0-9]+$ ]]; then
+                    echo "$num"
+                fi
             fi
+        done
+
+        if [[ "$include_stopped" == "include_stopped" ]]; then
+            docker volume ls --format '{{.Name}}' 2>/dev/null | while read -r vol; do
+                if [[ "$vol" == ${prefix}* ]]; then
+                    local rest="${vol#"$prefix"}"
+                    local num="${rest%%_*}"
+                    if [[ "$num" =~ ^[0-9]+$ ]]; then
+                        echo "$num"
+                    fi
+                fi
+            done
         fi
-    done | sort -n
+    } | sort -n | uniq
 }
 
 # Get ALL cluster numbers across all worktrees and both topologies (used for
@@ -714,10 +734,20 @@ build_env_standalone() {
     stack_id=$(stack_id "$cluster_num")
 
     export STACK_ID="$stack_id"
-    # Redis ships with 16 logical databases; wrap rather than fail so a high
-    # cluster number still starts. Collisions only matter between two stacks
-    # 16 apart, which the number allocator makes rare.
-    export STACK_REDIS_DB=$(( cluster_num % 16 ))
+
+    # Redis ships with 16 logical databases. Wrapping with modulo would give
+    # stacks 1 and 17 the same database, and since the allocator permits
+    # numbers up to 99 they could run concurrently — silently sharing streams,
+    # OIDC state and cached artifacts between supposedly isolated stacks.
+    # Fail loudly instead; raising Redis `databases` is the deliberate fix.
+    if [[ "$cluster_num" -gt 15 ]]; then
+        echo "Error: cluster ${cluster_num} exceeds the 16 Redis logical databases" >&2
+        echo "  A standalone stack needs its own Redis database, and index ${cluster_num} would" >&2
+        echo "  collide with cluster $(( cluster_num % 16 )). Free a lower cluster number, or raise" >&2
+        echo "  'databases' in deployments/multi-dev/infra/compose.yaml and this check." >&2
+        exit 1
+    fi
+    export STACK_REDIS_DB="$cluster_num"
 
     # No Caddy in this topology: the browser reaches the standalone container
     # directly, so the app origin IS the published port. UI and API therefore
@@ -742,16 +772,13 @@ build_env_standalone() {
 # Idempotent: safe to call on every `up`.
 ensure_shared_infra() {
     export_shared_infra_ports
-    local running
-    running=$(docker compose ls --format json 2>/dev/null \
-        | jq -r --arg n "$SHARED_INFRA_PROJECT" '.[] | select(.Name == $n) | .Name' 2>/dev/null)
 
-    if [[ -n "$running" ]]; then
-        echo "Shared infra already running (${SHARED_INFRA_PROJECT})"
-        return 0
-    fi
-
-    echo "Starting shared infra (${SHARED_INFRA_PROJECT})..."
+    # Always run `up -d --wait`, never short-circuit on the project merely
+    # being listed. A project can exist with Postgres or Temporal stopped or
+    # unhealthy, in which case an early return would let bootstrap fail and
+    # keep failing on every retry. `up -d --wait` is idempotent and is the only
+    # form that actually reconciles a partially running project.
+    echo "Ensuring shared infra is healthy (${SHARED_INFRA_PROJECT})..."
     docker compose -p "$SHARED_INFRA_PROJECT" -f "$SHARED_INFRA_COMPOSE" up -d --wait
 }
 
@@ -1634,7 +1661,12 @@ seed_dev_user() {
     if [[ "$TOPOLOGY" == "standalone" ]]; then
         seed_db_name=$(stack_id "$CLUSTER_NUM")
     fi
-    local seed_db_uri="postgresql+psycopg://postgres:postgres@localhost:${PG_PORT}/${seed_db_name}"
+    # Use the configured credentials, not hardcoded postgres:postgres. Shared
+    # infra is started with these same values, so a non-default user would
+    # otherwise reach a healthy API and then fail authentication while seeding.
+    local seed_pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+    local seed_pg_pass="${TRACECAT__POSTGRES_PASSWORD:-postgres}"
+    local seed_db_uri="postgresql+psycopg://${seed_pg_user}:${seed_pg_pass}@localhost:${PG_PORT}/${seed_db_name}"
 
     echo "[dev-seed] Seeding dev superuser (${seed_superuser_email}), tenant user (${seed_email}), and default tier (${seed_default_tier_entitlements})..."
     (

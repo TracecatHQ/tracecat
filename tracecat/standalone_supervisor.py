@@ -182,13 +182,30 @@ def _db_host_and_database(uri: str) -> str:
     return f"{display_host}/{database}"
 
 
+def _redis_host_and_database(uri: str) -> str:
+    """Redis endpoint without credentials.
+
+    ``--dry-run`` output lands in terminal history and captured CI or container
+    logs, so any username or password in ``REDIS_URL`` must not appear there.
+    Mirrors the redaction already applied to the database URI.
+    """
+    parsed = urlsplit(uri)
+    hostname = parsed.hostname or ""
+    database = parsed.path.lstrip("/")
+
+    display_host = f"[{hostname}]" if ":" in hostname else hostname
+    if parsed.port is not None:
+        display_host = f"{display_host}:{parsed.port}"
+    return f"{display_host}/{database}" if database else display_host
+
+
 def _print_dry_run() -> None:
     payload = {
         "instance": os.environ["TRACECAT_INSTANCE"],
         "db_uri_host_and_db_only": _db_host_and_database(config.TRACECAT__DB_URI),
         "temporal_namespace": config.TEMPORAL__CLUSTER_NAMESPACE,
         "port": int(os.environ["PORT"]),
-        "redis_url": config.REDIS_URL,
+        "redis_url_host_and_db_only": _redis_host_and_database(config.REDIS_URL),
         "bucket_workflow": config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
         "action_gateway_socket": config.TRACECAT__ACTION_GATEWAY_SOCKET,
         "agent_mcp_socket": str(agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH),
