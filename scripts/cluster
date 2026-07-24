@@ -1188,6 +1188,14 @@ if [[ "$COMMAND" == "up" ]]; then
                 ;;
         esac
     done
+    # A cluster slot's project name has no profile component, so switching an
+    # existing dev cluster to lite reuses the same project. Compose only warns
+    # about services missing from the new file, which would leave Temporal,
+    # Redis, MinIO and the workers running and defeat the point of the profile.
+    # This removes containers only; named volumes such as core-db are untouched.
+    if [[ "$PROFILE" == "lite" ]] && ! printf '%s\n' ${UP_ARGS[@]+"${UP_ARGS[@]}"} | grep -qx -- "--remove-orphans"; then
+        UP_ARGS+=(--remove-orphans)
+    fi
     set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
 elif [[ "$COMMAND" == "seed" ]]; then
     while [[ $# -gt 0 ]]; do
