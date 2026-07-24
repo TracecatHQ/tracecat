@@ -85,6 +85,27 @@ async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_erro
 
 
 @pytest.mark.anyio
+async def test_execute_user_mcp_tool_passes_string_result_through_unwrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Flattened text must not be quote-wrapped and re-escaped by json.dumps."""
+    flattened = 'status: "ok"\n\nline two'
+    mock_client = AsyncMock()
+    mock_client.call_tool.return_value = flattened
+    monkeypatch.setattr(trusted_server, "UserMCPClient", lambda _: mock_client)
+    claims = _build_claims(
+        allowed_actions=["core.http_request", "mcp__Jira__getIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="Jira", url="https://mcp.atlassian.com/v1/mcp")
+        ],
+    )
+
+    result = await trusted_server._execute_user_mcp("Jira", "getIssue", {}, claims)
+
+    assert result == flattened
+
+
+@pytest.mark.anyio
 async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

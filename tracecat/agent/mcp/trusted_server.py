@@ -767,6 +767,10 @@ async def _execute_user_mcp(
             workspace_id=str(claims.workspace_id),
         )
 
+        # Flattened text is already a string; dumps would quote-wrap it and
+        # double-escape it on the CLI stdout leg.
+        if isinstance(result, str):
+            return result
         return json.dumps(result, default=str)
     except ToolError:
         raise
