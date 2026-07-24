@@ -1,9 +1,9 @@
 """Development-only fork supervisor for standalone Tracecat instances.
 
 The parent imports :mod:`tracecat.standalone` below to warm the full module
-graph, then freezes tracked objects before forking. It must remain a zygote:
-do not create an asyncio event loop, service client, database engine, or thread
-on the parent path before ``os.fork()``.
+graph, then freezes tracked objects before forking. The parent must stay
+fork-safe: do not create an asyncio event loop, service client, database engine,
+or thread on the parent path before ``os.fork()``.
 
 The active Tracecat Loguru configuration writes synchronously to stderr and
 does not start a writer thread. ``tracecat.logger.config`` contains optional
@@ -12,10 +12,10 @@ those templates. If that changes, forking with the inherited writer state will
 be unsafe and this entrypoint must be revisited.
 
 Child configuration re-derivation explicitly reloads ``tracecat.config`` and
-then ``tracecat.agent.common.config``. Modules imported into the zygote that
-consume per-instance settings access those module objects lazily; the other
-imported modules with direct environment reads contain shared process settings
-or constants for paths inside per-job sandbox namespaces.
+then ``tracecat.agent.common.config``. Modules imported into the supervisor
+parent that consume per-instance settings access those module objects lazily;
+the other imported modules with direct environment reads contain shared process
+settings or constants for paths inside per-job sandbox namespaces.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from types import FrameType
 from typing import NoReturn
 from urllib.parse import urlsplit
 
-# This import is intentionally module-level: it is the zygote warm-up step.
+# This import is intentionally module-level: it is the supervisor warm-up step.
 from tracecat import config, standalone
 from tracecat.agent.common import config as agent_config
 from tracecat.logger import logger
@@ -211,7 +211,7 @@ def _run_child(instance: InstanceManifest, *, dry_run: bool) -> NoReturn:
             exit_code = standalone.run()
     except BaseException:
         logger.exception(
-            "Zygote child failed",
+            "Supervisor child failed",
             instance=instance.name,
             pid=os.getpid(),
         )
@@ -254,7 +254,9 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
             try:
                 pid = os.fork()
             except OSError:
-                logger.exception("Failed to fork zygote child", instance=instance.name)
+                logger.exception(
+                    "Failed to fork supervisor child", instance=instance.name
+                )
                 failed = True
                 shutdown_requested = True
                 break
@@ -265,7 +267,7 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
         while children:
             if shutdown_requested and shutdown_deadline is None:
                 logger.info(
-                    "Forwarding SIGTERM to zygote children",
+                    "Forwarding SIGTERM to supervisor children",
                     child_count=len(children),
                 )
                 _signal_children(children, signal.SIGTERM)
@@ -277,7 +279,7 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
                 and time.monotonic() >= shutdown_deadline
             ):
                 logger.warning(
-                    "Killing zygote children after shutdown timeout",
+                    "Killing supervisor children after shutdown timeout",
                     child_count=len(children),
                     timeout_seconds=SHUTDOWN_TIMEOUT_SECONDS,
                 )
@@ -293,7 +295,7 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
                 child = children.pop(waited_pid)
                 exit_code = os.waitstatus_to_exitcode(status)
                 logger.info(
-                    "Zygote child exited",
+                    "Supervisor child exited",
                     instance=child.instance.name,
                     pid=waited_pid,
                     exit_code=exit_code,
@@ -312,7 +314,7 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
 
 def _parse_args(argv: list[str] | None) -> CliArgs:
     parser = argparse.ArgumentParser(
-        description="Fork standalone Tracecat instances from one warmed zygote"
+        description="Fork standalone Tracecat instances from one warmed supervisor parent"
     )
     parser.add_argument(
         "--dry-run",
@@ -327,12 +329,12 @@ def _parse_args(argv: list[str] | None) -> CliArgs:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     instance_directory = Path(
-        os.environ.get("TRACECAT__ZYGOTE_INSTANCE_DIR", DEFAULT_INSTANCE_DIR)
+        os.environ.get("TRACECAT__STANDALONE_INSTANCE_DIR", DEFAULT_INSTANCE_DIR)
     )
     try:
         instances = _read_manifest(instance_directory)
     except (OSError, UnicodeError, ValueError) as e:
-        logger.error("Invalid zygote instance manifest", error=str(e))
+        logger.error("Invalid standalone instance manifest", error=str(e))
         return 1
     return _supervise(instances, dry_run=args.dry_run)
 

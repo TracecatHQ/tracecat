@@ -84,24 +84,25 @@ Run these commands from the repository root.
    docker compose -f deployments/multi-dev/docker-compose.infra.yml down
    ```
 
-## Zygote mode (N instances, one container)
+## Standalone supervisor mode (N instances, one container)
 
-Zygote mode is the lower-memory alternative when several headless development
-instances can share one container lifecycle. The parent imports the standalone
-runtime once, freezes the imported Python object graph, and forks one child per
-instance. Linux copy-on-write lets those children physically share most clean
-import pages instead of paying for the same roughly 400 MB module graph in
-every container.
+Supervisor mode is the lower-memory alternative when several headless
+development instances can share one container lifecycle. The parent imports the
+standalone runtime once, freezes the imported Python object graph, and forks one
+child per instance. Linux copy-on-write lets those children physically share
+most clean import pages instead of paying for the same roughly 400 MB module
+graph in every container.
 
 Prefer the per-instance compose file when instances need independent container
-restarts, health state, resource limits, or deployment lifecycles. In zygote
+restarts, health state, resource limits, or deployment lifecycles. In supervisor
 mode, restarting or replacing the one container restarts every child, and v1
 does not restart a child that exits.
 
-The zygote reads every `*.env` file from `deployments/multi-dev/instances/`.
-Files contain only per-instance values; shared endpoints and concurrency
-defaults remain in `docker-compose.zygote.yml`. Ports must be unique and fall
-within the published `8100-8119` range.
+The supervisor reads every `*.env` file from
+`deployments/multi-dev/instances/`. Files contain only per-instance values;
+shared endpoints and concurrency defaults remain in
+`docker-compose.standalone.yml`. Ports must be unique and fall within the
+published `8100-8119` range.
 
 1. Start the shared infrastructure as described above, then create instance
    manifests from the examples and replace every placeholder secret.
@@ -115,7 +116,7 @@ within the published `8100-8119` range.
 
 2. Bootstrap each instance database and Temporal namespace exactly as for a
    per-instance container. Repeat this block for each manifest before starting
-   the zygote.
+   the supervisor.
 
    ```bash
    set -a
@@ -130,15 +131,15 @@ within the published `8100-8119` range.
        --namespace "$TEMPORAL__CLUSTER_NAMESPACE"
    ```
 
-3. Validate the manifests with real forks, then build and start the one zygote
-   container.
+3. Validate the manifests with real forks, then build and start the one
+   supervisor container.
 
    ```bash
-   TRACECAT__ZYGOTE_INSTANCE_DIR=deployments/multi-dev/instances \
-     uv run python -m tracecat.zygote --dry-run
+   TRACECAT__STANDALONE_INSTANCE_DIR=deployments/multi-dev/instances \
+     uv run python -m tracecat.standalone_supervisor --dry-run
 
    docker compose \
-     -f deployments/multi-dev/docker-compose.zygote.yml \
+     -f deployments/multi-dev/docker-compose.standalone.yml \
      up -d --build
    ```
 
@@ -147,16 +148,16 @@ represent all children. Check each configured port directly, for example
 `curl -f http://localhost:8100/health` and
 `curl -f http://localhost:8101/health`.
 
-To measure the saving, compare the one zygote cgroup with the same number of
+To measure the saving, compare the one supervisor cgroup with the same number of
 per-instance containers:
 
 ```bash
-docker stats --no-stream tracecat-zygote-zygote-1
+docker stats --no-stream tracecat-standalone-supervisor-1
 ```
 
 The baseline standalone process was about 621 MiB in the original measurement.
-Unlike summing N per-instance container readings, one zygote container's cgroup
-counts its children’s shared copy-on-write pages once.
+Unlike summing N per-instance container readings, one supervisor container's
+cgroup counts its children’s shared copy-on-write pages once.
 
 ## Memory and concurrency knobs
 

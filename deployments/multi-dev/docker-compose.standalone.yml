@@ -1,19 +1,19 @@
-name: tracecat-zygote
+name: tracecat-standalone
 
 services:
-  zygote:
+  supervisor:
     build:
       context: ../..
       dockerfile: Dockerfile
       target: development
     restart: unless-stopped
-    command: ["python", "-m", "tracecat.zygote"]
+    command: ["python", "-m", "tracecat.standalone_supervisor"]
     ports:
       - "127.0.0.1:8100-8119:8100-8119"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
-      TRACECAT__ZYGOTE_INSTANCE_DIR: /etc/tracecat/instances
+      TRACECAT__STANDALONE_INSTANCE_DIR: /etc/tracecat/instances
 
       # Shared API and authentication settings. Instance URLs and secrets live
       # in instances/*.env.
