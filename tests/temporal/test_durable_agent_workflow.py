@@ -76,6 +76,7 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     FinalizeTurnInput,
+    FinalizeTurnResult,
     LoadSessionInput,
     LoadSessionMessagesInput,
     LoadSessionMessagesResult,
@@ -331,6 +332,23 @@ def create_mock_finalize_turn_activity() -> Callable[..., Any]:
         del input
 
     return mock_finalize_turn_activity
+
+
+def create_legacy_finalize_turn_activity() -> Callable[..., Any]:
+    """Create a DB-only finalize activity that emulates a pre-combined worker."""
+
+    @activity.defn(name="finalize_turn_activity")
+    async def legacy_finalize_turn_activity(input: FinalizeTurnInput) -> None:
+        await finalize_turn_activity(
+            input.model_copy(
+                update={
+                    "active_stream_id": None,
+                    "emit_terminal_done": False,
+                }
+            )
+        )
+
+    return legacy_finalize_turn_activity
 
 
 def create_activities_with_mock_executor(
@@ -906,6 +924,7 @@ async def test_terminal_end_observes_publishable_final_history(
     agent_worker_factory,
     mock_session_id: uuid.UUID,
     test_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """END is emitted only after final rows are visible to canonical reads."""
     del test_user
@@ -949,26 +968,50 @@ async def test_terminal_end_observes_publishable_final_history(
         call_order.append("load_terminal_history")
         return result
 
-    @activity.defn(name="finalize_turn_activity")
-    async def observed_finalize_turn_activity(input: FinalizeTurnInput) -> None:
-        await finalize_turn_activity(input)
-        call_order.append("finalize_turn")
+    class ObservedTerminalStream:
+        async def done(self) -> None:
+            async with AgentSessionService.with_session(role=svc_role) as service:
+                session = await service.get_session(mock_session_id)
+                assert session is not None
+                assert session.curr_run_id is None
+                messages = await service.list_messages(
+                    mock_session_id,
+                    include_active=False,
+                )
+            assert len(messages) == 1
+            assert messages[0].kind is MessageKind.CHAT_MESSAGE
+            assert messages[0].message is not None
+            call_order.append("emit_session_done")
 
-    @activity.defn(name="emit_session_done")
-    async def observe_terminal_done(input: EmitSessionDoneInputs) -> None:
-        assert input.active_stream_id == active_stream_id
-        async with AgentSessionService.with_session(role=input.role) as service:
-            session = await service.get_session(input.session_id)
-            assert session is not None
-            assert session.curr_run_id is None
-            messages = await service.list_messages(
-                input.session_id,
-                include_active=False,
-            )
-        assert len(messages) == 1
-        assert messages[0].kind is MessageKind.CHAT_MESSAGE
-        assert messages[0].message is not None
-        call_order.append("emit_session_done")
+    class InitialSessionStream:
+        async def clear_buffer(self) -> None:
+            return None
+
+    async def observed_stream_new(
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
+    ) -> ObservedTerminalStream | InitialSessionStream:
+        assert workspace_id == svc_role.workspace_id
+        assert session_id == mock_session_id
+        if stream_id is None:
+            return InitialSessionStream()
+        assert stream_id == active_stream_id
+        return ObservedTerminalStream()
+
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentStream.new",
+        observed_stream_new,
+    )
+
+    @activity.defn(name="finalize_turn_activity")
+    async def observed_finalize_turn_activity(
+        input: FinalizeTurnInput,
+    ) -> FinalizeTurnResult | None:
+        result = await finalize_turn_activity(input)
+        call_order.append("finalize_turn")
+        return result
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -992,7 +1035,6 @@ async def test_terminal_end_observes_publishable_final_history(
         observed_finalize_turn_activity,
         create_mock_build_tool_definitions_activity({}),
         mock_run_agent_activity,
-        observe_terminal_done,
     ]
 
     async with agent_worker_factory(
@@ -1017,8 +1059,8 @@ async def test_terminal_end_observes_publishable_final_history(
     assert call_order == [
         "persist_final_history",
         "load_terminal_history",
-        "finalize_turn",
         "emit_session_done",
+        "finalize_turn",
     ]
 
 
@@ -1096,7 +1138,7 @@ async def test_executor_cancellation_persists_marker_before_terminal_end(
         create_session_activity,
         load_session_activity,
         load_session_messages_activity,
-        finalize_turn_activity,
+        create_legacy_finalize_turn_activity(),
         create_mock_build_tool_definitions_activity({}),
         create_mock_run_agent_activity(cancelled_executor),
         persist_executor_cancellation,
@@ -1214,7 +1256,7 @@ async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
         create_session_activity,
         load_session_activity,
         load_session_messages_activity,
-        finalize_turn_activity,
+        create_legacy_finalize_turn_activity(),
         create_mock_build_tool_definitions_activity(),
         create_mock_run_agent_activity(approval_executor),
         mock_record_approval_requests,
@@ -1740,7 +1782,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             load_session_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
-            finalize_turn_activity,
+            create_legacy_finalize_turn_activity(),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,

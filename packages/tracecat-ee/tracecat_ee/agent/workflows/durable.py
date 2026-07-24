@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         FinalizeTurnInput,
+        FinalizeTurnResult,
         LoadSessionInput,
         LoadSessionMessagesInput,
         LoadSessionResult,
@@ -491,6 +492,7 @@ def _preserved_agents_binding(
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
+FINALIZE_TURN_WITH_END_PATCH = "durable-agent-finalize-turn-with-end-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
 APPROVAL_STREAM_V2_PATCH = "durable-agent-approval-stream-v2"
 
@@ -917,15 +919,28 @@ class DurableAgentWorkflow:
             # Terminal boundary only: approval-pause awaits inside the executor
             # loop and never reaches here. Clear the active-turn pointers so the
             # mid-turn DB filter releases the final rows and reconnect -> 204.
-            # Patch-gated: finalize_turn_activity is a new command, so old
-            # histories recorded before this change must not replay it.
+            # The v2 patch folds Redis END into finalize_turn_activity. The
+            # legacy branch preserves histories that recorded a standalone END,
+            # with or without pointer cleanup, while the activity-result fallback
+            # covers a v2 workflow whose task is picked up by a pre-v2 worker.
             terminal_stream_id = self.active_stream_id
-            if workflow.patched(FINALIZE_TURN_PATCH):
-                await self._finalize_turn()
-            await self._emit_terminal_done(terminal_stream_id)
+            if workflow.patched(FINALIZE_TURN_WITH_END_PATCH):
+                await self._finalize_turn(
+                    terminal_stream_id,
+                    emit_terminal_done=True,
+                )
+            else:
+                if workflow.patched(FINALIZE_TURN_PATCH):
+                    await self._finalize_turn(None, emit_terminal_done=False)
+                await self._emit_terminal_done(terminal_stream_id)
 
-    async def _finalize_turn(self) -> None:
-        """Clear active-turn pointers at terminal (compare-and-clear by run_id)."""
+    async def _finalize_turn(
+        self,
+        active_stream_id: uuid.UUID | None,
+        *,
+        emit_terminal_done: bool,
+    ) -> None:
+        """Finalize terminal state and bridge workers without combined support."""
         # Use the workflow-id token (same as the persisted curr_run_id), not
         # args.agent_args.curr_run_id, which is None for DSL/workflow callers and
         # would skip cleanup. workflow.info() is replay-safe.
@@ -933,25 +948,36 @@ class DurableAgentWorkflow:
             workflow.info().workflow_id
         ).session_id
         try:
-            await workflow.execute_activity(
+            result: FinalizeTurnResult | None = await workflow.execute_activity(
                 finalize_turn_activity,
                 FinalizeTurnInput(
                     role=self.role,
                     session_id=self.session_id,
                     run_id=run_id,
+                    active_stream_id=active_stream_id,
+                    emit_terminal_done=emit_terminal_done,
                 ),
-                start_to_close_timeout=timedelta(seconds=10),
-                # Idempotent (compare-and-clear by run_id); retry so a transient
-                # failure doesn't leave curr_run_id set and hide the final row.
+                # Preserve the two former 10-second operation budgets when DB
+                # cleanup and Redis completion run inside one activity.
+                start_to_close_timeout=timedelta(
+                    seconds=20 if emit_terminal_done else 10
+                ),
+                # Retry-safe: pointer cleanup is compare-and-clear by run_id,
+                # and clients tolerate an ambiguous duplicate END.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:
             logger.warning(
-                "Failed to finalize agent turn pointers",
+                "Failed to finalize agent turn",
                 session_id=str(self.session_id),
                 run_id=str(run_id),
+                active_stream_id=str(active_stream_id),
                 error=str(exc),
             )
+            return
+
+        if emit_terminal_done and (result is None or not result.terminal_done_emitted):
+            await self._emit_terminal_done(active_stream_id)
 
     async def _finalize_session_error(
         self, message: str, *, should_stream: bool
@@ -1039,7 +1065,7 @@ class DurableAgentWorkflow:
             )
 
     async def _emit_terminal_done(self, active_stream_id: uuid.UUID | None) -> None:
-        """Close the captured terminal stream after durable state is publishable."""
+        """Close the stream for legacy histories or a legacy-worker fallback."""
         try:
             await workflow.execute_activity_method(
                 AgentActivities.emit_session_done,
