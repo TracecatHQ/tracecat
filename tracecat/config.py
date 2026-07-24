@@ -94,6 +94,10 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__STANDALONE_RUN_MIGRATIONS = env_bool(
+    "TRACECAT__STANDALONE_RUN_MIGRATIONS", default=True
+)
+"""Run database migrations before starting the development-only standalone process."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64

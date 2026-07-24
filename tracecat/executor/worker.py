@@ -42,6 +42,7 @@ import dataclasses
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -49,6 +50,9 @@ from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
+
+if TYPE_CHECKING:
+    from temporalio.client import Client
 
 with workflow.unsafe.imports_passed_through():
     import uvloop
@@ -69,8 +73,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
-
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 
 def new_sandbox_runner() -> SandboxedWorkflowRunner:
@@ -108,7 +110,13 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     )
 
 
-async def main(shutdown_event: asyncio.Event | None = None) -> None:
+async def main(
+    shutdown_event: asyncio.Event | None = None,
+    *,
+    close_storage_cache: bool = True,
+    capture_internal_server_signals: bool = True,
+    temporal_client: Client | None = None,
+) -> None:
     """Run the ExecutorWorker."""
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
@@ -129,7 +137,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         threadpool_max_workers=threadpool_max_workers,
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
-    action_gateway = ActionGateway()
+    action_gateway = ActionGateway(capture_signals=capture_internal_server_signals)
 
     try:
         # Start the local action gateway before sandbox workers are spawned so its
@@ -139,7 +147,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         # Initialize the executor backend before accepting tasks
         await initialize_executor_backend()
 
-        client = await get_temporal_client()
+        client = temporal_client or await get_temporal_client()
 
         # Collect all activities from executor and registry sync
         activities = [
@@ -185,9 +193,11 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     finally:
         logger.info("Shutting down executor backend")
         await shutdown_executor_backend()
-        await close_storage_client_cache()
+        if close_storage_cache:
+            await close_storage_client_cache()
         await action_gateway.stop()
 
 
 if __name__ == "__main__":
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     run_worker_entrypoint(main)
