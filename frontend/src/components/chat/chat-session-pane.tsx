@@ -430,6 +430,8 @@ export function ChatSessionPane({
   const displayedError = lastError ?? persistedError
 
   useAdoptServerTranscript({
+    chatId: chat?.id,
+    workspaceId,
     status,
     serverMessages: uiMessages,
     liveMessages: messages,

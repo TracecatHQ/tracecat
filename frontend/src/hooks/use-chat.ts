@@ -700,6 +700,184 @@ function isApprovalCardMessage(m: UIMessage): boolean {
   )
 }
 
+/** Delays between a rejected transcript adoption and its bounded refetches. */
+export const ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS = [
+  1_000, 3_000, 8_000,
+] as const
+
+/** The reason a server transcript should be adopted or retained. */
+export type ServerTranscriptAdoptionDecision =
+  | "already-current"
+  | "adopt"
+  | "reject-content"
+  | "reject-count"
+
+/** Index of the last user-role message, or -1 when there is none. */
+function lastUserMessageIndex(messages: UIMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      return index
+    }
+  }
+  return -1
+}
+
+/** Concatenated text parts of a message ("" when it has none). */
+function messageText(message: UIMessage): string {
+  let text = ""
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      text += part.text
+    }
+  }
+  return text
+}
+
+/**
+ * Concatenate the text parts of the final non-approval assistant message.
+ *
+ * Only the final turn qualifies: the scan stops at the last user message, so
+ * an assistant answer from a previous turn is never used as the coverage
+ * probe. `null` means there is no comparable text, so callers must fall back
+ * to the count guard instead of comparing tool or data parts that serialize
+ * differently between the stream and the database.
+ */
+export function getFinalLiveAssistantText(
+  liveMessages: UIMessage[]
+): string | null {
+  const turnStart = lastUserMessageIndex(liveMessages) + 1
+  for (let index = liveMessages.length - 1; index >= turnStart; index -= 1) {
+    const message = liveMessages[index]
+    if (message.role !== "assistant" || isApprovalCardMessage(message)) {
+      continue
+    }
+
+    let hasTextPart = false
+    let text = ""
+    for (const part of message.parts) {
+      if (part.type === "text") {
+        hasTextPart = true
+        text += part.text
+      }
+    }
+    return hasTextPart ? text : null
+  }
+  return null
+}
+
+/**
+ * Whether the server snapshot contains the live transcript's final turn.
+ *
+ * The mid-turn DB filter hides EVERY row tagged with the active run —
+ * including the turn's user prompt — so a stale snapshot omits the whole
+ * final turn, and neither whole-transcript text search nor "after the
+ * server's last user row" reliably identifies the current turn. Coverage is
+ * therefore anchored on the live final turn's user prompt: the last server
+ * user row with identical text. A missing anchor means the snapshot predates
+ * the final turn. Given an anchor, the server text after it must contain the
+ * live final assistant text (concatenated across messages so one live bubble
+ * can match several database-backed rows).
+ *
+ * A promptless final turn (no live user message, or one without text) and a
+ * textless final assistant message are deliberately treated as covered and
+ * left to the count guard — tool, data, and approval parts serialize too
+ * differently between the stream and the database to compare.
+ */
+export function serverTranscriptCoversLiveFinalAssistantText(
+  serverMessages: UIMessage[],
+  liveMessages: UIMessage[]
+): boolean {
+  const liveUserIndex = lastUserMessageIndex(liveMessages)
+  if (liveUserIndex === -1) {
+    return true
+  }
+  const liveUserText = messageText(liveMessages[liveUserIndex])
+  if (liveUserText === "") {
+    return true
+  }
+
+  // The anchor prompt may not be unique (a user can repeat a question
+  // verbatim), so presence alone cannot prove the final turn is in the
+  // snapshot. Require at least as many occurrences of the prompt as the live
+  // transcript has: a stale snapshot that hides the final turn is missing its
+  // occurrence and fails the count even when an earlier identical prompt —
+  // and an identical earlier answer — would otherwise match.
+  let liveOccurrences = 0
+  for (const message of liveMessages) {
+    if (message.role === "user" && messageText(message) === liveUserText) {
+      liveOccurrences += 1
+    }
+  }
+  let serverOccurrences = 0
+  let anchorIndex = -1
+  for (const [index, message] of serverMessages.entries()) {
+    if (message.role === "user" && messageText(message) === liveUserText) {
+      serverOccurrences += 1
+      anchorIndex = index
+    }
+  }
+  if (anchorIndex === -1 || serverOccurrences < liveOccurrences) {
+    return false
+  }
+
+  const finalAssistantText = getFinalLiveAssistantText(liveMessages)
+  if (finalAssistantText === null) {
+    return true
+  }
+
+  let serverText = ""
+  for (const message of serverMessages.slice(anchorIndex + 1)) {
+    serverText += messageText(message)
+  }
+  return serverText.includes(finalAssistantText)
+}
+
+/**
+ * Decide whether a quiescent live transcript can be replaced by the server.
+ *
+ * Count coverage always applies. Content coverage additionally protects the
+ * final streamed assistant text unless a bounded retry episode is exhausted.
+ */
+export function decideServerTranscriptAdoption({
+  serverMessages,
+  liveMessages,
+  allowContentMismatch = false,
+}: {
+  serverMessages: UIMessage[]
+  liveMessages: UIMessage[]
+  allowContentMismatch?: boolean
+}): ServerTranscriptAdoptionDecision {
+  if (
+    transcriptSignature(liveMessages) === transcriptSignature(serverMessages)
+  ) {
+    return "already-current"
+  }
+
+  // A resolved approval drops its card from the server transcript, so exclude
+  // approval-card-only messages from the finalize-race length guard.
+  const liveComparableLength = liveMessages.filter(
+    (message) => !isApprovalCardMessage(message)
+  ).length
+  if (serverMessages.length < liveComparableLength) {
+    return "reject-count"
+  }
+  if (
+    !allowContentMismatch &&
+    !serverTranscriptCoversLiveFinalAssistantText(serverMessages, liveMessages)
+  ) {
+    return "reject-content"
+  }
+  return "adopt"
+}
+
+type TranscriptRetryEpisode = {
+  completedAttempts: number
+  key: string
+  /** `dataUpdatedAt` of the transcript query when the last counted attempt ran. */
+  lastDataUpdatedAt: number
+  timers: Set<ReturnType<typeof setTimeout>>
+}
+
 /**
  * Adopt the server transcript wholesale at quiescent boundaries.
  *
@@ -708,42 +886,166 @@ function isApprovalCardMessage(m: UIMessage): boolean {
  * Message ids differ between the DB serialization and the live stream, so
  * merging is impossible by design — we replace, never merge.
  *
- * The backend guarantees this is always safe: an approval pause returns 204 on
- * resume, DB history already includes the paused partial turn, and any
- * continuation stream carries only the suffix. A normal turn can still finish
- * before curr_run_id is cleared, though, making the immediate onFinish refetch
- * omit the just-finished rows. Keep the longer live transcript until a later
- * server snapshot catches up. Never adopt while streaming/submitted either.
+ * The approval/continuation contract makes wholesale replacement safe once the
+ * DB snapshot is current: an approval pause returns 204 on resume, DB history
+ * already includes the paused partial turn, and any continuation stream carries
+ * only the suffix. A normal turn can still finish before curr_run_id is cleared,
+ * though, making the immediate onFinish refetch omit the just-finished rows.
+ * Keep the live transcript until a later server snapshot covers its final
+ * assistant text and comparable message count.
+ * Rejected snapshots receive a bounded refetch series; once every retry has
+ * delivered fresh data, a snapshot that passes the count guard is adopted even
+ * if its text still differs because the server is canonical at rest. Failed
+ * refetches do not count toward that bound — an outage must not hand the
+ * transcript to a stale cached snapshot. Never adopt or refetch from these
+ * timers while streaming/submitted.
  */
 export function useAdoptServerTranscript({
+  chatId,
+  workspaceId,
   status,
   serverMessages,
   liveMessages,
   setMessages,
 }: {
+  chatId?: string
+  workspaceId: string
   status: ChatStatus
   serverMessages: UIMessage[]
   liveMessages: UIMessage[]
   setMessages: (messages: UIMessage[]) => void
 }) {
-  const adoptedSignatureRef = useRef<string | null>(null)
+  const queryClient = useQueryClient()
+  const retryEpisodeRef = useRef<TranscriptRetryEpisode | null>(null)
+  const statusRef = useRef(status)
+  const [retryRevision, setRetryRevision] = useState(0)
+  statusRef.current = status
+
+  const cancelRetryEpisode = useCallback(function cancelRetryEpisode(): void {
+    const episode = retryEpisodeRef.current
+    if (!episode) return
+    for (const timer of episode.timers) {
+      clearTimeout(timer)
+    }
+    retryEpisodeRef.current = null
+  }, [])
+
+  const scheduleRetryEpisode = useCallback(
+    function scheduleRetryEpisode(key: string): void {
+      cancelRetryEpisode()
+      if (!chatId) return
+
+      const queryKey = ["chat", chatId, workspaceId, "vercel"]
+      const episode: TranscriptRetryEpisode = {
+        completedAttempts: 0,
+        key,
+        lastDataUpdatedAt:
+          queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
+        timers: new Set(),
+      }
+      retryEpisodeRef.current = episode
+
+      for (const delayMs of ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS) {
+        const timer = setTimeout(() => {
+          episode.timers.delete(timer)
+          if (
+            retryEpisodeRef.current !== episode ||
+            statusRef.current !== "ready"
+          ) {
+            return
+          }
+
+          void queryClient
+            .invalidateQueries({ queryKey })
+            .catch(() => undefined)
+            .then(() => {
+              if (
+                retryEpisodeRef.current !== episode ||
+                statusRef.current !== "ready"
+              ) {
+                return
+              }
+              // invalidateQueries resolves even when the refetch fails, so a
+              // transient outage must not exhaust the content guard and hand
+              // the transcript to a stale cached snapshot. Count only the
+              // attempts that actually delivered fresh data — never the timer
+              // slot index, which would retroactively credit failed slots.
+              const dataUpdatedAt =
+                queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0
+              const delivered = dataUpdatedAt > episode.lastDataUpdatedAt
+              if (delivered) {
+                episode.lastDataUpdatedAt = dataUpdatedAt
+                episode.completedAttempts += 1
+              }
+              const exhausted =
+                episode.completedAttempts >=
+                ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS.length
+              if (episode.timers.size === 0 && !exhausted) {
+                // The series ran out of timers without enough delivered
+                // refetches. Retire the episode so a future server snapshot
+                // change can start a fresh series — otherwise eventual
+                // adoption would be permanently unreachable. No revision bump:
+                // there is nothing to re-decide until new data arrives, so a
+                // quiet outage does not turn into an endless polling loop.
+                retryEpisodeRef.current = null
+                return
+              }
+              if (delivered) {
+                setRetryRevision((revision) => revision + 1)
+              }
+            })
+        }, delayMs)
+        episode.timers.add(timer)
+      }
+    },
+    [cancelRetryEpisode, chatId, queryClient, workspaceId]
+  )
+
+  useEffect(() => cancelRetryEpisode, [cancelRetryEpisode])
+
   useEffect(() => {
-    if (status !== "ready") return
-    const serverSignature = transcriptSignature(serverMessages)
-    if (adoptedSignatureRef.current === serverSignature) return
-    if (transcriptSignature(liveMessages) === serverSignature) {
-      adoptedSignatureRef.current = serverSignature
+    if (status !== "ready") {
+      cancelRetryEpisode()
       return
     }
-    // A resolved approval drops its card from the server transcript, so exclude
-    // approval-card-only messages from the finalize-race length guard.
-    const liveComparableLength = liveMessages.filter(
-      (m) => !isApprovalCardMessage(m)
-    ).length
-    if (serverMessages.length < liveComparableLength) return
-    adoptedSignatureRef.current = serverSignature
+
+    const liveSignature = transcriptSignature(liveMessages)
+    const episodeKey = JSON.stringify([chatId, workspaceId, liveSignature])
+    const retryEpisode = retryEpisodeRef.current
+    const allowContentMismatch =
+      retryEpisode?.key === episodeKey &&
+      retryEpisode.completedAttempts >=
+        ADOPT_SERVER_TRANSCRIPT_RETRY_DELAYS_MS.length
+    const decision = decideServerTranscriptAdoption({
+      serverMessages,
+      liveMessages,
+      allowContentMismatch,
+    })
+
+    if (decision === "already-current") {
+      cancelRetryEpisode()
+      return
+    }
+    if (decision === "reject-content" || decision === "reject-count") {
+      if (retryEpisode?.key !== episodeKey) {
+        scheduleRetryEpisode(episodeKey)
+      }
+      return
+    }
+
+    cancelRetryEpisode()
     setMessages(serverMessages)
-  }, [status, serverMessages, liveMessages, setMessages])
+  }, [
+    cancelRetryEpisode,
+    chatId,
+    liveMessages,
+    retryRevision,
+    scheduleRetryEpisode,
+    serverMessages,
+    setMessages,
+    status,
+    workspaceId,
+  ])
 }
 
 /**
