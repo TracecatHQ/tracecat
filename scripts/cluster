@@ -68,7 +68,25 @@ get_worktree_id() {
     fi
 }
 
-WORKTREE_ID=$(get_worktree_id)
+get_git_common_dir() {
+    local git_common_dir
+
+    git_common_dir=$(git -C "${REPO_ROOT}" rev-parse --git-common-dir 2>/dev/null) || return 1
+    cd "${REPO_ROOT}" && cd "${git_common_dir}" && pwd
+}
+
+CURRENT_WORKTREE_ID=$(get_worktree_id)
+CURRENT_REPO_ROOT="$REPO_ROOT"
+WORKTREE_ID="$CURRENT_WORKTREE_ID"
+TARGET_REPO_ROOT="$REPO_ROOT"
+TARGET_PROJECT=""
+TARGET_CONFIG_FILES=""
+GIT_COMMON_DIR=$(get_git_common_dir || true)
+if [[ "${TRACECAT_CLUSTER_REGISTRY_DIR+x}" == "x" ]]; then
+    CLUSTER_REGISTRY_DIR="$TRACECAT_CLUSTER_REGISTRY_DIR"
+else
+    CLUSTER_REGISTRY_DIR="${GIT_COMMON_DIR}/tracecat-clusters"
+fi
 
 # === Portless integration (optional) ===
 # If portless (https://github.com/vercel-labs/portless) is installed and its
@@ -223,39 +241,313 @@ portless_docs_alias_name() {
 }
 
 source_env_file() {
-    if [[ -f "$ENV_FILE" ]]; then
+    local env_file=${1:-$ENV_FILE}
+
+    if [[ -f "$env_file" ]]; then
         set -a
         # shellcheck disable=SC1090
-        source "$ENV_FILE"
+        source "$env_file"
         set +a
     fi
 }
 
-# Get list of running cluster numbers for this worktree (used for auto-selection)
-get_running_clusters() {
-    local prefix="tracecat-${WORKTREE_ID}-"
+# === Cluster ownership registry ===
 
-    docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
-        if [[ "$project" == ${prefix}* ]]; then
-            local num="${project#"$prefix"}"
-            if [[ "$num" =~ ^[0-9]+$ ]]; then
-                echo "$num"
+cluster_registry_file() {
+    local project=$1
+
+    if [[ -z "$CLUSTER_REGISTRY_DIR" ]]; then
+        echo "Error: Could not determine the cluster registry directory" >&2
+        return 1
+    fi
+    echo "${CLUSTER_REGISTRY_DIR}/${project}.env"
+}
+
+write_cluster_registry() {
+    local project=$1
+    local worktree_path=$2
+    local worktree_id=$3
+    local cluster_num=$4
+    local portless_alias=$5
+    local registry_file temp_file
+
+    registry_file=$(cluster_registry_file "$project")
+    mkdir -p "$CLUSTER_REGISTRY_DIR"
+    temp_file="${registry_file}.tmp.$$"
+    (
+        umask 077
+        {
+            printf 'PROJECT=%q\n' "$project"
+            printf 'WORKTREE_PATH=%q\n' "$worktree_path"
+            printf 'WORKTREE_ID=%q\n' "$worktree_id"
+            printf 'CLUSTER_NUM=%q\n' "$cluster_num"
+            printf 'PORTLESS_ALIAS=%q\n' "$portless_alias"
+            printf 'CREATED_AT=%q\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        } > "$temp_file"
+    )
+    mv "$temp_file" "$registry_file"
+}
+
+remove_cluster_registry() {
+    local project=$1
+    local registry_file
+
+    registry_file=$(cluster_registry_file "$project")
+    rm -f -- "$registry_file"
+}
+
+is_registered_worktree() {
+    local worktree_path=$1
+    local field
+
+    while IFS= read -r -d '' field; do
+        if [[ "$field" == worktree\ * ]] \
+            && [[ "${field#worktree }" == "$worktree_path" ]]; then
+            return 0
+        fi
+    done < <(git -C "$CURRENT_REPO_ROOT" worktree list --porcelain -z 2>/dev/null)
+    return 1
+}
+
+valid_cluster_registry_entry() {
+    local registry_file=$1
+    local registry_name project_worktree_id project_cluster_num
+
+    registry_name=${registry_file##*/}
+    if [[ ! "$PROJECT" =~ ^tracecat-([a-z0-9][a-z0-9-]*)-([0-9]+)$ ]]; then
+        return 1
+    fi
+    project_worktree_id="${BASH_REMATCH[1]}"
+    project_cluster_num="${BASH_REMATCH[2]}"
+
+    [[ "$PROJECT" != tracecat-infra* ]] \
+        && [[ "$registry_name" == "${PROJECT}.env" ]] \
+        && [[ "$WORKTREE_PATH" == /* ]] \
+        && [[ "$WORKTREE_ID" == "$project_worktree_id" ]] \
+        && [[ "$CLUSTER_NUM" == "$project_cluster_num" ]]
+}
+
+reap_clusters() {
+    local dry_run=${1:-false}
+    local quiet=${2:-false}
+    local reaped=0
+    local alive=0
+    local would_reap=0
+    local failures=0
+    local registry_file volume volumes project
+    local reaped_project
+    local reaped_projects=()
+
+    if [[ -z "$CLUSTER_REGISTRY_DIR" ]]; then
+        if [[ "$quiet" == "false" ]]; then
+            echo "Error: Could not determine the cluster registry directory" >&2
+        fi
+        return 1
+    fi
+
+    for registry_file in "$CLUSTER_REGISTRY_DIR"/*.env; do
+        [[ -f "$registry_file" ]] || continue
+
+        local PROJECT=""
+        local WORKTREE_PATH=""
+        local WORKTREE_ID=""
+        local CLUSTER_NUM=""
+        local PORTLESS_ALIAS=""
+        # Scoped so `source` below cannot leak it into the global namespace.
+        # It is metadata for humans reading the registry, never read here.
+        # shellcheck disable=SC2034
+        local CREATED_AT=""
+
+        # Registry entries are written by write_cluster_registry using %q.
+        # shellcheck disable=SC1090
+        if ! source "$registry_file" || ! valid_cluster_registry_entry "$registry_file"; then
+            if [[ "$quiet" == "false" ]]; then
+                echo "Warning: Ignoring invalid cluster registry entry ${registry_file}" >&2
+            fi
+            failures=$((failures + 1))
+            continue
+        fi
+
+        if [[ -d "$WORKTREE_PATH" ]] && is_registered_worktree "$WORKTREE_PATH"; then
+            alive=$((alive + 1))
+            continue
+        fi
+
+        would_reap=$((would_reap + 1))
+        if [[ "$dry_run" == "true" ]]; then
+            echo "[dry-run] docker compose -p ${PROJECT} down --volumes --remove-orphans"
+            if volumes=$(docker volume ls \
+                --filter "label=com.docker.compose.project=${PROJECT}" \
+                --format "{{.Name}}" 2>/dev/null); then
+                while IFS= read -r volume; do
+                    [[ -n "$volume" ]] && echo "[dry-run] docker volume rm ${volume}"
+                done <<< "$volumes"
+            fi
+            if [[ -n "$PORTLESS_ALIAS" ]]; then
+                echo "[dry-run] portless alias --remove ${PORTLESS_ALIAS}"
+            fi
+            echo "[dry-run] rm ${registry_file}"
+            continue
+        fi
+
+        if [[ "$quiet" == "true" ]]; then
+            if ! docker compose -p "$PROJECT" down --volumes --remove-orphans >/dev/null 2>&1; then
+                failures=$((failures + 1))
+                continue
+            fi
+            if ! volumes=$(docker volume ls \
+                --filter "label=com.docker.compose.project=${PROJECT}" \
+                --format "{{.Name}}" 2>/dev/null); then
+                failures=$((failures + 1))
+                continue
+            fi
+        else
+            echo "Reaping orphan cluster ${PROJECT} (worktree: ${WORKTREE_PATH})"
+            if ! docker compose -p "$PROJECT" down --volumes --remove-orphans; then
+                echo "Warning: Failed to tear down ${PROJECT}; keeping registry entry" >&2
+                failures=$((failures + 1))
+                continue
+            fi
+            if ! volumes=$(docker volume ls \
+                --filter "label=com.docker.compose.project=${PROJECT}" \
+                --format "{{.Name}}"); then
+                echo "Warning: Failed to list volumes for ${PROJECT}; keeping registry entry" >&2
+                failures=$((failures + 1))
+                continue
             fi
         fi
-    done | sort -n
+
+        local volume_cleanup_failed=false
+        while IFS= read -r volume; do
+            [[ -n "$volume" ]] || continue
+            if [[ "$quiet" == "true" ]]; then
+                if ! docker volume rm "$volume" >/dev/null 2>&1; then
+                    volume_cleanup_failed=true
+                fi
+            elif ! docker volume rm "$volume"; then
+                echo "Warning: Failed to remove volume ${volume}; keeping registry entry" >&2
+                volume_cleanup_failed=true
+            fi
+        done <<< "$volumes"
+        if [[ "$volume_cleanup_failed" == "true" ]]; then
+            failures=$((failures + 1))
+            continue
+        fi
+
+        if [[ -n "$PORTLESS_ALIAS" ]]; then
+            portless alias --remove "$PORTLESS_ALIAS" >/dev/null 2>&1 || true
+        fi
+        if ! remove_cluster_registry "$PROJECT"; then
+            failures=$((failures + 1))
+            continue
+        fi
+        reaped=$((reaped + 1))
+        reaped_projects+=("$PROJECT")
+        echo "Reaped ${PROJECT}"
+    done
+
+    while IFS= read -r project; do
+        [[ -n "$project" ]] || continue
+        [[ "$project" != tracecat-infra* ]] || continue
+        local was_reaped=false
+        # Bash 3.2 (macOS) treats "${arr[@]}" on an empty array as an unbound
+        # variable under `set -u`, so guard the expansion on the length.
+        if [[ ${#reaped_projects[@]} -gt 0 ]]; then
+            for reaped_project in "${reaped_projects[@]}"; do
+                if [[ "$project" == "$reaped_project" ]]; then
+                    was_reaped=true
+                    break
+                fi
+            done
+        fi
+        [[ "$was_reaped" == "false" ]] || continue
+        if [[ ! -f "${CLUSTER_REGISTRY_DIR}/${project}.env" ]] \
+            && [[ "$quiet" == "false" ]]; then
+            echo "Warning: ${project} is unregistered, not reaped"
+        fi
+    done < <(get_running_cluster_projects)
+
+    if [[ "$quiet" == "false" ]]; then
+        if [[ "$dry_run" == "true" ]]; then
+            echo "would reap ${would_reap}, alive ${alive}"
+        else
+            echo "reaped ${reaped}, alive ${alive}"
+        fi
+    elif [[ "$reaped" -gt 0 ]]; then
+        echo "reaped ${reaped}, alive ${alive}"
+    fi
+
+    [[ "$failures" -eq 0 ]]
+}
+
+# Get a running cluster's compose configuration paths.
+get_cluster_config_files() {
+    local project=$1
+
+    docker compose ls --format json 2>/dev/null \
+        | jq -r --arg project "$project" \
+            '.[] | select(.Name == $project) | .ConfigFiles // empty' 2>/dev/null
+}
+
+# Get the repository root from the first compose file recorded for a cluster.
+get_cluster_repo_root() {
+    local project=$1
+    local config_files first_config
+
+    config_files=$(get_cluster_config_files "$project")
+    [[ -n "$config_files" ]] || return 1
+    first_config="${config_files%%,*}"
+    dirname "$first_config"
+}
+
+# Get all running Tracecat compose projects, sorted by their globally unique
+# cluster number.
+get_running_cluster_projects() {
+    docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+            printf '%s\t%s\n' "${BASH_REMATCH[2]}" "$project"
+        fi
+    done | sort -n -k1,1 | cut -f2
+}
+
+# Get running projects owned by the checkout executing this script. Comparing
+# compose file paths avoids treating every detached Codex worktree named "head"
+# as the same worktree.
+get_running_projects_for_current_worktree() {
+    local prefix="tracecat-${CURRENT_WORKTREE_ID}-"
+    local project project_root
+
+    while IFS= read -r project; do
+        project_root=$(get_cluster_repo_root "$project" || true)
+        if [[ "$project_root" == "$CURRENT_REPO_ROOT" ]] \
+            || [[ -z "$project_root" && "$project" == ${prefix}* ]]; then
+            echo "$project"
+        fi
+    done < <(get_running_cluster_projects)
+}
+
+# Find running projects with a specific globally allocated cluster number.
+get_cluster_projects_by_num() {
+    local cluster_num=$1
+    local project
+
+    while IFS= read -r project; do
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]] \
+            && [[ "${BASH_REMATCH[2]}" == "$cluster_num" ]]; then
+            echo "$project"
+        fi
+    done < <(get_running_cluster_projects)
 }
 
 # Get ALL running cluster numbers across all worktrees (used for port allocation)
 get_all_cluster_nums() {
-    local projects
-    projects=$(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
+    local project
 
-    for project in $projects; do
-        # Match any tracecat cluster: tracecat-{worktree}-{num}
+    while IFS= read -r project; do
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             echo "${BASH_REMATCH[2]}"
         fi
-    done | sort -n | uniq
+    done < <(get_running_cluster_projects)
 }
 
 # Find next available cluster number (globally, to avoid port conflicts)
@@ -281,31 +573,32 @@ get_next_cluster_num() {
     echo "$expected"
 }
 
-# Present an interactive numbered selector when multiple clusters match.
-# Reads cluster numbers from stdin (one per line), shows a menu,
-# and prints the chosen cluster number to stdout.
+# Present an interactive numbered selector when multiple cluster projects
+# match. Reads project names from stdin and prints the chosen project.
 select_cluster_interactive() {
-    local nums=()
-    while IFS= read -r n; do
-        [[ -n "$n" ]] && nums+=("$n")
+    local projects=()
+    local project cluster_num project_root
+    while IFS= read -r project; do
+        [[ -n "$project" ]] && projects+=("$project")
     done
 
-    for n in "${nums[@]}"; do
-        calculate_ports "$n"
-        echo "  [${n}]  http://localhost:${PUBLIC_APP_PORT}" >&2
+    for project in "${projects[@]}"; do
+        [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]] || continue
+        cluster_num="${BASH_REMATCH[2]}"
+        project_root=$(get_cluster_repo_root "$project" || true)
+        calculate_ports "$cluster_num"
+        echo "  [${cluster_num}]  ${project}  http://localhost:${PUBLIC_APP_PORT}  ${project_root}" >&2
     done
 
     echo "" >&2
     echo -n "Cluster number: " >&2
     local choice
-    # Read a single keypress immediately (no Enter required)
-    read -r -n 1 choice </dev/tty
-    echo "" >&2
+    read -r choice </dev/tty
 
-    # Validate the input is one of the running cluster numbers
-    for n in "${nums[@]}"; do
-        if [[ "$choice" == "$n" ]]; then
-            echo "$n"
+    for project in "${projects[@]}"; do
+        [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]] || continue
+        if [[ "$choice" == "${BASH_REMATCH[2]}" ]]; then
+            echo "$project"
             return
         fi
     done
@@ -314,11 +607,10 @@ select_cluster_interactive() {
     exit 1
 }
 
-# Auto-select cluster: returns the only running cluster, or prompts if multiple
+# Auto-select a cluster across all Tracecat worktrees.
 auto_select_cluster() {
-    local command=$1
     local running
-    running=$(get_running_clusters)
+    running=$(get_running_cluster_projects)
 
     # Count non-empty lines
     local count=0
@@ -327,18 +619,58 @@ auto_select_cluster() {
     fi
 
     if [[ "$count" -eq 0 ]]; then
-        if [[ "$command" == "up" ]]; then
-            echo "1"
-        else
-            echo "Error: No clusters running for worktree '${WORKTREE_ID}'" >&2
-            echo "Run 'just cluster up -d' to start one" >&2
-            exit 1
-        fi
+        echo "Error: No Tracecat clusters are running" >&2
+        echo "Run 'just cluster up -d' to start one" >&2
+        exit 1
     elif [[ "$count" -eq 1 ]]; then
         echo "$running"
     else
         echo "Multiple clusters running — select one:" >&2
         echo "$running" | select_cluster_interactive
+    fi
+}
+
+# Auto-select a cluster owned by the current checkout. Mutating commands use
+# this path unless the user supplies an explicit global cluster number.
+auto_select_current_worktree_cluster() {
+    local running
+    running=$(get_running_projects_for_current_worktree)
+
+    local count=0
+    if [[ -n "$running" ]]; then
+        count=$(echo "$running" | wc -l | tr -d ' ')
+    fi
+
+    if [[ "$count" -eq 0 ]]; then
+        echo "Error: No clusters are running for worktree '${CURRENT_WORKTREE_ID}'" >&2
+        echo "Run 'just cluster' to list all clusters, then pass an explicit cluster number" >&2
+        exit 1
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$running"
+    else
+        echo "Multiple clusters running for this worktree — select one:" >&2
+        echo "$running" | select_cluster_interactive
+    fi
+}
+
+# Point subsequent commands at an existing cluster, including its owning
+# worktree and compose configuration.
+activate_cluster_project() {
+    local project=$1
+    local project_root
+
+    if [[ ! "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+        echo "Error: Invalid Tracecat cluster project '${project}'" >&2
+        exit 1
+    fi
+
+    TARGET_PROJECT="$project"
+    WORKTREE_ID="${BASH_REMATCH[1]}"
+    CLUSTER_NUM="${BASH_REMATCH[2]}"
+    TARGET_CONFIG_FILES=$(get_cluster_config_files "$project")
+    project_root=$(get_cluster_repo_root "$project" || true)
+    if [[ -d "$project_root" ]]; then
+        TARGET_REPO_ROOT="$project_root"
     fi
 }
 
@@ -376,11 +708,13 @@ get_compose_file() {
 usage() {
     cat <<EOF
 Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
-       ./cluster list
+       ./cluster [list]
 
 Cluster number is optional:
   - For 'up': reuses existing cluster, or auto-selects next available
-  - For other commands: auto-selects if only one cluster running
+  - Status commands select from running clusters across all worktrees
+  - Mutating commands stay in this worktree unless a number is provided
+  - With no arguments: lists running clusters across all worktrees
 
 Profiles:
   dev       docker-compose.dev.yml (default)
@@ -415,6 +749,8 @@ Commands:
                 --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
+                Use --all to remove every cluster owned by this worktree
+                without prompting (used by the wt pre-remove hook).
   restart [svc] Restart the cluster or specific service
   ps            Show running containers
   logs [svc]    Show logs (optionally for specific service)
@@ -424,7 +760,12 @@ Commands:
   open          Open the cluster UI in the default browser
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
+  reap [opts]   Remove clusters whose registered worktree no longer exists
   nuke [opts]   Destroy cluster and optionally volumes/images
+
+Reap options:
+  reap                  Remove orphaned registered clusters
+  reap --dry-run        Show what would be removed
 
 Nuke options:
   nuke                  Stop cluster and remove volumes
@@ -456,7 +797,10 @@ Examples:
   ./cluster db                   Open lazysql to the database
   ./cluster docs                 Start Mintlify docs preview
   ./cluster docs --no-open       Start docs preview without opening browser
+  ./cluster                      List all clusters
   ./cluster list                 List all clusters
+  ./cluster reap                 Remove orphaned registered clusters
+  ./cluster reap --dry-run       Preview orphan cleanup
   ./cluster nuke                 Destroy cluster and volumes (interactive)
   ./cluster nuke minio           Remove only minio volume
   ./cluster nuke --images        Destroy cluster, volumes, and images
@@ -589,28 +933,35 @@ EOF
 
 # List all running Tracecat clusters
 list_clusters() {
-    echo "Running Tracecat clusters (worktree: ${WORKTREE_ID}):"
+    echo "Running Tracecat clusters (current worktree: ${CURRENT_WORKTREE_ID}):"
     echo ""
 
     local found=false
-    local current_worktree_prefix="tracecat-${WORKTREE_ID}-"
+    local project config_files project_root cluster_num marker portless_suffix
 
-    for project in $(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null || docker compose ls -q 2>/dev/null); do
-        # Match any tracecat cluster: tracecat-{worktree}-{num}
+    while IFS=$'\t' read -r project config_files; do
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             found=true
             local project_worktree="${BASH_REMATCH[1]}"
-            local cluster_num="${BASH_REMATCH[2]}"
+            cluster_num="${BASH_REMATCH[2]}"
+            project_root=""
+            if [[ -n "$config_files" ]]; then
+                project_root=$(dirname "${config_files%%,*}")
+            fi
             calculate_ports "$cluster_num"
-            local marker=""
-            [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
-            local portless_suffix=""
+            marker=""
+            [[ "$project_root" == "$CURRENT_REPO_ROOT" ]] && marker=" (this worktree)"
+            portless_suffix=""
             if portless_enabled; then
                 portless_suffix="  |  $(portless_url "$cluster_num" "$project_worktree")"
             fi
-            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${portless_suffix}${marker}"
+            echo "  [${cluster_num}] ${project}: http://localhost:${PUBLIC_APP_PORT}${portless_suffix}${marker}"
+            [[ -n "$project_root" ]] && echo "      source: ${project_root}"
         fi
-    done
+    done < <(
+        docker compose ls --format json 2>/dev/null \
+            | jq -r '.[] | [.Name, (.ConfigFiles // "")] | @tsv' 2>/dev/null
+    )
 
     if [[ "$found" == "false" ]]; then
         echo "  No clusters running"
@@ -618,17 +969,17 @@ list_clusters() {
 }
 
 # Main
-if [[ $# -lt 1 ]]; then
-    usage
-fi
-
 source_env_file
 
-# Handle 'list' command specially
-if [[ "$1" == "list" ]]; then
+# A bare `just cluster` is the global status view.
+if [[ $# -lt 1 ]] || [[ "$1" == "list" ]]; then
     list_clusters
     portless_install_tip
     exit 0
+fi
+
+if [[ "$1" == "help" || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
 fi
 
 # Check if first arg is a cluster number or a command/flag
@@ -701,6 +1052,69 @@ fi
 
 COMMAND="$1"
 shift
+
+# Handle 'reap' before cluster auto-selection. It operates on the shared
+# ownership registry rather than a single cluster.
+if [[ "$COMMAND" == "reap" ]]; then
+    if [[ "$AUTO_SELECT" == "false" ]]; then
+        echo "Error: reap does not accept a cluster number" >&2
+        exit 1
+    fi
+
+    REAP_DRY_RUN=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                REAP_DRY_RUN=true
+                shift
+                ;;
+            *)
+                echo "Error: Unknown reap option '$1'" >&2
+                exit 1
+                ;;
+        esac
+    done
+    reap_clusters "$REAP_DRY_RUN"
+    exit $?
+fi
+
+# Handle 'rm --all' before cluster auto-selection. Tears down every cluster
+# owned by this checkout without prompting, so it is safe to call from the
+# worktrunk pre-remove hook where there is no TTY to answer a selection menu.
+if [[ "$COMMAND" == "rm" && " $* " == *" --all "* ]]; then
+    if [[ "$AUTO_SELECT" == "false" ]]; then
+        echo "Error: rm --all does not accept a cluster number" >&2
+        exit 1
+    fi
+
+    RM_ALL_REMOVED=0
+    RM_ALL_FAILURES=0
+    while IFS= read -r rm_all_project; do
+        [[ -n "$rm_all_project" ]] || continue
+        [[ "$rm_all_project" =~ ^tracecat-(.+)-([0-9]+)$ ]] || continue
+        rm_all_worktree_id="${BASH_REMATCH[1]}"
+        rm_all_cluster_num="${BASH_REMATCH[2]}"
+
+        if portless_enabled; then
+            portless alias --remove \
+                "$(portless_alias_name "$rm_all_cluster_num" "$rm_all_worktree_id")" \
+                >/dev/null 2>&1 || true
+        fi
+
+        # No -f flags: Compose reconstructs the project from container labels,
+        # which still works once the worktree's compose files are gone.
+        if docker compose -p "$rm_all_project" down --volumes --remove-orphans; then
+            remove_cluster_registry "$rm_all_project"
+            RM_ALL_REMOVED=$((RM_ALL_REMOVED + 1))
+        else
+            RM_ALL_FAILURES=$((RM_ALL_FAILURES + 1))
+        fi
+    done < <(get_running_projects_for_current_worktree)
+
+    echo "Removed ${RM_ALL_REMOVED} cluster(s)"
+    [[ "$RM_ALL_FAILURES" -eq 0 ]] || exit 1
+    exit 0
+fi
 
 # Handle 'docs' command before cluster auto-selection. The docs preview is
 # independent of Docker Compose and should not require a running cluster.
@@ -790,7 +1204,30 @@ if [[ "$COMMAND" == "up" ]]; then
     set -- ${FILTERED_ARGS[@]+"${FILTERED_ARGS[@]}"}
 fi
 
-# Auto-select cluster number if not specified
+# Quietly reclaim orphaned registered clusters before allocating a number.
+# Cleanup failures must never prevent a new cluster from starting.
+if [[ "$COMMAND" == "up" ]]; then
+    reap_clusters false true || true
+fi
+
+# An explicit global cluster number targets its owning worktree when running.
+if [[ "$AUTO_SELECT" == "false" ]]; then
+    matching_projects=$(get_cluster_projects_by_num "$CLUSTER_NUM")
+    matching_count=0
+    if [[ -n "$matching_projects" ]]; then
+        matching_count=$(echo "$matching_projects" | wc -l | tr -d ' ')
+    fi
+
+    if [[ "$matching_count" -gt 1 ]]; then
+        echo "Error: Cluster number ${CLUSTER_NUM} is used by multiple projects:" >&2
+        printf '  %s\n' "${matching_projects//$'\n'/$'\n'  }" >&2
+        exit 1
+    elif [[ "$matching_count" -eq 1 ]]; then
+        activate_cluster_project "$matching_projects"
+    fi
+fi
+
+# Auto-select cluster number if not specified.
 if [[ "$AUTO_SELECT" == "true" ]]; then
     if [[ "$COMMAND" == "up" ]]; then
         if [[ "$FORCE_NEW_CLUSTER" == "true" ]]; then
@@ -798,7 +1235,7 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
             echo "Auto-selected new cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
         else
             # Reuse existing cluster for this worktree if one is running
-            running=$(get_running_clusters)
+            running=$(get_running_projects_for_current_worktree)
             count=0
             if [[ -n "$running" ]]; then
                 count=$(echo "$running" | wc -l | tr -d ' ')
@@ -808,30 +1245,32 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
                 CLUSTER_NUM=$(get_next_cluster_num)
                 echo "No existing cluster — auto-selected cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
             elif [[ "$count" -eq 1 ]]; then
-                CLUSTER_NUM="$running"
+                activate_cluster_project "$running"
                 echo "Reusing existing cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
             else
                 echo "Multiple clusters running — select one:" >&2
-                CLUSTER_NUM=$(echo "$running" | select_cluster_interactive)
+                selected_project=$(echo "$running" | select_cluster_interactive)
+                activate_cluster_project "$selected_project"
             fi
         fi
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
-        nuke_running=$(get_running_clusters)
+        nuke_running=$(get_running_projects_for_current_worktree)
         nuke_count=0
         if [[ -n "$nuke_running" ]]; then
             nuke_count=$(echo "$nuke_running" | wc -l | tr -d ' ')
         fi
 
         if [[ "$nuke_count" -eq 1 ]]; then
-            CLUSTER_NUM="$nuke_running"
+            activate_cluster_project "$nuke_running"
         elif [[ "$nuke_count" -gt 1 ]]; then
             echo "Multiple clusters running — select one to nuke:" >&2
-            CLUSTER_NUM=$(echo "$nuke_running" | select_cluster_interactive)
+            selected_project=$(echo "$nuke_running" | select_cluster_interactive)
+            activate_cluster_project "$selected_project"
         else
             # No running cluster, check for orphaned volumes
-            ORPHAN_VOLUME=$(docker volume ls --format "{{.Name}}" | grep "^tracecat-${WORKTREE_ID}-" | head -1 || true)
-            if [[ -n "$ORPHAN_VOLUME" && "$ORPHAN_VOLUME" =~ ^tracecat-${WORKTREE_ID}-([0-9]+)_ ]]; then
+            ORPHAN_VOLUME=$(docker volume ls --format "{{.Name}}" | grep "^tracecat-${CURRENT_WORKTREE_ID}-" | head -1 || true)
+            if [[ -n "$ORPHAN_VOLUME" && "$ORPHAN_VOLUME" =~ ^tracecat-${CURRENT_WORKTREE_ID}-([0-9]+)_ ]]; then
                 CLUSTER_NUM="${BASH_REMATCH[1]}"
                 echo "Found orphaned volumes for cluster ${CLUSTER_NUM}"
             else
@@ -840,15 +1279,38 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
             fi
         fi
     else
-        CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
+        case "$COMMAND" in
+            ps|logs|attach|db|open|ports)
+                selected_project=$(auto_select_cluster)
+                ;;
+            *)
+                selected_project=$(auto_select_current_worktree_cluster)
+                ;;
+        esac
+        activate_cluster_project "$selected_project"
     fi
 fi
 
-# Get compose file for profile
-COMPOSE_FILE=$(get_compose_file "$PROFILE")
-COMPOSE_FILES=(-f "$COMPOSE_FILE")
-if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
-    COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+# Run cross-worktree commands with the source checkout and compose files that
+# created the selected cluster.
+REPO_ROOT="$TARGET_REPO_ROOT"
+ENV_FILE="${REPO_ROOT}/.env"
+if [[ "$REPO_ROOT" != "$CURRENT_REPO_ROOT" ]]; then
+    source_env_file "$ENV_FILE"
+fi
+
+COMPOSE_FILES=()
+if [[ -n "$TARGET_PROJECT" && "$REPO_ROOT" != "$CURRENT_REPO_ROOT" && -n "$TARGET_CONFIG_FILES" ]]; then
+    IFS=',' read -r -a target_compose_files <<< "$TARGET_CONFIG_FILES"
+    for compose_file in "${target_compose_files[@]}"; do
+        COMPOSE_FILES+=(-f "$compose_file")
+    done
+else
+    COMPOSE_FILE=$(get_compose_file "$PROFILE")
+    COMPOSE_FILES=(-f "$COMPOSE_FILE")
+    if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+        COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+    fi
 fi
 
 # Handle 'ports' command
@@ -921,8 +1383,14 @@ fi
 # Handle 'rm' command - down + remove volumes
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
+    PROJECT_NAME="tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+    if docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --volumes --remove-orphans "$@"; then
+        remove_cluster_registry "$PROJECT_NAME"
+        exit 0
+    else
+        exit $?
+    fi
 fi
 
 # Handle 'down' command - stop containers and remove the stale portless alias.
@@ -1058,6 +1526,7 @@ if [[ "$COMMAND" == "nuke" ]]; then
         fi
     fi
 
+    remove_cluster_registry "$PROJECT_NAME"
     echo ""
     echo "=== NUKE COMPLETE ==="
     exit 0
@@ -1067,6 +1536,10 @@ fi
 # stable .localhost alias and steer the app's PUBLIC_APP_URL through it. Must
 # happen before build_env so the override flows into TRACECAT__PUBLIC_APP_URL,
 # NEXT_PUBLIC_APP_URL, etc.
+CLUSTER_PORTLESS_ALIAS=""
+if [[ "$COMMAND" == "up" ]] && portless_enabled; then
+    CLUSTER_PORTLESS_ALIAS=$(portless_alias_name "$CLUSTER_NUM")
+fi
 if [[ "$COMMAND" == "up" ]] && portless_enabled && [[ -z "${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}" ]]; then
     calculate_ports "$CLUSTER_NUM"
     if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT"; then
@@ -1236,15 +1709,35 @@ if [[ "$COMMAND" == "seed" ]]; then
 fi
 
 # Run docker compose with the configured environment
-if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
+if [[ "$COMMAND" == "up" ]]; then
+    PROJECT_NAME="tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
     if [[ "$DETACHED_UP" == "true" ]]; then
         docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
-        seed_dev_user
+        write_cluster_registry \
+            "$PROJECT_NAME" "$REPO_ROOT" "$WORKTREE_ID" "$CLUSTER_NUM" \
+            "$CLUSTER_PORTLESS_ALIAS"
+        if [[ "$SEED_USER" == "true" ]]; then
+            seed_dev_user
+        fi
     else
-        # Keep compose attached while a background seeder waits for API readiness.
-        seed_dev_user &
-        exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        # Attached Compose does not return while the cluster is running. Record
+        # ownership before handing it control, and roll back if startup fails.
+        write_cluster_registry \
+            "$PROJECT_NAME" "$REPO_ROOT" "$WORKTREE_ID" "$CLUSTER_NUM" \
+            "$CLUSTER_PORTLESS_ALIAS"
+        if [[ "$SEED_USER" == "true" ]]; then
+            seed_dev_user &
+        fi
+        if docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"; then
+            exit 0
+        else
+            compose_status=$?
+            remove_cluster_registry "$PROJECT_NAME"
+            portless_enabled && portless_unregister "$CLUSTER_NUM"
+            exit "$compose_status"
+        fi
     fi
+    exit 0
 else
     exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
 fi
