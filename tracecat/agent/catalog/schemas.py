@@ -26,6 +26,34 @@ class AgentCatalogListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class AgentCatalogProviderInfo(BaseModel):
+    """Non-sensitive custom-provider display info embedded in workspace models.
+
+    Lets workspace-scoped surfaces render provider labels and resolve a base
+    URL without calling the org-wide custom-provider list endpoint (which is
+    restricted to organization admins).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    display_name: str
+    base_url: str | None
+
+
+class WorkspaceAgentModelRead(AgentCatalogRead):
+    """A catalog model visible to a workspace, with embedded provider info."""
+
+    custom_provider: AgentCatalogProviderInfo | None = None
+
+
+class WorkspaceAgentModelListResponse(BaseModel):
+    """Workspace-visible models, each with embedded custom-provider info."""
+
+    items: list[WorkspaceAgentModelRead]
+    next_cursor: str | None = None
+
+
 class CloudCatalogModelBase(BaseModel):
     """Shared, user-supplied fields for a cloud catalog entry.
 

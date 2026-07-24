@@ -51,8 +51,8 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type {
+  AgentCatalogProviderInfo,
   AgentCatalogRead,
-  AgentCustomProviderRead,
   AgentPresetCapability,
   AgentPresetCreate,
   AgentPresetRead,
@@ -1212,7 +1212,7 @@ function getModelSelectionKey(selection: {
 
 function buildEnabledModelOptions(
   models: AgentCatalogRead[] | undefined,
-  providers: AgentCustomProviderRead[] | undefined
+  providers: AgentCatalogProviderInfo[] | undefined
 ): EnabledModelOption[] {
   const providersById = new Map(
     (providers ?? []).map((provider) => [provider.id, provider])
