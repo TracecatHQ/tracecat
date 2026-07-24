@@ -127,6 +127,18 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
+class DeprecatedActionError(RegistryError):
+    """Raised when a deprecated registry action is executed.
+
+    Carries the deprecation message so callers can surface migration guidance.
+    """
+
+    def __init__(self, action: str, message: str):
+        super().__init__(f"Action '{action}' is deprecated: {message}")
+        self.action = action
+        self.deprecation_message = message
+
+
 class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
 

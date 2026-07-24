@@ -21,7 +21,13 @@ from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 pytestmark = pytest.mark.usefixtures("db")
 
 
-def _make_manifest(action_names: list[str], *, origin: str) -> dict:
+def _make_manifest(
+    action_names: list[str],
+    *,
+    origin: str,
+    deprecated_actions: dict[str, str] | None = None,
+) -> dict:
+    deprecated_actions = deprecated_actions or {}
     actions: dict[str, dict] = {}
     for action_name in action_names:
         namespace, name = action_name.rsplit(".", 1)
@@ -30,6 +36,7 @@ def _make_manifest(action_names: list[str], *, origin: str) -> dict:
             "name": name,
             "action_type": "udf",
             "description": f"Test action {action_name}",
+            "deprecated": deprecated_actions.get(action_name),
             "interface": {"expects": {}, "returns": None},
             "implementation": {
                 "type": "udf",
@@ -47,6 +54,7 @@ async def _seed_platform_registry(
     origin: str,
     version: str,
     action_names: list[str],
+    deprecated_actions: dict[str, str] | None = None,
 ) -> PlatformRegistryRepository:
     repo = await session.scalar(
         select(PlatformRegistryRepository).where(
@@ -61,7 +69,11 @@ async def _seed_platform_registry(
     registry_version = PlatformRegistryVersion(
         repository_id=repo.id,
         version=version,
-        manifest=_make_manifest(action_names, origin=origin),
+        manifest=_make_manifest(
+            action_names,
+            origin=origin,
+            deprecated_actions=deprecated_actions,
+        ),
         tarball_uri=f"s3://platform/{version}.tar.gz",
     )
     session.add(registry_version)
@@ -80,6 +92,7 @@ async def _seed_platform_registry(
                 action_type="udf",
                 description=f"Platform action {action_name}",
                 options={"include_in_schema": True},
+                deprecated=(deprecated_actions or {}).get(action_name),
             )
         )
     await session.commit()
@@ -93,6 +106,7 @@ async def _seed_org_registry(
     origin: str,
     version: str,
     action_names: list[str],
+    deprecated_actions: dict[str, str] | None = None,
 ) -> RegistryRepository:
     repo = RegistryRepository(
         organization_id=role.organization_id,
@@ -105,7 +119,11 @@ async def _seed_org_registry(
         organization_id=role.organization_id,
         repository_id=repo.id,
         version=version,
-        manifest=_make_manifest(action_names, origin=origin),
+        manifest=_make_manifest(
+            action_names,
+            origin=origin,
+            deprecated_actions=deprecated_actions,
+        ),
         tarball_uri=f"s3://org/{version}.tar.gz",
     )
     session.add(registry_version)
@@ -125,6 +143,7 @@ async def _seed_org_registry(
                 action_type="udf",
                 description=f"Org action {action_name}",
                 options={"include_in_schema": True},
+                deprecated=(deprecated_actions or {}).get(action_name),
             )
         )
     await session.commit()
@@ -166,6 +185,29 @@ async def test_index_list_hides_custom_actions_without_entitlement(
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
     mock_has_entitlement.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_list_actions_from_index_preserves_deprecated_metadata(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.deprecated.old_action"
+    deprecation_message = "Use acme.deprecated.new_action instead."
+
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=[action_name],
+        deprecated_actions={action_name: deprecation_message},
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    entries = await service.list_actions_from_index(namespace="acme.deprecated")
+
+    actions = {f"{entry.namespace}.{entry.name}": entry for entry, _ in entries}
+    assert actions[action_name].deprecated == deprecation_message
 
 
 @pytest.mark.anyio

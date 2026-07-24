@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Rank documents
+  description: Use AI to rank a list of text documents from best to worst according to a specified criteria.
+  display_group: AI
+  namespace: ai
+  name: rank_documents
+  expects:
+    items:
+      type: list[str]
+      description: List of text documents to rank.
+    criteria_prompt:
+      type: str
+      description: Criteria to rank the items by. For example, "from most to least important."
+    model:
+      type: dict[str, Any]
+      description: Model to use. Provide `model_name`, `model_provider`, and optionally `catalog_id`.
+    instructions:
+      type: str | None
+      description: Additional instructions for the agent.
+      default: null
+  steps:
+    - ref: run_agent
+      action: ai.agent
+      args:
+        model: ${{ inputs.model }}
+        user_prompt: >-
+          Rank the following documents from most to least relevant according to this criteria: ${{ inputs.criteria_prompt }}
+
+          Documents:
+          ${{ FN.join(inputs.items, "\n\n---\n\n") }}
+
+          Return a JSON array containing the documents in ranked order, from most to least relevant. Include the full text of each document exactly as provided.
+        instructions: ${{ inputs.instructions }}
+        output_type:
+          type: array
+          items:
+            type: string
+  returns: ${{ steps.run_agent.result.output }}

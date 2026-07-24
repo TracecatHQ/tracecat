@@ -13,14 +13,10 @@ from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
 from tracecat.agent.schemas import (
     AgentOutput,
-    InternalRankItemsPairwiseRequest,
-    InternalRankItemsRequest,
     InternalRunAgentRequest,
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.ai.ranker import rank_items as ranker_rank_items
-from tracecat.ai.ranker import rank_items_pairwise as ranker_rank_items_pairwise
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
@@ -180,82 +176,6 @@ async def run_agent_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error_type": e.exc_cls.__name__, "message": e.exc_msg},
         ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-
-@router.post("/rank", status_code=status.HTTP_200_OK)
-@require_scope("agent:execute")
-async def rank_items_endpoint(
-    *,
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    params: InternalRankItemsRequest,
-) -> list[str | int]:
-    """Rank items using LLM based on natural language criteria."""
-    ctx_role.set(role)
-
-    try:
-        agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(
-            agent_svc, params.model_provider, params.catalog_id
-        ):
-            return await ranker_rank_items(
-                items=params.items,
-                criteria_prompt=params.criteria_prompt,
-                model_name=params.model_name,
-                model_provider=params.model_provider,
-                catalog_id=params.catalog_id,
-                model_settings=params.model_settings,
-                max_requests=params.max_requests,
-                retries=params.retries,
-                base_url=params.base_url,
-                min_items=params.min_items,
-                max_items=params.max_items,
-            )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-
-@router.post("/rank-pairwise", status_code=status.HTTP_200_OK)
-@require_scope("agent:execute")
-async def rank_items_pairwise_endpoint(
-    *,
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    params: InternalRankItemsPairwiseRequest,
-) -> list[str | int]:
-    """Rank items using pairwise LLM comparisons."""
-    ctx_role.set(role)
-
-    try:
-        agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(
-            agent_svc, params.model_provider, params.catalog_id
-        ):
-            return await ranker_rank_items_pairwise(
-                items=params.items,
-                criteria_prompt=params.criteria_prompt,
-                model_name=params.model_name,
-                model_provider=params.model_provider,
-                catalog_id=params.catalog_id,
-                id_field=params.id_field,
-                batch_size=params.batch_size,
-                num_passes=params.num_passes,
-                refinement_ratio=params.refinement_ratio,
-                model_settings=params.model_settings,
-                max_requests=params.max_requests,
-                retries=params.retries,
-                base_url=params.base_url,
-                min_items=params.min_items,
-                max_items=params.max_items,
-            )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

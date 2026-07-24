@@ -219,6 +219,9 @@ class RegistryActionReadMinimal(BaseModel):
         default_factory=RegistryActionAvailability,
         description="Availability metadata for this action",
     )
+    deprecated: str | None = Field(
+        None, description="Deprecation message if this action is deprecated"
+    )
 
     @computed_field(return_type=str)
     @property
@@ -244,6 +247,7 @@ class RegistryActionReadMinimal(BaseModel):
                 locked=bool(index.missing_entitlements),
                 missing_entitlements=list(index.missing_entitlements),
             ),
+            deprecated=index.deprecated,
         )
 
 
