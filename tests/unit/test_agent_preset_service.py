@@ -19,6 +19,7 @@ from tracecat.agent.channels.schemas import (
     SlackChannelTokenConfig,
 )
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
+from tracecat.agent.mcp.secret_resolution import TemplatedMappingResolutionError
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -275,6 +276,88 @@ async def registry_actions(
     for action in actions:
         await session.refresh(action)
     return actions
+
+
+@pytest.mark.anyio
+async def test_resolve_stdio_env_resolves_secrets_variables_and_literals(
+    agent_preset_service: AgentPresetService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stdio env resolves workspace secrets, variables, and literals."""
+    suffix = uuid.uuid4().hex
+    secret_name = f"stdio_secret_{suffix}"
+    secret_value = f"stdio-secret-value-{suffix}"
+    variable_name = f"stdio_variable_{suffix}"
+    variable_value = f"stdio-variable-value-{suffix}"
+
+    async def get_action_secrets(**_: object) -> dict[str, dict[str, str]]:
+        return {secret_name: {"TOKEN": secret_value}}
+
+    async def get_workspace_variables(
+        *_: object, **__: object
+    ) -> dict[str, dict[str, str]]:
+        return {variable_name: {"host": variable_value}}
+
+    monkeypatch.setattr(
+        "tracecat.secrets.secrets_manager.get_action_secrets",
+        get_action_secrets,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_workspace_variables",
+        get_workspace_variables,
+    )
+    stdio_env = {
+        "TOKEN": f"${{{{ SECRETS.{secret_name}.TOKEN }}}}",
+        "HOST": f"prefix-${{{{ VARS.{variable_name}.host }}}}",
+        "LITERAL": "literal-value",
+    }
+
+    resolved = await agent_preset_service.resolve_stdio_env(
+        stdio_env=stdio_env,
+        mcp_integration_id=uuid.uuid4(),
+        mcp_integration_slug=f"stdio-template-{suffix}",
+    )
+
+    assert resolved == {
+        "TOKEN": secret_value,
+        "HOST": f"prefix-{variable_value}",
+        "LITERAL": "literal-value",
+    }
+
+
+@pytest.mark.anyio
+async def test_resolve_stdio_env_missing_reference_fails_closed(
+    agent_preset_service: AgentPresetService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unresolvable stdio env references raise instead of resolving to None."""
+    missing_secret_name = f"missing_stdio_secret_{uuid.uuid4().hex}"
+
+    async def get_action_secrets(**_: object) -> dict[str, dict[str, str]]:
+        return {}
+
+    async def get_workspace_variables(
+        *_: object, **__: object
+    ) -> dict[str, dict[str, str]]:
+        return {}
+
+    monkeypatch.setattr(
+        "tracecat.secrets.secrets_manager.get_action_secrets",
+        get_action_secrets,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_workspace_variables",
+        get_workspace_variables,
+    )
+
+    with pytest.raises(TemplatedMappingResolutionError) as exc_info:
+        await agent_preset_service.resolve_stdio_env(
+            stdio_env={"TOKEN": f"${{{{ SECRETS.{missing_secret_name}.TOKEN }}}}"},
+            mcp_integration_id=uuid.uuid4(),
+            mcp_integration_slug="stdio-missing-secret",
+        )
+
+    assert missing_secret_name in str(exc_info.value)
 
 
 @pytest.fixture

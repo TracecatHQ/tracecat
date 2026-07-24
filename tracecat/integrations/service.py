@@ -29,6 +29,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.mcp import secret_resolution as mcp_secret_resolution
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPProbeResult,
@@ -3919,6 +3920,34 @@ class IntegrationService(BaseWorkspaceService):
             )
         return cast(dict[str, str], parsed)
 
+    async def _resolve_mcp_custom_header_templates(
+        self,
+        *,
+        mcp_integration: MCPIntegration,
+        custom_headers: dict[str, str],
+    ) -> dict[str, str]:
+        """Resolve custom header values at call time and fail closed."""
+        try:
+            resolution = await mcp_secret_resolution.resolve_templated_mapping(
+                custom_headers,
+                role=self.role,
+                resolve_keys=False,
+            )
+        except mcp_secret_resolution.TemplatedMappingResolutionError as exc:
+            raise MCPConfigurationError(str(exc)) from exc
+
+        if resolution.secret_ref_count or resolution.var_ref_count:
+            self.logger.info(
+                "Resolved HTTP MCP header template expressions",
+                workspace_id=str(self.workspace_id),
+                mcp_integration_id=str(mcp_integration.id),
+                mcp_integration_slug=mcp_integration.slug,
+                header_key_count=len(resolution.mapping),
+                secret_ref_count=resolution.secret_ref_count,
+                var_ref_count=resolution.var_ref_count,
+            )
+        return resolution.mapping
+
     async def resolve_mcp_http_server_config(
         self, mcp_integration: MCPIntegration
     ) -> MCPHttpServerConfig:
@@ -3983,14 +4012,32 @@ class IntegrationService(BaseWorkspaceService):
                     # The OAuth Authorization header always wins.
                     if key.strip().casefold() == "authorization":
                         custom_headers.pop(key, None)
+                custom_headers = await self._resolve_mcp_custom_header_templates(
+                    mcp_integration=mcp_integration,
+                    custom_headers=custom_headers,
+                )
                 headers.update(custom_headers)
         elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-            headers.update(self._decrypt_mcp_custom_headers(mcp_integration))
+            custom_headers = self._decrypt_mcp_custom_headers(mcp_integration)
+            custom_headers = await self._resolve_mcp_custom_header_templates(
+                mcp_integration=mcp_integration,
+                custom_headers=custom_headers,
+            )
+            headers.update(custom_headers)
         elif mcp_integration.auth_type == MCPAuthType.NONE:
             pass
         else:
             raise MCPConfigurationError(
                 f"Unsupported MCP auth type: {mcp_integration.auth_type}"
+            )
+
+        unresolved_header_names = [
+            name for name, value in headers.items() if "${{" in value
+        ]
+        if unresolved_header_names:
+            raise MCPConfigurationError(
+                "Unresolved template expression in HTTP MCP header(s): "
+                f"{', '.join(sorted(unresolved_header_names))}"
             )
 
         server_config: MCPHttpServerConfig = {

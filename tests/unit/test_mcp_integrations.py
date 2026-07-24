@@ -11,12 +11,14 @@ This test suite covers MCP integration functionality including:
 import contextlib
 import socket
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+import orjson
 import pytest
 from authlib.integrations.base_client.errors import OAuthError
 from pydantic import SecretStr, TypeAdapter, ValidationError
@@ -51,6 +53,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import EntitlementRequired
+from tracecat.executor import service as executor_service_module
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
@@ -94,6 +97,7 @@ from tracecat.integrations.service import (
     OAuthRefreshBusyError,
 )
 from tracecat.integrations.types import DCRResponse, OAuthServerMetadata
+from tracecat.secrets import secrets_manager as secrets_manager_module
 from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -101,6 +105,18 @@ pytestmark = pytest.mark.usefixtures("db")
 _MCP_CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
     MCPConnectionSpec
 )
+
+
+@dataclass(frozen=True, slots=True)
+class MCPTemplateContext:
+    """Workspace secret and variable references for MCP resolution tests."""
+
+    secret_name: str
+    secret_key: str
+    secret_value: str
+    variable_name: str
+    variable_key: str
+    variable_value: str
 
 
 class _TestCatalogEntry(dict):
@@ -352,6 +368,65 @@ async def oauth_integration(
         expires_in=3600,
     )
     return integration
+
+
+@pytest.fixture
+def mcp_template_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> MCPTemplateContext:
+    """Create synthetic workspace values used by MCP header expressions."""
+    suffix = uuid.uuid4().hex
+    context = MCPTemplateContext(
+        secret_name=f"mcp_secret_{suffix}",
+        secret_key="API_KEY",
+        secret_value=f"secret-value-{suffix}",
+        variable_name=f"mcp_variable_{suffix}",
+        variable_key="tenant",
+        variable_value=f"tenant-{suffix}",
+    )
+
+    async def get_action_secrets(
+        *,
+        secret_exprs: set[str],
+        action_secrets: set[object],
+        role: Role | None = None,
+    ) -> dict[str, dict[str, str]]:
+        _ = action_secrets, role
+        secret_prefix = f"{context.secret_name}."
+        if not any(ref.startswith(secret_prefix) for ref in secret_exprs):
+            return {}
+        return {
+            context.secret_name: {
+                context.secret_key: context.secret_value,
+            }
+        }
+
+    async def get_workspace_variables(
+        variable_exprs: set[str],
+        *,
+        environment: str | None = None,
+        role: Role | None = None,
+    ) -> dict[str, dict[str, str]]:
+        _ = environment, role
+        if context.variable_name not in variable_exprs:
+            return {}
+        return {
+            context.variable_name: {
+                context.variable_key: context.variable_value,
+            }
+        }
+
+    monkeypatch.setattr(
+        secrets_manager_module,
+        "get_action_secrets",
+        get_action_secrets,
+    )
+    monkeypatch.setattr(
+        executor_service_module,
+        "get_workspace_variables",
+        get_workspace_variables,
+    )
+    return context
 
 
 @pytest.mark.anyio
@@ -6271,6 +6346,49 @@ class TestMCPConnectionVerification:
 
         assert server_config.get("headers") == {"X-API-Key": "secret-key"}
 
+    async def test_resolve_http_config_custom_header_expressions(
+        self,
+        integration_service: IntegrationService,
+        mcp_template_context: MCPTemplateContext,
+    ) -> None:
+        """CUSTOM headers resolve secrets, variables, and mixed literals."""
+        secret_expr = (
+            "${{ SECRETS."
+            f"{mcp_template_context.secret_name}.{mcp_template_context.secret_key}"
+            " }}"
+        )
+        variable_expr = (
+            "${{ VARS."
+            f"{mcp_template_context.variable_name}.{mcp_template_context.variable_key}"
+            " }}"
+        )
+        configured_headers = {
+            "Authorization": f"ApiKey {secret_expr}",
+            "X-Tenant": f"tenant={variable_expr}",
+            "X-Literal": "literal-value",
+        }
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Templated Custom Auth MCP",
+                server_uri="https://custom.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(orjson.dumps(configured_headers).decode()),
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        headers = server_config.get("headers")
+        assert headers is not None
+        assert headers == {
+            "Authorization": f"ApiKey {mcp_template_context.secret_value}",
+            "X-Tenant": f"tenant={mcp_template_context.variable_value}",
+            "X-Literal": "literal-value",
+        }
+        assert all("${{" not in value for value in headers.values())
+
     async def test_resolve_http_config_oauth2_drops_custom_authorization(
         self,
         integration_service: IntegrationService,
@@ -6298,6 +6416,207 @@ class TestMCPConnectionVerification:
         assert headers["Authorization"] == "Bearer test_access_token"
         assert "authorization" not in headers
         assert headers["X-Tenant"] == "t1"
+
+    async def test_resolve_http_config_oauth2_extra_header_expressions(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        mcp_template_context: MCPTemplateContext,
+    ) -> None:
+        """OAuth extra headers resolve while OAuth Authorization remains authoritative."""
+        configured_headers = {
+            "authorization": "Bearer attacker",
+            "X-API-Key": (
+                "${{ SECRETS."
+                f"{mcp_template_context.secret_name}.{mcp_template_context.secret_key}"
+                " }}"
+            ),
+            "X-Tenant": (
+                "prefix-${{ VARS."
+                f"{mcp_template_context.variable_name}."
+                f"{mcp_template_context.variable_key}"
+                " }}"
+            ),
+        }
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Templated OAuth MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+                custom_credentials=SecretStr(orjson.dumps(configured_headers).decode()),
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        headers = server_config.get("headers")
+        assert headers is not None
+        assert headers["Authorization"] == "Bearer test_access_token"
+        assert "authorization" not in headers
+        assert headers["X-API-Key"] == mcp_template_context.secret_value
+        assert headers["X-Tenant"] == (f"prefix-{mcp_template_context.variable_value}")
+        assert all("${{" not in value for value in headers.values())
+
+    async def test_oauth2_malformed_extra_headers_are_dropped(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Malformed optional OAuth headers do not disable a valid OAuth token."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Malformed OAuth Headers MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        mcp_integration.encrypted_headers = integration_service._encrypt_token(
+            "{not-json"
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        assert server_config.get("headers") == {
+            "Authorization": "Bearer test_access_token"
+        }
+
+    async def test_oauth2_unresolvable_extra_header_fails_closed(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        mcp_template_context: MCPTemplateContext,
+    ) -> None:
+        """Expression failures in optional OAuth headers are not warn-and-dropped."""
+        missing_secret_name = f"missing_oauth_header_{uuid.uuid4().hex}"
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Missing OAuth Header Secret MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+                custom_credentials=SecretStr(
+                    orjson.dumps(
+                        {
+                            "X-API-Key": (
+                                f"${{{{ SECRETS.{missing_secret_name}.API_KEY }}}}"
+                            )
+                        }
+                    ).decode()
+                ),
+            )
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+        detail = str(exc_info.value)
+        assert missing_secret_name in detail
+        assert mcp_template_context.secret_value not in detail
+
+    async def test_missing_header_secret_fails_resolution_and_verification(
+        self,
+        integration_service: IntegrationService,
+        mcp_template_context: MCPTemplateContext,
+    ) -> None:
+        """Missing secret references fail closed without exposing secret values."""
+        missing_secret_name = f"missing_mcp_secret_{uuid.uuid4().hex}"
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Missing Secret MCP",
+                server_uri="https://custom.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(
+                    orjson.dumps(
+                        {
+                            "Authorization": (
+                                "ApiKey ${{ SECRETS."
+                                f"{missing_secret_name}.API_KEY"
+                                " }}"
+                            )
+                        }
+                    ).decode()
+                ),
+            )
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+        detail = str(exc_info.value)
+        assert missing_secret_name in detail
+        assert mcp_template_context.secret_value not in detail
+
+        with pytest.raises(MCPConnectionVerificationError) as verify_exc_info:
+            await integration_service._probe_mcp_http_server(mcp_integration)
+
+        assert (
+            verify_exc_info.value.message
+            == "MCP integration is not configured correctly"
+        )
+        assert verify_exc_info.value.error is not None
+        assert missing_secret_name in verify_exc_info.value.error
+        assert mcp_template_context.secret_value not in verify_exc_info.value.error
+
+    async def test_unresolved_header_template_marker_fails_closed(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Malformed template markers are never sent as literal header values."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Malformed Template MCP",
+                server_uri="https://custom.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(
+                    '{"Authorization": "ApiKey ${{ SECRETS.example.API_KEY"}'
+                ),
+            )
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+        assert "Authorization" in str(exc_info.value)
+
+    async def test_missing_header_secret_key_does_not_expose_values(
+        self,
+        integration_service: IntegrationService,
+        mcp_template_context: MCPTemplateContext,
+    ) -> None:
+        """Missing secret keys name the reference without exposing sibling values."""
+        missing_key = "MISSING_KEY"
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Missing Secret Key MCP",
+                server_uri="https://custom.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr(
+                    orjson.dumps(
+                        {
+                            "Authorization": (
+                                "${{ SECRETS."
+                                f"{mcp_template_context.secret_name}.{missing_key}"
+                                " }}"
+                            )
+                        }
+                    ).decode()
+                ),
+            )
+        )
+
+        with pytest.raises(MCPConfigurationError) as exc_info:
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+
+        detail = str(exc_info.value)
+        assert mcp_template_context.secret_name in detail
+        assert missing_key in detail
+        assert mcp_template_context.secret_value not in detail
 
     async def test_resolve_http_config_translates_busy_oauth_refresh(
         self,

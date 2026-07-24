@@ -1185,6 +1185,11 @@ export const TEMPLATE_SUGGESTIONS = [
     info: "For each item in the array",
   },
 ]
+type TemplateSuggestion = (typeof TEMPLATE_SUGGESTIONS)[number]
+
+const WORKSPACE_MAPPING_TEMPLATE_SUGGESTIONS = TEMPLATE_SUGGESTIONS.filter(
+  (suggestion) => suggestion.label === "SECRETS" || suggestion.label === "VARS"
+)
 
 // Custom keymap for @ key to trigger completions
 export function createAtKeyCompletion() {
@@ -1229,9 +1234,9 @@ export function createExitEditModeKeyHandler() {
 }
 
 // Completion functions
-export function createMentionCompletion(): (
-  context: CompletionContext
-) => CompletionResult | null {
+export function createMentionCompletion(
+  suggestions: readonly TemplateSuggestion[] = TEMPLATE_SUGGESTIONS
+): (context: CompletionContext) => CompletionResult | null {
   return (context: CompletionContext): CompletionResult | null => {
     const word = context.matchBefore(/@\w*/)
     if (!word) return null
@@ -1244,7 +1249,7 @@ export function createMentionCompletion(): (
 
     return {
       from: word.from,
-      options: TEMPLATE_SUGGESTIONS.map((suggestion) => ({
+      options: suggestions.map((suggestion) => ({
         label: `@${suggestion.label}`,
         detail: suggestion.detail,
         info: suggestion.info,
@@ -2065,6 +2070,19 @@ export function createAutocomplete({
       createSecretsCompletion(workspaceId),
       createVarsCompletion(workspaceId),
       createEnvCompletion(),
+    ],
+  })
+}
+
+/**
+ * Create secret and variable completions for workspace configuration mappings.
+ */
+export function createWorkspaceMappingAutocomplete(workspaceId: string) {
+  return autocompletion({
+    override: [
+      createMentionCompletion(WORKSPACE_MAPPING_TEMPLATE_SUGGESTIONS),
+      createSecretsCompletion(workspaceId),
+      createVarsCompletion(workspaceId),
     ],
   })
 }

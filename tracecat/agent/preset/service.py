@@ -22,6 +22,7 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
 )
+from tracecat.agent.mcp.secret_resolution import resolve_templated_mapping
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -63,10 +64,7 @@ from tracecat.db.models import (
     SkillVersion,
 )
 from tracecat.db.soft_delete import with_deleted
-from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.executor.service import get_workspace_variables
-from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
@@ -83,7 +81,6 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets import secrets_manager
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.settings.schemas import VersionedResourceResolutionStrategy
 from tracecat.settings.service import get_versioned_resource_resolution_strategy
@@ -1114,13 +1111,11 @@ class AgentPresetService(BaseWorkspaceService):
                 )
             except Exception as e:
                 logger.warning(
-                    "Stdio env resolution failed for MCP integration %r: %s",
-                    mcp_integration.name,
-                    str(e),
-                    extra={
-                        "workspace_id": str(self.workspace_id),
-                        "mcp_integration_id": str(mcp_integration.id),
-                    },
+                    "Stdio env resolution failed for MCP integration",
+                    mcp_integration_name=mcp_integration.name,
+                    error=str(e),
+                    workspace_id=str(self.workspace_id),
+                    mcp_integration_id=str(mcp_integration.id),
                 )
                 raise MCPSecretResolutionError(
                     "Stdio MCP integration env could not be resolved",
@@ -1136,13 +1131,11 @@ class AgentPresetService(BaseWorkspaceService):
             )
         except MCPConfigurationError as e:
             logger.warning(
-                "Failed to resolve secrets for HTTP MCP integration %r: %s",
-                mcp_integration.name,
-                str(e),
-                extra={
-                    "workspace_id": str(self.workspace_id),
-                    "mcp_integration_id": str(mcp_integration.id),
-                },
+                "Failed to resolve secrets for HTTP MCP integration",
+                mcp_integration_name=mcp_integration.name,
+                error=str(e),
+                workspace_id=str(self.workspace_id),
+                mcp_integration_id=str(mcp_integration.id),
             )
             if mcp_integration.auth_type in {MCPAuthType.OAUTH2, MCPAuthType.CUSTOM}:
                 raise MCPSecretResolutionError(
@@ -1161,50 +1154,23 @@ class AgentPresetService(BaseWorkspaceService):
         mcp_integration_id: uuid.UUID,
         mcp_integration_slug: str,
     ) -> dict[str, str]:
-        """Resolve template expressions in stdio_env using workspace secrets/vars."""
-        collected = collect_expressions(stdio_env)
-        if not collected.secrets and not collected.variables:
-            return stdio_env
-
-        secrets = await secrets_manager.get_action_secrets(
-            secret_exprs=collected.secrets,
-            action_secrets=set(),
-        )
-        vars_map = await get_workspace_variables(
-            variable_exprs=collected.variables,
+        """Resolve stdio env expressions at call time without persisting values."""
+        resolution = await resolve_templated_mapping(
+            stdio_env,
             role=self.role,
         )
-
-        context = create_default_execution_context()
-        context["SECRETS"] = secrets
-        context["VARS"] = vars_map
-
-        resolved = eval_templated_object(stdio_env, operand=context)
-        if not isinstance(resolved, dict):
-            raise TracecatValidationError(
-                "Resolved stdio_env must be a JSON object with string values"
+        if resolution.secret_ref_count or resolution.var_ref_count:
+            logger.info(
+                "Resolved stdio_env template expressions",
+                workspace_id=str(self.workspace_id),
+                mcp_integration_id=str(mcp_integration_id),
+                mcp_integration_slug=mcp_integration_slug,
+                env_key_count=len(resolution.mapping),
+                secret_ref_count=resolution.secret_ref_count,
+                var_ref_count=resolution.var_ref_count,
             )
 
-        non_string_keys = [
-            key for key, value in resolved.items() if not isinstance(value, str)
-        ]
-        if non_string_keys:
-            raise TracecatValidationError(
-                "Resolved stdio_env values must be strings "
-                f"(invalid keys: {sorted(non_string_keys)})"
-            )
-
-        logger.info(
-            "Resolved stdio_env template expressions",
-            workspace_id=str(self.workspace_id),
-            mcp_integration_id=str(mcp_integration_id),
-            mcp_integration_slug=mcp_integration_slug,
-            env_key_count=len(resolved),
-            secret_ref_count=len(collected.secrets),
-            var_ref_count=len(collected.variables),
-        )
-
-        return cast(dict[str, str], resolved)
+        return resolution.mapping
 
     async def _normalize_and_validate_slug(
         self,

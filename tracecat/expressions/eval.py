@@ -35,9 +35,11 @@ def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
             return obj
 
 
-def _eval_expression_op(match: re.Match[str], operand: ExprOperand | None) -> str:
+def _eval_expression_op(
+    match: re.Match[str], operand: ExprOperand | None, *, strict: bool
+) -> str:
     expr = match.group("template")
-    result = TemplateExpression(expr, operand=operand).result()
+    result = TemplateExpression(expr, operand=operand, strict=strict).result()
     try:
         return str(result)
     except Exception as e:
@@ -49,9 +51,10 @@ def eval_templated_object(
     *,
     operand: ExprOperand | None = None,
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
+    strict: bool = False,
 ) -> Any:
     """Populate templated fields with actual values."""
-    evaluator = partial(_eval_expression_op, operand=operand)
+    evaluator = partial(_eval_expression_op, operand=operand, strict=strict)
 
     def operator(line: str) -> Any:
         """Evaluate the templated string.
@@ -68,7 +71,7 @@ def eval_templated_object(
             # Non-inline template
             # If the template expression isn't given a reolve type, its underlying
             # value is returned as is.
-            return TemplateExpression(line, operand=operand).result()
+            return TemplateExpression(line, operand=operand, strict=strict).result()
         # Inline template
         # If the template expression is inline, we evaluate the result
         # and attempt to cast each underlying value into a string.
