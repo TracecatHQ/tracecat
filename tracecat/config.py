@@ -846,6 +846,16 @@ TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
 )
 """The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
 
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3
+)
+"""Maximum aggregate bytes promoted from a sandbox package cache."""
+
+TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES = int(
+    os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES") or 200_000
+)
+"""Maximum entries promoted from a sandbox package cache."""
+
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES") or 20 * 1024 * 1024  # Default 20MB
 )

@@ -19,3 +19,7 @@ class PackageInstallError(SandboxError):
 
 class SandboxValidationError(SandboxError):
     """Input validation failed for sandbox configuration."""
+
+
+class SandboxFileSafetyError(SandboxError):
+    """A sandbox-controlled file failed a host-side safety check."""

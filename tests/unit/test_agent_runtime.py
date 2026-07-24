@@ -52,6 +52,7 @@ from tracecat.agent.runtime.claude_code.runtime import (
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
 @pytest.fixture
@@ -2914,6 +2915,184 @@ class TestClaudeAgentRuntimeInternalSessionLines:
 
 class TestClaudeAgentRuntimeSessionLineFlushing:
     """Tests for ClaudeAgentRuntime SDK JSONL flushing."""
+
+    @pytest.mark.anyio
+    async def test_write_session_file_replaces_planted_symlink(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Resume hydration must not write through an agent-created symlink."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        outside_file = tmp_path / "outside-session.jsonl"
+        outside_file.write_text("host data")
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.symlink_to(outside_file)
+
+        await runtime._write_session_file(
+            sdk_session_id,
+            '{"type":"user"}\n',
+        )
+
+        assert outside_file.read_text() == "host data"
+        assert not session_file.is_symlink()
+        assert session_file.read_text() == '{"type":"user"}\n'
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_rejects_planted_symlink(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Session flushing must not follow an agent-selected host path."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.symlink_to("/dev/zero")
+
+        with pytest.raises(SandboxFileSafetyError, match="not safe to read"):
+            await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_drains_backlog_across_frames(
+        self,
+        mock_socket_writer: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A backlog larger than one frame should flush completely in order."""
+        monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", 80)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        complete_lines = [
+            self._line_bytes(
+                {
+                    "type": "user",
+                    "uuid": f"line-{index}",
+                    "message": {"content": str(index)},
+                }
+            )
+            for index in range(4)
+        ]
+        partial_line = orjson.dumps(
+            {
+                "type": "assistant",
+                "uuid": "partial-line",
+                "message": {"content": "later"},
+            }
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.write_bytes(b"".join(complete_lines) + partial_line)
+
+        await runtime._emit_new_session_lines()
+
+        emitted_uuids = [
+            orjson.loads(call.args[1])["uuid"]
+            for call in mock_socket_writer.send_session_line.await_args_list
+        ]
+        assert emitted_uuids == [f"line-{index}" for index in range(4)]
+        assert runtime._last_seen_byte_offset == len(b"".join(complete_lines))
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_does_not_advance_past_failed_send(
+        self,
+        mock_socket_writer: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A mid-chunk send failure must not re-send or skip lines on retry.
+
+        Both lines fit in a single chunk, so this pins per-line offset
+        advancement: the sent line is committed, the failed line is not.
+        """
+        monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", 200)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        first_line = self._line_bytes(
+            {"type": "user", "uuid": "first", "message": {"content": "1"}}
+        )
+        second_line = self._line_bytes(
+            {"type": "user", "uuid": "second", "message": {"content": "2"}}
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.write_bytes(first_line + second_line)
+        mock_socket_writer.send_session_line.side_effect = [
+            None,
+            RuntimeError("send failed"),
+        ]
+
+        with pytest.raises(RuntimeError, match="send failed"):
+            await runtime._emit_new_session_lines()
+
+        assert runtime._last_seen_byte_offset == len(first_line)
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_rejects_line_oversized_after_escaping(
+        self,
+        mock_socket_writer: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A line that fits raw but not after JSON escaping must fail fast.
+
+        Embedding the line in the session envelope re-escapes it, so a raw
+        read limit alone would let the send fail on every flush.
+        """
+        raw_line = self._line_bytes(
+            {"type": "user", "uuid": "big", "message": {"content": '"' * 40}}
+        )
+        # Raw line fits the frame, but its re-escaped serialization does not.
+        monkeypatch.setattr(runtime_module, "MAX_PAYLOAD_SIZE", len(raw_line) + 1)
+        monkeypatch.setattr(runtime_module, "_SESSION_FRAME_MARGIN", 0)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True)
+        session_file.write_bytes(raw_line)
+
+        with pytest.raises(SandboxFileSafetyError, match="frame limit"):
+            await runtime._emit_new_session_lines()
+
+        assert runtime._last_seen_byte_offset == 0
+        mock_socket_writer.send_session_line.assert_not_awaited()
 
     @staticmethod
     def _line_bytes(line: dict[str, Any]) -> bytes:
