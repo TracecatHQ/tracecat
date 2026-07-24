@@ -72,6 +72,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.tables.exceptions import CaseFieldValidationError
 from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
@@ -627,6 +628,11 @@ async def create_case(
     service = CasesService(session, role)
     try:
         await service.create_case(params)
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -653,6 +659,11 @@ async def update_case(
         )
     try:
         await service.update_case(case, params)
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_ENTITY,

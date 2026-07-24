@@ -1659,7 +1659,10 @@ class TestTableRows:
 
         # Input coercion now fails before SQL execution, but the batch should
         # still behave atomically and leave the table unchanged.
-        with pytest.raises(ValueError, match="Invalid integer value: 'invalid'"):
+        with pytest.raises(
+            ValueError,
+            match="Column 'age' expects INTEGER \\(a whole number\\). Received str.",
+        ):
             await tables_service.batch_insert_rows(table, rows)
 
         # Verify no rows were inserted (transaction rolled back)
@@ -2043,26 +2046,31 @@ class TestTableDataTypes:
             # Test invalid integer
             pytest.param(
                 {"int_col": "not a number"},
-                "Invalid integer value: 'not a number'",
+                "Column 'int_col' expects INTEGER (a whole number). Received str.",
                 id="invalid_integer",
             ),
             # Test invalid boolean
             pytest.param(
                 {"bool_col": "not a boolean"},
-                "Expected bool or 0/1, got str",
+                "Column 'bool_col' expects BOOLEAN (true, false, 1, or 0). Received str.",
                 id="invalid_boolean",
             ),
             # Test invalid JSON - this raises TypeError directly
             pytest.param(
                 {"json_col": object()},
-                "Object of type object is not JSON serializable",
+                "Column 'json_col' expects JSONB (a JSON-serializable value). Received object.",
                 id="invalid_json",
             ),
             # Test invalid timestamp
             pytest.param(
                 {"timestamptz_col": "not-a-timestamp"},
-                "Invalid ISO datetime string: 'not-a-timestamp'",
+                "Column 'timestamptz_col' expects TIMESTAMPTZ",
                 id="invalid_timestamp",
+            ),
+            pytest.param(
+                {"timestamptz_col": ""},
+                "Received an empty string; use null to leave a nullable field empty.",
+                id="empty_timestamp",
             ),
         ],
         scope="function",

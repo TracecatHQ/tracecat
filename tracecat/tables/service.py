@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
+import orjson
 import sqlalchemy as sa
 from asyncpg.exceptions import (
     InFailedSQLTransactionError,
@@ -45,6 +46,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
+    coerce_boolean_value,
     coerce_integer_value,
     coerce_multi_select_value,
     coerce_numeric_value,
@@ -58,6 +60,7 @@ from tracecat.tables.common import (
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowValidationError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -247,31 +250,46 @@ class BaseTablesService(BaseWorkspaceService):
         for column_name, value in data.items():
             column = column_index.get(column_name)
             if column is None:
-                raise ValueError(
-                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                raise TableRowValidationError.unknown_column(
+                    column_name=column_name,
+                    table_name=table.name,
                 )
 
             sql_type = SqlType(column.type)
             if value is None:
+                if not column.nullable:
+                    raise TableRowValidationError.null_not_allowed(
+                        column_name=column_name
+                    )
                 normalised[column_name] = None
                 continue
 
-            if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
-                normalised[column_name] = self._coerce_value_for_column(
-                    sql_type, value, column.options
-                )
-                continue
-
-            if sql_type is SqlType.TIMESTAMPTZ:
-                normalised[column_name] = coerce_to_utc_datetime(value)
-            elif sql_type is SqlType.INTEGER:
-                normalised[column_name] = coerce_integer_value(value)
-            elif sql_type is SqlType.NUMERIC:
-                normalised[column_name] = coerce_numeric_value(value)
-            elif sql_type is SqlType.DATE and value is not None:
-                normalised[column_name] = coerce_to_date(value)
-            else:
-                normalised[column_name] = value
+            try:
+                if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                    normalised[column_name] = self._coerce_value_for_column(
+                        sql_type, value, column.options
+                    )
+                elif sql_type is SqlType.TIMESTAMPTZ:
+                    normalised[column_name] = coerce_to_utc_datetime(value)
+                elif sql_type is SqlType.INTEGER:
+                    normalised[column_name] = coerce_integer_value(value)
+                elif sql_type is SqlType.NUMERIC:
+                    normalised[column_name] = coerce_numeric_value(value)
+                elif sql_type is SqlType.DATE:
+                    normalised[column_name] = coerce_to_date(value)
+                elif sql_type is SqlType.BOOLEAN:
+                    normalised[column_name] = coerce_boolean_value(value)
+                elif sql_type is SqlType.JSONB:
+                    orjson.dumps(value)
+                    normalised[column_name] = value
+                else:
+                    normalised[column_name] = value
+            except (TypeError, ValueError) as exc:
+                raise TableRowValidationError.invalid_value(
+                    column_name=column_name,
+                    expected_type=sql_type,
+                    value=value,
+                ) from exc
 
         return normalised
 

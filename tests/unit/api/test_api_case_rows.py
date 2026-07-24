@@ -16,6 +16,8 @@ from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
 from tracecat.cases.schemas import CaseReadMinimal
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowValidationError
 
 
 def _build_case_read(case_id: uuid.UUID) -> CaseReadMinimal:
@@ -219,3 +221,33 @@ async def test_internal_link_case_row_returns_409_for_duplicate_link(
         "code": "CASE_ROW_ALREADY_LINKED",
         "message": "This table row is already linked to the case.",
     }
+
+
+@pytest.mark.anyio
+async def test_internal_insert_case_row_returns_table_validation_detail(
+    action_gateway_client: TestClient, test_admin_role: Role
+) -> None:
+    case_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+    error = TableRowValidationError.invalid_value(
+        column_name="due_date",
+        expected_type=SqlType.DATE,
+        value="",
+    )
+    with patch.object(
+        internal_case_rows_router, "CaseTableRowsService"
+    ) as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.insert_row_to_case.side_effect = error
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.post(
+            f"/internal/cases/{case_id}/rows/insert",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"table_id": str(table_id), "row": {"due_date": ""}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"]["code"] == "TABLE_ROW_INVALID_VALUE"
+    assert response.json()["detail"]["column"] == "due_date"

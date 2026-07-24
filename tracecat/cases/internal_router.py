@@ -68,6 +68,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.tables.exceptions import CaseFieldValidationError
 from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
@@ -446,6 +447,11 @@ async def create_case(
     service = CasesService(session, role)
     try:
         case = await service.create_case(params)
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -511,6 +517,11 @@ async def update_case(
         )
     try:
         updated_case = await service.update_case(case, params)
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -1229,6 +1240,11 @@ async def create_case_simple(
                 )
             await session.refresh(case)
 
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except NoResultFound as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -1303,6 +1319,11 @@ async def update_case_simple(
                 )
             await session.refresh(updated_case)
 
+    except CaseFieldValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=e.detail,
+        ) from e
     except NoResultFound as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
