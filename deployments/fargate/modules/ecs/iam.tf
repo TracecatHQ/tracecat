@@ -269,6 +269,50 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   role       = aws_iam_role.worker_execution.name
 }
 
+# Migrations execution role
+resource "aws_iam_role" "migrations_execution" {
+  name               = "${var.iam_name_prefix}MigrationsExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "migrations_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.migrations_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "migrations_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.migrations_execution.name
+}
+
+# Migrations task role
+resource "aws_iam_role" "migrations_task" {
+  name               = "${var.iam_name_prefix}MigrationsTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "migrations_task_db_access" {
+  name = "${var.iam_name_prefix}MigrationsDBAccessPolicy"
+  role = aws_iam_role.migrations_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
   name               = "${var.iam_name_prefix}APIWorkerTaskRole"
