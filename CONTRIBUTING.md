@@ -87,6 +87,26 @@ You can then access the application at http://localhost:80.
 > [!IMPORTANT]
 > `--seed` creates a test user only. Superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` set via `./env.sh`, and the first signup or login with that email becomes the organization owner.
 
+### Lite mode (control plane only)
+
+If you are working on control-plane features, the `lite` profile starts only
+Postgres, the API, the UI, and Caddy:
+
+```bash
+just cluster -p lite up -d
+```
+
+This drops Temporal, Redis, MinIO, and the worker/executor containers entirely,
+so the stack boots in seconds. Auth, workspaces, secrets, settings, tables,
+RBAC, workflow CRUD and the graph editor, registry action listing, and cases all
+work normally.
+
+Workflows cannot execute in lite mode, and any feature needing Temporal, Redis,
+or blob storage will error the same way it does when that service is down. The
+flag only skips startup work; request-time code paths are untouched.
+
+The profile sets `TRACECAT__LITE_MODE=true`.
+
 ## PR and Commit Message Guidelines
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for both pull requests and commit messages.

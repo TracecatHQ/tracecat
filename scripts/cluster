@@ -9,6 +9,7 @@
 #   dev     docker-compose.dev.yml (default)
 #   local   docker-compose.local.yml
 #   prod    docker-compose.yml
+#   lite    docker-compose.lite.yml (control plane only: no Temporal/Redis/MinIO/workers)
 #
 # Examples:
 #   ./cluster up -d                # Start next available cluster (auto-selects number)
@@ -366,8 +367,11 @@ get_compose_file() {
         prod)
             echo "${REPO_ROOT}/docker-compose.yml"
             ;;
+        lite)
+            echo "${REPO_ROOT}/docker-compose.lite.yml"
+            ;;
         *)
-            echo "Error: Unknown profile '$profile'. Valid profiles: dev, local, prod" >&2
+            echo "Error: Unknown profile '$profile'. Valid profiles: dev, local, prod, lite" >&2
             exit 1
             ;;
     esac
@@ -386,6 +390,10 @@ Profiles:
   dev       docker-compose.dev.yml (default)
   local     docker-compose.local.yml
   prod      docker-compose.yml
+  lite      docker-compose.lite.yml
+            Control plane only: Postgres + API + UI + Caddy, with no Temporal,
+            Redis, MinIO, or worker/executor containers. Boots in seconds for
+            control-plane work; workflows cannot execute.
 
 Tenant mode:
   Always defaults to TRACECAT__EE_MULTI_TENANT=true for cluster development.
@@ -562,6 +570,15 @@ build_env() {
     # --ee-multi-tenant) override it; .env and shell values are ignored so
     # fresh worktrees behave consistently.
     export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-true}"
+
+    # Lite mode is decided by the profile, not by .env. build_env() is re-run
+    # after the .env file is sourced, so this export always wins.
+    if [[ "$PROFILE" == "lite" ]]; then
+        export TRACECAT__LITE_MODE=true
+    else
+        export TRACECAT__LITE_MODE=false
+    fi
+
     FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
     if [[ -n "$FEATURE_FLAGS" ]]; then
         export TRACECAT__FEATURE_FLAGS="$FEATURE_FLAGS"
@@ -578,6 +595,15 @@ Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   UI (Caddy):      http://localhost:${PUBLIC_APP_PORT}
   API:             http://localhost:${PUBLIC_APP_PORT}/api (internal: ${API_PORT})
   PostgreSQL:      localhost:${PG_PORT}
+EOF
+
+    # The lite profile runs no data-plane containers, so those ports are unbound.
+    if [[ "$PROFILE" == "lite" ]]; then
+        echo "  (lite profile: no Redis, Temporal, MinIO or MCP)"
+        return
+    fi
+
+    cat <<EOF
   Redis:           localhost:${REDIS_PORT_HOST}
   Temporal:        localhost:${TEMPORAL_PORT}
   Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
@@ -847,7 +873,10 @@ fi
 # Get compose file for profile
 COMPOSE_FILE=$(get_compose_file "$PROFILE")
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
-if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+# The sandbox overlay only patches executor/agent-executor, which the lite
+# profile does not run. Layering it there would declare those services with
+# neither an image nor a build context, which Compose rejects outright.
+if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" && "$PROFILE" != "lite" ]]; then
     COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
 fi
 
@@ -1119,7 +1148,7 @@ fi
 
 # Check for seed flags in up command. Dev profile seeds by default.
 SEED_USER=false
-if [[ "$COMMAND" == "up" && "$PROFILE" == "dev" ]]; then
+if [[ "$COMMAND" == "up" && ("$PROFILE" == "dev" || "$PROFILE" == "lite") ]]; then
     SEED_USER=true
 fi
 DETACHED_UP=false
