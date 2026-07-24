@@ -2,6 +2,7 @@ import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from typing import cast as typing_cast
 
@@ -20,6 +21,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, require_scope
@@ -29,8 +31,11 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_sync_after_commit,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -1210,9 +1215,9 @@ class CasesService(BaseWorkspaceService):
         """Update multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
         audit_data: dict[str, Any] = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": len(case_ids),
+            "case_count": len(case_ids),
         }
         await self._audit_batch_event(
             action="update",
@@ -1304,8 +1309,8 @@ class CasesService(BaseWorkspaceService):
                 status=AuditEventStatus.FAILURE,
                 data={
                     **audit_data,
-                    "succeeded": 0,
-                    "failed": len(case_ids),
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
                 },
             )
             raise
@@ -1323,8 +1328,8 @@ class CasesService(BaseWorkspaceService):
             else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
-                "succeeded": response.succeeded,
-                "failed": response.failed,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
             },
         )
         return response
@@ -1334,9 +1339,9 @@ class CasesService(BaseWorkspaceService):
         """Delete multiple cases atomically with isolated per-case failures."""
         case_ids = list(dict.fromkeys(case_ids))
         audit_data: dict[str, Any] = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": len(case_ids),
+            "case_count": len(case_ids),
         }
         await self._audit_batch_event(
             action="delete",
@@ -1435,8 +1440,8 @@ class CasesService(BaseWorkspaceService):
                 status=AuditEventStatus.FAILURE,
                 data={
                     **audit_data,
-                    "succeeded": 0,
-                    "failed": len(case_ids),
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
                 },
             )
             raise
@@ -1454,8 +1459,8 @@ class CasesService(BaseWorkspaceService):
             else AuditEventStatus.FAILURE,
             data={
                 **audit_data,
-                "succeeded": response.succeeded,
-                "failed": response.failed,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
             },
         )
         return response
@@ -2035,13 +2040,14 @@ class CaseCommentsService(BaseWorkspaceService):
         case_id: uuid.UUID,
         comment_id: uuid.UUID,
         parent_id: uuid.UUID | None,
-        content: str | None = None,
         delete_mode: Literal["soft", "hard"] | None = None,
         workflow: Workflow | None = None,
         wf_exec_id: str | None = None,
         workflow_status: CaseCommentWorkflowStatus | None = None,
-    ) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    ) -> dict[str, AuditMetadataValue]:
+        """Build identifier-only metadata for a case-comment audit event."""
+
+        data: dict[str, AuditMetadataValue] = {
             "case_id": str(case_id),
             "comment_id": str(comment_id),
             "parent_id": str(parent_id) if parent_id is not None else None,
@@ -2050,13 +2056,10 @@ class CaseCommentsService(BaseWorkspaceService):
             ),
             "is_reply": parent_id is not None,
         }
-        if content is not None:
-            data["content"] = content
         if delete_mode is not None:
             data["delete_mode"] = delete_mode
         if workflow is not None:
             data["workflow_id"] = str(workflow.id)
-            data["workflow_alias"] = workflow.alias
             data["is_workflow_comment"] = True
             data["uses_case_addons"] = True
         if wf_exec_id is not None:
@@ -2125,7 +2128,6 @@ class CaseCommentsService(BaseWorkspaceService):
                     "comment_id": str(comment_id),
                     "parent_id": str(parent_id) if parent_id is not None else None,
                     "workflow_id": str(workflow.id),
-                    "workflow_alias": workflow.alias,
                     "wf_exec_id": wf_exec_id,
                     "trigger_type": "case",
                 },
@@ -2152,7 +2154,7 @@ class CaseCommentsService(BaseWorkspaceService):
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
         status: AuditEventStatus,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         async with AuditService.with_session(
             role=self.role, session=self.session
@@ -2170,7 +2172,7 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         """Emit post-commit success audits without failing the mutation."""
         try:
@@ -2416,7 +2418,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=case.id,
             comment_id=comment_id,
             parent_id=params.parent_id,
-            content=params.content,
             workflow=workflow,
             wf_exec_id=wf_exec_id,
             workflow_status=workflow_status,
@@ -2566,7 +2567,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=comment.case_id,
             comment_id=comment.id,
             parent_id=comment.parent_id,
-            content=params.content,
         )
         await self._audit_comment_event(
             action="update",
@@ -2736,6 +2736,7 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
+        sync_durations: bool = True,
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2743,8 +2744,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is performed automatically after each event is created,
-        so callers do not need to call sync_case_durations separately.
+        Duration sync is queued after commit, with an inline fallback when
+        Redis publication fails.
         """
 
         db_event = CaseEvent(
@@ -2779,9 +2780,20 @@ class CaseEventsService(BaseWorkspaceService):
 
             AfterCommitQueue.of(self.session).add(_publish_case_event)
 
-        # Auto-sync durations whenever an event is created
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        if sync_durations:
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
+            )
 
         return db_event
 
@@ -2818,7 +2830,10 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        return await self.create_event(case=case, event=CaseViewedEvent())
+        return await self.create_event(
+            case=case,
+            event=CaseViewedEvent(),
+        )
 
 
 class CaseTasksService(BaseWorkspaceService):

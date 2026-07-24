@@ -35,13 +35,13 @@ jobs:
       - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
           src: "tracecat/ tests/ packages/ alembic/"
-          version: latest
+          version-file: "pyproject.toml"
           args: check --no-fix
 
       - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
           src: "tracecat/ tests/ packages/ alembic/"
-          version: latest
+          version-file: "pyproject.toml"
           args: format --diff
 
   pyright:

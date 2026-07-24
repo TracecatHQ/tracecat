@@ -130,6 +130,37 @@ describe("ChatToolsPicker", () => {
     mockToast.mockClear()
   })
 
+  it("does not offer actions excluded from agent toolsets", () => {
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.script.run_python", {
+            default_title: "Run Python script",
+            display_group: "Core",
+          }),
+          registryAction("core.http_request", {
+            default_title: "HTTP Request",
+            display_group: "Core",
+          }),
+        ]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      { target: { value: "request" } }
+    )
+
+    // Excluded action is not offered, but ordinary core.* actions still are.
+    expect(screen.queryByText("Run Python script")).not.toBeInTheDocument()
+    expect(screen.getByText("HTTP Request")).toBeInTheDocument()
+  })
+
   it("disables the add toggle for an unselected tool once the limit is reached", () => {
     const onToolsChange = jest.fn()
     const selected = Array.from({ length: 50 }, (_, i) => `extra.tool.t${i}`)

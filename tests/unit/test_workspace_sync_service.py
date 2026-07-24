@@ -90,6 +90,7 @@ def sample_dsl() -> DSLInput:
 @pytest.fixture
 def workspace_sync_service() -> WorkspaceSyncService:
     session = AsyncMock()
+    session.info = {}
     transaction = AsyncMock()
     transaction.__aenter__.return_value = None
     transaction.__aexit__.return_value = None

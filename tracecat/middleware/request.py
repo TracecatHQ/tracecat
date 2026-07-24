@@ -1,26 +1,70 @@
 from __future__ import annotations
 
+import re
+from ipaddress import ip_address
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from tracecat.contexts import ctx_client_ip
+from tracecat.contexts import RequestAuditContext, ctx_request_audit
+
+_AUDIT_USER_AGENT_PATTERN = re.compile(
+    r"^(?P<product>Mozilla|TracecatClient|curl|python-httpx|Claude-Code|Codex)"
+    r"/(?P<version>\d{1,4}(?:\.\d{1,4}){0,3})\b",
+    re.IGNORECASE,
+)
+_AUDIT_USER_AGENT_FAMILIES = {
+    "claude-code": "claude-code",
+    "codex": "codex",
+    "curl": "curl",
+    "mozilla": "browser",
+    "python-httpx": "httpx",
+    "tracecatclient": "tracecat",
+}
+
+
+def _normalize_client_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(ip_address(value))
+    except ValueError:
+        return None
+
+
+def _normalize_audit_user_agent(value: str | None) -> str | None:
+    """Return a bounded client family/version without forwarding raw metadata."""
+    if not value:
+        return None
+    if match := _AUDIT_USER_AGENT_PATTERN.match(value):
+        family = _AUDIT_USER_AGENT_FAMILIES[match.group("product").lower()]
+        return f"{family}/{match.group('version')}"
+    return "other"
+
+
+def build_request_audit_context(request: Request) -> RequestAuditContext:
+    """Derive audit attribution from an HTTP request.
+
+    Leftmost X-Forwarded-For hop, falling back to the socket peer.
+    Client-controlled: informational attribution, not a security control.
+    """
+    client_ip = None
+    if forwarded_for := request.headers.get("X-Forwarded-For"):
+        client_ip = _normalize_client_ip(forwarded_for.split(",", 1)[0].strip())
+    if client_ip is None:
+        client_ip = _normalize_client_ip(
+            request.client.host if request.client is not None else None
+        )
+    user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
+    return RequestAuditContext(client_ip=client_ip, user_agent=user_agent)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Capture client IP address
-        # Check X-Forwarded-For header first (for production behind proxies)
-        client_ip = None
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # X-Forwarded-For format: "client, proxy1, proxy2"
-            # First IP is the original client
-            client_ip = forwarded_for.split(",")[0].strip()
-        # Fallback to direct connection IP
-        if not client_ip and request.client:
-            client_ip = request.client.host
+        audit_context = build_request_audit_context(request)
+        client_ip = audit_context.client_ip
 
-        token = ctx_client_ip.set(client_ip)
+        audit_token = ctx_request_audit.set(audit_context)
 
         try:
             request_logger = request.app.state.logger
@@ -40,4 +84,4 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
             return await call_next(request)
         finally:
-            ctx_client_ip.reset(token)
+            ctx_request_audit.reset(audit_token)

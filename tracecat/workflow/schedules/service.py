@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import AfterCommitQueue
@@ -29,6 +30,27 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows."""
 
     service_name = "workflow_schedules"
+
+    def _suppress_audit_when_deferred_commit(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
+
+    def _schedule_update_audit_details(
+        self, schedule_id: AnyScheduleID, params: ScheduleUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
+
+    def _suppress_delete_audit_when_deferred_commit(
+        self, schedule_id: AnyScheduleID, commit: bool = True
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails()
 
     async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
@@ -67,6 +89,12 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return list(schedules)
 
     @require_scope("schedule:create")
+    @audit_log(
+        resource_type="schedule",
+        action="create",
+        resource_id_attr="id",
+        attempt_metadata=_suppress_audit_when_deferred_commit,
+    )
     async def create_schedule(
         self, params: ScheduleCreate, commit: bool = True
     ) -> Schedule:
@@ -94,10 +122,20 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     async def _create_schedule_impl(
         self, params: ScheduleCreate, commit: bool = True
     ) -> Schedule:
-        """Create a schedule without enforcing the standalone schedule scope.
+        """Implement schedule creation for an authorized caller.
 
-        Scope enforcement is the caller's responsibility (see ``create_schedule``
-        and ``replace_schedules``).
+        This internal method lets other methods on this service compose schedule
+        changes under their own authorization and audit lifecycle. External
+        callers must use :meth:`create_schedule`.
+
+        Args:
+            params: Configuration for the new schedule.
+            commit: Whether to commit immediately. When ``False``, the method
+                flushes the row and leaves the transaction and registered
+                Temporal callback to the caller.
+
+        Returns:
+            The newly created schedule.
         """
         await self._lock_workflow(params.workflow_id)
         schedule = Schedule(
@@ -221,6 +259,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
 
     @require_scope("schedule:update")
+    @audit_log(
+        resource_type="schedule",
+        action="update",
+        attempt_metadata=_schedule_update_audit_details,
+    )
     async def update_schedule(
         self, schedule_id: AnyScheduleID, params: ScheduleUpdate
     ) -> Schedule:
@@ -275,6 +318,11 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         return schedule
 
     @require_scope("schedule:delete")
+    @audit_log(
+        resource_type="schedule",
+        action="delete",
+        attempt_metadata=_suppress_delete_audit_when_deferred_commit,
+    )
     async def delete_schedule(
         self, schedule_id: AnyScheduleID, commit: bool = True
     ) -> None:
@@ -297,10 +345,17 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     async def _delete_schedule_impl(
         self, schedule_id: AnyScheduleID, commit: bool = True
     ) -> None:
-        """Delete a schedule without enforcing the standalone schedule scope.
+        """Implement schedule deletion for an authorized caller.
 
-        Scope enforcement is the caller's responsibility (see ``delete_schedule``
-        and ``replace_schedules``).
+        This internal method lets other methods on this service compose schedule
+        changes under their own authorization and audit lifecycle. External
+        callers must use :meth:`delete_schedule`.
+
+        Args:
+            schedule_id: ID of the schedule to delete.
+            commit: Whether to commit immediately. When ``False``, the method
+                flushes the deletion and leaves the transaction and registered
+                Temporal callback to the caller.
         """
         schedule = await self._get_schedule_with_workflow_lock(schedule_id)
         await self.session.delete(schedule)
@@ -342,8 +397,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         than the standalone ``schedule:create``/``schedule:delete`` scopes, so a
         user who is allowed to edit workflows can change their schedules without
         also holding the admin-only ``schedule:delete`` scope. The delete and
-        create work happens against the unscoped helpers and is committed as a
-        single transaction with the rest of the edit.
+        create work is committed as a single transaction with the rest of the
+        edit.
         """
         existing = await self.list_schedules(workflow_id=workflow_id)
         for schedule in existing:

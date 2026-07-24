@@ -528,21 +528,29 @@ describe("WorkspaceSyncSettings", () => {
   it("keeps pull actions available after previewing changes", async () => {
     const user = userEvent.setup()
     const commitSha = "a".repeat(40)
+    const resourceDiffs = Array.from({ length: 25 }, (_, index) => ({
+      resource_type: "workflow" as const,
+      source_id: `workflow-${index}`,
+      source_path: `workflows/workflow-${index}/definition.yml`,
+      change_type: "modified" as const,
+      title: `Workflow ${index}`,
+      diff: "@@ -1 +1 @@\n-old\n+new",
+    }))
     const preview: PullResult = {
       success: true,
       commit_sha: commitSha,
-      workflows_found: 1,
+      workflows_found: resourceDiffs.length,
       workflows_imported: 0,
       diagnostics: [],
-      message: "Dry run completed - 1 resource change(s) detected",
+      message: `Dry run completed - ${resourceDiffs.length} resource change(s) detected`,
       resource_counts: {
-        workflow: { found: 1, imported: 0 },
+        workflow: { found: resourceDiffs.length, imported: 0 },
         table: { found: 1, imported: 0 },
       },
       files: [
         "tracecat.json",
-        "workflows/root/definition.yml",
         "tables/indicators/table.yml",
+        ...resourceDiffs.map((diff) => diff.source_path),
       ],
       resources: [
         {
@@ -558,16 +566,7 @@ describe("WorkspaceSyncSettings", () => {
           path: "tables/indicators/table.yml",
         },
       ],
-      resource_diffs: [
-        {
-          resource_type: "workflow",
-          source_id: "root",
-          source_path: "workflows/root/definition.yml",
-          change_type: "modified",
-          title: "Root workflow",
-          diff: "@@ -1 +1 @@\n-old\n+new",
-        },
-      ],
+      resource_diffs: resourceDiffs,
     }
     const connectedWorkspace = setupHooks({
       gitRepoUrl: repositories[0].git_url,
@@ -599,12 +598,22 @@ describe("WorkspaceSyncSettings", () => {
       })
     })
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
-    expect(screen.getByText("3 files")).toBeInTheDocument()
+    expect(
+      screen.getByText(`${resourceDiffs.length + 2} files`)
+    ).toBeInTheDocument()
     expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
     expect(screen.getByText("Indicators")).toBeInTheDocument()
-    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(screen.getAllByLabelText("Modified")).toHaveLength(
+      resourceDiffs.length
+    )
     expect(container.firstElementChild).toHaveClass("min-w-0")
 
+    expect(screen.getByRole("group", { name: "Pull actions" })).toHaveClass(
+      "sticky",
+      "bottom-0",
+      "z-10",
+      "bg-background"
+    )
     const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
     expect(applyPullButton).toBeEnabled()
 

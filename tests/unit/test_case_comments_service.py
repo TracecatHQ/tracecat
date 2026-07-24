@@ -42,8 +42,8 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.fixture(autouse=True)
 def stub_case_duration_sync() -> Iterator[None]:
     with patch(
-        "tracecat.cases.service.CaseDurationService.sync_case_durations",
-        new=AsyncMock(return_value=None),
+        "tracecat.cases.service.sync_case_duration",
+        new=AsyncMock(return_value=True),
     ):
         yield
 
@@ -213,7 +213,7 @@ class TestCaseCommentsService:
             AuditEventStatus.SUCCESS.value,
         ]
         assert all(event.resource_type == "case_comment" for event in audit_events)
-        assert audit_events[-1].data["content"] == comment_create_params.content
+        assert "content" not in audit_events[-1].data
 
         # Retrieve comment
         retrieved_comment = await case_comments_service.get_comment(created_comment.id)
@@ -279,6 +279,8 @@ class TestCaseCommentsService:
         assert (
             workflow_audits[0].data["wf_exec_id"] == created_comment.workflow_wf_exec_id
         )
+        assert "workflow_alias" not in workflow_audits[0].data
+        assert all("content" not in event.data for event in comment_audits)
 
         await session.delete(workflow)
         await session.commit()
@@ -350,7 +352,11 @@ class TestCaseCommentsService:
                 ),
             )
 
-        assert callbacks == []
+        # Only the duration sync publish is deferred; the workflow trigger
+        # below is published explicitly rather than after commit.
+        assert [getattr(cb, "__qualname__", None) for cb in callbacks] == [
+            "enqueue_case_duration_sync_after_commit.<locals>._publish"
+        ]
         workflow_publish = next(
             kwargs
             for _, kwargs in publish_mock.await_args_list
@@ -797,7 +803,7 @@ class TestCaseCommentsService:
             AuditEventStatus.ATTEMPT.value,
             AuditEventStatus.SUCCESS.value,
         ]
-        assert update_audits[-1].data["content"] == update_params.content
+        assert "content" not in update_audits[-1].data
 
     async def test_update_reply_emits_reply_activity(
         self,
