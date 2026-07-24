@@ -1,4 +1,14 @@
-name: tracecat-infra
+# Shared infrastructure, started once per machine and reused by every
+# standalone stack. Driven by `scripts/cluster` as its own Compose project
+# (tracecat-shared-infra); it is not meant to be run by hand.
+#
+# Each service publishes a `tracecat-shared-*` network alias. Stacks address
+# infra by those aliases, never by host port, so the published ports below can
+# move without touching any stack.
+#
+# Published ports are the dev-cluster bases + 10. `scripts/cluster` allocates
+# dev clusters on a stride of 100 from those same bases, so +10 can never
+# collide with any cluster number.
 
 services:
   postgres:
@@ -10,7 +20,7 @@ services:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD:-postgres}
     ports:
-      - "127.0.0.1:${PG_PORT:-5432}:5432"
+      - "127.0.0.1:${TC_SHARED_PG_PORT:-5442}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +30,7 @@ services:
       retries: 12
       start_period: 5s
     networks:
-      shared:
+      default:
         aliases:
           - tracecat-shared-postgres
 
@@ -38,8 +48,8 @@ services:
       - --db-filename
       - /data/temporal.db
     ports:
-      - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"
-      - "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8233"
+      - "127.0.0.1:${TC_SHARED_TEMPORAL_PORT:-7243}:7233"
+      - "127.0.0.1:${TC_SHARED_TEMPORAL_UI_PORT:-8243}:8233"
     volumes:
       - temporal-data:/data
     healthcheck:
@@ -58,7 +68,7 @@ services:
       retries: 12
       start_period: 5s
     networks:
-      shared:
+      default:
         aliases:
           - tracecat-shared-temporal
 
@@ -70,8 +80,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
     ports:
-      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
-      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${TC_SHARED_MINIO_PORT:-9010}:9000"
+      - "127.0.0.1:${TC_SHARED_MINIO_CONSOLE_PORT:-9011}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -80,7 +90,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      shared:
+      default:
         aliases:
           - tracecat-shared-minio
 
@@ -89,7 +99,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - "127.0.0.1:${REDIS_PORT_HOST:-6379}:6379"
+      - "127.0.0.1:${TC_SHARED_REDIS_PORT:-6389}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -98,16 +108,16 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      shared:
+      default:
         aliases:
           - tracecat-shared-redis
+
+networks:
+  default:
+    name: tracecat-shared-infra
 
 volumes:
   postgres-data:
   temporal-data:
   minio-data:
   redis-data:
-
-networks:
-  shared:
-    name: tracecat-multi-dev
