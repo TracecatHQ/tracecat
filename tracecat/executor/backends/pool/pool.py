@@ -969,6 +969,7 @@ class WorkerPool:
         role: Role,
         resolved_context: ResolvedContext,
         timeout: float = 300.0,
+        registry_paths: list[Path] | None = None,
     ) -> ExecutorResult:
         """Execute a task on an available pool worker.
 
@@ -977,6 +978,9 @@ class WorkerPool:
             role: The Role for authorization
             resolved_context: Pre-resolved secrets, variables, and action impl
             timeout: Execution timeout in seconds
+            registry_paths: Pre-materialized registry artifact paths for the
+                worker to add to sys.path. The host resolves these so the
+                sandboxed worker doesn't need DB/network access.
         """
         if not self._started:
             raise RuntimeError("Worker pool not started")
@@ -999,12 +1003,13 @@ class WorkerPool:
             task_ref=task_ref,
             worker_active_tasks=worker.active_tasks,
             worker_completed=worker.tasks_completed,
+            registry_paths=len(registry_paths) if registry_paths else 0,
         )
 
         start_time = time.monotonic()
         try:
             result = await self._execute_on_worker(
-                worker, input, role, resolved_context, timeout
+                worker, input, role, resolved_context, timeout, registry_paths
             )
             # Track latency for successful execution
             elapsed_ms = (time.monotonic() - start_time) * 1000
@@ -1084,6 +1089,7 @@ class WorkerPool:
         role: Role,
         resolved_context: ResolvedContext,
         timeout: float,
+        registry_paths: list[Path] | None = None,
     ) -> ExecutorResult:
         """Execute task on a pool worker via Unix socket."""
 
@@ -1104,6 +1110,7 @@ class WorkerPool:
             "role": role.model_dump(mode="json"),
             "resolved_context": resolved_context.model_dump(mode="json"),
             "secret_env": secret_projection.env,
+            "registry_paths": [str(p) for p in registry_paths] if registry_paths else [],
         }
         request_bytes = orjson.dumps(request)
 
