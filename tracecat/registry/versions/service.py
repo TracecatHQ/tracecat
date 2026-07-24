@@ -110,6 +110,7 @@ class RegistryVersionsService(BaseOrgService):
             commit_sha=params.commit_sha,
             manifest=to_jsonable_python(params.manifest),
             tarball_uri=params.tarball_uri,
+            artifact_hash=params.artifact_hash,
         )
         self.session.add(version)
         if commit:
@@ -460,6 +461,7 @@ class PlatformRegistryVersionsService(BaseService):
             commit_sha=params.commit_sha,
             manifest=to_jsonable_python(params.manifest),
             tarball_uri=params.tarball_uri,
+            artifact_hash=params.artifact_hash,
         )
         self.session.add(version)
         if commit:
