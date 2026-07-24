@@ -1335,6 +1335,27 @@ class TestTableRows:
         assert len(results) == 1
         assert results[0]["id"] == inserted["id"]
 
+    async def test_lookup_rows_applies_default_limit(
+        self,
+        tables_service: TablesService,
+        table: Table,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """lookup_rows should remain bounded when no explicit limit is provided."""
+        monkeypatch.setattr(config, "TRACECAT__LIMIT_TABLE_LOOKUP_DEFAULT", 2)
+
+        for age in (50, 60, 70):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"name": "Charlie", "age": age})
+            )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["name"], values=["Charlie"]
+        )
+
+        assert len(results) == 2
+        assert [result["age"] for result in results] == [50, 60]
+
     async def test_exists_rows_allows_system_id_column(
         self, tables_service: TablesService, table: Table
     ) -> None:

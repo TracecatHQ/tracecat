@@ -851,6 +851,28 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    async def get_cases(self, case_ids: Sequence[uuid.UUID]) -> list[Case]:
+        """Get multiple workspace-scoped cases while preserving request order."""
+        if not case_ids:
+            return []
+
+        unique_case_ids = list(dict.fromkeys(case_ids))
+        statement = (
+            select(Case)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.id.in_(unique_case_ids),
+            )
+            .options(selectinload(Case.tags))
+        )
+        result = await self.session.execute(statement)
+        cases_by_id = {case.id: case for case in result.scalars().all()}
+        return [
+            case
+            for case_id in unique_case_ids
+            if (case := cases_by_id.get(case_id)) is not None
+        ]
+
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
@@ -2243,6 +2265,7 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         case_id: uuid.UUID,
         thread_root_id: uuid.UUID | None = None,
+        limit: int | None = None,
     ) -> list[tuple[CaseComment, User | None]]:
         """List case comments with user information."""
         predicates: list[ColumnElement[bool]] = [CaseComment.case_id == case_id]
@@ -2260,19 +2283,25 @@ class CaseCommentsService(BaseWorkspaceService):
             .where(*predicates)
             .order_by(CaseComment.created_at, CaseComment.surrogate_id)
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         result = await self.session.execute(statement)
         rows = result.tuples().all()
         return typing_cast(list[tuple[CaseComment, User | None]], rows)
 
-    async def list_comments(self, case: Case) -> list[CaseCommentRead]:
+    async def list_comments(
+        self, case: Case, *, limit: int | None = None
+    ) -> list[CaseCommentRead]:
         """List all comments for a case as a flat compatibility view."""
-        rows = await self._list_comment_rows(case_id=case.id)
+        rows = await self._list_comment_rows(case_id=case.id, limit=limit)
         return [self.serialize_comment(comment, user=user) for comment, user in rows]
 
-    async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
+    async def list_comment_threads(
+        self, case: Case, *, limit: int | None = None
+    ) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
         await self._require_replies_entitlement()
-        rows = await self._list_comment_rows(case_id=case.id)
+        rows = await self._list_comment_rows(case_id=case.id, limit=limit)
         threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
         ordered_threads: list[CaseCommentThreadRead] = []
 

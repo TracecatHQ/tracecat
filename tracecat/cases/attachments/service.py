@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from collections.abc import Sequence
@@ -283,14 +284,15 @@ class CaseAttachmentService(BaseWorkspaceService):
         )
         # Strip "Content-Type" from the declared MIME type
         declared_mime_type = params.content_type.split(";")[0].strip()
-        validation_result = validator.validate_file(
+        validation_result = await asyncio.to_thread(
+            validator.validate_file,
             content=params.content,
             filename=params.file_name,
             declared_mime_type=declared_mime_type,
         )
 
         # Compute content hash for deduplication and integrity
-        sha256 = self._compute_sha256(params.content)
+        sha256 = await asyncio.to_thread(self._compute_sha256, params.content)
 
         # Determine uploader ID (may be None for workflow/service uploads)
         creator_id: uuid.UUID | None = (
@@ -434,7 +436,9 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
 
             # Verify integrity
-            self._verify_integrity(content, attachment.file.sha256)
+            await asyncio.to_thread(
+                self._verify_integrity, content, attachment.file.sha256
+            )
 
             return content, attachment.file.name, attachment.file.content_type
         except FileNotFoundError as e:

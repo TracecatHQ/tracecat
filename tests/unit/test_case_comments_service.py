@@ -526,6 +526,9 @@ class TestCaseCommentsService:
         comments = await case_comments_service.list_comments(test_case)
         assert len(comments) == 3
 
+        limited_comments = await case_comments_service.list_comments(test_case, limit=2)
+        assert len(limited_comments) == 2
+
         # Check that all our comments are in the list
         comment_ids = {comment.id for comment in comments}
         assert comment1.id in comment_ids

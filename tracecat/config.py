@@ -909,11 +909,23 @@ TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX = 1000
 TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT = min(100, TRACECAT__LIMIT_CURSOR_MAX)
 """Default page size for internal table search."""
 
+TRACECAT__LIMIT_TABLE_LOOKUP_DEFAULT = min(100, TRACECAT__LIMIT_CURSOR_MAX)
+"""Default row count for internal table lookup."""
+
 TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 """Maximum row count for internal table downloads."""
 
 TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
+
+TRACECAT__LIMIT_CASE_COMMENTS_DEFAULT = min(100, TRACECAT__LIMIT_CURSOR_MAX)
+"""Default row count for internal case comment list endpoints."""
+
+TRACECAT__LIMIT_CASE_COMMENTS_MAX = TRACECAT__LIMIT_CURSOR_MAX
+"""Maximum row count for internal case comment list endpoints."""
+
+TRACECAT__LIMIT_CASE_METRICS_MAX = TRACECAT__LIMIT_CURSOR_MAX
+"""Maximum number of cases accepted by the internal case metrics endpoint."""
 
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = env_bool(

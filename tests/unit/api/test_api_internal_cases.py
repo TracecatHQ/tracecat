@@ -6,8 +6,10 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases import internal_router as internal_cases_router
+from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.schemas import (
@@ -99,6 +101,7 @@ async def test_internal_get_case_include_rows_hydrates_rows(
         mock_service.fields = AsyncMock()
         mock_service.fields.get_fields.return_value = {}
         mock_service.fields.list_fields.return_value = []
+        mock_service.fields.get_field_schema.return_value = {}
         mock_service_cls.return_value = mock_service
 
         response = action_gateway_client.get(
@@ -114,6 +117,9 @@ async def test_internal_get_case_include_rows_hydrates_rows(
     assert len(data["rows"]) == 1
     assert data["rows"][0]["id"] == str(row.id)
     assert mock_list_rows.await_count == 1
+    mock_service.get_case.assert_awaited_once_with(
+        mock_internal_case.id, track_view=False
+    )
 
 
 @pytest.mark.anyio
@@ -142,6 +148,7 @@ async def test_internal_update_case_include_rows_hydrates_rows(
         mock_service.fields = AsyncMock()
         mock_service.fields.get_fields.return_value = {}
         mock_service.fields.list_fields.return_value = []
+        mock_service.fields.get_field_schema.return_value = {}
         mock_service_cls.return_value = mock_service
 
         response = action_gateway_client.patch(
@@ -343,6 +350,42 @@ async def test_internal_list_comment_threads_success(
         assert data[0]["comment"]["content"] == "Comment deleted"
         assert data[0]["comment"]["is_deleted"] is True
         assert data[0]["reply_count"] == 1
+        mock_comments_service.list_comment_threads.assert_awaited_once_with(
+            mock_internal_case,
+            limit=config.TRACECAT__LIMIT_CASE_COMMENTS_DEFAULT,
+        )
+
+
+@pytest.mark.anyio
+async def test_internal_list_comments_applies_default_limit(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(
+            internal_cases_router, "CaseCommentsService"
+        ) as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_internal_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.list_comments.return_value = []
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/internal/cases/{mock_internal_case.id}/comments",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_comments_service.list_comments.assert_awaited_once_with(
+        mock_internal_case,
+        limit=config.TRACECAT__LIMIT_CASE_COMMENTS_DEFAULT,
+    )
 
 
 @pytest.mark.anyio
@@ -503,6 +546,88 @@ async def test_internal_list_case_events_includes_comment_activity(
     data = response.json()
     assert data["events"][0]["type"] == "comment_created"
     assert data["events"][0]["comment_id"] == str(comment_id)
+
+
+@pytest.mark.anyio
+async def test_internal_case_metrics_uses_batch_context_loaders(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    metric = CaseDurationMetric(
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        value=12.0,
+        duration_name="Time to Triage",
+        duration_slug="time_to_triage",
+        case_priority=mock_internal_case.priority.value,
+        case_severity=mock_internal_case.severity.value,
+        case_status=mock_internal_case.status.value,
+        case_id=str(mock_internal_case.id),
+        case_short_id=mock_internal_case.short_id,
+    )
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+        patch.object(
+            internal_cases_router, "CaseDurationService"
+        ) as mock_duration_service_cls,
+        patch.object(
+            internal_cases_router,
+            "_list_case_dropdown_values_by_case",
+            new=AsyncMock(return_value={mock_internal_case.id: []}),
+        ) as mock_list_dropdowns,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_cases.return_value = [mock_internal_case]
+        mock_service.fields = AsyncMock()
+        mock_service.fields.list_fields.return_value = []
+        mock_service.fields.get_field_schema.return_value = {}
+        mock_service.fields.batch_get_fields.return_value = {mock_internal_case.id: {}}
+        mock_service_cls.return_value = mock_service
+
+        mock_duration_service = AsyncMock()
+        mock_duration_service.compute_time_series.return_value = [metric]
+        mock_duration_service_cls.return_value = mock_duration_service
+
+        response = client.post(
+            "/internal/cases/metrics",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"case_ids": [str(mock_internal_case.id)]},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data[0]["case_id"] == str(mock_internal_case.id)
+    mock_service.get_cases.assert_awaited_once_with([mock_internal_case.id])
+    mock_service.get_case.assert_not_awaited()
+    mock_service.fields.batch_get_fields.assert_awaited_once_with(
+        case_ids=[mock_internal_case.id],
+        field_ids=[],
+    )
+    mock_duration_service.compute_time_series.assert_awaited_once_with(
+        [mock_internal_case]
+    )
+    dropdown_args = mock_list_dropdowns.await_args
+    assert dropdown_args is not None
+    assert dropdown_args.kwargs["case_ids"] == [mock_internal_case.id]
+
+
+@pytest.mark.anyio
+async def test_internal_case_metrics_rejects_oversized_batches(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    response = client.post(
+        "/internal/cases/metrics",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "case_ids": [
+                str(uuid.uuid4())
+                for _ in range(config.TRACECAT__LIMIT_CASE_METRICS_MAX + 1)
+            ]
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.anyio
