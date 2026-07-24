@@ -1,5 +1,7 @@
 "use client"
 
+import { completionKeymap } from "@codemirror/autocomplete"
+import { keymap } from "@codemirror/view"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   Check,
@@ -30,6 +32,12 @@ import type {
 } from "@/client/types.gen"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import {
+  createAtKeyCompletion,
+  createWorkspaceMappingAutocomplete,
+  templatePillTheme,
+} from "@/components/editor/codemirror/common"
+import { createSimpleTemplatePlugin } from "@/components/editor/codemirror/highlight-plugin"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   ALLOWED_COMMANDS,
@@ -408,6 +416,16 @@ export function MCPIntegrationDialog({
   catalogEntry?: PlatformMCPCatalogRead | null
 }) {
   const workspaceId = useWorkspaceId()
+  const mcpTemplateEditorExtensions = React.useMemo(
+    () => [
+      createWorkspaceMappingAutocomplete(workspaceId),
+      createAtKeyCompletion(),
+      keymap.of(completionKeymap),
+      createSimpleTemplatePlugin(workspaceId),
+      templatePillTheme,
+    ],
+    [workspaceId]
+  )
   const isEditMode = Boolean(mcpIntegrationId)
   const { connectMcpIntegration, connectMcpIntegrationIsPending } =
     useConnectMcpIntegration(workspaceId)
@@ -1479,6 +1497,9 @@ export function MCPIntegrationDialog({
                                 value={field.value || ""}
                                 onChange={field.onChange}
                                 language="json"
+                                additionalExtensions={
+                                  mcpTemplateEditorExtensions
+                                }
                                 className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
                               />
                             </FormControl>
@@ -1761,12 +1782,17 @@ export function MCPIntegrationDialog({
                                     value={field.value || ""}
                                     onChange={field.onChange}
                                     language="json"
+                                    additionalExtensions={
+                                      mcpTemplateEditorExtensions
+                                    }
                                     className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
                                   Authorization is set from OAuth and cannot be
-                                  overridden.
+                                  overridden. Type <code>@SECRETS</code> or{" "}
+                                  <code>@VARS</code> to insert a workspace
+                                  expression in another header value.
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -1809,12 +1835,20 @@ export function MCPIntegrationDialog({
                               value={field.value || ""}
                               onChange={field.onChange}
                               language="json"
+                              additionalExtensions={mcpTemplateEditorExtensions}
                               className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
                             />
                           </FormControl>
                           <FormDescription className="text-xs">
-                            Enter headers as a JSON object, for example{" "}
-                            <code>{`{"Authorization":"Bearer token123"}`}</code>
+                            Enter headers as JSON. Type <code>@SECRETS</code> or{" "}
+                            <code>@VARS</code> to insert a workspace expression,
+                            such as{" "}
+                            <code>
+                              {
+                                '{"Authorization":"ApiKey ${{ SECRETS.elastic.API_KEY }}"}'
+                              }
+                            </code>
+                            .
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

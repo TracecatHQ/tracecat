@@ -17,6 +17,7 @@ interface CodeEditorProps {
   readOnly?: boolean
   wrapLongLines?: boolean
   className?: string
+  additionalExtensions?: Extension[]
 }
 
 function getLanguageExtension(language: string): Extension | null {
@@ -40,6 +41,7 @@ export function CodeEditor({
   readOnly = false,
   wrapLongLines = false,
   className,
+  additionalExtensions = [],
 }: CodeEditorProps) {
   const { resolvedTheme } = useTheme()
   const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
@@ -47,6 +49,7 @@ export function CodeEditor({
   const extensions = [
     ...(languageExtension ? [languageExtension] : []),
     ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+    ...additionalExtensions,
   ]
 
   return (
@@ -54,6 +57,9 @@ export function CodeEditor({
       value={value}
       onChange={onChange}
       extensions={extensions}
+      basicSetup={
+        additionalExtensions.length > 0 ? { autocompletion: false } : undefined
+      }
       theme={codeMirrorTheme}
       readOnly={readOnly}
       className={cn(

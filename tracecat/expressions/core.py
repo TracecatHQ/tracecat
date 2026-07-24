@@ -14,7 +14,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.validator.validator import BaseExprValidator
+from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
 
@@ -31,11 +31,13 @@ class Expression:
         *,
         operand: ExprOperand[str] | None = None,
         visitor: Visitor[Token] | None = None,
+        strict: bool = False,
     ) -> None:
         self._expr = expression
         self._operand = operand
         self._parser = parser
         self._visitor = visitor
+        self._strict = strict
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -72,7 +74,7 @@ class Expression:
             ) from e
 
         try:
-            visitor = ExprEvaluator(operand=self._operand)
+            visitor = ExprEvaluator(operand=self._operand, strict=self._strict)
             if parse_tree is None:
                 raise ValueError(f"Parser returned None for expression `{self._expr}`")
             return visitor.evaluate(parse_tree)
@@ -142,6 +144,7 @@ class TemplateExpression:
         template: str,
         operand: ExprOperand[str] | None = None,
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
+        strict: bool = False,
         **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
@@ -154,7 +157,7 @@ class TemplateExpression:
             raise TracecatExpressionError(
                 f"Template expression {template!r} matched pattern but contained no expression. "
             )
-        self.expr = Expression(expr, operand=operand)
+        self.expr = Expression(expr, operand=operand, strict=strict)
 
     def __str__(self) -> str:
         return self.__repr__()
