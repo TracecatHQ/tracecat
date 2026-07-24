@@ -135,7 +135,7 @@ export async function createOrganizationInvitation(
  */
 export async function expectWorkspaceLanding(page: Page): Promise<void> {
   await page.waitForURL(/\/workspaces\/[^/]+\/chat(\/|$|\?)/)
-  await expect(page.getByRole("link", { name: "Chat" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Chat" })).toBeVisible()
 }
 
 /**
