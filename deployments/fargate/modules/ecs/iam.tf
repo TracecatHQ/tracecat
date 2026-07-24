@@ -147,6 +147,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.oidc_client_secret_arn,
           var.saml_idp_metadata_url_arn,
           var.temporal_api_key_arn,
+          var.agent_otel_platform_override_headers_arn,
           aws_secretsmanager_secret.redis_url.arn,
         ])
       }
