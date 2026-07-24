@@ -36,6 +36,7 @@ from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import (
+    CatalogMappingRequirement,
     PullDiagnostic,
     PullOptions,
     PullResourceDiff,
@@ -136,6 +137,7 @@ class PreparedSnapshot(NamedTuple):
 
     snapshot: WorkspaceRemoteSnapshot
     diagnostics: list[PullDiagnostic]
+    catalog_mapping_requirements: list[CatalogMappingRequirement]
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,7 +403,29 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
-            prepared = await self._prepare_snapshot_for_import(snapshot)
+            prepared = await self._prepare_snapshot_for_import(
+                snapshot,
+                requested_catalog_mappings=options.catalog_mappings,
+            )
+            if prepared.diagnostics:
+                return PullResult(
+                    success=False,
+                    commit_sha=snapshot.commit_sha,
+                    workflows_found=len(snapshot.spec.workflows),
+                    workflows_imported=0,
+                    diagnostics=prepared.diagnostics,
+                    message=(
+                        f"Import failed: {len(prepared.diagnostics)} validation "
+                        "error(s) found"
+                    ),
+                    resource_counts=resource_counts,
+                    resource_diffs=[],
+                    files=sorted(snapshot.files),
+                    resources=_sync_preview_resources_from_spec(snapshot.spec),
+                    catalog_mapping_requirements=(
+                        prepared.catalog_mapping_requirements
+                    ),
+                )
             resource_diffs = await self._resource_diffs_for_pull(
                 prepared.snapshot,
                 sync_schedules=sync_schedules,
@@ -425,6 +449,9 @@ class WorkspaceSyncService(SyncMappingService):
                     resource_diffs=resource_diffs,
                     files=sorted(snapshot.files),
                     resources=_sync_preview_resources_from_spec(snapshot.spec),
+                    catalog_mapping_requirements=(
+                        prepared.catalog_mapping_requirements
+                    ),
                 )
             return PullResult(
                 success=True,
@@ -445,6 +472,7 @@ class WorkspaceSyncService(SyncMappingService):
         return await self._import_snapshot(
             snapshot,
             sync_schedules=sync_schedules,
+            requested_catalog_mappings=options.catalog_mappings,
         )
 
     async def project_workspace(
@@ -892,11 +920,14 @@ class WorkspaceSyncService(SyncMappingService):
     async def _prepare_snapshot_for_import(
         self,
         snapshot: WorkspaceRemoteSnapshot,
+        *,
+        requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
         correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
             self,
             snapshot.spec.agent_presets,
+            requested_catalog_mappings=requested_catalog_mappings,
         )
         correlated_spec = snapshot.spec.model_copy(
             update={"agent_presets": correlated.presets}
@@ -904,6 +935,7 @@ class WorkspaceSyncService(SyncMappingService):
         return PreparedSnapshot(
             snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
             diagnostics=correlated.diagnostics,
+            catalog_mapping_requirements=correlated.requirements,
         )
 
     async def _import_snapshot(
@@ -911,6 +943,7 @@ class WorkspaceSyncService(SyncMappingService):
         snapshot: WorkspaceRemoteSnapshot,
         *,
         sync_schedules: bool,
+        requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 
@@ -920,7 +953,10 @@ class WorkspaceSyncService(SyncMappingService):
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
-        prepared = await self._prepare_snapshot_for_import(snapshot)
+        prepared = await self._prepare_snapshot_for_import(
+            snapshot,
+            requested_catalog_mappings=requested_catalog_mappings,
+        )
         snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
         if resource_diagnostics:
             return PullResult(
@@ -936,6 +972,7 @@ class WorkspaceSyncService(SyncMappingService):
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
                 files=sorted(snapshot.files),
                 resources=_sync_preview_resources_from_spec(snapshot.spec),
+                catalog_mapping_requirements=prepared.catalog_mapping_requirements,
             )
 
         remote_workflows, local_ids = await self._remote_workflows(snapshot)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
+from uuid import UUID
 
 
 class PushStatus(StrEnum):
@@ -33,6 +34,9 @@ class PullOptions:
 
     dry_run: bool = False
     """Validate only, don't perform actual import"""
+
+    catalog_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target catalog choices for ambiguous model references."""
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,48 @@ class PullDiagnostic:
 
     details: dict[str, Any]
     """Additional error details for debugging"""
+
+
+@dataclass(frozen=True)
+class CatalogMappingCandidate:
+    """Target catalog model the user can choose for an imported source model."""
+
+    catalog_id: UUID
+    model_provider: str
+    model_name: str
+    provider_name: str
+    model_display_name: str | None
+    endpoint_hostname: str | None
+    origin: Literal["platform", "organization", "custom_provider"]
+
+
+@dataclass(frozen=True)
+class CatalogMappingAffectedPreset:
+    """Preset version whose source catalog id needs the same target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+type CatalogMappingRequirementReason = Literal[
+    "ambiguous",
+    "invalid_selection",
+]
+
+
+@dataclass(frozen=True)
+class CatalogMappingRequirement:
+    """Explicit catalog choice required before a workspace pull can proceed."""
+
+    source_catalog_id: UUID
+    model_provider: str
+    model_name: str
+    reason: CatalogMappingRequirementReason
+    message: str
+    candidates: list[CatalogMappingCandidate]
+    affected_presets: list[CatalogMappingAffectedPreset]
 
 
 def serializable_validation_errors(
@@ -210,3 +256,6 @@ class PullResult:
 
     resources: list[SyncPreviewResource] | None = None
     """Optional displayable resources included in a pull preview."""
+
+    catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
+    """Target model choices required before this pull can be previewed or applied."""

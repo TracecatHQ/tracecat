@@ -9301,6 +9301,165 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
+export const $CatalogMappingAffectedPreset = {
+  properties: {
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["preset_slug", "preset_name", "version", "path"],
+  title: "CatalogMappingAffectedPreset",
+} as const
+
+export const $CatalogMappingCandidate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    provider_name: {
+      type: "string",
+      title: "Provider Name",
+    },
+    model_display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Display Name",
+    },
+    endpoint_hostname: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Hostname",
+    },
+    origin: {
+      type: "string",
+      enum: ["platform", "organization", "custom_provider"],
+      title: "Origin",
+    },
+  },
+  type: "object",
+  required: [
+    "catalog_id",
+    "model_provider",
+    "model_name",
+    "provider_name",
+    "model_display_name",
+    "endpoint_hostname",
+    "origin",
+  ],
+  title: "CatalogMappingCandidate",
+} as const
+
+export const $CatalogMappingRequirement = {
+  properties: {
+    source_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Catalog Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    reason: {
+      $ref: "#/components/schemas/CatalogMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_presets: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingAffectedPreset",
+      },
+      type: "array",
+      title: "Affected Presets",
+    },
+  },
+  type: "object",
+  required: [
+    "source_catalog_id",
+    "model_provider",
+    "model_name",
+    "reason",
+    "message",
+    "candidates",
+    "affected_presets",
+  ],
+  title: "CatalogMappingRequirement",
+} as const
+
+export const $CatalogMappingRequirementReason = {
+  type: "string",
+  enum: ["ambiguous", "invalid_selection"],
+} as const
+
+export const $CatalogMappingSelection = {
+  properties: {
+    source_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Catalog Id",
+    },
+    target_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["source_catalog_id", "target_catalog_id"],
+  title: "CatalogMappingSelection",
+  description:
+    "User-selected target catalog row for one source catalog reference.",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -19659,6 +19818,20 @@ export const $PullResult = {
         },
       ],
       title: "Resources",
+    },
+    catalog_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CatalogMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Mapping Requirements",
     },
   },
   type: "object",
@@ -31962,6 +32135,15 @@ export const $WorkflowSyncPullRequest = {
       description:
         "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
       default: false,
+    },
+    catalog_mappings: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingSelection",
+      },
+      type: "array",
+      title: "Catalog Mappings",
+      description:
+        "Explicit source-to-target model choices from the pull preview.",
     },
   },
   type: "object",

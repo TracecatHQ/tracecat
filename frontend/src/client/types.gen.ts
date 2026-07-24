@@ -2462,6 +2462,45 @@ export type CaseViewedEventRead = {
   created_at: string
 }
 
+export type CatalogMappingAffectedPreset = {
+  preset_slug: string
+  preset_name: string
+  version: number
+  path: string
+}
+
+export type CatalogMappingCandidate = {
+  catalog_id: string
+  model_provider: string
+  model_name: string
+  provider_name: string
+  model_display_name: string | null
+  endpoint_hostname: string | null
+  origin: "platform" | "organization" | "custom_provider"
+}
+
+export type origin = "platform" | "organization" | "custom_provider"
+
+export type CatalogMappingRequirement = {
+  source_catalog_id: string
+  model_provider: string
+  model_name: string
+  reason: CatalogMappingRequirementReason
+  message: string
+  candidates: Array<CatalogMappingCandidate>
+  affected_presets: Array<CatalogMappingAffectedPreset>
+}
+
+export type CatalogMappingRequirementReason = "ambiguous" | "invalid_selection"
+
+/**
+ * User-selected target catalog row for one source catalog reference.
+ */
+export type CatalogMappingSelection = {
+  source_catalog_id: string
+  target_catalog_id: string
+}
+
 /**
  * Supported external channel types.
  */
@@ -5944,6 +5983,7 @@ export type PullResult = {
   resource_diffs?: Array<PullResourceDiff> | null
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
+  catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
 }
 
 /**
@@ -9579,6 +9619,10 @@ export type WorkflowSyncPullRequest = {
    * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
    */
   sync_schedules?: boolean
+  /**
+   * Explicit source-to-target model choices from the pull preview.
+   */
+  catalog_mappings?: Array<CatalogMappingSelection>
 }
 
 export type WorkflowTagCreate = {

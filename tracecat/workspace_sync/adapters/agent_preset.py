@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.catalog.schemas import ModelKey
-from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.service import AgentCatalogService, CatalogMatchCandidate
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import (
     AgentFolder,
@@ -29,7 +29,14 @@ from tracecat.db.models import (
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatValidationError
-from tracecat.sync import PullDiagnostic, serializable_validation_errors
+from tracecat.sync import (
+    CatalogMappingAffectedPreset,
+    CatalogMappingCandidate,
+    CatalogMappingRequirement,
+    CatalogMappingRequirementReason,
+    PullDiagnostic,
+    serializable_validation_errors,
+)
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ImportedResource,
@@ -63,6 +70,18 @@ class CorrelatedAgentPresets(NamedTuple):
 
     presets: dict[str, AgentPresetResourceSpec]
     diagnostics: list[PullDiagnostic]
+    requirements: list[CatalogMappingRequirement]
+
+
+class AgentPresetCatalogReference(NamedTuple):
+    """One preset version referencing a deployment-local source catalog UUID."""
+
+    source_id: str
+    preset_slug: str
+    preset_name: str
+    version_number: int
+    catalog_id: uuid.UUID
+    model_key: ModelKey
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -374,19 +393,22 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         presets: Mapping[str, AgentPresetResourceSpec],
+        *,
+        requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> CorrelatedAgentPresets:
         """Re-map source catalog UUIDs to enabled local catalog rows.
 
         Catalog UUIDs are deployment-local. Preserve an incoming UUID when it is
-        already enabled in this workspace; otherwise correlate it by the portable
-        ``(model_provider, model_name)`` tuple. When remapping a catalog UUID, clear
-        the snapshot's deployment-local ``base_url`` so the target's catalog
-        credentials are never routed to the source deployment's endpoint. Custom
-        providers re-resolve the URL from local provider configuration at runtime;
-        OpenAI and Anthropic would otherwise honor the stale URL. Unresolvable
-        selections produce diagnostics before import writes begin instead of
-        reaching a foreign-key violation while flushing preset rows.
+        already enabled in this workspace. Otherwise, accept a valid per-pull
+        selection or use the only matching local candidate. Multiple candidates
+        require an explicit selection rather than an arbitrary UUID tie-break.
+
+        When remapping a catalog UUID, clear the snapshot's deployment-local
+        ``base_url`` so the target's catalog credentials are never routed to the
+        source deployment's endpoint. Unresolvable selections produce diagnostics
+        before import writes begin instead of reaching a foreign-key violation.
         """
+        requested_catalog_mappings = requested_catalog_mappings or {}
         catalog_service = AgentCatalogService(session=workspace_service.session)
         catalog_ids = {
             version.catalog_id
@@ -399,38 +421,18 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_id=workspace_service.workspace_id,
             catalog_ids=catalog_ids,
         )
-        models = {
-            ModelKey(version.model_provider, version.model_name)
-            for _, preset in sorted(presets.items())
-            for _, version in sorted(preset.versions.items())
-            if version.catalog_id is not None
-            and version.catalog_id not in enabled_catalog_ids
-            and version.model_provider
-            and version.model_name
-        }
-        resolved_catalog_ids = await catalog_service.resolve_catalog_ids_by_models(
-            org_id=workspace_service.organization_id,
-            workspace_id=workspace_service.workspace_id,
-            models=models,
-        )
-        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
-        diagnostics: list[PullDiagnostic] = []
 
+        references_by_catalog_id: dict[
+            uuid.UUID, list[AgentPresetCatalogReference]
+        ] = {}
+        diagnostics: list[PullDiagnostic] = []
+        invalid_catalog_ids: set[uuid.UUID] = set()
         for source_id, preset in sorted(presets.items()):
-            correlated_versions: dict[int, AgentPresetVersionResourceSpec] = {}
             for version_number, version in sorted(preset.versions.items()):
                 catalog_id = version.catalog_id
-                if catalog_id is None:
-                    correlated_versions[version_number] = version
+                if catalog_id is None or catalog_id in enabled_catalog_ids:
                     continue
-
-                if catalog_id in enabled_catalog_ids:
-                    correlated_versions[version_number] = version
-                    continue
-
-                model_provider = version.model_provider
-                model_name = version.model_name
-                if not model_provider or not model_name:
+                if not version.model_provider or not version.model_name:
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=self._version_source_path(
@@ -451,34 +453,148 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                             },
                         )
                     )
+                    invalid_catalog_ids.add(catalog_id)
+                    continue
+                references_by_catalog_id.setdefault(catalog_id, []).append(
+                    AgentPresetCatalogReference(
+                        source_id=source_id,
+                        preset_slug=preset.slug,
+                        preset_name=preset.name,
+                        version_number=version_number,
+                        catalog_id=catalog_id,
+                        model_key=ModelKey(
+                            version.model_provider,
+                            version.model_name,
+                        ),
+                    )
+                )
+
+        for catalog_id, references in sorted(references_by_catalog_id.items()):
+            model_keys = {reference.model_key for reference in references}
+            if len(model_keys) <= 1:
+                continue
+            first = references[0]
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self._version_source_path(
+                        first.source_id, first.version_number
+                    ),
+                    workflow_title=first.preset_name,
+                    error_type="validation",
+                    message=(
+                        f"Source catalog entry {catalog_id} is used with conflicting "
+                        "model_provider and model_name values. A source catalog UUID "
+                        "must identify exactly one model."
+                    ),
+                    details={
+                        "code": "catalog_model_identity_conflict",
+                        "catalog_id": str(catalog_id),
+                        "models": [
+                            {
+                                "model_provider": model_key.model_provider,
+                                "model_name": model_key.model_name,
+                            }
+                            for model_key in sorted(model_keys)
+                        ],
+                    },
+                )
+            )
+            invalid_catalog_ids.add(catalog_id)
+
+        models = {
+            references[0].model_key
+            for catalog_id, references in references_by_catalog_id.items()
+            if catalog_id not in invalid_catalog_ids
+        }
+        candidates_by_model = await catalog_service.catalog_candidates_by_models(
+            org_id=workspace_service.organization_id,
+            workspace_id=workspace_service.workspace_id,
+            models=models,
+        )
+        resolved_catalog_ids: dict[uuid.UUID, uuid.UUID] = {}
+        requirements: list[CatalogMappingRequirement] = []
+
+        for catalog_id, references in sorted(references_by_catalog_id.items()):
+            if catalog_id in invalid_catalog_ids:
+                continue
+            model_key = references[0].model_key
+            candidates = candidates_by_model.get(model_key, [])
+            candidates_by_id = {
+                candidate.catalog_id: candidate for candidate in candidates
+            }
+            requested_target = requested_catalog_mappings.get(catalog_id)
+
+            if requested_target is not None:
+                if requested_target in candidates_by_id:
+                    resolved_catalog_ids[catalog_id] = requested_target
+                    continue
+                self._append_catalog_mapping_requirement(
+                    requirements=requirements,
+                    diagnostics=diagnostics,
+                    catalog_id=catalog_id,
+                    model_key=model_key,
+                    references=references,
+                    candidates=candidates,
+                    reason="invalid_selection",
+                )
+                continue
+
+            if len(candidates) == 1:
+                resolved_catalog_ids[catalog_id] = candidates[0].catalog_id
+                continue
+            if len(candidates) > 1:
+                self._append_catalog_mapping_requirement(
+                    requirements=requirements,
+                    diagnostics=diagnostics,
+                    catalog_id=catalog_id,
+                    model_key=model_key,
+                    references=references,
+                    candidates=candidates,
+                    reason="ambiguous",
+                )
+                continue
+
+            self._append_unavailable_catalog_diagnostics(
+                diagnostics=diagnostics,
+                references=references,
+            )
+
+        unused_requested_catalog_ids = (
+            set(requested_catalog_mappings) - references_by_catalog_id.keys()
+        )
+        for catalog_id in sorted(unused_requested_catalog_ids):
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="validation",
+                    message=(
+                        f"Catalog mapping selection for source {catalog_id} does not "
+                        "appear in this repository snapshot."
+                    ),
+                    details={
+                        "catalog_id": str(catalog_id),
+                        "code": "catalog_mapping_source_not_found",
+                    },
+                )
+            )
+
+        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
+
+        for source_id, preset in sorted(presets.items()):
+            correlated_versions: dict[int, AgentPresetVersionResourceSpec] = {}
+            for version_number, version in sorted(preset.versions.items()):
+                catalog_id = version.catalog_id
+                if catalog_id is None:
                     correlated_versions[version_number] = version
                     continue
 
-                model_key = ModelKey(model_provider, model_name)
-                local_catalog_id = resolved_catalog_ids.get(model_key)
+                if catalog_id in enabled_catalog_ids:
+                    correlated_versions[version_number] = version
+                    continue
+
+                local_catalog_id = resolved_catalog_ids.get(catalog_id)
                 if local_catalog_id is None:
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=self._version_source_path(
-                                source_id, version_number
-                            ),
-                            workflow_title=preset.name,
-                            error_type="dependency",
-                            message=(
-                                f"Agent preset {preset.slug!r} version "
-                                f"{version_number} requires model {model_provider!r} / "
-                                f"{model_name!r}, but no matching enabled model is "
-                                "configured for this workspace."
-                            ),
-                            details={
-                                "preset_slug": preset.slug,
-                                "preset_version": version_number,
-                                "catalog_id": str(catalog_id),
-                                "model_provider": model_provider,
-                                "model_name": model_name,
-                            },
-                        )
-                    )
                     correlated_versions[version_number] = version
                     continue
 
@@ -493,7 +609,125 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         return CorrelatedAgentPresets(
             presets=correlated_presets,
             diagnostics=diagnostics,
+            requirements=requirements,
         )
+
+    def _append_catalog_mapping_requirement(
+        self,
+        *,
+        requirements: list[CatalogMappingRequirement],
+        diagnostics: list[PullDiagnostic],
+        catalog_id: uuid.UUID,
+        model_key: ModelKey,
+        references: list[AgentPresetCatalogReference],
+        candidates: list[CatalogMatchCandidate],
+        reason: CatalogMappingRequirementReason,
+    ) -> None:
+        """Append one grouped mapping requirement and its blocking diagnostic."""
+        if not candidates:
+            self._append_unavailable_catalog_diagnostics(
+                diagnostics=diagnostics,
+                references=references,
+            )
+            return
+
+        reason_messages = {
+            "ambiguous": (
+                f"Model {model_key.model_provider!r} / {model_key.model_name!r} "
+                f"matches {len(candidates)} enabled target catalogs. Choose the "
+                "target model before applying this pull."
+            ),
+            "invalid_selection": (
+                f"The selected target is not an enabled match for model "
+                f"{model_key.model_provider!r} / {model_key.model_name!r}. "
+                "Choose an available target before applying this pull."
+            ),
+        }
+        message = reason_messages[reason]
+        first = references[0]
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=self._version_source_path(
+                    first.source_id, first.version_number
+                ),
+                workflow_title=first.preset_name,
+                error_type="dependency",
+                message=message,
+                details={
+                    "code": "catalog_mapping_required",
+                    "catalog_id": str(catalog_id),
+                    "model_provider": model_key.model_provider,
+                    "model_name": model_key.model_name,
+                    "reason": reason,
+                },
+            )
+        )
+        requirements.append(
+            CatalogMappingRequirement(
+                source_catalog_id=catalog_id,
+                model_provider=model_key.model_provider,
+                model_name=model_key.model_name,
+                reason=reason,
+                message=message,
+                candidates=[
+                    CatalogMappingCandidate(
+                        catalog_id=candidate.catalog_id,
+                        model_provider=candidate.model_provider,
+                        model_name=candidate.model_name,
+                        provider_name=candidate.provider_name,
+                        model_display_name=candidate.model_display_name,
+                        endpoint_hostname=candidate.endpoint_hostname,
+                        origin=candidate.origin,
+                    )
+                    for candidate in candidates
+                ],
+                affected_presets=[
+                    CatalogMappingAffectedPreset(
+                        preset_slug=reference.preset_slug,
+                        preset_name=reference.preset_name,
+                        version=reference.version_number,
+                        path=self._version_source_path(
+                            reference.source_id,
+                            reference.version_number,
+                        ),
+                    )
+                    for reference in references
+                ],
+            )
+        )
+
+    def _append_unavailable_catalog_diagnostics(
+        self,
+        *,
+        diagnostics: list[PullDiagnostic],
+        references: list[AgentPresetCatalogReference],
+    ) -> None:
+        """Append per-version diagnostics when no enabled candidate is available."""
+        for reference in references:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self._version_source_path(
+                        reference.source_id,
+                        reference.version_number,
+                    ),
+                    workflow_title=reference.preset_name,
+                    error_type="dependency",
+                    message=(
+                        f"Agent preset {reference.preset_slug!r} version "
+                        f"{reference.version_number} requires model "
+                        f"{reference.model_key.model_provider!r} / "
+                        f"{reference.model_key.model_name!r}, but no matching "
+                        "enabled model is configured for this workspace."
+                    ),
+                    details={
+                        "preset_slug": reference.preset_slug,
+                        "preset_version": reference.version_number,
+                        "catalog_id": str(reference.catalog_id),
+                        "model_provider": reference.model_key.model_provider,
+                        "model_name": reference.model_key.model_name,
+                    },
+                )
+            )
 
     async def import_specs(
         self,

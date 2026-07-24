@@ -952,6 +952,78 @@ async def test_resolve_catalog_id_by_model_multiple_rows_best_effort(
 
 
 @pytest.mark.anyio
+async def test_catalog_candidates_by_models_preserves_duplicate_custom_providers(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """Interactive correlation receives every enabled provider with safe labels."""
+    service = AgentCatalogService(session=session)
+    model_key = ModelKey("custom-model-provider", "shared-model-for-choice")
+    enabled_rows: list[AgentCatalog] = []
+    for display_name, base_url in (
+        (
+            "Provider East",
+            "https://user:secret@east.models.example.com/v1",
+        ),
+        ("Provider West", "https://west.models.example.com/v1"),
+    ):
+        provider = AgentCustomProvider(
+            organization_id=svc_organization.id,
+            display_name=display_name,
+            base_url=base_url,
+        )
+        session.add(provider)
+        await session.flush()
+        row = AgentCatalog(
+            organization_id=svc_organization.id,
+            custom_provider_id=provider.id,
+            model_provider=model_key.model_provider,
+            model_name=model_key.model_name,
+            model_metadata={"display_name": "Shared model"},
+        )
+        session.add(row)
+        enabled_rows.append(row)
+
+    disabled_provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Disabled provider",
+        base_url="https://disabled.models.example.com",
+    )
+    session.add(disabled_provider)
+    await session.flush()
+    session.add(
+        AgentCatalog(
+            organization_id=svc_organization.id,
+            custom_provider_id=disabled_provider.id,
+            model_provider=model_key.model_provider,
+            model_name=model_key.model_name,
+            model_metadata={},
+        )
+    )
+    await session.flush()
+    session.add_all(
+        [_enable(org_id=svc_organization.id, catalog_id=row.id) for row in enabled_rows]
+    )
+    await session.commit()
+
+    candidates = await service.catalog_candidates_by_models(
+        org_id=svc_organization.id,
+        models={model_key},
+    )
+
+    by_provider = {
+        candidate.provider_name: candidate for candidate in candidates[model_key]
+    }
+    assert set(by_provider) == {"Provider East", "Provider West"}
+    assert by_provider["Provider East"].endpoint_hostname == "east.models.example.com"
+    assert by_provider["Provider West"].endpoint_hostname == "west.models.example.com"
+    assert by_provider["Provider East"].model_display_name == "Shared model"
+    assert all(
+        candidate.origin == "custom_provider" for candidate in by_provider.values()
+    )
+
+
+@pytest.mark.anyio
 async def test_is_catalog_id_enabled_true_for_enabled_row(
     session: AsyncSession,
     svc_organization: Organization,

@@ -31,6 +31,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentCatalog,
+    AgentCustomProvider,
     AgentModelAccess,
     AgentPreset,
     AgentPresetSkill,
@@ -4825,6 +4826,163 @@ async def test_agent_preset_dry_run_correlates_catalog_id_without_spurious_diff(
     assert result.diagnostics == []
     assert result.resource_diffs == []
     assert result.message == "Dry run completed - 0 resource change(s) detected"
+
+
+@pytest.mark.anyio
+async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An ambiguous target must be selected for each preview/apply interaction."""
+    model_provider = "custom-model-provider"
+    model_name = "qa-shared-choice-model"
+    catalog_rows: list[AgentCatalog] = []
+    for display_name, base_url in (
+        ("QA Provider East", "https://east.models.example.com/v1"),
+        ("QA Provider West", "https://west.models.example.com/v1"),
+    ):
+        provider = AgentCustomProvider(
+            organization_id=svc_role.organization_id,
+            display_name=display_name,
+            base_url=base_url,
+        )
+        session.add(provider)
+        await session.flush()
+        catalog = AgentCatalog(
+            organization_id=svc_role.organization_id,
+            custom_provider_id=provider.id,
+            model_provider=model_provider,
+            model_name=model_name,
+            model_metadata={},
+        )
+        session.add(catalog)
+        await session.flush()
+        access = AgentModelAccess(
+            organization_id=svc_role.organization_id,
+            workspace_id=None,
+            catalog_id=catalog.id,
+        )
+        session.add(access)
+        catalog_rows.append(catalog)
+    await session.flush()
+
+    source_catalog_id = uuid.uuid4()
+    source_id = "qa-catalog-choice"
+    files = _agent_preset_git_tree(
+        source_id=source_id,
+        slug=source_id,
+        name="QA catalog choice",
+    )
+    version_one_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_one_spec = yaml.safe_load(files[version_one_path])
+    version_one_spec.update(
+        {
+            "catalog_id": str(source_catalog_id),
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "base_url": "https://source.models.example.com/v1",
+        }
+    )
+    files[version_one_path] = _yaml(version_one_spec)
+
+    transport = AsyncMock(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha="r" * 40,
+                tree_sha="choice-tree-1",
+                files=files,
+            )
+        )
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-catalog-choice-qa",
+        )
+    )
+
+    chosen_catalog = catalog_rows[1]
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        ambiguous_preview = await service.pull(
+            options=PullOptions(commit_sha="r" * 40, dry_run=True)
+        )
+
+        assert ambiguous_preview.success is False
+        assert ambiguous_preview.resource_diffs == []
+        requirements = ambiguous_preview.catalog_mapping_requirements or []
+        assert len(requirements) == 1
+        requirement = requirements[0]
+        assert requirement.reason == "ambiguous"
+        assert requirement.source_catalog_id == source_catalog_id
+        assert {candidate.catalog_id for candidate in requirement.candidates} == {
+            row.id for row in catalog_rows
+        }
+        assert [affected.version for affected in requirement.affected_presets] == [1]
+        assert (
+            await session.scalar(
+                select(AgentPreset).where(
+                    AgentPreset.workspace_id == svc_role.workspace_id,
+                    AgentPreset.slug == source_id,
+                )
+            )
+            is None
+        )
+
+        invalid_apply = await service.pull(
+            options=PullOptions(
+                commit_sha="r" * 40,
+                catalog_mappings={source_catalog_id: uuid.uuid4()},
+            )
+        )
+        assert invalid_apply.success is False
+        assert (invalid_apply.catalog_mapping_requirements or [])[0].reason == (
+            "invalid_selection"
+        )
+
+        selected_preview = await service.pull(
+            options=PullOptions(
+                commit_sha="r" * 40,
+                dry_run=True,
+                catalog_mappings={source_catalog_id: chosen_catalog.id},
+            )
+        )
+        assert selected_preview.success is True
+
+        applied = await service.pull(
+            options=PullOptions(
+                commit_sha="r" * 40,
+                catalog_mappings={source_catalog_id: chosen_catalog.id},
+            )
+        )
+        assert applied.success is True
+
+        next_preview = await service.pull(
+            options=PullOptions(commit_sha="r" * 40, dry_run=True)
+        )
+        assert next_preview.success is False
+        assert len(next_preview.catalog_mapping_requirements or []) == 1
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == source_id,
+        )
+    )
+    assert preset is not None
+    version_one = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version_one is not None
+    assert version_one.catalog_id == chosen_catalog.id
+    assert version_one.base_url is None
 
 
 @pytest.mark.anyio
