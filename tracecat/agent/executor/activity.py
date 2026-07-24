@@ -26,6 +26,7 @@ from tracecat.agent.cancellation import (
     TURN_CANCEL_POLL_INTERVAL_SECONDS,
     read_turn_cancel_signal,
 )
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -1199,6 +1200,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
+    await _hydrate_context_windows(input)
+
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
 
@@ -1208,6 +1211,34 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         activity.heartbeat(f"Agent execution failed: {result.error}")
 
     return result
+
+
+async def _hydrate_context_windows(input: AgentExecutorInput) -> None:
+    """Resolve model context windows from catalog metadata for the SDK runtime.
+
+    Best-effort: on lookup failure the runtime falls back to its conservative
+    compaction defaults instead of failing the run.
+    """
+    configs: list[Any] = [input.config, *(s.config for s in input.subagents)]
+    catalog_ids = {
+        config.catalog_id
+        for config in configs
+        if config.catalog_id is not None and config.context_window is None
+    }
+    org_id = input.role.organization_id
+    if not catalog_ids or org_id is None:
+        return
+    try:
+        async with AgentCatalogService.with_session() as svc:
+            windows = await svc.get_context_windows(
+                org_id=org_id, catalog_ids=catalog_ids
+            )
+    except Exception:
+        logger.warning("Failed to resolve model context windows", exc_info=True)
+        return
+    for config in configs:
+        if config.context_window is None and config.catalog_id is not None:
+            config.context_window = windows.get(config.catalog_id)
 
 
 async def _hydrate_sdk_session_history(input: AgentExecutorInput) -> AgentExecutorInput:

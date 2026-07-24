@@ -127,6 +127,9 @@ class AgentConfig:
     ``agent-{provider}-credentials`` secret."""
     base_url: str | None = None
     passthrough: bool = False
+    context_window: int | None = None
+    """Context window (tokens) from catalog metadata; hydrated in the executor
+    activity, never carried across Temporal payloads."""
     # Agent
     instructions: str | None = None
     output_type: str | dict[str, Any] | None = None

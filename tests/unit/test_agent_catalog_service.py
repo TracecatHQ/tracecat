@@ -12,7 +12,10 @@ from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
 )
-from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.service import (
+    AgentCatalogService,
+    context_window_from_metadata,
+)
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
@@ -49,6 +52,79 @@ def _user_role(organization_id: uuid.UUID) -> Role:
         service_id="tracecat-api",
         scopes=frozenset({"*"}),
     )
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (None, None),
+        ({}, None),
+        ({"max_input_tokens": 200_000}, 200_000),
+        ({"context_window": 272_000, "max_input_tokens": 100}, 272_000),
+        ({"context_length": 262_144.0}, 262_144),
+        ({"max_input_tokens": 0}, None),
+        ({"max_input_tokens": -1}, None),
+        ({"max_input_tokens": True}, None),
+        ({"max_input_tokens": "200000"}, None),
+    ],
+)
+def test_context_window_from_metadata(
+    metadata: dict | None, expected: int | None
+) -> None:
+    assert context_window_from_metadata(metadata) == expected
+
+
+@pytest.mark.anyio
+async def test_get_context_windows_scopes_to_visible_rows(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    other_org = Organization(name="Other org", slug=f"other-{uuid.uuid4()}")
+    session.add(other_org)
+    await session.flush()
+
+    platform_row = AgentCatalog(
+        organization_id=None,
+        model_provider="mistral",
+        model_name=f"mistral-large-{uuid.uuid4()}",
+        model_metadata={"max_input_tokens": 262_144},
+    )
+    org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        model_provider="custom-model-provider",
+        model_name=f"prod-gpt-{uuid.uuid4()}",
+        model_metadata={"context_window": 272_000},
+    )
+    no_window_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        model_provider="custom-model-provider",
+        model_name=f"mystery-{uuid.uuid4()}",
+        model_metadata={"id": "mystery"},
+    )
+    other_org_row = AgentCatalog(
+        organization_id=other_org.id,
+        model_provider="custom-model-provider",
+        model_name=f"hidden-{uuid.uuid4()}",
+        model_metadata={"context_window": 100_000},
+    )
+    session.add_all([platform_row, org_row, no_window_row, other_org_row])
+    await session.commit()
+
+    windows = await service.get_context_windows(
+        org_id=svc_organization.id,
+        catalog_ids=[
+            platform_row.id,
+            org_row.id,
+            no_window_row.id,
+            other_org_row.id,
+        ],
+    )
+
+    assert windows == {
+        platform_row.id: 262_144,
+        org_row.id: 272_000,
+    }
 
 
 @pytest.mark.anyio

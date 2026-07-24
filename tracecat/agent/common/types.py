@@ -181,6 +181,8 @@ class SandboxAgentConfig(BaseModel):
     catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     passthrough: bool = False
+    context_window: int | None = None
+    """Model context window in tokens, when known from catalog metadata."""
 
     # Agent
     instructions: str | None = None
@@ -222,6 +224,7 @@ class SandboxAgentConfig(BaseModel):
             catalog_id=config.catalog_id,
             base_url=config.base_url,
             passthrough=config.passthrough,
+            context_window=config.context_window,
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,

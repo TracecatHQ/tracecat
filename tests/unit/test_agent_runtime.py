@@ -1241,6 +1241,90 @@ class TestClaudeAgentRuntimeRun:
 
         assert env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] == "1"
 
+    def test_no_auto_compact_window_for_anthropic_models(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
+
+        assert "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env
+
+    def test_sets_auto_compact_window_from_resolved_context_window(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_provider": "mistral",
+                    "model_name": "mistral-large-latest",
+                    "context_window": 262_144,
+                }
+            ),
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "262144"
+
+    def test_auto_compact_window_uses_min_across_subagents(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Unknown custom-provider subagents floor the process-wide window at 128k."""
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={"model_provider": "custom-model-provider"}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_provider": "custom-model-provider",
+                    "context_window": 262_144,
+                }
+            ),
+            subagents=[child],
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
+
+    def test_anthropic_subagent_does_not_lower_window(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={"context_window": 180_000}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_provider": "custom-model-provider",
+                    "context_window": 400_000,
+                }
+            ),
+            subagents=[child],
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "400000"
+
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
         self,

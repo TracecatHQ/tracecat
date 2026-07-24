@@ -13,7 +13,10 @@ import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.service import (
+    AgentCatalogService,
+    context_window_from_metadata,
+)
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
@@ -350,6 +353,15 @@ class AgentCustomProviderService(BaseOrgService):
             ),
             api_key_header=provider.api_key_header,
         )
+        await self._annotate_context_windows(
+            models,
+            base_url=base_url,
+            api_key=api_key if isinstance(api_key, str) else None,
+            api_key_header=provider.api_key_header,
+            custom_headers=(
+                custom_headers if isinstance(custom_headers, dict) else None
+            ),
+        )
 
         catalog_service = AgentCatalogService(session=self.session)
         await catalog_service.upsert_discovered_models(
@@ -416,8 +428,9 @@ class AgentCustomProviderService(BaseOrgService):
         api_key_header: str | None,
         custom_headers: dict[str, str] | None,
         timeout: float,
+        path: str = "/models",
     ) -> httpx.Response:
-        """Make a GET /models request against a provider base URL."""
+        """Make a GET request against a provider base URL path."""
         headers = custom_headers.copy() if custom_headers else {}
         if api_key:
             if not api_key_header:
@@ -426,7 +439,7 @@ class AgentCustomProviderService(BaseOrgService):
                 headers[api_key_header] = api_key
         async with httpx.AsyncClient(timeout=timeout) as client:
             return await client.get(
-                f"{base_url.rstrip('/')}/models",
+                f"{base_url.rstrip('/')}{path}",
                 headers=headers,
             )
 
@@ -477,3 +490,87 @@ class AgentCustomProviderService(BaseOrgService):
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
         raise ValueError(f"Unexpected response format: {type(data)}")
+
+    async def _fetch_metadata_rows(
+        self,
+        path: str,
+        *,
+        base_url: str,
+        api_key: str | None,
+        api_key_header: str | None,
+        custom_headers: dict[str, str] | None,
+    ) -> list[dict[str, Any]]:
+        """GET an optional gateway metadata endpoint; empty list when unsupported."""
+        try:
+            response = await self._fetch_models(
+                base_url=base_url,
+                api_key=api_key,
+                api_key_header=api_key_header,
+                custom_headers=custom_headers,
+                timeout=15.0,
+                path=path,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, ValueError):
+            return []
+        rows = data.get("data") if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    async def _annotate_context_windows(
+        self,
+        models: list[dict[str, object]],
+        *,
+        base_url: str,
+        api_key: str | None,
+        api_key_header: str | None,
+        custom_headers: dict[str, str] | None,
+    ) -> None:
+        """Best-effort ``context_window`` annotation for discovered models.
+
+        LiteLLM-style gateways report ``max_input_tokens`` on ``/model/info``;
+        wildcard-routed deployments only resolve it via ``/model_group/info``.
+        Models neither endpoint resolves keep no window and fall back to the
+        runtime's conservative custom-provider default.
+        """
+        unresolved = {
+            model_id
+            for model in models
+            if isinstance(model_id := model.get("id"), str)
+            and context_window_from_metadata(model) is None
+        }
+        if not unresolved:
+            return
+        request_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "api_key_header": api_key_header,
+            "custom_headers": custom_headers,
+        }
+        windows: dict[str, int] = {}
+        for row in await self._fetch_metadata_rows("/model/info", **request_kwargs):
+            name = row.get("model_name")
+            info = row.get("model_info")
+            window = context_window_from_metadata(
+                info if isinstance(info, dict) else None
+            )
+            if isinstance(name, str) and window is not None:
+                windows[name] = window
+        if unresolved - windows.keys():
+            for row in await self._fetch_metadata_rows(
+                "/model_group/info", **request_kwargs
+            ):
+                name = row.get("model_group")
+                window = context_window_from_metadata(row)
+                if isinstance(name, str) and window is not None:
+                    windows.setdefault(name, window)
+        for model in models:
+            model_id = model.get("id")
+            if (
+                isinstance(model_id, str)
+                and model_id in unresolved
+                and (window := windows.get(model_id)) is not None
+            ):
+                model["context_window"] = window
