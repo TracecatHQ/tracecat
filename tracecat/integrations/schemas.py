@@ -896,9 +896,14 @@ class MCPIntegrationRead(BaseModel):
     # Stdio-type server fields
     stdio_command: str | None
     stdio_args: list[str] | None
-    # NOTE: stdio_env is write-only to avoid exposing secrets in API responses
     has_stdio_env: bool = False
-    """Whether stdio_env is configured (actual values are not exposed)."""
+    """Whether stdio_env is configured."""
+    stdio_env: dict[str, str] | None = None
+    """Stored stdio environment variables for detail/edit responses.
+
+    Values are encrypted at rest and returned only as the saved configuration,
+    not with secret references resolved.
+    """
     # General fields
     timeout: int | None
     tools: list[MCPToolSummary] | None = None

@@ -16171,6 +16171,20 @@ export const $MCPIntegrationRead = {
       title: "Has Stdio Env",
       default: false,
     },
+    stdio_env: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Env",
+    },
     timeout: {
       anyOf: [
         {
