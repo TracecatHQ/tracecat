@@ -329,6 +329,10 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    include_total: bool = Query(
+        True,
+        description="Include the exact filtered total (skip when totals come from the aggregates endpoint)",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -366,6 +370,7 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            include_total=include_total,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
