@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -4539,22 +4540,12 @@ async def test_agent_preset_sync_preserves_enabled_local_catalog_id(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    catalog = AgentCatalog(
-        id=uuid.uuid4(),
-        organization_id=svc_role.organization_id,
+    catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
         model_provider="openai",
         model_name="gpt-5.5",
     )
-    session.add(catalog)
-    await session.flush()
-    session.add(
-        AgentModelAccess(
-            organization_id=svc_role.organization_id,
-            workspace_id=None,
-            catalog_id=catalog.id,
-        )
-    )
-    await session.flush()
     files = _agent_preset_git_tree(
         source_id="qa-catalog-backed",
         slug="qa-catalog-backed",
@@ -4598,22 +4589,12 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    local_catalog = AgentCatalog(
-        id=uuid.uuid4(),
-        organization_id=svc_role.organization_id,
+    local_catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
         model_provider="custom-model-provider",
         model_name="qa-custom-model",
     )
-    session.add(local_catalog)
-    await session.flush()
-    session.add(
-        AgentModelAccess(
-            organization_id=svc_role.organization_id,
-            workspace_id=None,
-            catalog_id=local_catalog.id,
-        )
-    )
-    await session.flush()
 
     source_catalog_id = uuid.uuid4()
     source_base_url = "https://source-model-gateway.example.com"
@@ -4624,16 +4605,16 @@ async def test_agent_preset_sync_correlates_all_catalog_backed_versions(
         version_number=2,
     )
     current_path = f"{AGENT_PRESET_ROOT}/qa-cross-environment-catalog/versions/2.yml"
-    current_spec = yaml.safe_load(files[current_path])
-    current_spec.update(
+    current_spec = _patch_yaml_file(
+        files,
+        current_path,
         {
             "catalog_id": str(source_catalog_id),
             "model_provider": "custom-model-provider",
             "model_name": "qa-custom-model",
             "base_url": source_base_url,
-        }
+        },
     )
-    files[current_path] = _yaml(current_spec)
     historical_spec = dict(current_spec)
     historical_spec["version_number"] = 1
     historical_spec["instructions"] = "Historical instructions"
@@ -4680,22 +4661,12 @@ async def test_agent_preset_correlation_clears_source_base_url_for_openai(
     base URL override at the gateway.
     """
     service = WorkspaceSyncService(session=session, role=svc_role)
-    local_catalog = AgentCatalog(
-        id=uuid.uuid4(),
-        organization_id=svc_role.organization_id,
+    local_catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
         model_provider="openai",
         model_name="gpt-5.2",
     )
-    session.add(local_catalog)
-    await session.flush()
-    session.add(
-        AgentModelAccess(
-            organization_id=svc_role.organization_id,
-            workspace_id=None,
-            catalog_id=local_catalog.id,
-        )
-    )
-    await session.flush()
 
     files = _agent_preset_git_tree(
         source_id="qa-openai-cross-env",
@@ -4703,16 +4674,16 @@ async def test_agent_preset_correlation_clears_source_base_url_for_openai(
         name="QA OpenAI cross-environment catalog",
     )
     preset_path = f"{AGENT_PRESET_ROOT}/qa-openai-cross-env/versions/1.yml"
-    preset_spec = yaml.safe_load(files[preset_path])
-    preset_spec.update(
+    _patch_yaml_file(
+        files,
+        preset_path,
         {
             "catalog_id": str(uuid.uuid4()),
             "model_provider": "openai",
             "model_name": "gpt-5.2",
             "base_url": "https://source-deployment.example.com/v1",
-        }
+        },
     )
-    files[preset_path] = _yaml(preset_spec)
 
     snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
     assert diagnostics == []
@@ -4751,22 +4722,12 @@ async def test_agent_preset_dry_run_correlates_catalog_id_without_spurious_diff(
     preview must match what a real import would change (nothing).
     """
     service = WorkspaceSyncService(session=session, role=svc_role)
-    local_catalog = AgentCatalog(
-        id=uuid.uuid4(),
-        organization_id=svc_role.organization_id,
+    local_catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
         model_provider="custom-model-provider",
         model_name="qa-preview-correlated-model",
     )
-    session.add(local_catalog)
-    await session.flush()
-    session.add(
-        AgentModelAccess(
-            organization_id=svc_role.organization_id,
-            workspace_id=None,
-            catalog_id=local_catalog.id,
-        )
-    )
-    await session.flush()
 
     files = _agent_preset_git_tree(
         source_id="qa-preview-correlated",
@@ -4774,15 +4735,15 @@ async def test_agent_preset_dry_run_correlates_catalog_id_without_spurious_diff(
         name="QA preview correlated",
     )
     preset_path = f"{AGENT_PRESET_ROOT}/qa-preview-correlated/versions/1.yml"
-    preset_spec = yaml.safe_load(files[preset_path])
-    preset_spec.update(
+    _patch_yaml_file(
+        files,
+        preset_path,
         {
             "catalog_id": str(uuid.uuid4()),
             "model_provider": "custom-model-provider",
             "model_name": "qa-preview-correlated-model",
-        }
+        },
     )
-    files[preset_path] = _yaml(preset_spec)
 
     snapshot, diagnostics = await service.parse_files(files, commit_sha="o" * 40)
     assert diagnostics == []
@@ -4848,23 +4809,14 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         )
         session.add(provider)
         await session.flush()
-        catalog = AgentCatalog(
-            organization_id=svc_role.organization_id,
+        catalog = await _enable_org_catalog(
+            session,
+            org_id=svc_role.organization_id,
             custom_provider_id=provider.id,
             model_provider=model_provider,
             model_name=model_name,
-            model_metadata={},
         )
-        session.add(catalog)
-        await session.flush()
-        access = AgentModelAccess(
-            organization_id=svc_role.organization_id,
-            workspace_id=None,
-            catalog_id=catalog.id,
-        )
-        session.add(access)
         catalog_rows.append(catalog)
-    await session.flush()
 
     source_catalog_id = uuid.uuid4()
     source_id = "qa-catalog-choice"
@@ -4874,16 +4826,16 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
         name="QA catalog choice",
     )
     version_one_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
-    version_one_spec = yaml.safe_load(files[version_one_path])
-    version_one_spec.update(
+    _patch_yaml_file(
+        files,
+        version_one_path,
         {
             "catalog_id": str(source_catalog_id),
             "model_provider": model_provider,
             "model_name": model_name,
             "base_url": "https://source.models.example.com/v1",
-        }
+        },
     )
-    files[version_one_path] = _yaml(version_one_spec)
 
     transport = AsyncMock(
         read_files=AsyncMock(
@@ -5011,15 +4963,15 @@ async def test_agent_preset_sync_reports_unavailable_catalog_model_before_writes
         name="QA unavailable catalog",
     )
     preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog/versions/1.yml"
-    preset_spec = yaml.safe_load(files[preset_path])
-    preset_spec.update(
+    _patch_yaml_file(
+        files,
+        preset_path,
         {
             "catalog_id": str(uuid.uuid4()),
             "model_provider": "custom-model-provider",
             "model_name": "qa-unavailable-model",
-        }
+        },
     )
-    files[preset_path] = _yaml(preset_spec)
     snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
     assert diagnostics == []
 
@@ -5054,15 +5006,15 @@ async def test_agent_preset_sync_dry_run_reports_unavailable_catalog_model(
         name="QA unavailable catalog preview",
     )
     preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog-preview/versions/1.yml"
-    preset_spec = yaml.safe_load(files[preset_path])
-    preset_spec.update(
+    _patch_yaml_file(
+        files,
+        preset_path,
         {
             "catalog_id": str(uuid.uuid4()),
             "model_provider": "custom-model-provider",
             "model_name": "qa-unavailable-preview-model",
-        }
+        },
     )
-    files[preset_path] = _yaml(preset_spec)
     transport = AsyncMock(
         read_files=AsyncMock(
             return_value=VcsTreeSnapshot(
@@ -6042,6 +5994,45 @@ async def test_table_import_rejects_columns_removed_from_git_spec(
     )
     await session.refresh(table, ["columns"])
     assert {column.name for column in table.columns} == {"indicator", "status"}
+
+
+async def _enable_org_catalog(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID | None,
+    model_provider: str,
+    model_name: str,
+    custom_provider_id: uuid.UUID | None = None,
+) -> AgentCatalog:
+    assert org_id is not None
+    catalog = AgentCatalog(
+        organization_id=org_id,
+        custom_provider_id=custom_provider_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    session.add(catalog)
+    await session.flush()
+    session.add(
+        AgentModelAccess(
+            organization_id=org_id,
+            workspace_id=None,
+            catalog_id=catalog.id,
+        )
+    )
+    await session.flush()
+    return catalog
+
+
+def _patch_yaml_file(
+    files: dict[str, str],
+    path: str,
+    updates: Mapping[str, Any],
+) -> dict[str, Any]:
+    spec: dict[str, Any] = yaml.safe_load(files[path])
+    spec.update(updates)
+    files[path] = _yaml(spec)
+    return spec
 
 
 async def _set_workspace_git_repo_url(

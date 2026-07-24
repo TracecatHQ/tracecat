@@ -20,6 +20,7 @@ from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAcce
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+from tracecat.sync import CatalogMappingCandidate
 
 
 class _CatalogRowValues(TypedDict):
@@ -44,19 +45,6 @@ class PlatformCatalogEntry:
     model_provider: str
     model_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class CatalogMatchCandidate:
-    """Enabled local catalog row that can satisfy a portable model reference."""
-
-    catalog_id: UUID
-    model_provider: str
-    model_name: str
-    provider_name: str
-    model_display_name: str | None
-    endpoint_hostname: str | None
-    origin: Literal["platform", "organization", "custom_provider"]
 
 
 def _safe_hostname(base_url: str | None) -> str | None:
@@ -248,7 +236,7 @@ class AgentCatalogService(BaseService):
         org_id: UUID,
         models: Collection[ModelKey],
         workspace_id: UUID | None = None,
-    ) -> dict[ModelKey, list[CatalogMatchCandidate]]:
+    ) -> dict[ModelKey, list[CatalogMappingCandidate]]:
         """Return every visible, enabled local candidate for each model tuple.
 
         Unlike the best-effort tuple resolvers, this method preserves duplicate
@@ -298,7 +286,7 @@ class AgentCatalogService(BaseService):
             )
         )
 
-        candidates: dict[ModelKey, list[CatalogMatchCandidate]] = {}
+        candidates: dict[ModelKey, list[CatalogMappingCandidate]] = {}
         for (
             model_provider,
             model_name,
@@ -328,7 +316,7 @@ class AgentCatalogService(BaseService):
                 provider_name = "Tracecat catalog"
 
             candidates.setdefault(ModelKey(model_provider, model_name), []).append(
-                CatalogMatchCandidate(
+                CatalogMappingCandidate(
                     catalog_id=catalog_id,
                     model_provider=model_provider,
                     model_name=model_name,
@@ -404,58 +392,6 @@ class AgentCatalogService(BaseService):
         if row_id is None:
             return None
         return row_id
-
-    async def resolve_catalog_ids_by_models(
-        self,
-        *,
-        org_id: UUID,
-        models: Collection[ModelKey],
-        workspace_id: UUID | None = None,
-    ) -> dict[ModelKey, UUID]:
-        """Resolve enabled local catalog ids for multiple model tuples.
-
-        This has parity with ``resolve_catalog_id_by_model`` for every input
-        tuple, including org-row preference and deterministic id tie-breaking.
-        The batch exists so sync import correlation can resolve all incoming
-        model tuples with one query while evaluating the workspace override
-        only once.
-        """
-        if not models:
-            return {}
-
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
-        stmt = (
-            select(
-                AgentCatalog.model_provider,
-                AgentCatalog.model_name,
-                AgentCatalog.id,
-            )
-            .where(
-                tuple_(
-                    AgentCatalog.model_provider,
-                    AgentCatalog.model_name,
-                ).in_(models),
-                AgentCatalog.id.in_(enabled_catalog_ids),
-                sa.or_(
-                    AgentCatalog.organization_id == org_id,
-                    AgentCatalog.organization_id.is_(None),
-                ),
-            )
-            .order_by(
-                AgentCatalog.model_provider.asc(),
-                AgentCatalog.model_name.asc(),
-                AgentCatalog.organization_id.desc().nulls_last(),
-                AgentCatalog.id.asc(),
-            )
-        )
-        resolved: dict[ModelKey, UUID] = {}
-        for model_provider, model_name, catalog_id in (
-            await self.session.execute(stmt)
-        ).tuples():
-            resolved.setdefault(ModelKey(model_provider, model_name), catalog_id)
-        return resolved
 
     async def list_catalog(
         self,

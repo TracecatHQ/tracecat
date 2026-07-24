@@ -8,7 +8,7 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CatalogMappingCandidate,
   CatalogMappingRequirement,
@@ -82,8 +82,14 @@ export function WorkspaceSyncPullTab({
   const [pullAction, setPullAction] = useState<"preview" | "apply" | null>(null)
 
   const effectivePullSha = selectedCommitSha ?? commits?.[0]?.sha
-  const selectedCatalogMappings = catalogMappingSelections(catalogMappings)
-  const catalogMappingsKey = catalogMappingSelectionKey(selectedCatalogMappings)
+  const selectedCatalogMappings = useMemo(
+    () => catalogMappingSelections(catalogMappings),
+    [catalogMappings]
+  )
+  const catalogMappingsKey = useMemo(
+    () => JSON.stringify(selectedCatalogMappings),
+    [selectedCatalogMappings]
+  )
   const pullPreviewMatchesSource =
     Boolean(effectivePullSha) &&
     pullPreviewOptions !== null &&
@@ -95,6 +101,12 @@ export function WorkspaceSyncPullTab({
   const canApplyPull =
     pullPreviewMatchesSelection && pullPreview?.success === true
 
+  const resetPullPreview = useCallback(() => {
+    setPullPreview(null)
+    setPullPreviewOptions(null)
+    setPullResult(null)
+  }, [])
+
   // Default the pull source to HEAD once commits load.
   useEffect(() => {
     if (commits?.length && !selectedCommitSha) {
@@ -103,18 +115,14 @@ export function WorkspaceSyncPullTab({
   }, [commits, selectedCommitSha])
 
   useEffect(() => {
-    setPullPreview(null)
-    setPullPreviewOptions(null)
-    setPullResult(null)
+    resetPullPreview()
     setCatalogMappings({})
     setCatalogMappingRequirements([])
-  }, [effectivePullSha, provider])
+  }, [effectivePullSha, provider, resetPullPreview])
 
   useEffect(() => {
-    setPullPreview(null)
-    setPullPreviewOptions(null)
-    setPullResult(null)
-  }, [syncSchedules])
+    resetPullPreview()
+  }, [syncSchedules, resetPullPreview])
 
   async function handlePreviewPull() {
     if (!effectivePullSha) {
@@ -129,9 +137,7 @@ export function WorkspaceSyncPullTab({
         commit_sha: effectivePullSha,
         dry_run: true,
         sync_schedules: syncSchedules,
-        ...(selectedCatalogMappings.length
-          ? { catalog_mappings: selectedCatalogMappings }
-          : {}),
+        catalog_mappings: selectedCatalogMappings,
       })
       setPullPreview(result)
       if (result.catalog_mapping_requirements?.length) {
@@ -169,9 +175,7 @@ export function WorkspaceSyncPullTab({
       const result = await pullWorkflows({
         commit_sha: effectivePullSha,
         sync_schedules: syncSchedules,
-        ...(selectedCatalogMappings.length
-          ? { catalog_mappings: selectedCatalogMappings }
-          : {}),
+        catalog_mappings: selectedCatalogMappings,
       })
       if (result.success) {
         setPullResult(result)
@@ -462,6 +466,35 @@ function CatalogMappingRequirements({
   const allSelected = requirements.every(
     (requirement) => selections[requirement.source_catalog_id]
   )
+  const labelledRequirements = useMemo(
+    () =>
+      requirements.map((requirement) => {
+        const baseLabels = requirement.candidates.map(
+          catalogMappingCandidateBaseLabel
+        )
+        const baseLabelCounts = new Map<string, number>()
+        for (const baseLabel of baseLabels) {
+          baseLabelCounts.set(
+            baseLabel,
+            (baseLabelCounts.get(baseLabel) ?? 0) + 1
+          )
+        }
+        // Only disambiguate with a catalog id fragment when two candidates
+        // would otherwise render the same label.
+        const candidates = requirement.candidates.map((candidate, index) => {
+          const baseLabel = baseLabels[index]
+          const isDuplicate = (baseLabelCounts.get(baseLabel) ?? 0) > 1
+          return {
+            candidate,
+            label: isDuplicate
+              ? `${baseLabel} · ${candidate.catalog_id.slice(0, 8)}`
+              : baseLabel,
+          }
+        })
+        return { requirement, candidates }
+      }),
+    [requirements]
+  )
 
   return (
     <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/40 p-3">
@@ -474,7 +507,7 @@ function CatalogMappingRequirements({
       </div>
 
       <div className="space-y-3">
-        {requirements.map((requirement) => (
+        {labelledRequirements.map(({ requirement, candidates }) => (
           <div
             key={requirement.source_catalog_id}
             className="space-y-2 border-t border-amber-200 pt-3 first:border-0 first:pt-0"
@@ -501,15 +534,12 @@ function CatalogMappingRequirements({
                 <SelectValue placeholder="Choose target model" />
               </SelectTrigger>
               <SelectContent>
-                {requirement.candidates.map((candidate) => (
+                {candidates.map(({ candidate, label }) => (
                   <SelectItem
                     key={candidate.catalog_id}
                     value={candidate.catalog_id}
                   >
-                    {catalogMappingCandidateLabel(
-                      candidate,
-                      requirement.candidates
-                    )}
+                    {label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -534,19 +564,6 @@ function CatalogMappingRequirements({
       )}
     </div>
   )
-}
-
-function catalogMappingCandidateLabel(
-  candidate: CatalogMappingCandidate,
-  candidates: CatalogMappingCandidate[]
-): string {
-  const label = catalogMappingCandidateBaseLabel(candidate)
-  const duplicateLabelCount = candidates.filter(
-    (other) => catalogMappingCandidateBaseLabel(other) === label
-  ).length
-  return duplicateLabelCount > 1
-    ? `${label} · ${candidate.catalog_id.slice(0, 8)}`
-    : label
 }
 
 function catalogMappingCandidateBaseLabel(
@@ -574,17 +591,6 @@ function catalogMappingSelections(
       source_catalog_id: sourceCatalogId,
       target_catalog_id: targetCatalogId,
     }))
-}
-
-function catalogMappingSelectionKey(
-  mappings: CatalogMappingSelection[]
-): string {
-  return mappings
-    .map(
-      ({ source_catalog_id, target_catalog_id }) =>
-        `${source_catalog_id}:${target_catalog_id}`
-    )
-    .join("|")
 }
 
 /**

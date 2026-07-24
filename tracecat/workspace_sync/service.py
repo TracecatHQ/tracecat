@@ -407,48 +407,20 @@ class WorkspaceSyncService(SyncMappingService):
                 snapshot,
                 requested_catalog_mappings=options.catalog_mappings,
             )
-            if prepared.diagnostics:
-                return PullResult(
-                    success=False,
-                    commit_sha=snapshot.commit_sha,
-                    workflows_found=len(snapshot.spec.workflows),
-                    workflows_imported=0,
-                    diagnostics=prepared.diagnostics,
-                    message=(
-                        f"Import failed: {len(prepared.diagnostics)} validation "
-                        "error(s) found"
-                    ),
-                    resource_counts=resource_counts,
-                    resource_diffs=[],
-                    files=sorted(snapshot.files),
-                    resources=_sync_preview_resources_from_spec(snapshot.spec),
-                    catalog_mapping_requirements=(
-                        prepared.catalog_mapping_requirements
-                    ),
+            resource_diffs: list[PullResourceDiff] = []
+            diagnostics = prepared.diagnostics
+            if not diagnostics:
+                resource_diffs = await self._resource_diffs_for_pull(
+                    prepared.snapshot,
+                    sync_schedules=sync_schedules,
                 )
-            resource_diffs = await self._resource_diffs_for_pull(
-                prepared.snapshot,
-                sync_schedules=sync_schedules,
-            )
-            workflow_diagnostics = await self._validate_workflow_import(
-                prepared.snapshot
-            )
-            import_diagnostics = [*prepared.diagnostics, *workflow_diagnostics]
-            if import_diagnostics:
-                return PullResult(
-                    success=False,
-                    commit_sha=snapshot.commit_sha,
-                    workflows_found=len(snapshot.spec.workflows),
-                    workflows_imported=0,
-                    diagnostics=import_diagnostics,
-                    message=(
-                        f"Import failed: {len(import_diagnostics)} validation "
-                        "error(s) found"
-                    ),
+                diagnostics = await self._validate_workflow_import(prepared.snapshot)
+            if diagnostics:
+                return self._failed_pull_result(
+                    snapshot,
+                    diagnostics,
                     resource_counts=resource_counts,
                     resource_diffs=resource_diffs,
-                    files=sorted(snapshot.files),
-                    resources=_sync_preview_resources_from_spec(snapshot.spec),
                     catalog_mapping_requirements=(
                         prepared.catalog_mapping_requirements
                     ),
@@ -959,19 +931,10 @@ class WorkspaceSyncService(SyncMappingService):
         )
         snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
         if resource_diagnostics:
-            return PullResult(
-                success=False,
-                commit_sha=snapshot.commit_sha,
-                workflows_found=len(snapshot.spec.workflows),
-                workflows_imported=0,
-                diagnostics=resource_diagnostics,
-                message=(
-                    f"Import failed: {len(resource_diagnostics)} validation "
-                    "error(s) found"
-                ),
+            return self._failed_pull_result(
+                snapshot,
+                resource_diagnostics,
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
-                files=sorted(snapshot.files),
-                resources=_sync_preview_resources_from_spec(snapshot.spec),
                 catalog_mapping_requirements=prepared.catalog_mapping_requirements,
             )
 
@@ -2066,6 +2029,30 @@ class WorkspaceSyncService(SyncMappingService):
             )
             for resource_type, found in spec.resource_count_map().items()
         }
+
+    def _failed_pull_result(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        diagnostics: list[PullDiagnostic],
+        *,
+        resource_counts: dict[str, ResourcePullCount],
+        resource_diffs: list[PullResourceDiff] | None = None,
+        catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None,
+    ) -> PullResult:
+        """Build a failed pull result for a validated workspace snapshot."""
+        return PullResult(
+            success=False,
+            commit_sha=snapshot.commit_sha,
+            workflows_found=len(snapshot.spec.workflows),
+            workflows_imported=0,
+            diagnostics=diagnostics,
+            message=(f"Import failed: {len(diagnostics)} validation error(s) found"),
+            resource_counts=resource_counts,
+            resource_diffs=resource_diffs,
+            files=sorted(snapshot.files),
+            resources=_sync_preview_resources_from_spec(snapshot.spec),
+            catalog_mapping_requirements=catalog_mapping_requirements,
+        )
 
     def _resource_counts_from_imported(
         self,

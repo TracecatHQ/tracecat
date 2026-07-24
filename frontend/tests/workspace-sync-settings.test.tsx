@@ -656,6 +656,7 @@ describe("WorkspaceSyncSettings", () => {
         commit_sha: commitSha,
         dry_run: true,
         sync_schedules: false,
+        catalog_mappings: [],
       })
     })
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
@@ -684,6 +685,7 @@ describe("WorkspaceSyncSettings", () => {
       expect(mockPullWorkflows).toHaveBeenLastCalledWith({
         commit_sha: commitSha,
         sync_schedules: false,
+        catalog_mappings: [],
       })
     })
   })

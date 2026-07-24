@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.catalog.schemas import ModelKey
-from tracecat.agent.catalog.service import AgentCatalogService, CatalogMatchCandidate
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import (
     AgentFolder,
@@ -76,11 +76,10 @@ class CorrelatedAgentPresets(NamedTuple):
 class AgentPresetCatalogReference(NamedTuple):
     """One preset version referencing a deployment-local source catalog UUID."""
 
-    source_id: str
+    path: str
     preset_slug: str
     preset_name: str
     version_number: int
-    catalog_id: uuid.UUID
     model_key: ModelKey
 
 
@@ -392,7 +391,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     async def correlate_catalog_ids(
         self,
         workspace_service: SyncMappingService,
-        presets: Mapping[str, AgentPresetResourceSpec],
+        presets: dict[str, AgentPresetResourceSpec],
         *,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
     ) -> CorrelatedAgentPresets:
@@ -412,8 +411,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         catalog_service = AgentCatalogService(session=workspace_service.session)
         catalog_ids = {
             version.catalog_id
-            for _, preset in sorted(presets.items())
-            for _, version in sorted(preset.versions.items())
+            for preset in presets.values()
+            for version in preset.versions.values()
             if version.catalog_id is not None
         }
         enabled_catalog_ids = await catalog_service.enabled_catalog_ids(
@@ -457,11 +456,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     continue
                 references_by_catalog_id.setdefault(catalog_id, []).append(
                     AgentPresetCatalogReference(
-                        source_id=source_id,
+                        path=self._version_source_path(source_id, version_number),
                         preset_slug=preset.slug,
                         preset_name=preset.name,
                         version_number=version_number,
-                        catalog_id=catalog_id,
                         model_key=ModelKey(
                             version.model_provider,
                             version.model_name,
@@ -469,16 +467,15 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     )
                 )
 
-        for catalog_id, references in sorted(references_by_catalog_id.items()):
+        sorted_references_by_catalog_id = sorted(references_by_catalog_id.items())
+        for catalog_id, references in sorted_references_by_catalog_id:
             model_keys = {reference.model_key for reference in references}
             if len(model_keys) <= 1:
                 continue
             first = references[0]
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=self._version_source_path(
-                        first.source_id, first.version_number
-                    ),
+                    workflow_path=first.path,
                     workflow_title=first.preset_name,
                     error_type="validation",
                     message=(
@@ -514,18 +511,16 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         resolved_catalog_ids: dict[uuid.UUID, uuid.UUID] = {}
         requirements: list[CatalogMappingRequirement] = []
 
-        for catalog_id, references in sorted(references_by_catalog_id.items()):
+        for catalog_id, references in sorted_references_by_catalog_id:
             if catalog_id in invalid_catalog_ids:
                 continue
             model_key = references[0].model_key
             candidates = candidates_by_model.get(model_key, [])
-            candidates_by_id = {
-                candidate.catalog_id: candidate for candidate in candidates
-            }
             requested_target = requested_catalog_mappings.get(catalog_id)
 
             if requested_target is not None:
-                if requested_target in candidates_by_id:
+                candidate_ids = {candidate.catalog_id for candidate in candidates}
+                if requested_target in candidate_ids:
                     resolved_catalog_ids[catalog_id] = requested_target
                     continue
                 self._append_catalog_mapping_requirement(
@@ -556,6 +551,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
             self._append_unavailable_catalog_diagnostics(
                 diagnostics=diagnostics,
+                catalog_id=catalog_id,
                 references=references,
             )
 
@@ -579,27 +575,28 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             )
 
-        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
+        if not resolved_catalog_ids:
+            return CorrelatedAgentPresets(
+                presets=presets,
+                diagnostics=diagnostics,
+                requirements=requirements,
+            )
 
+        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
         for source_id, preset in sorted(presets.items()):
             correlated_versions: dict[int, AgentPresetVersionResourceSpec] = {}
             for version_number, version in sorted(preset.versions.items()):
-                catalog_id = version.catalog_id
-                if catalog_id is None:
-                    correlated_versions[version_number] = version
-                    continue
-
-                if catalog_id in enabled_catalog_ids:
-                    correlated_versions[version_number] = version
-                    continue
-
-                local_catalog_id = resolved_catalog_ids.get(catalog_id)
-                if local_catalog_id is None:
-                    correlated_versions[version_number] = version
-                    continue
-
-                correlated_versions[version_number] = version.model_copy(
-                    update={"catalog_id": local_catalog_id, "base_url": None}
+                local_catalog_id = (
+                    resolved_catalog_ids.get(version.catalog_id)
+                    if version.catalog_id is not None
+                    else None
+                )
+                correlated_versions[version_number] = (
+                    version
+                    if local_catalog_id is None
+                    else version.model_copy(
+                        update={"catalog_id": local_catalog_id, "base_url": None}
+                    )
                 )
 
             correlated_presets[source_id] = preset.model_copy(
@@ -620,36 +617,34 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         catalog_id: uuid.UUID,
         model_key: ModelKey,
         references: list[AgentPresetCatalogReference],
-        candidates: list[CatalogMatchCandidate],
+        candidates: list[CatalogMappingCandidate],
         reason: CatalogMappingRequirementReason,
     ) -> None:
         """Append one grouped mapping requirement and its blocking diagnostic."""
         if not candidates:
             self._append_unavailable_catalog_diagnostics(
                 diagnostics=diagnostics,
+                catalog_id=catalog_id,
                 references=references,
             )
             return
 
-        reason_messages = {
-            "ambiguous": (
+        if reason == "ambiguous":
+            message = (
                 f"Model {model_key.model_provider!r} / {model_key.model_name!r} "
                 f"matches {len(candidates)} enabled target catalogs. Choose the "
                 "target model before applying this pull."
-            ),
-            "invalid_selection": (
+            )
+        else:
+            message = (
                 f"The selected target is not an enabled match for model "
                 f"{model_key.model_provider!r} / {model_key.model_name!r}. "
                 "Choose an available target before applying this pull."
-            ),
-        }
-        message = reason_messages[reason]
+            )
         first = references[0]
         diagnostics.append(
             PullDiagnostic(
-                workflow_path=self._version_source_path(
-                    first.source_id, first.version_number
-                ),
+                workflow_path=first.path,
                 workflow_title=first.preset_name,
                 error_type="dependency",
                 message=message,
@@ -669,27 +664,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 model_name=model_key.model_name,
                 reason=reason,
                 message=message,
-                candidates=[
-                    CatalogMappingCandidate(
-                        catalog_id=candidate.catalog_id,
-                        model_provider=candidate.model_provider,
-                        model_name=candidate.model_name,
-                        provider_name=candidate.provider_name,
-                        model_display_name=candidate.model_display_name,
-                        endpoint_hostname=candidate.endpoint_hostname,
-                        origin=candidate.origin,
-                    )
-                    for candidate in candidates
-                ],
+                candidates=list(candidates),
                 affected_presets=[
                     CatalogMappingAffectedPreset(
                         preset_slug=reference.preset_slug,
                         preset_name=reference.preset_name,
                         version=reference.version_number,
-                        path=self._version_source_path(
-                            reference.source_id,
-                            reference.version_number,
-                        ),
+                        path=reference.path,
                     )
                     for reference in references
                 ],
@@ -700,16 +681,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         *,
         diagnostics: list[PullDiagnostic],
+        catalog_id: uuid.UUID,
         references: list[AgentPresetCatalogReference],
     ) -> None:
         """Append per-version diagnostics when no enabled candidate is available."""
         for reference in references:
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=self._version_source_path(
-                        reference.source_id,
-                        reference.version_number,
-                    ),
+                    workflow_path=reference.path,
                     workflow_title=reference.preset_name,
                     error_type="dependency",
                     message=(
@@ -722,7 +701,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     details={
                         "preset_slug": reference.preset_slug,
                         "preset_version": reference.version_number,
-                        "catalog_id": str(reference.catalog_id),
+                        "catalog_id": str(catalog_id),
                         "model_provider": reference.model_key.model_provider,
                         "model_name": reference.model_key.model_name,
                     },
