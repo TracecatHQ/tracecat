@@ -1,0 +1,67 @@
+type: action
+definition:
+  title: Set finding state
+  description: Update the state of a Security Command Center finding.
+  display_group: Google Security Command Center
+  doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.findings/setState
+  namespace: tools.google_scc
+  name: set_finding_state
+  secrets:
+    - type: oauth
+      provider_id: google
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional: true
+  expects:
+    finding_name:
+      type: str
+      description: >
+        Full finding resource name, e.g.
+        `organizations/{org}/sources/{src}/locations/{loc}/findings/{id}`. The
+        scope prefix decides which IAM permissions are checked, so pass
+        `canonicalName` from `list_findings` if you hold project-level access;
+        `name` is always organization-scoped.
+    state:
+      type: str
+      description: >
+        New finding state: `ACTIVE` or `INACTIVE`. To silence an accepted risk
+        rather than mark it fixed, use `mute_finding`.
+  steps:
+    - ref: build_resource
+      action: core.script.run_python
+      args:
+        inputs:
+          finding_name: ${{ inputs.finding_name }}
+        script: |
+          SCOPE_TYPES = ("organizations", "folders", "projects")
+
+          def main(finding_name):
+              # SCC v2 finding names are location-qualified, e.g.
+              # organizations/{org}/sources/{src}/locations/{loc}/findings/{id}
+              # Those are served by the `...sources.locations.findings` resource;
+              # the non-location resource rejects them via its `name` pattern.
+              scope_type, _, rest = finding_name.partition("/")
+              if scope_type not in SCOPE_TYPES or "/findings/" not in rest:
+                  raise ValueError(
+                      "`finding_name` must be a full finding resource name, e.g. "
+                      "organizations/{org}/sources/{src}/locations/{loc}/findings/{id}. "
+                      f"Got: {finding_name!r}"
+                  )
+              if "/locations/" in rest:
+                  return f"{scope_type}.sources.locations.findings"
+              return f"{scope_type}.sources.findings"
+    - ref: set_state
+      action: tools.google_api.call_api
+      args:
+        service_name: securitycenter
+        version: v2
+        resource: ${{ steps.build_resource.result }}
+        method_name: setState
+        static_discovery: false
+        params:
+          name: ${{ inputs.finding_name }}
+          body:
+            state: ${{ inputs.state }}
+  returns: ${{ steps.set_state.result }}

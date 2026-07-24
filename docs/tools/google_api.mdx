@@ -61,6 +61,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="static_discovery" type="boolean | null">
+
+Whether to use the discovery document bundled with the client library. Defaults to the library behaviour (bundled). Set to false to fetch the discovery document at runtime, which is required for API versions that are not bundled (e.g. `securitycenter` `v2`).
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="subject" type="string | null">
 
 Optional service account domain-wide delegation subject.
@@ -110,6 +118,14 @@ Google API version, e.g. `v3` or `v4`.
 
 </ParamField>
 
+<ParamField path="max_pages" type="integer | null">
+
+Maximum number of pages to fetch. If null, fetches every page.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="next_page_token_path" type="string">
 
 Dot-separated response path for the next page token. Defaults to "nextPageToken".
@@ -137,6 +153,14 @@ Default: `null`.
 <ParamField path="scopes" type="array[string] | null">
 
 Service account scopes. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="static_discovery" type="boolean | null">
+
+Whether to use the discovery document bundled with the client library. Defaults to the library behaviour (bundled). Set to false to fetch the discovery document at runtime, which is required for API versions that are not bundled (e.g. `securitycenter` `v2`).
 
 Default: `null`.
 
