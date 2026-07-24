@@ -39,6 +39,7 @@ from tracecat.identifiers.workflow import (
     exec_id_to_parts,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import set_current_span_attributes
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
@@ -1027,6 +1028,18 @@ async def create_workflow_execution(
                 if defn.registry_lock
                 else None
             ),
+        )
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    str(role.organization_id) if role.organization_id else None
+                ),
+                "tracecat.workspace.id": (
+                    str(role.workspace_id) if role.workspace_id else None
+                ),
+                "tracecat.workflow.id": str(response["wf_id"]),
+                "tracecat.workflow.execution.id": str(response["wf_exec_id"]),
+            }
         )
         return response
     except TracecatValidationError as e:

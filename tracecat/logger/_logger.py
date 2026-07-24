@@ -5,6 +5,8 @@ import sys
 from typing import TYPE_CHECKING
 
 from loguru import logger as base_logger
+from opentelemetry import trace
+from opentelemetry.trace import TraceFlags
 
 if TYPE_CHECKING:
     from loguru import Record
@@ -12,6 +14,19 @@ if TYPE_CHECKING:
 
 # Set to True by worker entrypoint to enable replay filtering
 _is_worker_process = False
+
+
+def _add_trace_context(record: "Record") -> None:
+    """Add active OpenTelemetry identifiers to Loguru structured extras."""
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return
+    record["extra"].setdefault("trace_id", f"{span_context.trace_id:032x}")
+    record["extra"].setdefault("span_id", f"{span_context.span_id:016x}")
+    record["extra"].setdefault(
+        "trace_sampled",
+        bool(span_context.trace_flags & TraceFlags.SAMPLED),
+    )
 
 
 def _workflow_replay_filter(record: "Record") -> bool:
@@ -37,6 +52,7 @@ try:
     base_logger.remove(0)
 except ValueError:
     pass
+base_logger.configure(patcher=_add_trace_context)
 base_logger.add(
     sink=sys.stderr,
     colorize=True,
