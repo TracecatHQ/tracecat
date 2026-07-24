@@ -355,3 +355,28 @@ async def test_internal_update_table_row_invalid_integer_value_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_internal_lookup_table_error_returns_detail(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.lookup_rows.side_effect = RuntimeError(
+            "database temporarily unavailable"
+        )
+        MockService.return_value = mock_svc
+
+        response = action_gateway_client.post(
+            f"/internal/tables/{mock_table.name}/lookup",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"columns": ["score"], "values": [42], "limit": 1},
+        )
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json()["detail"] == (
+        "Table lookup failed: database temporarily unavailable"
+    )
