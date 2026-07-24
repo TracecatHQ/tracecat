@@ -429,6 +429,9 @@ interface AppInfo {
   saml_enabled: boolean
   saml_enforced: boolean
   ee_multi_tenant: boolean
+  /** Secret values live in an external secrets backend (e.g. Vault); forms
+   * register key names only and must allow empty values. */
+  secrets_backend_readonly?: boolean
 }
 
 export type WorkspaceSecretListItem = SecretReadMinimal & {

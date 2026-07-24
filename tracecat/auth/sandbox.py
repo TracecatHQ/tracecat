@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable
 from types import TracebackType
 from typing import Any, Self
 
-from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import BaseSecret
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
+from tracecat.secrets.backend import get_secrets_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
-from tracecat.secrets.service import SecretsService
 
 
 class AuthSandbox:
@@ -26,13 +22,17 @@ class AuthSandbox:
     ----------
     - This allows use of `os.environ` to access secrets in the environment in UDFs.
     - We wrap the execution of a UDF with this context manager to set secrets in the environment.
+
+    Secret values are resolved through the configured secrets backend
+    (`TRACECAT__SECRETS_BACKEND`): the database backend decrypts values stored
+    in Postgres, external backends (e.g. Vault) fetch them at runtime.
     """
 
     def __init__(
         self,
         role: Role | None = None,
         # This can be either 'my_secret.KEY' or 'my_secret'
-        # Keys that are passed here are fetched from the db
+        # Keys that are passed here are fetched from the secrets backend
         secrets: Iterable[str] | None = None,
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         # Keys specified here will tell the sandbox to ignore if they are missing
@@ -40,16 +40,13 @@ class AuthSandbox:
     ):
         self._role = role or ctx_role.get()
         self._secret_paths = set(secrets or [])
-        self._secret_objs: Sequence[BaseSecret] = []
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
-        self._encryption_key = get_db_encryption_key()
 
     def __enter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = asyncio.run(self._get_secrets())
-            self._set_secrets()
+            self._context = asyncio.run(self._get_secrets())
         return self
 
     def __exit__(
@@ -67,8 +64,7 @@ class AuthSandbox:
 
     async def __aenter__(self) -> Self:
         if self._secret_paths:
-            self._secret_objs = await self._get_secrets()
-            self._set_secrets()
+            self._context = await self._get_secrets()
         return self
 
     async def __aexit__(
@@ -84,44 +80,15 @@ class AuthSandbox:
         """Return secret names mapped to their secret key value pairs."""
         return self._context
 
-    def _iter_secrets(self) -> Iterator[tuple[str, SecretKeyValue]]:
-        """Iterate over the secrets."""
-        try:
-            for secret in self._secret_objs:
-                keyvalues = decrypt_keyvalues(
-                    secret.encrypted_keys, key=self._encryption_key
-                )
-                for kv in keyvalues:
-                    yield secret.name, kv
-        except Exception as e:
-            logger.error(f"Error decrypting secrets: {e!r}")
-            raise
-
-    def _set_secrets(self) -> None:
-        """Set secrets in the target."""
-        logger.info(
-            "Setting secrets",
-            paths=self._secret_paths,
-        )
-        for name, kv in self._iter_secrets():
-            if name not in self._context:
-                self._context[name] = {}
-            self._context[name][kv.key] = kv.value.get_secret_value()
-
     def _unset_secrets(self) -> None:
         logger.trace("Cleaning up secrets")
-        for secret in self._secret_objs:
-            if secret.name in self._context:
-                del self._context[secret.name]
+        self._context = {}
 
-    async def _get_secrets(self) -> Sequence[BaseSecret]:
-        """Retrieve secrets from a secrets manager."""
-        return await self._get_secrets_from_service()
-
-    async def _get_secrets_from_service(self) -> Sequence[BaseSecret]:
-        """Retrieve secrets from the secrets service."""
+    async def _get_secrets(self) -> dict[str, dict[str, str]]:
+        """Retrieve secret values from the configured secrets backend."""
+        backend = get_secrets_backend()
         logger.debug(
-            "Retrieving secrets directly from db",
+            "Retrieving secrets from backend",
             secret_names=self._secret_paths,
             role=self._role,
             environment=self._environment,
@@ -129,12 +96,14 @@ class AuthSandbox:
 
         # These are a combination of required and optional secrets
         unique_secret_names = {path.split(".")[0] for path in self._secret_paths}
-        async with SecretsService.with_session(role=self._role) as service:
-            logger.info("Retrieving secrets", secret_names=unique_secret_names)
+        logger.info("Retrieving secrets", secret_names=unique_secret_names)
 
-            secrets = await service.search_secrets(
-                SecretSearch(names=unique_secret_names, environment=self._environment)
-            )
+        secret_values = await backend.get_secret_values(
+            unique_secret_names,
+            self._environment,
+            scope="workspace",
+            role=self._role,
+        )
 
         # Filter out optional secrets
         unique_req_secret_names = {
@@ -143,9 +112,9 @@ class AuthSandbox:
             if secret_name not in self._optional_secrets
         }
         defined_req_secret_names = {
-            secret.name
-            for secret in secrets
-            if secret.name not in self._optional_secrets
+            secret_name
+            for secret_name in secret_values
+            if secret_name not in self._optional_secrets
         }
         logger.debug(
             "Retrieved secrets",
@@ -165,4 +134,4 @@ class AuthSandbox:
                 ],
             )
 
-        return secrets
+        return secret_values
