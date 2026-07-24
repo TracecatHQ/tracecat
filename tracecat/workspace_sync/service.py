@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -129,6 +129,13 @@ class ProjectableWorkflowClosure:
 
     workflows: list[Workflow]
     dsl_by_id: dict[uuid.UUID, DSLInput]
+
+
+class PreparedSnapshot(NamedTuple):
+    """Snapshot with deployment-local references resolved, plus any diagnostics."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    diagnostics: list[PullDiagnostic]
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,20 +401,24 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
+            prepared = await self._prepare_snapshot_for_import(snapshot)
             resource_diffs = await self._resource_diffs_for_pull(
-                snapshot,
+                prepared.snapshot,
                 sync_schedules=sync_schedules,
             )
-            workflow_diagnostics = await self._validate_workflow_import(snapshot)
-            if workflow_diagnostics:
+            workflow_diagnostics = await self._validate_workflow_import(
+                prepared.snapshot
+            )
+            import_diagnostics = [*prepared.diagnostics, *workflow_diagnostics]
+            if import_diagnostics:
                 return PullResult(
                     success=False,
                     commit_sha=snapshot.commit_sha,
                     workflows_found=len(snapshot.spec.workflows),
                     workflows_imported=0,
-                    diagnostics=workflow_diagnostics,
+                    diagnostics=import_diagnostics,
                     message=(
-                        f"Import failed: {len(workflow_diagnostics)} validation "
+                        f"Import failed: {len(import_diagnostics)} validation "
                         "error(s) found"
                     ),
                     resource_counts=resource_counts,
@@ -878,6 +889,23 @@ class WorkspaceSyncService(SyncMappingService):
         ]
         return remote_workflows, local_ids
 
+    async def _prepare_snapshot_for_import(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+    ) -> PreparedSnapshot:
+        """Resolve deployment-local references before validating or importing."""
+        correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
+            self,
+            snapshot.spec.agent_presets,
+        )
+        correlated_spec = snapshot.spec.model_copy(
+            update={"agent_presets": correlated.presets}
+        )
+        return PreparedSnapshot(
+            snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
+            diagnostics=correlated.diagnostics,
+        )
+
     async def _import_snapshot(
         self,
         snapshot: WorkspaceRemoteSnapshot,
@@ -886,12 +914,30 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 
-        Validates the workflows, then imports non-workflow resources and
-        workflows inside a nested transaction and upserts every sync mapping. Any
-        failure rolls the transaction back and surfaces a transaction
+        Correlates deployment-local references and validates workflows before
+        importing non-workflow resources and workflows inside a nested transaction.
+        Any write failure rolls the transaction back and surfaces a transaction
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
+        prepared = await self._prepare_snapshot_for_import(snapshot)
+        snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
+        if resource_diagnostics:
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=resource_diagnostics,
+                message=(
+                    f"Import failed: {len(resource_diagnostics)} validation "
+                    "error(s) found"
+                ),
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+                files=sorted(snapshot.files),
+                resources=_sync_preview_resources_from_spec(snapshot.spec),
+            )
+
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
 
         # Validate before writing anything; bail out on the first set of errors.

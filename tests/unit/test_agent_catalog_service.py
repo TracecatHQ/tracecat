@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
+    ModelKey,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.types import Role
@@ -20,6 +21,7 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
+    Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
@@ -1044,7 +1046,7 @@ async def test_is_catalog_id_enabled_false_for_foreign_org_row(
 async def test_is_catalog_id_enabled_respects_workspace_override(
     session: AsyncSession,
     svc_organization: Organization,
-    svc_workspace,
+    svc_workspace: Workspace,
 ) -> None:
     """A workspace override replaces the org-level set for the enabled check."""
     service = AgentCatalogService(session=session)
@@ -1093,3 +1095,235 @@ async def test_is_catalog_id_enabled_respects_workspace_override(
         )
         is True
     )
+
+
+@pytest.mark.anyio
+async def test_enabled_catalog_ids_returns_visible_enabled_subset(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    other_org_id = uuid.uuid4()
+    other_org = Organization(
+        id=other_org_id,
+        name="Other Batch Org",
+        slug=f"other-batch-org-{other_org_id.hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    enabled_org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="enabled-org-model",
+        model_metadata={},
+    )
+    enabled_platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="enabled-platform-model",
+        model_metadata={},
+    )
+    disabled_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="disabled-model",
+        model_metadata={},
+    )
+    other_org_row = AgentCatalog(
+        organization_id=other_org.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="other-org-model",
+        model_metadata={},
+    )
+    session.add_all(
+        [
+            enabled_org_row,
+            enabled_platform_row,
+            disabled_row,
+            other_org_row,
+        ]
+    )
+    await session.flush()
+    session.add_all(
+        [
+            _enable(org_id=svc_organization.id, catalog_id=enabled_org_row.id),
+            _enable(org_id=svc_organization.id, catalog_id=enabled_platform_row.id),
+            # Access alone must not expose another organization's catalog row.
+            _enable(org_id=svc_organization.id, catalog_id=other_org_row.id),
+        ]
+    )
+    await session.commit()
+    unknown_id = uuid.uuid4()
+    catalog_ids = {
+        enabled_org_row.id,
+        enabled_platform_row.id,
+        disabled_row.id,
+        other_org_row.id,
+        unknown_id,
+    }
+
+    enabled = await service.enabled_catalog_ids(
+        org_id=svc_organization.id,
+        catalog_ids=catalog_ids,
+    )
+
+    assert enabled == {enabled_org_row.id, enabled_platform_row.id}
+    for catalog_id in catalog_ids:
+        assert (catalog_id in enabled) is await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=catalog_id,
+        )
+
+
+@pytest.mark.anyio
+async def test_enabled_catalog_ids_respects_workspace_override(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+) -> None:
+    service = AgentCatalogService(session=session)
+    org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="org-level-model",
+        model_metadata={},
+    )
+    workspace_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="workspace-level-model",
+        model_metadata={},
+    )
+    session.add_all([org_row, workspace_row])
+    await session.flush()
+    session.add_all(
+        [
+            _enable(org_id=svc_organization.id, catalog_id=org_row.id),
+            _enable(
+                org_id=svc_organization.id,
+                catalog_id=workspace_row.id,
+                workspace_id=svc_workspace.id,
+            ),
+        ]
+    )
+    await session.commit()
+    catalog_ids = {org_row.id, workspace_row.id}
+
+    enabled = await service.enabled_catalog_ids(
+        org_id=svc_organization.id,
+        workspace_id=svc_workspace.id,
+        catalog_ids=catalog_ids,
+    )
+
+    assert enabled == {workspace_row.id}
+    for catalog_id in catalog_ids:
+        assert (catalog_id in enabled) is await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            workspace_id=svc_workspace.id,
+            catalog_id=catalog_id,
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_ids_by_models_matches_single_item_selection(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    preferred_key = ModelKey("batch-provider", "org-preferred-model")
+    duplicate_key = ModelKey("batch-custom-provider", "duplicate-model")
+    fallback_key = ModelKey("batch-provider", "platform-fallback-model")
+    unknown_key = ModelKey("batch-provider", "unknown-model")
+
+    preferred_platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider=preferred_key.model_provider,
+        model_name=preferred_key.model_name,
+        model_metadata={},
+    )
+    preferred_org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider=preferred_key.model_provider,
+        model_name=preferred_key.model_name,
+        model_metadata={},
+    )
+    disabled_org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider=fallback_key.model_provider,
+        model_name=fallback_key.model_name,
+        model_metadata={},
+    )
+    fallback_platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider=fallback_key.model_provider,
+        model_name=fallback_key.model_name,
+        model_metadata={},
+    )
+    duplicate_rows: list[AgentCatalog] = []
+    for display_name in ("Batch Provider A", "Batch Provider B"):
+        provider = AgentCustomProvider(
+            organization_id=svc_organization.id,
+            display_name=display_name,
+            base_url="https://api.example.com",
+        )
+        session.add(provider)
+        await session.flush()
+        duplicate_rows.append(
+            AgentCatalog(
+                organization_id=svc_organization.id,
+                custom_provider_id=provider.id,
+                model_provider=duplicate_key.model_provider,
+                model_name=duplicate_key.model_name,
+                model_metadata={},
+            )
+        )
+    session.add_all(
+        [
+            preferred_platform_row,
+            preferred_org_row,
+            disabled_org_row,
+            fallback_platform_row,
+            *duplicate_rows,
+        ]
+    )
+    await session.flush()
+    enabled_rows = [
+        preferred_platform_row,
+        preferred_org_row,
+        fallback_platform_row,
+        *duplicate_rows,
+    ]
+    session.add_all(
+        [_enable(org_id=svc_organization.id, catalog_id=row.id) for row in enabled_rows]
+    )
+    await session.commit()
+    models = {preferred_key, duplicate_key, fallback_key, unknown_key}
+    expected_duplicate_id = min(row.id for row in duplicate_rows)
+
+    resolved = await service.resolve_catalog_ids_by_models(
+        org_id=svc_organization.id,
+        models=models,
+    )
+
+    assert resolved == {
+        preferred_key: preferred_org_row.id,
+        duplicate_key: expected_duplicate_id,
+        fallback_key: fallback_platform_row.id,
+    }
+    for model_key in models:
+        assert resolved.get(model_key) == await service.resolve_catalog_id_by_model(
+            org_id=svc_organization.id,
+            model_provider=model_key.model_provider,
+            model_name=model_key.model_name,
+        )

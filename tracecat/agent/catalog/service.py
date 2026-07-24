@@ -1,17 +1,18 @@
 """Service for managing agent model catalog."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import and_, exists, select
+from sqlalchemy import and_, exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.schemas import AgentCatalogRead, ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess
@@ -48,6 +49,12 @@ class AgentCatalogService(BaseService):
     """Manage model catalog entries."""
 
     service_name = "agent_catalog"
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session)
+        self._effective_access_workspace_ids: dict[
+            tuple[UUID, UUID | None], UUID | None
+        ] = {}
 
     async def upsert_platform_catalog(
         self,
@@ -125,20 +132,27 @@ class AgentCatalogService(BaseService):
 
         Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
         override the org-level set; otherwise the org-level (``workspace_id IS
-        NULL``) set applies.
+        NULL``) set applies. The effective scope is cached for this short-lived
+        service instance so adjacent sync-import batch queries perform the
+        override existence check only once.
         """
-        effective_workspace_id: UUID | None = None
-        if workspace_id is not None:
-            override_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        AgentModelAccess.organization_id == org_id,
-                        AgentModelAccess.workspace_id == workspace_id,
+        cache_key = (org_id, workspace_id)
+        if cache_key in self._effective_access_workspace_ids:
+            effective_workspace_id = self._effective_access_workspace_ids[cache_key]
+        else:
+            effective_workspace_id: UUID | None = None
+            if workspace_id is not None:
+                override_exists = await self.session.scalar(
+                    select(
+                        exists().where(
+                            AgentModelAccess.organization_id == org_id,
+                            AgentModelAccess.workspace_id == workspace_id,
+                        )
                     )
                 )
-            )
-            if override_exists:
-                effective_workspace_id = workspace_id
+                if override_exists:
+                    effective_workspace_id = workspace_id
+            self._effective_access_workspace_ids[cache_key] = effective_workspace_id
         access_workspace_condition = (
             AgentModelAccess.workspace_id == effective_workspace_id
             if effective_workspace_id is not None
@@ -178,6 +192,35 @@ class AgentCatalogService(BaseService):
             )
         )
         return bool(await self.session.scalar(stmt))
+
+    async def enabled_catalog_ids(
+        self,
+        *,
+        org_id: UUID,
+        catalog_ids: Collection[UUID],
+        workspace_id: UUID | None = None,
+    ) -> set[UUID]:
+        """Return the visible, enabled subset of ``catalog_ids``.
+
+        This has parity with ``is_catalog_id_enabled`` for every input id. The
+        batch exists so sync import correlation can resolve all incoming catalog
+        ids with one query while evaluating the workspace override only once.
+        """
+        if not catalog_ids:
+            return set()
+
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = select(AgentCatalog.id).where(
+            AgentCatalog.id.in_(catalog_ids),
+            AgentCatalog.id.in_(enabled_catalog_ids),
+            sa.or_(
+                AgentCatalog.organization_id == org_id,
+                AgentCatalog.organization_id.is_(None),
+            ),
+        )
+        return set((await self.session.execute(stmt)).scalars())
 
     async def resolve_catalog_id_by_model(
         self,
@@ -243,6 +286,58 @@ class AgentCatalogService(BaseService):
         if row_id is None:
             return None
         return row_id
+
+    async def resolve_catalog_ids_by_models(
+        self,
+        *,
+        org_id: UUID,
+        models: Collection[ModelKey],
+        workspace_id: UUID | None = None,
+    ) -> dict[ModelKey, UUID]:
+        """Resolve enabled local catalog ids for multiple model tuples.
+
+        This has parity with ``resolve_catalog_id_by_model`` for every input
+        tuple, including org-row preference and deterministic id tie-breaking.
+        The batch exists so sync import correlation can resolve all incoming
+        model tuples with one query while evaluating the workspace override
+        only once.
+        """
+        if not models:
+            return {}
+
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = (
+            select(
+                AgentCatalog.model_provider,
+                AgentCatalog.model_name,
+                AgentCatalog.id,
+            )
+            .where(
+                tuple_(
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                ).in_(models),
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            .order_by(
+                AgentCatalog.model_provider.asc(),
+                AgentCatalog.model_name.asc(),
+                AgentCatalog.organization_id.desc().nulls_last(),
+                AgentCatalog.id.asc(),
+            )
+        )
+        resolved: dict[ModelKey, UUID] = {}
+        for model_provider, model_name, catalog_id in (
+            await self.session.execute(stmt)
+        ).tuples():
+            resolved.setdefault(ModelKey(model_provider, model_name), catalog_id)
+        return resolved
 
     async def list_catalog(
         self,
