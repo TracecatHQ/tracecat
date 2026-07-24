@@ -561,7 +561,7 @@ function MultiSelectField({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0" align="start">
+        <PopoverContent className="w-[200px] p-0" align="start" portal={true}>
           <Command>
             <CommandInput placeholder="Search..." />
             <CommandList>
