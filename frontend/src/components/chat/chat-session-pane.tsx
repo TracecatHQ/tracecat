@@ -110,6 +110,7 @@ import {
   useVercelChat,
 } from "@/hooks/use-chat"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   type ApprovalCard,
   CANCELLED_DATA_PART_TYPE,
@@ -615,6 +616,7 @@ export function ChatSessionPane({
   const toolSuggestions = useMemo<ToolSuggestion[]>(() => {
     const actions = registryActions ?? []
     return actions
+      .filter((action) => isAgentToolSelectable(action.action))
       .map((action) => ({
         value: action.action,
         label: action.default_title || action.action,
@@ -1783,6 +1785,8 @@ function getProviderIconId(provider: string): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:

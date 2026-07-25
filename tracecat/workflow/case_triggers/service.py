@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -19,6 +20,33 @@ class CaseTriggersService(BaseWorkspaceService):
     """Manage workflow case trigger configuration."""
 
     service_name = "case_triggers"
+
+    def _case_trigger_upsert_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        # commit=False suppresses emission for sync/dry-run callers.
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails(data={"changed_fields": sorted(params.model_dump())})
+
+    def _case_trigger_update_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
 
     async def _lock_workflow(self, workflow_id: WorkflowID) -> None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
@@ -131,6 +159,12 @@ class CaseTriggersService(BaseWorkspaceService):
         return await self._ensure_case_trigger_exists(workflow_id)
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @audit_log(
+        resource_type="case_trigger",
+        action="upsert",
+        resource_id_attr="id",
+        attempt_metadata=_case_trigger_upsert_audit_details,
+    )
     async def upsert_case_trigger(
         self,
         workflow_id: WorkflowID,
@@ -205,6 +239,12 @@ class CaseTriggersService(BaseWorkspaceService):
             return case_trigger
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @audit_log(
+        resource_type="case_trigger",
+        action="update",
+        resource_id_attr="id",
+        attempt_metadata=_case_trigger_update_audit_details,
+    )
     async def update_case_trigger(
         self,
         workflow_id: WorkflowID,

@@ -27,10 +27,10 @@ from temporalio.client import (
 )
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.audit.logger import audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
@@ -46,6 +46,7 @@ from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
+    exec_id_to_parts,
     generate_exec_id,
 )
 from tracecat.logger import logger
@@ -1937,6 +1938,55 @@ class WorkflowExecutionsService:
             )
         return reset_event_id
 
+    def _reset_workflow_execution_audit_details(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        event_id: int | None,
+        reason: str | None = None,
+        reapply_type: WorkflowExecutionResetReapplyType = WorkflowExecutionResetReapplyType.ALL_ELIGIBLE,
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            # Free-text ``reason`` is excluded by the audit content policy;
+            # record only its presence and the requested reset point.
+            data={
+                "execution_id": wf_exec_id,
+                "operation": "reset",
+                "event_id": str(event_id) if event_id is not None else None,
+                "has_reason": reason is not None,
+            },
+        )
+
+    def _cancel_workflow_execution_audit_details(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            data={"execution_id": wf_exec_id, "operation": "cancel"},
+        )
+
+    def _terminate_workflow_execution_audit_details(
+        self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
+    ) -> AuditEventDetails:
+        workflow_id, _ = exec_id_to_parts(wf_exec_id)
+        return AuditEventDetails(
+            resource_id=workflow_id,
+            # Free-text ``reason`` is excluded by the audit content policy.
+            data={
+                "execution_id": wf_exec_id,
+                "operation": "terminate",
+                "has_reason": reason is not None,
+            },
+        )
+
+    @audit_log(
+        resource_type="workflow_execution",
+        action="reset",
+        attempt_metadata=_reset_workflow_execution_audit_details,
+    )
     async def reset_workflow_execution(
         self,
         wf_exec_id: WorkflowExecutionID,
@@ -2003,14 +2053,40 @@ class WorkflowExecutionsService:
             *[_reset(execution_id) for execution_id in execution_ids]
         )
 
+    @audit_log(
+        resource_type="workflow_execution",
+        action="cancel",
+        attempt_metadata=_cancel_workflow_execution_audit_details,
+    )
     async def cancel_workflow_execution(self, wf_exec_id: WorkflowExecutionID) -> None:
         """Cancel a workflow execution."""
         await self.require_execution(wf_exec_id)
-        await self.handle(wf_exec_id).cancel()
+        try:
+            await self.handle(wf_exec_id).cancel()
+        except RPCError as exc:
+            if exc.status != RPCStatusCode.NOT_FOUND:
+                raise
+            self.logger.info(
+                "Workflow execution already completed, ignoring cancellation request",
+                wf_exec_id=wf_exec_id,
+            )
 
+    @audit_log(
+        resource_type="workflow_execution",
+        action="terminate",
+        attempt_metadata=_terminate_workflow_execution_audit_details,
+    )
     async def terminate_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
     ) -> None:
         """Terminate a workflow execution."""
         await self.require_execution(wf_exec_id)
-        await self.handle(wf_exec_id).terminate(reason=reason)
+        try:
+            await self.handle(wf_exec_id).terminate(reason=reason)
+        except RPCError as exc:
+            if exc.status != RPCStatusCode.NOT_FOUND:
+                raise
+            self.logger.info(
+                "Workflow execution already completed, ignoring termination request",
+                wf_exec_id=wf_exec_id,
+            )

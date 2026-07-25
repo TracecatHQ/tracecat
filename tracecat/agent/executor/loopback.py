@@ -98,7 +98,6 @@ class LoopbackInput:
     workspace_id: uuid.UUID
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
-    defer_done_on_approval: bool = False
 
 
 @dataclass(kw_only=True, slots=True)
@@ -282,7 +281,6 @@ class LoopbackHandler:
         self._stream_sink: LoopbackEventSink | None = None
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
-        self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
         self._external_stream_done_emitted: bool = False
         self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
         # Track which session lines have been persisted to avoid duplicates
@@ -368,40 +366,21 @@ class LoopbackHandler:
             self._stream_sink = await self._initialize_stream_sink()
         return self._stream_sink
 
-    async def _emit_stream_done(self) -> None:
-        """Emit stream.done() exactly once.
-
-        This helper ensures the stream end marker is emitted exactly once,
-        even if multiple code paths could trigger it (e.g., error + finally).
-        """
-        if self._should_defer_done_for_approval():
-            if (
-                isinstance(self._stream_sink, FanoutStreamSink)
-                and not self._external_stream_done_emitted
-            ):
-                self._external_stream_done_emitted = True
-                try:
-                    await self._stream_sink.done_external()
-                except Exception as e:
-                    logger.warning(
-                        "Failed to emit external stream done",
-                        error=str(e),
-                    )
+    async def _close_external_stream(self) -> None:
+        """Close external sinks exactly once while leaving Redis to the workflow."""
+        if (
+            not isinstance(self._stream_sink, FanoutStreamSink)
+            or self._external_stream_done_emitted
+        ):
             return
-        if self._stream_sink and not self._stream_done_emitted:
-            self._stream_done_emitted = True
-            try:
-                await self._stream_sink.done()
-            except Exception as e:
-                logger.warning("Failed to emit stream done", error=str(e))
-
-    def _should_defer_done_for_approval(self) -> bool:
-        return (
-            self.input.defer_done_on_approval
-            and self._result.approval_requested
-            and self._result.error is None
-            and not self._result.cancelled
-        )
+        self._external_stream_done_emitted = True
+        try:
+            await self._stream_sink.done_external()
+        except Exception as e:
+            logger.warning(
+                "Failed to emit external stream done",
+                error=str(e),
+            )
 
     async def _emit_terminal_stream_error(
         self,
@@ -410,7 +389,7 @@ class LoopbackHandler:
     ) -> None:
         await self._emit_failed_compaction_if_pending()
         await stream_sink.error(error)
-        await self._emit_stream_done()
+        await self._close_external_stream()
         self._result.terminal_stream_error_emitted = True
 
     def mark_cancelled(self, reason: str) -> None:
@@ -556,8 +535,9 @@ class LoopbackHandler:
                 except TimeoutError:
                     logger.warning("Timeout emitting stream error")
         finally:
-            # ALWAYS emit done on any exit path to prevent SSE consumers from hanging
-            await self._emit_stream_done()
+            # External channels finish with the runtime. The durable workflow
+            # owns Redis completion after approval persistence or finalization.
+            await self._close_external_stream()
             writer.close()
             await writer.wait_closed()
 
@@ -881,7 +861,7 @@ class LoopbackHandler:
         )
         await self._emit_failed_compaction_if_pending()
         if self._result.error is not None:
-            await self._emit_stream_done()
+            await self._close_external_stream()
             return True
         if validation_error := self._validate_runtime_completion():
             await self._emit_terminal_stream_error(stream_sink, validation_error)
@@ -889,7 +869,7 @@ class LoopbackHandler:
             return True
         self._result.success = True
         await self._emit_interrupt_notice_if_cancelled(stream_sink)
-        await self._emit_stream_done()
+        await self._close_external_stream()
         return True
 
     async def send_done(self) -> None:

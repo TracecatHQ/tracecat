@@ -14,6 +14,8 @@ import type {
   WorkspaceSyncExportPreview,
 } from "@/client"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
+import { Toast, ToastProvider, ToastViewport } from "@/components/ui/toast"
+import { toast } from "@/components/ui/use-toast"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -39,6 +41,10 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkflowSync: jest.fn(),
   useWorkspaceSyncExport: jest.fn(),
   useWorkspaceSyncExportPreview: jest.fn(),
+}))
+
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: jest.fn(),
 }))
 
 beforeAll(() => {
@@ -525,24 +531,87 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
   })
 
+  it("renders the workspace push review request as an external link", async () => {
+    const user = userEvent.setup()
+    const prUrl = "https://github.com/test-org/repo-a/pull/42"
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+    })
+    mockExportWorkspace.mockResolvedValue({
+      commit: {
+        status: "committed",
+        sha: "a".repeat(40),
+        ref: "sync/workspace-test",
+        base_ref: "main",
+        pr_url: prUrl,
+        message: "Export workspace config",
+      },
+      files: ["tracecat.json"],
+    })
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("button", { name: "Push & open PR" }))
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pull request ready",
+          description: "Export workspace config",
+          action: expect.anything(),
+        })
+      )
+    })
+
+    const toastOptions = jest.mocked(toast).mock.calls[0][0]
+    render(
+      <ToastProvider>
+        <Toast open>{toastOptions.action}</Toast>
+        <ToastViewport />
+      </ToastProvider>
+    )
+
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "href",
+      prUrl
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "target",
+      "_blank"
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer"
+    )
+  })
+
   it("keeps pull actions available after previewing changes", async () => {
     const user = userEvent.setup()
     const commitSha = "a".repeat(40)
+    const resourceDiffs = Array.from({ length: 25 }, (_, index) => ({
+      resource_type: "workflow" as const,
+      source_id: `workflow-${index}`,
+      source_path: `workflows/workflow-${index}/definition.yml`,
+      change_type: "modified" as const,
+      title: `Workflow ${index}`,
+      diff: "@@ -1 +1 @@\n-old\n+new",
+    }))
     const preview: PullResult = {
       success: true,
       commit_sha: commitSha,
-      workflows_found: 1,
+      workflows_found: resourceDiffs.length,
       workflows_imported: 0,
       diagnostics: [],
-      message: "Dry run completed - 1 resource change(s) detected",
+      message: `Dry run completed - ${resourceDiffs.length} resource change(s) detected`,
       resource_counts: {
-        workflow: { found: 1, imported: 0 },
+        workflow: { found: resourceDiffs.length, imported: 0 },
         table: { found: 1, imported: 0 },
       },
       files: [
         "tracecat.json",
-        "workflows/root/definition.yml",
         "tables/indicators/table.yml",
+        ...resourceDiffs.map((diff) => diff.source_path),
       ],
       resources: [
         {
@@ -558,16 +627,7 @@ describe("WorkspaceSyncSettings", () => {
           path: "tables/indicators/table.yml",
         },
       ],
-      resource_diffs: [
-        {
-          resource_type: "workflow",
-          source_id: "root",
-          source_path: "workflows/root/definition.yml",
-          change_type: "modified",
-          title: "Root workflow",
-          diff: "@@ -1 +1 @@\n-old\n+new",
-        },
-      ],
+      resource_diffs: resourceDiffs,
     }
     const connectedWorkspace = setupHooks({
       gitRepoUrl: repositories[0].git_url,
@@ -599,12 +659,22 @@ describe("WorkspaceSyncSettings", () => {
       })
     })
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
-    expect(screen.getByText("3 files")).toBeInTheDocument()
+    expect(
+      screen.getByText(`${resourceDiffs.length + 2} files`)
+    ).toBeInTheDocument()
     expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
     expect(screen.getByText("Indicators")).toBeInTheDocument()
-    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(screen.getAllByLabelText("Modified")).toHaveLength(
+      resourceDiffs.length
+    )
     expect(container.firstElementChild).toHaveClass("min-w-0")
 
+    expect(screen.getByRole("group", { name: "Pull actions" })).toHaveClass(
+      "sticky",
+      "bottom-0",
+      "z-10",
+      "bg-background"
+    )
     const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
     expect(applyPullButton).toBeEnabled()
 

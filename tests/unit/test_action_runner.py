@@ -30,6 +30,7 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox.types import SandboxResult
 
 
 def _empty_secret_projection() -> SecretEnvProjection:
@@ -372,6 +373,59 @@ class TestActionRunner:
         assert (
             captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"]
             == "/var/run/tracecat/action-gateway.sock"
+        )
+
+    @pytest.mark.anyio
+    async def test_sandbox_preserves_attested_executor_token(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        captured_env: dict[str, str] = {}
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="attested-executor-token",
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            captured_env.update(sandbox_config.env_vars)
+            return SandboxResult(success=True, output={"data": "test"})
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        result = await runner._execute_sandboxed(
+            input=mock_run_action_input,
+            role=mock_role,
+            registry_paths=[base_dir],
+            secret_projection=_empty_secret_projection(),
+            resolved_context=resolved_context,
+        )
+
+        assert result == {"data": "test"}
+        assert (
+            captured_env["TRACECAT__EXECUTOR_TOKEN"] == resolved_context.executor_token
         )
 
     @pytest.mark.anyio

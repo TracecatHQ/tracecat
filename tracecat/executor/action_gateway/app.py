@@ -5,12 +5,22 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, FastAPI, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from pydantic_core import to_jsonable_python
 
 from tracecat.contexts import ctx_role
+from tracecat.executor.action_gateway.policy import (
+    enforce_agent_script_gateway_access,
+)
 from tracecat.logger import logger
 
 router = APIRouter(
@@ -177,10 +187,15 @@ def _add_exception_handlers(app: FastAPI) -> None:
 
 def create_app(**kwargs) -> FastAPI:
     """Create the executor-local action gateway app."""
+    dependencies = [
+        *kwargs.pop("dependencies", ()),
+        Depends(enforce_agent_script_gateway_access),
+    ]
     app = FastAPI(
         title="Tracecat Action Gateway",
         version="0",
         default_response_class=ORJSONResponse,
+        dependencies=dependencies,
         **kwargs,
     )
 

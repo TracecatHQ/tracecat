@@ -451,28 +451,53 @@ class FinalizeTurnInput(BaseModel):
     role: Role
     session_id: uuid.UUID
     run_id: uuid.UUID
+    # Defaults preserve old workflow inputs while workers roll. New workflows
+    # set emit_terminal_done=True and pass their captured per-turn stream ID.
+    active_stream_id: uuid.UUID | None = None
+    emit_terminal_done: bool = False
+
+
+class FinalizeTurnResult(BaseModel):
+    """Result describing whether this worker emitted the terminal stream marker."""
+
+    terminal_done_emitted: bool
 
 
 @activity.defn
-async def finalize_turn_activity(input: FinalizeTurnInput) -> None:
-    """Clear active-turn pointers at terminal (compare-and-clear by run_id).
+async def finalize_turn_activity(
+    input: FinalizeTurnInput,
+) -> FinalizeTurnResult | None:
+    """Finalize a turn while bridging old workflow and worker versions.
 
-    Idempotent and replay-safe: nulls curr_run_id/active_stream_id only while the
-    session still points at this run, so a stale terminal never clears a newer
-    live turn.
+    New workflows ask this activity to commit pointer cleanup and then append
+    ``END`` as one retryable operation. Old workflow inputs omit that capability,
+    so new workers retain the previous database-only behavior. The optional
+    return type lets new workflows recognize an old worker's legacy ``None``
+    result and use their temporary stream-emission fallback.
     """
     ctx_role.set(input.role)
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            await service.finalize_turn(input.session_id, input.run_id)
+            if input.emit_terminal_done:
+                await service.finalize_turn(
+                    input.session_id,
+                    input.run_id,
+                    active_stream_id=input.active_stream_id,
+                )
+            else:
+                await service.clear_turn_pointers(input.session_id, input.run_id)
     except Exception as e:
         logger.warning(
-            "Failed to finalize agent turn pointers",
+            "Failed to finalize agent turn",
             session_id=str(input.session_id),
             run_id=str(input.run_id),
             error=str(e),
         )
         raise
+    if not input.emit_terminal_done:
+        # Old workflow code expects this activity to have no result payload.
+        return None
+    return FinalizeTurnResult(terminal_done_emitted=True)
 
 
 def get_session_activities() -> list:
