@@ -6,10 +6,12 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.bedrock import BedrockConverseModel, BedrockModelSettings
 from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.models.mistral import MistralModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.providers.mistral import MistralProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from tracecat_registry import secrets
@@ -84,6 +86,14 @@ def get_model(
             model = GoogleModel(
                 model_name=model_name,
                 provider=GoogleProvider(api_key=secrets.get("GEMINI_API_KEY")),
+            )
+        case "mistral":
+            model = MistralModel(
+                model_name=model_name,
+                # MistralProvider's overloads omit base_url; runtime __init__ accepts it.
+                provider=MistralProvider(  # pyright: ignore[reportCallIssue]
+                    base_url=base_url, api_key=secrets.get("MISTRAL_API_KEY")
+                ),
             )
         case "gemini_vertex" | "vertex_ai":
             credentials = service_account.Credentials.from_service_account_info(

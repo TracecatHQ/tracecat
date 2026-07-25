@@ -226,6 +226,9 @@ INTERNET_TOOLS = [
 
 COMMAND_LINE_TOOLS_PROMPT = (
     "<CommandLineTools>\n"
+    "- `python3`: Python 3 is installed in the runtime environment. Use it "
+    "through Bash for local scripting and data processing; no separate "
+    "Tracecat action or MCP tool is needed.\n"
     "- `duckdb`: The runtime shell includes the DuckDB CLI. Use it for local "
     "SQL and tabular data inspection over files such as CSV, JSON, Parquet, "
     "and DuckDB database files. The CLI is configured with the `json`, "

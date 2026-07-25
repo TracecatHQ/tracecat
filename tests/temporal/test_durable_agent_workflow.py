@@ -10,7 +10,7 @@ These tests verify the end-to-end workflow behavior including:
 import asyncio
 import os
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +21,7 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
+from temporalio import workflow as temporal_workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import (
     Client,
@@ -31,10 +32,12 @@ from temporalio.client import (
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
+    AgentActivities,
     ApplyApprovalResultsActivityInputs,
     BuildAgentToolDefsArgs,
     BuildAgentToolDefsResult,
     BuildToolDefsResult,
+    EmitSessionCancelledInputs,
     EmitSessionDoneInputs,
     EmitSessionErrorInputs,
     ExecuteRemoteMCPToolArgs,
@@ -47,9 +50,11 @@ from tracecat_ee.agent.approvals.service import (
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
+    APPROVAL_STREAM_V2_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
 )
 
 from tracecat import config
@@ -70,6 +75,8 @@ from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
+    FinalizeTurnInput,
+    FinalizeTurnResult,
     LoadSessionInput,
     LoadSessionMessagesInput,
     LoadSessionMessagesResult,
@@ -94,6 +101,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
@@ -111,6 +119,24 @@ def enable_agent_approvals_entitlement(monkeypatch):
         "DEFAULT_ENTITLEMENTS",
         tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
     )
+
+
+@pytest.fixture(autouse=True)
+async def close_shared_redis_client():
+    """Close the shared Redis client while this test's event loop is alive.
+
+    Tests that register the real ``create_session_activity`` initialize the
+    module-level ``RedisClient`` (stream-cursor reset) on the current test's
+    event loop. anyio gives every test a fresh loop, so without closing here
+    the pooled connection outlives its loop and the next caller to touch it —
+    e.g. the concurrency-limits fixture's defensive ``close()`` — raises
+    "Event loop is closed".
+    """
+    yield
+    from tracecat.redis.client import get_redis_client
+
+    client = await get_redis_client()
+    await client.close()
 
 
 # =============================================================================
@@ -284,7 +310,7 @@ def create_mock_emit_session_done_activity(
     call_order: list[str] | None = None,
     done_event: asyncio.Event | None = None,
 ) -> Callable[..., Any]:
-    """Create a mock emit_session_done activity for approval-pause closure."""
+    """Create a mock emit_session_done activity for stream closure."""
 
     @activity.defn(name="emit_session_done")
     async def mock_emit_session_done(input: EmitSessionDoneInputs) -> None:
@@ -298,6 +324,33 @@ def create_mock_emit_session_done_activity(
     return mock_emit_session_done
 
 
+def create_mock_finalize_turn_activity() -> Callable[..., Any]:
+    """Create a no-op finalize activity for workflow tests without a DB session."""
+
+    @activity.defn(name="finalize_turn_activity")
+    async def mock_finalize_turn_activity(input: FinalizeTurnInput) -> None:
+        del input
+
+    return mock_finalize_turn_activity
+
+
+def create_legacy_finalize_turn_activity() -> Callable[..., Any]:
+    """Create a DB-only finalize activity that emulates a pre-combined worker."""
+
+    @activity.defn(name="finalize_turn_activity")
+    async def legacy_finalize_turn_activity(input: FinalizeTurnInput) -> None:
+        await finalize_turn_activity(
+            input.model_copy(
+                update={
+                    "active_stream_id": None,
+                    "emit_terminal_done": False,
+                }
+            )
+        )
+
+    return legacy_finalize_turn_activity
+
+
 def create_activities_with_mock_executor(
     response_callback: Callable[[int, AgentExecutorInput], AgentExecutorResult],
     tool_exec_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
@@ -305,6 +358,8 @@ def create_activities_with_mock_executor(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
     message_load_inputs: list[LoadSessionMessagesInput] | None = None,
     session_messages: list[ChatMessage] | None = None,
+    done_inputs: list[EmitSessionDoneInputs] | None = None,
+    done_call_order: list[str] | None = None,
 ) -> Sequence[Callable[..., Any]]:
     """Create a full activity list with mocked agent executor.
 
@@ -327,7 +382,11 @@ def create_activities_with_mock_executor(
         create_mock_run_agent_activity(response_callback),
         create_mock_execute_action_activity(tool_exec_callback),
         create_mock_reconcile_tool_results_activity(),
-        create_mock_emit_session_done_activity(),
+        create_mock_finalize_turn_activity(),
+        create_mock_emit_session_done_activity(
+            captured_inputs=done_inputs,
+            call_order=done_call_order,
+        ),
         *ApprovalManager.get_activities(),
     ]
     return activities
@@ -344,6 +403,29 @@ async def replay_durable_agent_workflow_history(
         data_converter=temporal_client.data_converter,
     ).replay_workflow(history, raise_on_replay_failure=False)
     assert replay_result.replay_failure is None
+
+
+async def recorded_patch_ids(
+    temporal_client: Client,
+    history: WorkflowHistory,
+) -> set[str]:
+    """Decode patch IDs recorded in a workflow history."""
+    patch_ids: set[str] = set()
+    for event in history.events:
+        if not event.HasField("marker_recorded_event_attributes"):
+            continue
+        attributes = event.marker_recorded_event_attributes
+        if attributes.marker_name != "core_patch":
+            continue
+        if "patch-data" not in attributes.details:
+            continue
+        patch_data = await temporal_client.data_converter.decode(
+            attributes.details["patch-data"].payloads
+        )
+        for data in patch_data:
+            if isinstance(data, Mapping) and isinstance(data.get("id"), str):
+                patch_ids.add(data["id"])
+    return patch_ids
 
 
 async def fetch_history_after_completed_workflow_task(
@@ -539,6 +621,8 @@ async def test_agent_workflow_streams_tool_definition_error(
         create_mock_load_session_activity(),
         mock_build_tool_definitions,
         mock_emit_session_error,
+        create_mock_finalize_turn_activity(),
+        create_mock_emit_session_done_activity(),
     ]
 
     async with agent_worker_factory(
@@ -572,17 +656,19 @@ async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
     """A runtime failure that already streamed its error persists last_error only.
 
     ``terminal_stream_error_emitted=True`` means the loopback already pushed the
-    terminal error onto the SSE stream, so ``emit_session_error`` runs with
-    ``should_stream=False`` to record the durable last_error signal without
-    re-emitting a duplicate terminal marker.
+    error event onto the SSE stream, so ``emit_session_error`` runs with
+    ``should_stream=False`` to record the durable last_error signal. The workflow
+    emits END separately after finalization.
     """
     queue = f"test-agent-queue-{mock_session_id}"
     emitted_errors: list[EmitSessionErrorInputs] = []
+    emitted_done: list[EmitSessionDoneInputs] = []
+    call_order: list[str] = []
 
     def runtime_failure(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
-        del call_count, input
+        del call_count
         return AgentExecutorResult(
             success=False,
             error="runtime exploded",
@@ -592,9 +678,14 @@ async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
     @activity.defn(name="emit_session_error")
     async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
         emitted_errors.append(args)
+        call_order.append("persist_error")
 
     activities = [
-        *create_activities_with_mock_executor(runtime_failure),
+        *create_activities_with_mock_executor(
+            runtime_failure,
+            done_inputs=emitted_done,
+            done_call_order=call_order,
+        ),
         mock_emit_session_error,
     ]
 
@@ -613,12 +704,14 @@ async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
 
     assert isinstance(exc_info.value.cause, ApplicationError)
     assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
-    # Persist-only: exactly one emit, carrying last_error, with streaming off so
-    # the already-emitted terminal marker is not duplicated.
+    # Persist-only: exactly one emit, carrying last_error, with error streaming
+    # off so the already-emitted inline error is not duplicated.
     assert len(emitted_errors) == 1
     assert emitted_errors[0].session_id == mock_session_id
     assert emitted_errors[0].message == "Agent execution failed: runtime exploded"
     assert emitted_errors[0].should_stream is False
+    assert len(emitted_done) == 1
+    assert call_order == ["persist_error", "emit_session_done"]
 
 
 @pytest.mark.anyio
@@ -631,11 +724,12 @@ async def test_agent_workflow_streams_executor_pre_stream_failure(
 ) -> None:
     queue = f"test-agent-queue-{mock_session_id}"
     emitted_errors: list[EmitSessionErrorInputs] = []
+    emitted_done: list[EmitSessionDoneInputs] = []
 
     def setup_failure(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
-        del call_count, input
+        del call_count
         return AgentExecutorResult(
             success=False,
             error="executor setup failed",
@@ -647,7 +741,10 @@ async def test_agent_workflow_streams_executor_pre_stream_failure(
         emitted_errors.append(args)
 
     activities = [
-        *create_activities_with_mock_executor(setup_failure),
+        *create_activities_with_mock_executor(
+            setup_failure,
+            done_inputs=emitted_done,
+        ),
         mock_emit_session_error,
     ]
 
@@ -669,6 +766,8 @@ async def test_agent_workflow_streams_executor_pre_stream_failure(
     assert len(emitted_errors) == 1
     assert emitted_errors[0].session_id == mock_session_id
     assert emitted_errors[0].message == "Agent execution failed: executor setup failed"
+    assert emitted_errors[0].should_stream is True
+    assert len(emitted_done) == 1
 
 
 @pytest.mark.anyio
@@ -719,6 +818,474 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_replays_approval_stream_v2_patch_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deprecated bridge must replay suspended histories with the v2 marker."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    approval_done_emitted = asyncio.Event()
+
+    def approval_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del input
+        assert call_count == 0
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call-1",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [item.tool_call_id for item in input.approvals] == ["call-1"]
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Request an approved action",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=["core.http_request"],
+                tool_approvals={"core.http_request": True},
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    activities = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(approval_executor),
+        mock_record_approval_requests,
+        create_mock_emit_session_done_activity(done_event=approval_done_emitted),
+    ]
+
+    # Simulate the prior worker version at the exact production call site:
+    # patched() records the v2 marker, while deprecate_patch() preserves replay
+    # compatibility without writing that marker into new histories.
+    with monkeypatch.context() as legacy_patch:
+        legacy_patch.setattr(
+            temporal_workflow,
+            "deprecate_patch",
+            temporal_workflow.patched,
+        )
+        async with agent_worker_factory(
+            temporal_client,
+            task_queue=queue,
+            custom_activities=activities,
+        ):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+            await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+            marked_history = await fetch_history_after_completed_workflow_task(
+                wf_handle
+            )
+
+    await wf_handle.terminate(reason="Replay regression history captured")
+    assert APPROVAL_STREAM_V2_PATCH in await recorded_patch_ids(
+        temporal_client,
+        marked_history,
+    )
+    await replay_durable_agent_workflow_history(temporal_client, marked_history)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_terminal_end_observes_publishable_final_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    test_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """END is emitted only after final rows are visible to canonical reads."""
+    del test_user
+    queue = f"test-agent-queue-{mock_session_id}"
+    active_stream_id = uuid.uuid4()
+    call_order: list[str] = []
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        assert input.active_stream_id == active_stream_id
+        assert input.curr_run_id == mock_session_id
+        async with AgentSessionService.with_session(role=input.role) as service:
+            service.session.add(
+                AgentSessionHistory(
+                    session_id=input.session_id,
+                    workspace_id=input.workspace_id,
+                    kind=MessageKind.CHAT_MESSAGE.value,
+                    curr_run_id=input.curr_run_id,
+                    content={
+                        "uuid": str(uuid.uuid4()),
+                        "sessionId": "sdk-session",
+                        "type": "assistant",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "Final answer"}],
+                        },
+                    },
+                )
+            )
+            await service.session.commit()
+        call_order.append("persist_final_history")
+        return AgentExecutorResult(success=True, output={"status": "done"})
+
+    @activity.defn(name="load_session_messages_activity")
+    async def observed_load_session_messages_activity(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        result = await load_session_messages_activity(input)
+        call_order.append("load_terminal_history")
+        return result
+
+    class ObservedTerminalStream:
+        async def done(self) -> None:
+            async with AgentSessionService.with_session(role=svc_role) as service:
+                session = await service.get_session(mock_session_id)
+                assert session is not None
+                assert session.curr_run_id is None
+                messages = await service.list_messages(
+                    mock_session_id,
+                    include_active=False,
+                )
+            assert len(messages) == 1
+            assert messages[0].kind is MessageKind.CHAT_MESSAGE
+            assert messages[0].message is not None
+            call_order.append("emit_session_done")
+
+    class InitialSessionStream:
+        async def clear_buffer(self) -> None:
+            return None
+
+    async def observed_stream_new(
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
+    ) -> ObservedTerminalStream | InitialSessionStream:
+        assert workspace_id == svc_role.workspace_id
+        assert session_id == mock_session_id
+        if stream_id is None:
+            return InitialSessionStream()
+        assert stream_id == active_stream_id
+        return ObservedTerminalStream()
+
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentStream.new",
+        observed_stream_new,
+    )
+
+    @activity.defn(name="finalize_turn_activity")
+    async def observed_finalize_turn_activity(
+        input: FinalizeTurnInput,
+    ) -> FinalizeTurnResult | None:
+        result = await finalize_turn_activity(input)
+        call_order.append("finalize_turn")
+        return result
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Return a final answer",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=[],
+            ),
+            active_stream_id=active_stream_id,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    activities = [
+        create_session_activity,
+        load_session_activity,
+        observed_load_session_messages_activity,
+        observed_finalize_turn_activity,
+        create_mock_build_tool_definitions_activity({}),
+        mock_run_agent_activity,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+        result = await handle.result()
+        completed_history = await handle.fetch_history()
+        await replay_durable_agent_workflow_history(
+            temporal_client,
+            completed_history,
+        )
+
+    assert result.output == {"status": "done"}
+    assert call_order == [
+        "persist_final_history",
+        "load_terminal_history",
+        "emit_session_done",
+        "finalize_turn",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_executor_cancellation_persists_marker_before_terminal_end(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    test_user: User,
+) -> None:
+    del test_user
+    queue = f"test-agent-queue-{mock_session_id}"
+    active_stream_id = uuid.uuid4()
+    terminal_done_observed = asyncio.Event()
+
+    def cancelled_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count
+        return AgentExecutorResult(
+            success=True,
+            cancelled=True,
+            cancelled_reason="user_cancel",
+            interrupted_tool_call_ids=["tool-call-1"],
+        )
+
+    @activity.defn(name="emit_session_done")
+    async def observe_terminal_done(input: EmitSessionDoneInputs) -> None:
+        assert input.active_stream_id == active_stream_id
+        async with AgentSessionService.with_session(role=input.role) as service:
+            session = await service.get_session(input.session_id)
+            assert session is not None
+            assert session.curr_run_id is None
+            messages = await service.list_messages(
+                input.session_id,
+                include_active=False,
+            )
+        cancelled_messages = [
+            message for message in messages if message.kind is MessageKind.CANCELLED
+        ]
+        assert len(cancelled_messages) == 1
+        assert cancelled_messages[0].cancelled == {
+            "reason": "user_cancel",
+            "tool_call_ids": ["tool-call-1"],
+        }
+        terminal_done_observed.set()
+
+    agent_activities = AgentActivities()
+
+    @activity.defn(name="emit_session_cancelled")
+    async def persist_executor_cancellation(
+        input: EmitSessionCancelledInputs,
+    ) -> None:
+        assert input.emit_stream is False
+        await agent_activities.emit_session_cancelled(input)
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Start then cancel",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=[],
+            ),
+            active_stream_id=active_stream_id,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    activities = [
+        create_session_activity,
+        load_session_activity,
+        load_session_messages_activity,
+        create_legacy_finalize_turn_activity(),
+        create_mock_build_tool_definitions_activity({}),
+        create_mock_run_agent_activity(cancelled_executor),
+        persist_executor_cancellation,
+        observe_terminal_done,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        result = await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+    assert result.output is None
+    assert terminal_done_observed.is_set()
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_approval_wait_cancellation_defers_end_until_marker_and_finalize(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    test_user: User,
+) -> None:
+    del test_user
+    queue = f"test-agent-queue-{mock_session_id}"
+    active_stream_id = uuid.uuid4()
+    approval_pause_done = asyncio.Event()
+    done_session_run_ids: list[uuid.UUID | None] = []
+    cancelled_inputs: list[EmitSessionCancelledInputs] = []
+
+    def approval_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        assert call_count == 0
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="tool-call-1",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [item.tool_call_id for item in input.approvals] == ["tool-call-1"]
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        assert [item.tool_call_id for item in input.decisions] == ["tool-call-1"]
+        assert input.decisions[0].approved is False
+
+    @activity.defn(name="emit_session_cancelled")
+    async def persist_cancelled_notice(input: EmitSessionCancelledInputs) -> None:
+        cancelled_inputs.append(input)
+        assert input.emit_stream is True
+        async with AgentSessionService.with_session(role=input.role) as service:
+            await service.append_cancelled_marker(
+                input.session_id,
+                reason=input.reason,
+                interrupted_tool_call_ids=input.interrupted_tool_call_ids,
+                curr_run_id=input.curr_run_id,
+            )
+
+    @activity.defn(name="emit_session_done")
+    async def observe_pause_or_terminal_done(input: EmitSessionDoneInputs) -> None:
+        assert input.active_stream_id == active_stream_id
+        async with AgentSessionService.with_session(role=input.role) as service:
+            session = await service.get_session(input.session_id)
+            assert session is not None
+            done_session_run_ids.append(session.curr_run_id)
+            if session.curr_run_id is None:
+                messages = await service.list_messages(
+                    input.session_id,
+                    include_active=False,
+                )
+                assert any(
+                    message.kind is MessageKind.CANCELLED for message in messages
+                )
+            else:
+                approval_pause_done.set()
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Request an approved action",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=["core.http_request"],
+                tool_approvals={"core.http_request": True},
+            ),
+            active_stream_id=active_stream_id,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    activities = [
+        create_session_activity,
+        load_session_activity,
+        load_session_messages_activity,
+        create_legacy_finalize_turn_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(approval_executor),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+        persist_cancelled_notice,
+        observe_pause_or_terminal_done,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+        await asyncio.wait_for(approval_pause_done.wait(), timeout=10)
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason="user_cancel"),
+        )
+        result = await handle.result()
+
+    assert result.output is None
+    assert len(cancelled_inputs) == 1
+    assert done_session_run_ids == [mock_session_id, None]
 
 
 @pytest.mark.anyio
@@ -832,6 +1399,8 @@ async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
         mock_run_agent_activity,
         create_mock_execute_action_activity(),
         create_mock_reconcile_tool_results_activity(),
+        create_mock_finalize_turn_activity(),
+        create_mock_emit_session_done_activity(),
         *ApprovalManager.get_activities(),
     ]
 
@@ -991,11 +1560,14 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     approval_request_recorded = asyncio.Event()
     approval_done_emitted = asyncio.Event()
     approval_pause_call_order: list[str] = []
+    emitted_done_inputs: list[EmitSessionDoneInputs] = []
     resumed_after_approval = asyncio.Event()
     agent_executor_task_queues: list[str] = []
     executor_task_queues: list[str] = []
     captured_run_inputs: list[RunActionInput] = []
     captured_executor_roles: list[Role] = []
+    initial_stream_id = uuid.uuid4()
+    rotated_stream_id = uuid.uuid4()
 
     class _FakeStream:
         async def append(self, event: Any) -> None:
@@ -1058,6 +1630,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         activity.heartbeat("Mock agent running")
 
         if run_agent_call_count == 0:
+            assert input.active_stream_id == initial_stream_id
             assistant_uuid = str(uuid.uuid4())
             async with AgentSessionService.with_session(role=input.role) as service:
                 session = await service.get_session(input.session_id)
@@ -1141,6 +1714,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
         assert input.sdk_session_data is None
+        assert input.active_stream_id == rotated_stream_id
 
         resumed_after_approval.set()
         run_agent_call_count += 1
@@ -1176,6 +1750,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         )
 
     mock_emit_session_done = create_mock_emit_session_done_activity(
+        captured_inputs=emitted_done_inputs,
         call_order=approval_pause_call_order,
         done_event=approval_done_emitted,
     )
@@ -1193,6 +1768,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             user_prompt="Make a test HTTP request",
             config=agent_config_with_approvals,
             curr_run_id=mock_session_id,
+            active_stream_id=initial_stream_id,
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
         entity_id=uuid.uuid4(),
@@ -1206,7 +1782,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             load_session_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
-            finalize_turn_activity,
+            create_legacy_finalize_turn_activity(),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1262,6 +1838,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             WorkflowApprovalSubmission(
                 approvals={"call_123": True},
                 approved_by=svc_role.user_id,
+                new_stream_id=rotated_stream_id,
             ),
         )
 
@@ -1280,6 +1857,10 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     ]
     assert executor_task_queues == [executor_queue]
     assert resumed_after_approval.is_set()
+    assert [input.active_stream_id for input in emitted_done_inputs] == [
+        initial_stream_id,
+        rotated_stream_id,
+    ]
     assert len(captured_run_inputs) == 1
     assert len(captured_executor_roles) == 1
     assert captured_run_inputs[0].task.action == "core__http_request"

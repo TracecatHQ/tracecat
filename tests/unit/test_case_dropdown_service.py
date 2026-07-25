@@ -16,6 +16,7 @@ from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
+from tracecat.db.models import Case
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatNotFoundError,
@@ -220,6 +221,25 @@ class TestCaseDropdownDefinitionsService:
         # create-only role passes its scope gate (and fails later on lookup).
         with pytest.raises(TracecatNotFoundError):
             await values_service.apply_values(uuid.uuid4(), [])
+
+    async def test_apply_values_rejects_case_model_from_other_workspace(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        """A Case model input gets the same tenant scoping as a UUID input."""
+        values_service = CaseDropdownValuesService(
+            session=session, role=dropdown_service.role
+        )
+        foreign_case = Case(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            summary="Foreign workspace case",
+            description="",
+        )
+
+        with pytest.raises(TracecatNotFoundError):
+            await values_service.apply_values(foreign_case, [])
 
     async def test_list_definitions_order_is_deterministic(
         self, dropdown_service: CaseDropdownDefinitionsService

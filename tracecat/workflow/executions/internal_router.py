@@ -524,6 +524,7 @@ async def edit_workflow_document(
             workflow=workflow,
             original_document=draft_document,
             updated_document=updated_document,
+            changed_sections=changed_sections,
         )
         await service.session.refresh(
             workflow,
@@ -645,23 +646,17 @@ async def update_webhook(
     Mirrors the public ``PATCH /workflows/{id}/webhook`` route so the workflows
     SDK (which resolves under ``/internal``) can enable/disable webhooks.
     """
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+    try:
+        await webhook_service.update_webhook(
+            role=role,
+            session=session,
+            workflow_id=workflow_id,
+            params=params,
         )
-    webhook = await webhook_service.get_webhook(
-        session=session,
-        workspace_id=role.workspace_id,
-        workflow_id=workflow_id,
-    )
-    if webhook is None:
-        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Webhook not found")
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safety: params have been validated by WebhookUpdate
-        setattr(webhook, key, value)
-    session.add(webhook)
-    await session.commit()
-    await session.refresh(webhook)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND, detail="Webhook not found"
+        ) from e
 
 
 @router.get("/{workflow_id}/case-trigger", status_code=HTTP_200_OK)

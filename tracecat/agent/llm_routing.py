@@ -6,6 +6,7 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
     "gemini": "gemini",
+    "mistral": "mistral",
     "vertex_ai": "vertex_ai",
     "bedrock": "bedrock",
     "azure_openai": "azure",

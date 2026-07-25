@@ -226,6 +226,7 @@ def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
             "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         ),
         ("azure_openai", "my-deployment", False, "azure/my-deployment"),
+        ("mistral", "mistral-large-latest", False, "mistral/mistral-large-latest"),
         ("custom-model-provider", "custom", False, "custom"),
         ("custom-model-provider", "customer-alias", True, "customer-alias"),
         ("openai", "openai/gpt-5", False, "openai/gpt-5"),
@@ -259,7 +260,7 @@ class TestClaudeAgentRuntimeRun:
             "Accept-Encoding": "identity",
         }
 
-    def test_system_prompt_documents_duckdb_cli(
+    def test_system_prompt_documents_command_line_tools(
         self, mock_socket_writer: MagicMock
     ) -> None:
         """Runtime prompt should document local CLI tools available in shell."""
@@ -270,6 +271,9 @@ class TestClaudeAgentRuntimeRun:
         prompt = runtime._build_system_prompt("Preset instructions.")
 
         assert "<CommandLineTools>" in prompt
+        assert "`python3`" in prompt
+        assert "Python 3 is installed in the runtime environment" in prompt
+        assert "Use it through Bash" in prompt
         assert "`duckdb`" in prompt
         assert "DuckDB CLI" in prompt
         assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
