@@ -98,7 +98,7 @@ def _read_manifest(directory: Path) -> tuple[InstanceManifest, ...]:
     if not paths:
         raise ValueError(f"No instance .env files found in {directory}")
 
-    return tuple(
+    manifests = tuple(
         InstanceManifest(
             name=path.stem,
             path=path,
@@ -107,10 +107,41 @@ def _read_manifest(directory: Path) -> tuple[InstanceManifest, ...]:
         for path in paths
     )
 
+    # Ports must be unique across the whole manifest set. Each child binds its
+    # own port after forking, so a duplicate would otherwise pass --dry-run and
+    # then fail at bind time in one arbitrary child.
+    seen_ports: dict[str, Path] = {}
+    for manifest in manifests:
+        port = manifest.environment.get("PORT")
+        if port is None:
+            continue
+        if port in seen_ports:
+            raise ValueError(
+                f"{manifest.path}: PORT {port} is already used by {seen_ports[port]}"
+            )
+        seen_ports[port] = manifest.path
+
+    return manifests
+
+
+def _validate_instance_name(name: str, source: Path) -> str:
+    """Reject names that would escape the per-instance runtime directory.
+
+    Socket paths are derived as ``/run/tracecat/<name>/...``, so a dot segment
+    or separator would resolve outside that directory and could collide with or
+    unlink another instance's sockets.
+    """
+    if name in {"", ".", ".."} or "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError(f"{source}: invalid instance name {name!r}")
+    return name
+
 
 def _apply_instance_environment(instance: InstanceManifest) -> None:
     os.environ.update(instance.environment)
-    instance_name = instance.environment.get("TRACECAT_INSTANCE", instance.name)
+    instance_name = _validate_instance_name(
+        instance.environment.get("TRACECAT_INSTANCE", instance.name),
+        instance.path,
+    )
     os.environ["TRACECAT_INSTANCE"] = instance_name
 
     def set_instance_default(key: str, value: str) -> None:
@@ -319,6 +350,19 @@ def _supervise(instances: tuple[InstanceManifest, ...], *, dry_run: bool) -> int
                 )
                 if exit_code != 0:
                     failed = True
+                    # Drain the healthy siblings and exit rather than lingering.
+                    # v1 does not restart an individual child, so without this
+                    # the supervisor would sit in this loop forever: the
+                    # container stays "Up", its restart policy never fires, and
+                    # the crashed instance is down with nothing reporting it.
+                    # Exiting non-zero lets Docker restart the whole container.
+                    if not shutdown_requested:
+                        logger.warning(
+                            "Supervisor child failed; shutting down all children",
+                            instance=child.instance.name,
+                            exit_code=exit_code,
+                        )
+                        shutdown_requested = True
 
             if children and not reaped_child:
                 time.sleep(_WAIT_INTERVAL_SECONDS)
