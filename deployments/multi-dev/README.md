@@ -41,13 +41,25 @@ just cluster --standalone ports      # URLs, database, namespace, Redis index
 just cluster --standalone ps         # container status
 just cluster --standalone logs -f    # follow logs
 just cluster --standalone down       # stop, keep all data
-just cluster --standalone rm         # stop and delete this stack's volumes
+just cluster --standalone rm         # delete the stack AND its shared-infra slice
 ```
+
+`rm` deletes the stack's database, Temporal namespace, buckets, Redis database
+and minted secrets as well as its container and volume. Anything less would let
+the freed cluster number hand a later stack the previous stack's data.
 
 `up` is self-contained. It starts the shared infra if it is not already
 running, creates this stack's database and Temporal namespace if they do not
 exist, then builds, starts, and seeds a dev user. Every step is idempotent, so
 re-running `up` is safe.
+
+Source is bind-mounted but the virtualenv lives in the image, so a rebase that
+changes dependencies leaves the container importing packages it does not have.
+Rebuild when that happens:
+
+```bash
+just cluster --standalone up -d --build
+```
 
 Shared infrastructure has its own subcommand, because no single stack should
 tear down what every other stack depends on:
@@ -58,6 +70,16 @@ just cluster infra logs
 just cluster infra down      # stop, keeping all data
 just cluster infra nuke      # destroy it and EVERY stack's data (prompts)
 ```
+
+## Credentials
+
+Shared-infra credentials are pinned machine-wide in
+`~/.tracecat/stacks/shared-infra.env` on first use, and override any per-worktree
+values. Postgres and MinIO bake their users into their data volumes on first
+init and ignore changed environment values afterwards, so a second worktree with
+different credentials in its `.env` would otherwise fail to authenticate against
+the volume the first one created. Changing them requires
+`just cluster infra nuke`.
 
 ## Ports
 
@@ -120,12 +142,13 @@ Lower concurrency first when the machine is memory- or CPU-constrained. The
 combined process still creates separate activity thread pools for worker types,
 but it imports the Tracecat package only once.
 
-## Relationship to the fork supervisor
+## Why one container per stack
 
-`tracecat/standalone_supervisor.py` forks N children from one warmed parent
-process. It remains in the codebase but is not used by this path.
+An earlier iteration forked N children from one warmed parent process, so they
+could share imported pages copy-on-write.
 
-Measured across three instances, copy-on-write saved about 19 MiB per child,
-while making per-child restart, health checks and resource limits impossible —
-Docker only ever sees one container. One container per stack trades that ~19 MiB
-for real per-stack lifecycle, which is the better deal at these instance counts.
+Measured across three instances, that saved about 19 MiB per child while making
+per-stack restart, health checks and resource limits impossible — Docker only
+ever saw one container, so a crashed instance was invisible to `ps` and the
+restart policy never fired. One container per stack trades that ~19 MiB for real
+per-stack lifecycle, which is the better deal at these instance counts.

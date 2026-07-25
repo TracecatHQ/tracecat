@@ -76,7 +76,40 @@ SHARED_TEMPORAL_UI_PORT=8243
 SHARED_MINIO_PORT=9010
 SHARED_MINIO_CONSOLE_PORT=9011
 
+# Credentials for the shared infra are a property of the MACHINE, not of a
+# worktree. Postgres and MinIO bake their users into their data volumes on
+# first init and ignore changed environment values afterwards, so a second
+# worktree whose .env carries different values would fail authentication
+# against the volume the first worktree created. Pin one set on first use and
+# apply it to every stack thereafter.
+SHARED_INFRA_CREDS_FILE="${STACK_STATE_DIR}/shared-infra.env"
+
+load_shared_infra_credentials() {
+    if [[ ! -f "$SHARED_INFRA_CREDS_FILE" ]]; then
+        mkdir -p "$(dirname "$SHARED_INFRA_CREDS_FILE")"
+        {
+            echo "# Credentials for the machine-wide tracecat-shared-infra project."
+            echo "# Written once, on first use. Postgres and MinIO bake these into their"
+            echo "# data volumes, so changing them here does NOT update the running"
+            echo "# services - you would have to 'just cluster infra nuke' first."
+            echo "TRACECAT__POSTGRES_USER=${TRACECAT__POSTGRES_USER:-postgres}"
+            echo "TRACECAT__POSTGRES_PASSWORD=${TRACECAT__POSTGRES_PASSWORD:-postgres}"
+            echo "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio}"
+            echo "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-password}"
+        } > "$SHARED_INFRA_CREDS_FILE"
+        chmod 600 "$SHARED_INFRA_CREDS_FILE"
+        echo "Pinned shared-infra credentials -> ${SHARED_INFRA_CREDS_FILE}"
+    fi
+
+    # Override any worktree .env values: the volume only understands these.
+    set -a
+    # shellcheck disable=SC1090
+    source "$SHARED_INFRA_CREDS_FILE"
+    set +a
+}
+
 export_shared_infra_ports() {
+    load_shared_infra_credentials
     export TC_SHARED_PG_PORT="$SHARED_PG_PORT"
     export TC_SHARED_REDIS_PORT="$SHARED_REDIS_PORT"
     export TC_SHARED_TEMPORAL_PORT="$SHARED_TEMPORAL_PORT"
@@ -113,18 +146,22 @@ WORKTREE_ID=$(get_worktree_id)
 
 # Project name for a cluster.
 #   dev         tracecat-{worktree}-{num}
-#   standalone  tracecat-{worktree}-sa-{num}
+#   standalone  tracecat-{worktree}_sa-{num}
 #
-# The marker sits before the number so that get_all_cluster_nums' regex still
+# The marker is delimited with an underscore, which get_worktree_id can never
+# produce (it sanitises to [a-z0-9-]). A dash would be ambiguous: a standalone
+# stack in worktree "feature" and a dev cluster in worktree "feature-sa" would
+# both yield the prefix "tracecat-feature-sa-", and each would treat the
+# other's project as its own.
+#
+# The marker still sits before the number so get_all_cluster_nums' regex
 # captures it and both topologies share one global number space — a dev cluster
-# and a standalone stack can never claim the same port block. It also keeps the
-# dev prefix scan in get_running_clusters from matching standalone projects,
-# because "sa-3" fails that function's ^[0-9]+$ test.
+# and a standalone stack can never claim the same port block.
 cluster_prefix() {
     local topology=${1:-$TOPOLOGY}
 
     if [[ "$topology" == "standalone" ]]; then
-        echo "tracecat-${WORKTREE_ID}-sa-"
+        echo "tracecat-${WORKTREE_ID}_sa-"
     else
         echo "tracecat-${WORKTREE_ID}-"
     fi
@@ -816,6 +853,54 @@ ensure_instance_bootstrap() {
     fi
 }
 
+# Delete this stack's slice of the shared infra.
+#
+# `docker compose down --volumes` only removes volumes declared by the stack's
+# own Compose file — here just sandbox-cache. The database, Temporal namespace,
+# buckets and Redis database live in the shared-infra project and would survive,
+# so the freed cluster number would hand a later stack the previous stack's
+# Redis database, and re-creating the same stack would silently recover data the
+# user asked to delete.
+retire_stack_shared_state() {
+    local cluster_num=$1
+    local stack_id pg_user
+    stack_id=$(stack_id "$cluster_num")
+    pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+
+    if ! docker compose ls --format json 2>/dev/null \
+        | jq -e --arg n "$SHARED_INFRA_PROJECT" '.[] | select(.Name == $n)' >/dev/null 2>&1; then
+        echo "Shared infra is not running; leaving ${stack_id}'s data in place."
+        echo "  Start it and re-run 'rm' to delete the database, namespace and buckets."
+        return 0
+    fi
+
+    echo "Retiring shared state for ${stack_id}..."
+    shared_infra_exec postgres dropdb -U "$pg_user" --if-exists "$stack_id" \
+        && echo "  dropped database ${stack_id}" || echo "  database drop failed (continuing)"
+
+    shared_infra_exec temporal temporal operator namespace delete \
+        --address localhost:7233 --namespace "$stack_id" --yes >/dev/null 2>&1 \
+        && echo "  deleted Temporal namespace ${stack_id}" || echo "  namespace delete skipped"
+
+    shared_infra_exec redis redis-cli -n "$cluster_num" flushdb >/dev/null 2>&1 \
+        && echo "  flushed Redis database ${cluster_num}" || echo "  Redis flush skipped"
+
+    local suffix
+    for suffix in workflow attachments registry skills agent; do
+        shared_infra_exec minio mc rb --force "local/${stack_id}-tracecat-${suffix}" >/dev/null 2>&1 || true
+    done
+    echo "  removed MinIO buckets for ${stack_id}"
+
+    local env_file
+    env_file=$(stack_env_file "$cluster_num")
+    if [[ -f "$env_file" ]]; then
+        rm -f "$env_file"
+        echo "  removed minted secrets ${env_file}"
+    fi
+
+    rm -f "${CLUSTER_CLAIM_DIR}/${cluster_num}" 2>/dev/null || true
+}
+
 # Calculate ports for a given cluster number
 calculate_ports() {
     local cluster_num=$1
@@ -1355,6 +1440,11 @@ fi
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --volumes --remove-orphans "$@"
+        retire_stack_shared_state "$CLUSTER_NUM"
+        exit 0
+    fi
     exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --volumes --remove-orphans "$@"
 fi
 
