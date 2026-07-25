@@ -16,6 +16,7 @@ from packaging.version import InvalidVersion, Version
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.authz.seeding import seed_registry_scopes
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.locks import (
@@ -328,22 +329,38 @@ async def _build_platform_registry_artifact(
 ) -> None:
     async with get_async_session_bypass_rls_context_manager() as session:
         sync_service = PlatformRegistrySyncService(session)
-        result = await sync_service._build_and_upload_artifacts(
-            origin=DEFAULT_REGISTRY_ORIGIN,
-            version_string=target_version,
-            commit_sha=None,
-        )
-        logger.info(
-            "Platform registry artifact build completed",
-            target_version=target_version,
-            artifact_uri=result.artifact_uri,
-        )
+        if config.TRACECAT__LITE_MODE:
+            # Startup-scoped lite-mode guard (like the lifespan skips in
+            # api/app.py): there is no blob storage to build into, but promotion
+            # must still run — on the upgrade path it happens only here, and
+            # skipping it would leave the action listing stale. The URI is
+            # deterministic and computed without I/O; nothing resolves it until
+            # workflow execution, which lite mode does not support anyway.
+            artifact_uri = sync_service._artifact_uri_for_version(
+                origin=DEFAULT_REGISTRY_ORIGIN, version_string=target_version
+            )
+            logger.info(
+                "Skipping platform registry artifact build in lite mode",
+                target_version=target_version,
+            )
+        else:
+            result = await sync_service._build_and_upload_artifacts(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version_string=target_version,
+                commit_sha=None,
+            )
+            artifact_uri = result.artifact_uri
+            logger.info(
+                "Platform registry artifact build completed",
+                target_version=target_version,
+                artifact_uri=artifact_uri,
+            )
         if promote_version_id is not None:
             await _promote_platform_registry_version_after_artifact_build(
                 session,
                 target_version=target_version,
                 version_id=promote_version_id,
-                artifact_uri=result.artifact_uri,
+                artifact_uri=artifact_uri,
                 expected_current_version_id=expected_current_version_id,
             )
 
