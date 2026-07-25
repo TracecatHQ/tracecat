@@ -899,10 +899,14 @@ class WorkspaceSyncService(SyncMappingService):
         correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
             self,
             snapshot.spec.agent_presets,
+            snapshot.spec.workflows,
             requested_catalog_mappings=requested_catalog_mappings,
         )
         correlated_spec = snapshot.spec.model_copy(
-            update={"agent_presets": correlated.presets}
+            update={
+                "agent_presets": correlated.presets,
+                "workflows": correlated.workflows,
+            }
         )
         return PreparedSnapshot(
             snapshot=snapshot.model_copy(update={"spec": correlated_spec}),

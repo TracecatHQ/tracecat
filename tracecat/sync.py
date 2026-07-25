@@ -119,6 +119,16 @@ class CatalogMappingAffectedPreset:
     path: str
 
 
+@dataclass(frozen=True)
+class CatalogMappingAffectedWorkflow:
+    """Workflow action whose source catalog id needs the same target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
 type CatalogMappingRequirementReason = Literal[
     "ambiguous",
     "invalid_selection",
@@ -136,6 +146,7 @@ class CatalogMappingRequirement:
     message: str
     candidates: list[CatalogMappingCandidate]
     affected_presets: list[CatalogMappingAffectedPreset]
+    affected_workflows: list[CatalogMappingAffectedWorkflow]
 
 
 def serializable_validation_errors(

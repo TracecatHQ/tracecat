@@ -9325,6 +9325,35 @@ export const $CatalogMappingAffectedPreset = {
   title: "CatalogMappingAffectedPreset",
 } as const
 
+export const $CatalogMappingAffectedWorkflow = {
+  properties: {
+    workflow_source_id: {
+      type: "string",
+      title: "Workflow Source Id",
+    },
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_source_id",
+    "workflow_path",
+    "workflow_title",
+    "action_ref",
+  ],
+  title: "CatalogMappingAffectedWorkflow",
+} as const
+
 export const $CatalogMappingCandidate = {
   properties: {
     catalog_id: {
@@ -9421,6 +9450,13 @@ export const $CatalogMappingRequirement = {
       type: "array",
       title: "Affected Presets",
     },
+    affected_workflows: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingAffectedWorkflow",
+      },
+      type: "array",
+      title: "Affected Workflows",
+    },
   },
   type: "object",
   required: [
@@ -9431,6 +9467,7 @@ export const $CatalogMappingRequirement = {
     "message",
     "candidates",
     "affected_presets",
+    "affected_workflows",
   ],
   title: "CatalogMappingRequirement",
 } as const

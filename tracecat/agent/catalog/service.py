@@ -214,21 +214,55 @@ class AgentCatalogService(BaseService):
         batch exists so sync import correlation can resolve all incoming catalog
         ids with one query while evaluating the workspace override only once.
         """
+        return set(
+            await self.enabled_catalog_models(
+                org_id=org_id,
+                catalog_ids=catalog_ids,
+                workspace_id=workspace_id,
+            )
+        )
+
+    async def enabled_catalog_models(
+        self,
+        *,
+        org_id: UUID,
+        catalog_ids: Collection[UUID],
+        workspace_id: UUID | None = None,
+    ) -> dict[UUID, ModelKey]:
+        """Return visible, enabled input ids and their local model identities.
+
+        Workspace-sync correlation needs the tuple as well as the enabled state
+        so an incoming deployment-local UUID can only be preserved when its
+        manifest model identity matches the local catalog row.
+        """
         if not catalog_ids:
-            return set()
+            return {}
 
         enabled_catalog_ids = self._enabled_catalog_ids_subquery(
             org_id=org_id, workspace_id=workspace_id
         )
-        stmt = select(AgentCatalog.id).where(
-            AgentCatalog.id.in_(catalog_ids),
-            AgentCatalog.id.in_(enabled_catalog_ids),
-            sa.or_(
-                AgentCatalog.organization_id == org_id,
-                AgentCatalog.organization_id.is_(None),
-            ),
+        stmt = (
+            select(
+                AgentCatalog.id,
+                AgentCatalog.model_provider,
+                AgentCatalog.model_name,
+            )
+            .where(
+                AgentCatalog.id.in_(catalog_ids),
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            .order_by(AgentCatalog.id.asc())
         )
-        return set((await self.session.execute(stmt)).scalars())
+        return {
+            catalog_id: ModelKey(model_provider, model_name)
+            for catalog_id, model_provider, model_name in (
+                await self.session.execute(stmt)
+            ).tuples()
+        }
 
     async def catalog_candidates_by_models(
         self,

@@ -1253,6 +1253,46 @@ async def test_enabled_catalog_ids_returns_visible_enabled_subset(
 
 
 @pytest.mark.anyio
+async def test_enabled_catalog_models_returns_batch_model_identities(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    enabled_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="enabled-model",
+        model_metadata={},
+    )
+    disabled_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="batch-provider",
+        model_name="disabled-model",
+        model_metadata={},
+    )
+    session.add_all([enabled_row, disabled_row])
+    await session.flush()
+    session.add(
+        _enable(
+            org_id=svc_organization.id,
+            catalog_id=enabled_row.id,
+        )
+    )
+    await session.commit()
+
+    enabled_models = await service.enabled_catalog_models(
+        org_id=svc_organization.id,
+        catalog_ids={enabled_row.id, disabled_row.id, uuid.uuid4()},
+    )
+
+    assert enabled_models == {
+        enabled_row.id: ModelKey("batch-provider", "enabled-model")
+    }
+
+
+@pytest.mark.anyio
 async def test_enabled_catalog_ids_respects_workspace_override(
     session: AsyncSession,
     svc_organization: Organization,

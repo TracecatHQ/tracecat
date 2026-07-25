@@ -753,6 +753,14 @@ describe("WorkspaceSyncSettings", () => {
               path: "agent_presets/investigate/versions/2.yml",
             },
           ],
+          affected_workflows: [
+            {
+              workflow_source_id: "triage-alert",
+              workflow_path: "workflows/triage-alert/definition.yml",
+              workflow_title: "Triage alert",
+              action_ref: "run_triage_agent",
+            },
+          ],
         },
       ],
     }
@@ -795,7 +803,9 @@ describe("WorkspaceSyncSettings", () => {
     expect(applyPullButton).toBeDisabled()
     expect(screen.getByText("Choose target models")).toBeInTheDocument()
     expect(
-      screen.getByText(/Triage version 1, Investigate version 2/)
+      screen.getByText(
+        /Triage version 1, Investigate version 2, Triage alert action run_triage_agent/
+      )
     ).toBeInTheDocument()
 
     await user.click(screen.getByLabelText("Target model for shared-model"))

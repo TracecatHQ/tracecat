@@ -502,7 +502,8 @@ function CatalogMappingRequirements({
         <h6 className="text-sm font-medium">Choose target models</h6>
         <p className="text-xs text-muted-foreground">
           These source models match multiple or changed target providers. Your
-          choices apply to every listed version in this pull.
+          choices apply to every listed preset version and workflow action in
+          this pull.
         </p>
       </div>
 
@@ -547,11 +548,15 @@ function CatalogMappingRequirements({
 
             <p className="text-[11px] text-muted-foreground">
               Affects{" "}
-              {requirement.affected_presets
-                .map(
+              {[
+                ...requirement.affected_presets.map(
                   (preset) => `${preset.preset_name} version ${preset.version}`
-                )
-                .join(", ")}
+                ),
+                ...requirement.affected_workflows.map(
+                  (workflow) =>
+                    `${workflow.workflow_title} action ${workflow.action_ref}`
+                ),
+              ].join(", ")}
             </p>
           </div>
         ))}

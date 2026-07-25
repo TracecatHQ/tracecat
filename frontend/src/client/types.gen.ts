@@ -2469,6 +2469,13 @@ export type CatalogMappingAffectedPreset = {
   path: string
 }
 
+export type CatalogMappingAffectedWorkflow = {
+  workflow_source_id: string
+  workflow_path: string
+  workflow_title: string
+  action_ref: string
+}
+
 export type CatalogMappingCandidate = {
   catalog_id: string
   model_provider: string
@@ -2489,6 +2496,7 @@ export type CatalogMappingRequirement = {
   message: string
   candidates: Array<CatalogMappingCandidate>
   affected_presets: Array<CatalogMappingAffectedPreset>
+  affected_workflows: Array<CatalogMappingAffectedWorkflow>
 }
 
 export type CatalogMappingRequirementReason = "ambiguous" | "invalid_selection"

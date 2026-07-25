@@ -31,6 +31,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
+    Action,
     AgentCatalog,
     AgentCustomProvider,
     AgentModelAccess,
@@ -4554,6 +4555,8 @@ async def test_agent_preset_sync_preserves_enabled_local_catalog_id(
     preset_path = f"{AGENT_PRESET_ROOT}/qa-catalog-backed/versions/1.yml"
     preset_spec = yaml.safe_load(files[preset_path])
     preset_spec["catalog_id"] = str(catalog.id)
+    preset_spec["model_provider"] = catalog.model_provider
+    preset_spec["model_name"] = catalog.model_name
     files[preset_path] = _yaml(preset_spec)
 
     snapshot, diagnostics = await service.parse_files(files, commit_sha="l" * 40)
@@ -4935,6 +4938,599 @@ async def test_agent_preset_sync_requires_an_ambiguous_catalog_choice_per_pull(
     assert version_one is not None
     assert version_one.catalog_id == chosen_catalog.id
     assert version_one.base_url is None
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_catalog_mapping_rewrites_preset_and_workflow_together(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """One explicit source choice must govern every reference in the snapshot."""
+    model_provider = "custom-model-provider"
+    model_name = "qa-shared-preset-workflow-model"
+    candidates = await _enable_duplicate_catalog_candidates(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    chosen_catalog = candidates[1]
+    source_catalog_id = uuid.uuid4()
+    preset_source_id = "qa-shared-catalog-preset"
+    workflow_source_id = "qa-shared-catalog-workflow"
+    workflow_alias = "qa-shared-catalog-workflow"
+    files = _combined_git_tree(
+        _agent_preset_git_tree(
+            source_id=preset_source_id,
+            slug=preset_source_id,
+            name="QA shared catalog preset",
+        ),
+        _workflow_agent_git_tree(
+            source_id=workflow_source_id,
+            alias=workflow_alias,
+            title="QA shared catalog workflow",
+            action_ref="run_shared_agent",
+            action_args={
+                "user_prompt": "Investigate the event.",
+                "model_provider": model_provider,
+                "model_name": model_name,
+                "catalog_id": str(source_catalog_id),
+                "base_url": "https://source-flat.models.example.com/v1",
+                "model": {
+                    "model_provider": model_provider,
+                    "model_name": model_name,
+                    "catalog_id": str(source_catalog_id),
+                    "base_url": "https://source-nested.models.example.com/v1",
+                },
+            },
+        ),
+    )
+    preset_version_path = f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml"
+    _patch_yaml_file(
+        files,
+        preset_version_path,
+        {
+            "catalog_id": str(source_catalog_id),
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "base_url": "https://source-preset.models.example.com/v1",
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, parse_diagnostics = await service.parse_files(
+        files,
+        commit_sha="s" * 40,
+    )
+    assert parse_diagnostics == []
+
+    mappings = {source_catalog_id: chosen_catalog.id}
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot,
+        requested_catalog_mappings=mappings,
+    )
+
+    assert prepared.diagnostics == []
+    assert prepared.catalog_mapping_requirements == []
+    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id].versions[
+        1
+    ]
+    assert prepared_version.catalog_id == chosen_catalog.id
+    assert prepared_version.base_url is None
+    prepared_action_args = (
+        prepared.snapshot.spec.workflows[workflow_source_id].definition.actions[0].args
+    )
+    assert prepared_action_args["catalog_id"] == str(chosen_catalog.id)
+    assert prepared_action_args["base_url"] is None
+    prepared_nested_model = prepared_action_args["model"]
+    assert isinstance(prepared_nested_model, dict)
+    assert prepared_nested_model["catalog_id"] == str(chosen_catalog.id)
+    assert prepared_nested_model["base_url"] is None
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        result = await service._import_snapshot(
+            snapshot,
+            sync_schedules=False,
+            requested_catalog_mappings=mappings,
+        )
+
+    assert result.success is True
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == preset_source_id,
+        )
+    )
+    assert preset is not None
+    imported_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert imported_version is not None
+    assert imported_version.catalog_id == chosen_catalog.id
+    assert imported_version.base_url is None
+    imported_args = await _imported_workflow_action_args(
+        session,
+        workspace_id=svc_role.workspace_id,
+        workflow_alias=workflow_alias,
+        action_type="ai.agent",
+    )
+    assert imported_args["catalog_id"] == str(chosen_catalog.id)
+    assert imported_args["base_url"] is None
+    imported_nested_model = imported_args["model"]
+    assert isinstance(imported_nested_model, dict)
+    assert imported_nested_model["catalog_id"] == str(chosen_catalog.id)
+    assert imported_nested_model["base_url"] is None
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_workflow_catalog_ambiguity_blocks_preview_and_apply(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Workflow-only ambiguity must report the same requirement on both paths."""
+    model_provider = "custom-model-provider"
+    model_name = "qa-workflow-ambiguous-model"
+    candidates = await _enable_duplicate_catalog_candidates(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    source_catalog_id = uuid.uuid4()
+    workflow_source_id = "qa-workflow-ambiguous"
+    workflow_title = "QA workflow ambiguous"
+    action_ref = "run_ambiguous_agent"
+    files = _workflow_agent_git_tree(
+        source_id=workflow_source_id,
+        alias=workflow_source_id,
+        title=workflow_title,
+        action_ref=action_ref,
+        action_args={
+            "user_prompt": "Investigate the event.",
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "catalog_id": str(source_catalog_id),
+        },
+    )
+    transport = AsyncMock(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha="t" * 40,
+                tree_sha="workflow-ambiguity-tree",
+                files=files,
+            )
+        )
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-workflow-ambiguity-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        preview = await service.pull(
+            options=PullOptions(commit_sha="t" * 40, dry_run=True)
+        )
+        apply = await service.pull(options=PullOptions(commit_sha="t" * 40))
+
+    assert preview.success is False
+    assert apply.success is False
+    assert preview.catalog_mapping_requirements == (apply.catalog_mapping_requirements)
+    requirements = preview.catalog_mapping_requirements or []
+    assert len(requirements) == 1
+    requirement = requirements[0]
+    assert requirement.reason == "ambiguous"
+    assert requirement.source_catalog_id == source_catalog_id
+    assert {candidate.catalog_id for candidate in requirement.candidates} == {
+        candidate.id for candidate in candidates
+    }
+    assert requirement.affected_presets == []
+    assert len(requirement.affected_workflows) == 1
+    affected = requirement.affected_workflows[0]
+    assert affected.workflow_source_id == workflow_source_id
+    assert affected.workflow_path == (
+        f"{WORKFLOW_ROOT}/{workflow_source_id}/definition.yml"
+    )
+    assert affected.workflow_title == workflow_title
+    assert affected.action_ref == action_ref
+    assert (
+        await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == workflow_source_id,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_workflow_catalog_auto_resolves_single_candidate(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    model_provider = "custom-model-provider"
+    model_name = "qa-workflow-single-model"
+    local_catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    source_catalog_id = uuid.uuid4()
+    workflow_alias = "qa-workflow-single-catalog"
+    files = _workflow_agent_git_tree(
+        source_id=workflow_alias,
+        alias=workflow_alias,
+        title="QA workflow single catalog",
+        action_ref="run_single_agent",
+        action_type="ai.action",
+        action_args={
+            "user_prompt": "Investigate the event.",
+            "catalog_id": str(source_catalog_id),
+            "base_url": "https://source-flat.models.example.com/v1",
+            "model": {
+                "model_provider": model_provider,
+                "model_name": model_name,
+                "base_url": "https://source-nested.models.example.com/v1",
+            },
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="u" * 40)
+    assert diagnostics == []
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True
+    imported_args = await _imported_workflow_action_args(
+        session,
+        workspace_id=svc_role.workspace_id,
+        workflow_alias=workflow_alias,
+        action_type="ai.action",
+    )
+    assert imported_args["catalog_id"] == str(local_catalog.id)
+    assert imported_args["base_url"] is None
+    imported_nested_model = imported_args["model"]
+    assert isinstance(imported_nested_model, dict)
+    assert imported_nested_model["base_url"] is None
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_workflow_catalog_rejects_non_candidate_selection(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    model_provider = "custom-model-provider"
+    model_name = "qa-workflow-invalid-selection-model"
+    await _enable_duplicate_catalog_candidates(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    non_candidate = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name="qa-different-model",
+    )
+    source_catalog_id = uuid.uuid4()
+    workflow_alias = "qa-workflow-invalid-selection"
+    files = _workflow_agent_git_tree(
+        source_id=workflow_alias,
+        alias=workflow_alias,
+        title="QA workflow invalid selection",
+        action_ref="run_invalid_selection_agent",
+        action_args={
+            "user_prompt": "Investigate the event.",
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "catalog_id": str(source_catalog_id),
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="v" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_catalog_mappings={source_catalog_id: non_candidate.id},
+    )
+
+    assert result.success is False
+    requirements = result.catalog_mapping_requirements or []
+    assert len(requirements) == 1
+    assert requirements[0].reason == "invalid_selection"
+    assert requirements[0].affected_presets == []
+    assert [affected.action_ref for affected in requirements[0].affected_workflows] == [
+        "run_invalid_selection_agent"
+    ]
+    assert (
+        await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == workflow_alias,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("resource_kind", ["preset", "workflow"])
+async def test_workspace_sync_rejects_enabled_catalog_model_identity_mismatch(
+    session: AsyncSession,
+    svc_role: Role,
+    resource_kind: str,
+) -> None:
+    local_catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider="local-provider",
+        model_name="local-model",
+    )
+    source_id = f"qa-{resource_kind}-catalog-mismatch"
+    if resource_kind == "preset":
+        files = _agent_preset_git_tree(
+            source_id=source_id,
+            slug=source_id,
+            name="QA catalog mismatch preset",
+        )
+        _patch_yaml_file(
+            files,
+            f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+            {
+                "catalog_id": str(local_catalog.id),
+                "model_provider": "manifest-provider",
+                "model_name": "manifest-model",
+                "base_url": "https://edited-manifest.example.com/v1",
+            },
+        )
+    else:
+        files = _workflow_agent_git_tree(
+            source_id=source_id,
+            alias=source_id,
+            title="QA catalog mismatch workflow",
+            action_ref="run_mismatched_agent",
+            action_args={
+                "user_prompt": "Investigate the event.",
+                "catalog_id": str(local_catalog.id),
+                "model_provider": "manifest-provider",
+                "model_name": "manifest-model",
+                "base_url": "https://edited-manifest.example.com/v1",
+            },
+        )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is False
+    mismatch_diagnostics = [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.details.get("code") == "catalog_model_identity_mismatch"
+    ]
+    assert len(mismatch_diagnostics) == 1
+    details = mismatch_diagnostics[0].details
+    assert details["catalog_id"] == str(local_catalog.id)
+    assert details["manifest_model"] == {
+        "model_provider": "manifest-provider",
+        "model_name": "manifest-model",
+    }
+    assert details["local_model"] == {
+        "model_provider": "local-provider",
+        "model_name": "local-model",
+    }
+    assert (
+        await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == source_id,
+            )
+        )
+        is None
+    )
+    assert (
+        await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == source_id,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_preserves_matching_enabled_catalog_identity_and_urls(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    model_provider = "custom-model-provider"
+    model_name = "qa-enabled-matching-model"
+    candidates = await _enable_duplicate_catalog_candidates(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    selected_catalog = candidates[1]
+    preset_source_id = "qa-enabled-matching-preset"
+    workflow_source_id = "qa-enabled-matching-workflow"
+    preset_base_url = "https://same-deployment-preset.example.com/v1"
+    flat_base_url = "https://same-deployment-flat.example.com/v1"
+    nested_base_url = "https://same-deployment-nested.example.com/v1"
+    files = _combined_git_tree(
+        _agent_preset_git_tree(
+            source_id=preset_source_id,
+            slug=preset_source_id,
+            name="QA enabled matching preset",
+        ),
+        _workflow_agent_git_tree(
+            source_id=workflow_source_id,
+            alias=workflow_source_id,
+            title="QA enabled matching workflow",
+            action_ref="run_enabled_agent",
+            action_args={
+                "user_prompt": "Investigate the event.",
+                "model_provider": model_provider,
+                "model_name": model_name,
+                "catalog_id": str(selected_catalog.id),
+                "base_url": flat_base_url,
+                "model": {
+                    "model_provider": model_provider,
+                    "model_name": model_name,
+                    "catalog_id": str(selected_catalog.id),
+                    "base_url": nested_base_url,
+                },
+            },
+        ),
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        {
+            "catalog_id": str(selected_catalog.id),
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "base_url": preset_base_url,
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="x" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    assert prepared.catalog_mapping_requirements == []
+    prepared_version = prepared.snapshot.spec.agent_presets[preset_source_id].versions[
+        1
+    ]
+    assert prepared_version.catalog_id == selected_catalog.id
+    assert prepared_version.base_url == preset_base_url
+    prepared_args = (
+        prepared.snapshot.spec.workflows[workflow_source_id].definition.actions[0].args
+    )
+    assert prepared_args["catalog_id"] == str(selected_catalog.id)
+    assert prepared_args["base_url"] == flat_base_url
+    prepared_model = prepared_args["model"]
+    assert isinstance(prepared_model, dict)
+    assert prepared_model["catalog_id"] == str(selected_catalog.id)
+    assert prepared_model["base_url"] == nested_base_url
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_workflow_without_catalog_reference_is_byte_identical(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    workflow_source_id = "qa-workflow-without-catalog"
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _workflow_git_tree(
+            source_id=workflow_source_id,
+            alias=workflow_source_id,
+            title="QA workflow without catalog",
+        ),
+        commit_sha="y" * 40,
+    )
+    assert diagnostics == []
+    original = serialize_workflow_spec(snapshot.spec.workflows[workflow_source_id])
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    assert prepared.catalog_mapping_requirements == []
+    assert (
+        serialize_workflow_spec(prepared.snapshot.spec.workflows[workflow_source_id])
+        == original
+    )
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_detects_catalog_identity_conflict_across_resources(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    source_catalog_id = uuid.uuid4()
+    preset_source_id = "qa-conflicting-catalog-preset"
+    workflow_source_id = "qa-conflicting-catalog-workflow"
+    files = _combined_git_tree(
+        _agent_preset_git_tree(
+            source_id=preset_source_id,
+            slug=preset_source_id,
+            name="QA conflicting catalog preset",
+        ),
+        _workflow_agent_git_tree(
+            source_id=workflow_source_id,
+            alias=workflow_source_id,
+            title="QA conflicting catalog workflow",
+            action_ref="run_conflicting_agent",
+            action_args={
+                "user_prompt": "Investigate the event.",
+                "catalog_id": str(source_catalog_id),
+                "model_provider": "workflow-provider",
+                "model_name": "workflow-model",
+            },
+        ),
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        {
+            "catalog_id": str(source_catalog_id),
+            "model_provider": "preset-provider",
+            "model_name": "preset-model",
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is False
+    assert [diagnostic.details.get("code") for diagnostic in result.diagnostics] == [
+        "catalog_model_identity_conflict"
+    ]
+    assert (
+        await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == preset_source_id,
+            )
+        )
+        is None
+    )
+    assert (
+        await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == workflow_source_id,
+            )
+        )
+        is None
+    )
 
 
 @pytest.mark.anyio
@@ -6024,6 +6620,64 @@ async def _enable_org_catalog(
     return catalog
 
 
+async def _enable_duplicate_catalog_candidates(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID | None,
+    model_provider: str,
+    model_name: str,
+) -> list[AgentCatalog]:
+    """Enable two custom-provider rows sharing one portable model identity."""
+    assert org_id is not None
+    catalogs: list[AgentCatalog] = []
+    for index in (1, 2):
+        provider = AgentCustomProvider(
+            organization_id=org_id,
+            display_name=f"QA catalog provider {index}",
+            base_url=f"https://provider-{index}.models.example.com/v1",
+        )
+        session.add(provider)
+        await session.flush()
+        catalogs.append(
+            await _enable_org_catalog(
+                session,
+                org_id=org_id,
+                custom_provider_id=provider.id,
+                model_provider=model_provider,
+                model_name=model_name,
+            )
+        )
+    return catalogs
+
+
+async def _imported_workflow_action_args(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID | None,
+    workflow_alias: str,
+    action_type: str,
+) -> dict[str, Any]:
+    """Return the persisted YAML args for one imported workflow action."""
+    assert workspace_id is not None
+    workflow = await session.scalar(
+        select(Workflow).where(
+            Workflow.workspace_id == workspace_id,
+            Workflow.alias == workflow_alias,
+        )
+    )
+    assert workflow is not None
+    action = await session.scalar(
+        select(Action).where(
+            Action.workflow_id == workflow.id,
+            Action.type == action_type,
+        )
+    )
+    assert action is not None
+    args = yaml.safe_load(action.inputs)
+    assert isinstance(args, dict)
+    return args
+
+
 def _patch_yaml_file(
     files: dict[str, str],
     path: str,
@@ -6940,6 +7594,36 @@ def _workflow_git_tree(
                         "ref": "reshape",
                         "action": "core.transform.reshape",
                         "args": {"value": "${{ TRIGGER.value }}"},
+                    }
+                ],
+            )
+        ),
+    }
+
+
+def _workflow_agent_git_tree(
+    *,
+    source_id: str,
+    alias: str,
+    title: str,
+    action_ref: str,
+    action_args: Mapping[str, Any],
+    action_type: str = "ai.agent",
+) -> dict[str, str]:
+    """Build a Git tree containing one catalog-backed workflow action."""
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/{source_id}/definition.yml": _yaml(
+            _workflow_spec(
+                source_id=source_id,
+                title=title,
+                alias=alias,
+                folder_path="QA/Workflows",
+                actions=[
+                    {
+                        "ref": action_ref,
+                        "action": action_type,
+                        "args": dict(action_args),
                     }
                 ],
             )
