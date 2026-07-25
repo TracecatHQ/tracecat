@@ -27,6 +27,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatException,
     TracecatNotFoundError,
     TracecatSettingsError,
     TracecatValidationError,
@@ -1022,6 +1023,12 @@ class WorkspaceSyncService(SyncMappingService):
                 await self.session.commit()
         except Exception as e:
             await self.session.rollback()
+            details: dict[str, Any] = {"exception": str(e)}
+            if isinstance(e, TracecatException) and e.detail is not None:
+                if isinstance(e.detail, Mapping):
+                    details.update(e.detail)
+                else:
+                    details["detail"] = e.detail
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
@@ -1033,7 +1040,7 @@ class WorkspaceSyncService(SyncMappingService):
                         workflow_title=None,
                         error_type="transaction",
                         message=f"Workspace import transaction failed: {str(e)}",
-                        details={"exception": str(e)},
+                        details=details,
                     )
                 ],
                 message="Workspace import transaction failed",

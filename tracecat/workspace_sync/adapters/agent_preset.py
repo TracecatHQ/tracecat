@@ -999,19 +999,15 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
             imported_versions: dict[int, AgentPresetVersion] = {}
             for version_number, version_spec in sorted(version_specs.items()):
-                version = await self._upsert_agent_preset_version(
-                    workspace_service,
-                    preset=preset,
-                    version=version_spec,
-                )
                 version_skill_targets = await self._skill_binding_targets_for_spec(
                     workspace_service,
                     version_spec,
                 )
-                await self._replace_version_skill_bindings(
+                version = await self._upsert_agent_preset_version(
                     workspace_service,
-                    version,
-                    version_skill_targets,
+                    preset=preset,
+                    version=version_spec,
+                    skill_targets=version_skill_targets,
                 )
                 imported_versions[version_number] = version
 
@@ -1384,12 +1380,30 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         against the preset, so a matching version can be reused instead of
         cutting a new one.
         """
-        # Any differing versioned attribute means a new version is required.
-        for key, value in self._version_attrs_from_preset(preset).items():
-            if getattr(version, key) != value:
-                return False
-        # Attributes match; the skill-binding set must match too. Compare the
-        # desired (skill, version) id pairs against those stored on the version.
+        changed_fields = await self._version_changed_fields(
+            workspace_service,
+            version,
+            desired_attrs=self._version_attrs_from_preset(preset),
+            skill_targets=skill_targets,
+        )
+        return not changed_fields
+
+    async def _version_changed_fields(
+        self,
+        workspace_service: SyncMappingService,
+        version: AgentPresetVersion,
+        *,
+        desired_attrs: Mapping[str, Any],
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> list[str]:
+        """Return versioned attributes that differ from the desired state."""
+        # The shared attr builders define this dynamic comparison contract, so
+        # direct attribute access cannot express the fields without duplication.
+        changed_fields = [
+            key
+            for key, desired_value in desired_attrs.items()
+            if getattr(version, key) != desired_value
+        ]
         desired_skill_targets = {
             (skill.id, skill_version.id) for skill, skill_version in skill_targets
         }
@@ -1408,7 +1422,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 )
             ).tuples()
         }
-        return existing_skill_targets == desired_skill_targets
+        if existing_skill_targets != desired_skill_targets:
+            changed_fields.append("skill_bindings")
+        return changed_fields
 
     async def _create_agent_preset_version(
         self,
@@ -1444,8 +1460,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         *,
         preset: AgentPreset,
         version: AgentPresetVersionResourceSpec,
+        skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> AgentPresetVersion:
-        """Create or update one exact-number preset version."""
+        """Create an exact-number version or verify its immutable stored state."""
         existing = await workspace_service.session.scalar(
             select(AgentPresetVersion).where(
                 AgentPresetVersion.workspace_id == workspace_service.workspace_id,
@@ -1465,11 +1482,32 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 version=version.version_number,
                 **attrs,
             )
-        else:
-            for key, value in attrs.items():
-                setattr(existing, key, value)
-        workspace_service.session.add(existing)
-        await workspace_service.session.flush()
+            workspace_service.session.add(existing)
+            await workspace_service.session.flush()
+            await self._replace_version_skill_bindings(
+                workspace_service,
+                existing,
+                skill_targets,
+            )
+            return existing
+
+        changed_fields = await self._version_changed_fields(
+            workspace_service,
+            existing,
+            desired_attrs=attrs,
+            skill_targets=skill_targets,
+        )
+        if changed_fields:
+            raise TracecatValidationError(
+                f"Agent preset {preset.slug!r} version {version.version_number} "
+                "already exists with different content and cannot be changed.",
+                detail={
+                    "code": "immutable_agent_preset_version_conflict",
+                    "preset_slug": preset.slug,
+                    "version": version.version_number,
+                    "changed_fields": changed_fields,
+                },
+            )
         return existing
 
     def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
