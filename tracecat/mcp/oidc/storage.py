@@ -10,7 +10,7 @@ import orjson
 from cryptography.fernet import Fernet
 from redis.asyncio import Redis as AsyncRedis
 
-from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
+from tracecat import config
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc.schemas import AuthCodeData, ResumeTransaction
@@ -75,10 +75,10 @@ class _EncryptedRedis:
 
 def _build_store() -> _EncryptedRedis:
     """Create an encrypted Redis store for OIDC issuer state."""
-    redis = AsyncRedis.from_url(REDIS_URL, decode_responses=False)
+    redis = AsyncRedis.from_url(config.REDIS_URL, decode_responses=False)
     fernet: Fernet | None = None
-    if TRACECAT__DB_ENCRYPTION_KEY:
-        fernet = Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+    if config.TRACECAT__DB_ENCRYPTION_KEY:
+        fernet = Fernet(config.TRACECAT__DB_ENCRYPTION_KEY)
     else:
         logger.warning(
             "TRACECAT__DB_ENCRYPTION_KEY is not set; "

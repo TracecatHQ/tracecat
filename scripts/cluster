@@ -23,6 +23,12 @@
 #   ./cluster list                 # List all running clusters
 #   ./cluster 1 ports              # Show port mappings for cluster 1
 #
+# Topologies:
+#   (default)         full dev stack, ~15 containers per cluster
+#   --standalone      one container per stack against shared infra
+#   ./cluster --standalone up -d   # Lightweight stack for this worktree
+#   ./cluster infra ps             # Manage the shared infra project
+#
 # Port allocation (offset = (cluster_num - 1) * 100):
 #   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
 #   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001
@@ -43,6 +49,74 @@ ENV_FILE="${REPO_ROOT}/.env"
 PROFILE="dev"
 CLUSTER_EE_MULTI_TENANT=""
 CLUSTER_USE_SANDBOX_COMPOSE=true
+
+# Topology selects what a cluster IS.
+#   dev         full docker-compose.dev.yml stack, ~15 containers per cluster
+#   standalone  one container (API + all four workers in one process) against
+#               a single shared infra project reused by every stack
+TOPOLOGY="dev"
+SHARED_INFRA_PROJECT="tracecat-shared-infra"
+SHARED_INFRA_COMPOSE="${REPO_ROOT}/deployments/multi-dev/infra/compose.yaml"
+STANDALONE_COMPOSE="${REPO_ROOT}/deployments/multi-dev/stack.compose.yaml"
+# Where per-stack minted secrets live. Gitignored, never in the repo tree.
+STACK_STATE_DIR="${TRACECAT__STACK_STATE_DIR:-${HOME}/.tracecat/stacks}"
+# Serialises cluster-number allocation across concurrent invocations.
+CLUSTER_ALLOC_LOCK="${TMPDIR:-/tmp}/tracecat-cluster-alloc.lock"
+
+# Fixed host ports for the shared infra project. These are the single source of
+# truth: they are exported so deployments/multi-dev/infra/compose.yaml resolves
+# to exactly these values, rather than the two files agreeing by convention.
+#
+# Each sits 10 above the matching dev-cluster base. Dev clusters stride by 100
+# from those bases, so +10 can never land on any cluster's port.
+SHARED_PG_PORT=5442
+SHARED_REDIS_PORT=6389
+SHARED_TEMPORAL_PORT=7243
+SHARED_TEMPORAL_UI_PORT=8243
+SHARED_MINIO_PORT=9010
+SHARED_MINIO_CONSOLE_PORT=9011
+
+# Credentials for the shared infra are a property of the MACHINE, not of a
+# worktree. Postgres and MinIO bake their users into their data volumes on
+# first init and ignore changed environment values afterwards, so a second
+# worktree whose .env carries different values would fail authentication
+# against the volume the first worktree created. Pin one set on first use and
+# apply it to every stack thereafter.
+SHARED_INFRA_CREDS_FILE="${STACK_STATE_DIR}/shared-infra.env"
+
+load_shared_infra_credentials() {
+    if [[ ! -f "$SHARED_INFRA_CREDS_FILE" ]]; then
+        mkdir -p "$(dirname "$SHARED_INFRA_CREDS_FILE")"
+        {
+            echo "# Credentials for the machine-wide tracecat-shared-infra project."
+            echo "# Written once, on first use. Postgres and MinIO bake these into their"
+            echo "# data volumes, so changing them here does NOT update the running"
+            echo "# services - you would have to 'just cluster infra nuke' first."
+            echo "TRACECAT__POSTGRES_USER=${TRACECAT__POSTGRES_USER:-postgres}"
+            echo "TRACECAT__POSTGRES_PASSWORD=${TRACECAT__POSTGRES_PASSWORD:-postgres}"
+            echo "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio}"
+            echo "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-password}"
+        } > "$SHARED_INFRA_CREDS_FILE"
+        chmod 600 "$SHARED_INFRA_CREDS_FILE"
+        echo "Pinned shared-infra credentials -> ${SHARED_INFRA_CREDS_FILE}"
+    fi
+
+    # Override any worktree .env values: the volume only understands these.
+    set -a
+    # shellcheck disable=SC1090
+    source "$SHARED_INFRA_CREDS_FILE"
+    set +a
+}
+
+export_shared_infra_ports() {
+    load_shared_infra_credentials
+    export TC_SHARED_PG_PORT="$SHARED_PG_PORT"
+    export TC_SHARED_REDIS_PORT="$SHARED_REDIS_PORT"
+    export TC_SHARED_TEMPORAL_PORT="$SHARED_TEMPORAL_PORT"
+    export TC_SHARED_TEMPORAL_UI_PORT="$SHARED_TEMPORAL_UI_PORT"
+    export TC_SHARED_MINIO_PORT="$SHARED_MINIO_PORT"
+    export TC_SHARED_MINIO_CONSOLE_PORT="$SHARED_MINIO_CONSOLE_PORT"
+}
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -69,6 +143,36 @@ get_worktree_id() {
 }
 
 WORKTREE_ID=$(get_worktree_id)
+
+# Project name for a cluster.
+#   dev         tracecat-{worktree}-{num}
+#   standalone  tracecat-{worktree}_sa-{num}
+#
+# The marker is delimited with an underscore, which get_worktree_id can never
+# produce (it sanitises to [a-z0-9-]). A dash would be ambiguous: a standalone
+# stack in worktree "feature" and a dev cluster in worktree "feature-sa" would
+# both yield the prefix "tracecat-feature-sa-", and each would treat the
+# other's project as its own.
+#
+# The marker still sits before the number so get_all_cluster_nums' regex
+# captures it and both topologies share one global number space — a dev cluster
+# and a standalone stack can never claim the same port block.
+cluster_prefix() {
+    local topology=${1:-$TOPOLOGY}
+
+    if [[ "$topology" == "standalone" ]]; then
+        echo "tracecat-${WORKTREE_ID}_sa-"
+    else
+        echo "tracecat-${WORKTREE_ID}-"
+    fi
+}
+
+cluster_project_name() {
+    local cluster_num=$1
+    local topology=${2:-$TOPOLOGY}
+
+    echo "$(cluster_prefix "$topology")${cluster_num}"
+}
 
 # === Portless integration (optional) ===
 # If portless (https://github.com/vercel-labs/portless) is installed and its
@@ -232,36 +336,150 @@ source_env_file() {
 }
 
 # Get list of running cluster numbers for this worktree (used for auto-selection)
+# Cluster numbers for THIS worktree and topology.
+#
+# Pass "include_stopped" when choosing which cluster to reuse. `docker compose
+# down` REMOVES a project's containers, so the project disappears from
+# `docker compose ls -a` entirely while its volumes, database, Temporal
+# namespace and minted secrets all survive. Looking only at Compose projects
+# therefore misses a stack that is merely stopped, and `up` would allocate a
+# fresh number and strand the previous stack's data. Volumes are the durable
+# record, so scan those too.
+#
+# Commands that act on a live cluster (logs, ps, attach) want running only.
 get_running_clusters() {
-    local prefix="tracecat-${WORKTREE_ID}-"
+    local include_stopped=${1:-}
+    local ls_args=()
+    [[ "$include_stopped" == "include_stopped" ]] && ls_args+=(-a)
 
-    docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
-        if [[ "$project" == ${prefix}* ]]; then
-            local num="${project#"$prefix"}"
-            if [[ "$num" =~ ^[0-9]+$ ]]; then
-                echo "$num"
+    local prefix
+    prefix=$(cluster_prefix)
+
+    {
+        # Bash 3.2 (macOS) errors on "${arr[@]}" for an empty array under
+        # `set -u`; use the same guarded expansion as the rest of this script.
+        docker compose ls ${ls_args[@]+"${ls_args[@]}"} --format json 2>/dev/null \
+            | jq -r '.[].Name' 2>/dev/null | while read -r project; do
+            if [[ "$project" == ${prefix}* ]]; then
+                local num="${project#"$prefix"}"
+                if [[ "$num" =~ ^[0-9]+$ ]]; then
+                    echo "$num"
+                fi
             fi
+        done
+
+        if [[ "$include_stopped" == "include_stopped" ]]; then
+            docker volume ls --format '{{.Name}}' 2>/dev/null | while read -r vol; do
+                if [[ "$vol" == ${prefix}* ]]; then
+                    local rest="${vol#"$prefix"}"
+                    local num="${rest%%_*}"
+                    if [[ "$num" =~ ^[0-9]+$ ]]; then
+                        echo "$num"
+                    fi
+                fi
+            done
         fi
-    done | sort -n
+    } | sort -n | uniq
 }
 
-# Get ALL running cluster numbers across all worktrees (used for port allocation)
+# Get ALL cluster numbers across all worktrees and both topologies (used for
+# port allocation).
+#
+# Uses `ls -a` so that STOPPED projects still hold their number. Without it a
+# `down` frees the number, a later `up` is handed a different one, and the
+# original cluster's volumes are stranded under the old project name — which is
+# why nuke carries orphan-volume recovery.
+#
+# Also counts projects that exist only as volumes, for the same reason.
 get_all_cluster_nums() {
     local projects
-    projects=$(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
+    projects=$(docker compose ls -a --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
 
-    for project in $projects; do
-        # Match any tracecat cluster: tracecat-{worktree}-{num}
-        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
-            echo "${BASH_REMATCH[2]}"
-        fi
-    done | sort -n | uniq
+    {
+        for project in $projects; do
+            # Match any tracecat cluster, either topology:
+            #   tracecat-{worktree}-{num}  |  tracecat-{worktree}-sa-{num}
+            if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+                echo "${BASH_REMATCH[2]}"
+            fi
+        done
+
+        docker volume ls --format '{{.Name}}' 2>/dev/null | while read -r vol; do
+            if [[ "$vol" =~ ^tracecat-(.+)-([0-9]+)_ ]]; then
+                echo "${BASH_REMATCH[2]}"
+            fi
+        done
+    } | sort -n | uniq
 }
 
-# Find next available cluster number (globally, to avoid port conflicts)
+CLUSTER_CLAIM_DIR="${STACK_STATE_DIR}/.claims"
+# A claim only has to survive until `docker compose ls -a` reports the project.
+CLUSTER_CLAIM_TTL_SECONDS=600
+
+# mkdir is atomic on every filesystem we care about; macOS has no flock(1).
+acquire_cluster_lock() {
+    local waited=0
+    while ! mkdir "$CLUSTER_ALLOC_LOCK" 2>/dev/null; do
+        # Break a lock abandoned by a killed process.
+        if [[ -d "$CLUSTER_ALLOC_LOCK" ]] && [[ -n "$(find "$CLUSTER_ALLOC_LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]]; then
+            rmdir "$CLUSTER_ALLOC_LOCK" 2>/dev/null || true
+            continue
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+        if [[ "$waited" -gt 100 ]]; then
+            echo "Warning: timed out waiting for cluster allocation lock; proceeding" >&2
+            return 0
+        fi
+    done
+    return 0
+}
+
+release_cluster_lock() {
+    rmdir "$CLUSTER_ALLOC_LOCK" 2>/dev/null || true
+}
+
+# Numbers reserved by a concurrent invocation that has not yet created its
+# Compose project. Without this, two simultaneous `up` runs both observe the
+# same gap and collide on ports.
+get_claimed_cluster_nums() {
+    [[ -d "$CLUSTER_CLAIM_DIR" ]] || return 0
+
+    local now claim num mtime
+    now=$(date +%s)
+    for claim in "$CLUSTER_CLAIM_DIR"/*; do
+        [[ -f "$claim" ]] || continue
+        num=$(basename "$claim")
+        [[ "$num" =~ ^[0-9]+$ ]] || continue
+        mtime=$(stat -f %m "$claim" 2>/dev/null || stat -c %Y "$claim" 2>/dev/null || echo 0)
+        if [[ $((now - mtime)) -gt "$CLUSTER_CLAIM_TTL_SECONDS" ]]; then
+            rm -f "$claim" 2>/dev/null || true
+            continue
+        fi
+        echo "$num"
+    done
+}
+
+claim_cluster_num() {
+    local num=$1
+    mkdir -p "$CLUSTER_CLAIM_DIR" 2>/dev/null || return 0
+    printf '%s %s\n' "$(date +%s)" "$(cluster_project_name "$num")" > "${CLUSTER_CLAIM_DIR}/${num}" 2>/dev/null || true
+}
+
+# Find next available cluster number (globally, to avoid port conflicts) and
+# reserve it, under a lock so that allocate-then-create is atomic.
 get_next_cluster_num() {
+    acquire_cluster_lock
+    local num
+    num=$(_next_cluster_num_unlocked)
+    claim_cluster_num "$num"
+    release_cluster_lock
+    echo "$num"
+}
+
+_next_cluster_num_unlocked() {
     local running
-    running=$(get_all_cluster_nums)
+    running=$(printf '%s\n%s\n' "$(get_all_cluster_nums)" "$(get_claimed_cluster_nums)" | grep -E '^[0-9]+$' | sort -n | uniq)
 
     if [[ -z "$running" ]]; then
         echo "1"
@@ -356,6 +574,13 @@ BASE_MINIO_CONSOLE_PORT=9001
 # Map profile to compose file
 get_compose_file() {
     local profile=$1
+
+    # Standalone ignores the profile: there is exactly one stack definition.
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        echo "$STANDALONE_COMPOSE"
+        return
+    fi
+
     case "$profile" in
         dev)
             echo "${REPO_ROOT}/docker-compose.dev.yml"
@@ -386,6 +611,20 @@ Profiles:
   dev       docker-compose.dev.yml (default)
   local     docker-compose.local.yml
   prod      docker-compose.yml
+
+Topologies:
+  --standalone   One container per stack (API + all four workers in one
+                 process) sharing a single infra project across every
+                 worktree on this machine. Much lighter than a dev cluster;
+                 no UI, no Caddy, no LiteLLM.
+  --dev-stack    Full docker-compose.dev.yml stack (default).
+
+Shared infra (standalone only):
+  ./cluster infra up        Start it (also automatic on 'up')
+  ./cluster infra ps        Status
+  ./cluster infra logs      Logs
+  ./cluster infra down      Stop, keeping all data
+  ./cluster infra nuke      Destroy it and EVERY stack's data
 
 Tenant mode:
   Always defaults to TRACECAT__EE_MULTI_TENANT=true for cluster development.
@@ -484,6 +723,184 @@ normalize_bool() {
     esac
 }
 
+# Identity of a standalone stack. One value that every derived name hangs off:
+# database, Temporal namespace, and the five bucket prefixes.
+#
+# Truncated so that "<id>-tracecat-attachments" stays inside the 63-character
+# limit shared by Postgres identifiers and S3 bucket names.
+stack_id() {
+    local cluster_num=$1
+    local id="${WORKTREE_ID}-${cluster_num}"
+
+    if [[ ${#id} -gt 30 ]]; then
+        id="${WORKTREE_ID:0:28}-${cluster_num}"
+    fi
+    echo "$id"
+}
+
+# Per-stack secrets, minted once and reused. Kept outside the repo entirely.
+stack_env_file() {
+    echo "${STACK_STATE_DIR}/$(stack_id "$1").env"
+}
+
+mint_stack_secrets() {
+    local cluster_num=$1
+    local env_file
+    env_file=$(stack_env_file "$cluster_num")
+
+    if [[ -f "$env_file" ]]; then
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$env_file")"
+    echo "Minting secrets for stack $(stack_id "$cluster_num") -> ${env_file}"
+    {
+        echo "# Generated by scripts/cluster. Safe to delete; it will be re-minted,"
+        echo "# but any data encrypted with the old key becomes unreadable."
+        echo "TRACECAT__SERVICE_KEY=$(openssl rand -hex 32)"
+        echo "TRACECAT__SIGNING_SECRET=$(openssl rand -hex 32)"
+        echo "USER_AUTH_SECRET=$(openssl rand -hex 32)"
+        echo "TRACECAT__DB_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr '+/' '-_')"
+    } > "$env_file"
+    chmod 600 "$env_file"
+}
+
+build_env_standalone() {
+    local cluster_num=$1
+    local stack_id
+    stack_id=$(stack_id "$cluster_num")
+
+    export STACK_ID="$stack_id"
+
+    # Redis ships with 16 logical databases. Wrapping with modulo would give
+    # stacks 1 and 17 the same database, and since the allocator permits
+    # numbers up to 99 they could run concurrently — silently sharing streams,
+    # OIDC state and cached artifacts between supposedly isolated stacks.
+    # Fail loudly instead; raising Redis `databases` is the deliberate fix.
+    if [[ "$cluster_num" -gt 15 ]]; then
+        echo "Error: cluster ${cluster_num} exceeds the 16 Redis logical databases" >&2
+        echo "  A standalone stack needs its own Redis database, and index ${cluster_num} would" >&2
+        echo "  collide with cluster $(( cluster_num % 16 )). Free a lower cluster number, or raise" >&2
+        echo "  'databases' in deployments/multi-dev/infra/compose.yaml and this check." >&2
+        exit 1
+    fi
+    export STACK_REDIS_DB="$cluster_num"
+
+    # No Caddy in this topology: the browser reaches the standalone container
+    # directly, so the app origin IS the published port. UI and API therefore
+    # share an origin, which the frontend's `connect-src 'self'` CSP requires.
+    export TRACECAT__ALLOW_ORIGINS="${PUBLIC_APP_URL}"
+
+    # A standalone process runs the executor in-process; the nsjail sandbox
+    # overlay targets services that do not exist here.
+    export TRACECAT__DISABLE_NSJAIL=true
+    export TRACECAT__EXECUTOR_BACKEND=direct
+
+    export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-false}"
+
+    mint_stack_secrets "$cluster_num"
+    set -a
+    # shellcheck disable=SC1090
+    source "$(stack_env_file "$cluster_num")"
+    set +a
+}
+
+# Bring up the one shared infra project, if it is not already healthy.
+# Idempotent: safe to call on every `up`.
+ensure_shared_infra() {
+    export_shared_infra_ports
+
+    # Always run `up -d --wait`, never short-circuit on the project merely
+    # being listed. A project can exist with Postgres or Temporal stopped or
+    # unhealthy, in which case an early return would let bootstrap fail and
+    # keep failing on every retry. `up -d --wait` is idempotent and is the only
+    # form that actually reconciles a partially running project.
+    echo "Ensuring shared infra is healthy (${SHARED_INFRA_PROJECT})..."
+    docker compose -p "$SHARED_INFRA_PROJECT" -f "$SHARED_INFRA_COMPOSE" up -d --wait
+}
+
+shared_infra_exec() {
+    export_shared_infra_ports
+    local service=$1
+    shift
+    docker compose -p "$SHARED_INFRA_PROJECT" -f "$SHARED_INFRA_COMPOSE" exec -T "$service" "$@"
+}
+
+# Create this stack's database and Temporal namespace. Both are idempotent, so
+# this runs on every `up` and works whether the shared volumes are brand new or
+# years old — unlike a Postgres initdb script, which only fires once.
+ensure_instance_bootstrap() {
+    local cluster_num=$1
+    local stack_id pg_user
+    stack_id=$(stack_id "$cluster_num")
+    pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+
+    if shared_infra_exec postgres psql -U "$pg_user" -d postgres -tAc \
+        "SELECT 1 FROM pg_database WHERE datname = '${stack_id}'" 2>/dev/null | grep -q 1; then
+        echo "Database '${stack_id}' already exists"
+    else
+        echo "Creating database '${stack_id}'..."
+        shared_infra_exec postgres createdb -U "$pg_user" "$stack_id"
+    fi
+
+    if shared_infra_exec temporal temporal operator namespace describe \
+        --address localhost:7233 --namespace "$stack_id" >/dev/null 2>&1; then
+        echo "Temporal namespace '${stack_id}' already exists"
+    else
+        echo "Creating Temporal namespace '${stack_id}'..."
+        shared_infra_exec temporal temporal operator namespace create \
+            --address localhost:7233 --namespace "$stack_id"
+    fi
+}
+
+# Delete this stack's slice of the shared infra.
+#
+# `docker compose down --volumes` only removes volumes declared by the stack's
+# own Compose file — here just sandbox-cache. The database, Temporal namespace,
+# buckets and Redis database live in the shared-infra project and would survive,
+# so the freed cluster number would hand a later stack the previous stack's
+# Redis database, and re-creating the same stack would silently recover data the
+# user asked to delete.
+retire_stack_shared_state() {
+    local cluster_num=$1
+    local stack_id pg_user
+    stack_id=$(stack_id "$cluster_num")
+    pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+
+    if ! docker compose ls --format json 2>/dev/null \
+        | jq -e --arg n "$SHARED_INFRA_PROJECT" '.[] | select(.Name == $n)' >/dev/null 2>&1; then
+        echo "Shared infra is not running; leaving ${stack_id}'s data in place."
+        echo "  Start it and re-run 'rm' to delete the database, namespace and buckets."
+        return 0
+    fi
+
+    echo "Retiring shared state for ${stack_id}..."
+    shared_infra_exec postgres dropdb -U "$pg_user" --if-exists "$stack_id" \
+        && echo "  dropped database ${stack_id}" || echo "  database drop failed (continuing)"
+
+    shared_infra_exec temporal temporal operator namespace delete \
+        --address localhost:7233 --namespace "$stack_id" --yes >/dev/null 2>&1 \
+        && echo "  deleted Temporal namespace ${stack_id}" || echo "  namespace delete skipped"
+
+    shared_infra_exec redis redis-cli -n "$cluster_num" flushdb >/dev/null 2>&1 \
+        && echo "  flushed Redis database ${cluster_num}" || echo "  Redis flush skipped"
+
+    local suffix
+    for suffix in workflow attachments registry skills agent; do
+        shared_infra_exec minio mc rb --force "local/${stack_id}-tracecat-${suffix}" >/dev/null 2>&1 || true
+    done
+    echo "  removed MinIO buckets for ${stack_id}"
+
+    local env_file
+    env_file=$(stack_env_file "$cluster_num")
+    if [[ -f "$env_file" ]]; then
+        rm -f "$env_file"
+        echo "  removed minted secrets ${env_file}"
+    fi
+
+    rm -f "${CLUSTER_CLAIM_DIR}/${cluster_num}" 2>/dev/null || true
+}
+
 # Calculate ports for a given cluster number
 calculate_ports() {
     local cluster_num=$1
@@ -495,6 +912,24 @@ calculate_ports() {
     fi
 
     PUBLIC_APP_PORT=$(( public_app_base + offset ))
+
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        # A standalone stack publishes exactly one port; everything else it
+        # talks to lives in the shared infra project on fixed ports. It still
+        # consumes a whole 100-block, which is what buys collision-free
+        # allocation against dev clusters with no extra bookkeeping.
+        API_PORT=$PUBLIC_APP_PORT
+        UI_PORT=$PUBLIC_APP_PORT
+        PG_PORT=$SHARED_PG_PORT
+        REDIS_PORT_HOST=$SHARED_REDIS_PORT
+        TEMPORAL_PORT=$SHARED_TEMPORAL_PORT
+        TEMPORAL_UI_PORT=$SHARED_TEMPORAL_UI_PORT
+        MINIO_PORT=$SHARED_MINIO_PORT
+        MINIO_CONSOLE_PORT=$SHARED_MINIO_CONSOLE_PORT
+        export_shared_infra_ports
+        return
+    fi
+
     UI_PORT=$(( BASE_UI_PORT + offset ))
     PG_PORT=$(( BASE_PG_PORT + offset ))
     REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
@@ -524,7 +959,8 @@ build_env() {
     fi
 
     # Export all variables (include worktree ID for isolation)
-    export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
+    export COMPOSE_PROJECT_NAME
+    COMPOSE_PROJECT_NAME=$(cluster_project_name "$cluster_num")
     export PUBLIC_APP_PORT
     export PUBLIC_APP_URL
     export PUBLIC_API_URL
@@ -547,6 +983,11 @@ build_env() {
 
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
+
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        build_env_standalone "$cluster_num"
+        return
+    fi
 
     if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
         export TRACECAT__DISABLE_NSJAIL=false
@@ -572,6 +1013,23 @@ build_env() {
 show_ports() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
+
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        cat <<EOF
+Stack $(stack_id "$cluster_num") port mappings:
+  App + API:       http://localhost:${PUBLIC_APP_PORT}  (API also at /api)
+  Health:          http://localhost:${PUBLIC_APP_PORT}/health
+
+Shared infra (${SHARED_INFRA_PROJECT}, one per machine):
+  PostgreSQL:      localhost:${PG_PORT}  (database: $(stack_id "$cluster_num"))
+  Redis:           localhost:${REDIS_PORT_HOST}  (db index: $(( cluster_num % 16 )))
+  Temporal:        localhost:${TEMPORAL_PORT}  (namespace: $(stack_id "$cluster_num"))
+  Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
+  MinIO:           localhost:${MINIO_PORT}
+  MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
+EOF
+        return
+    fi
 
     cat <<EOF
 Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
@@ -631,6 +1089,37 @@ if [[ "$1" == "list" ]]; then
     exit 0
 fi
 
+# Handle 'infra' — manage the shared infra project directly. Standalone stacks
+# never tear it down themselves, since every other stack on the machine depends
+# on it; this is the explicit escape hatch.
+if [[ "$1" == "infra" ]]; then
+    shift
+    export_shared_infra_ports
+    INFRA_COMMAND="${1:-ps}"
+
+    if [[ "$INFRA_COMMAND" == "nuke" ]]; then
+        echo "This destroys the shared infra AND every stack's database, Temporal"
+        echo "namespace, and object storage. Stacks themselves are not touched."
+        echo -n "Type 'nuke' to confirm: "
+        read -r confirm
+        if [[ "$confirm" != "nuke" ]]; then
+            echo "Aborted"
+            exit 1
+        fi
+        exec docker compose -p "$SHARED_INFRA_PROJECT" -f "$SHARED_INFRA_COMPOSE" \
+            down --volumes --remove-orphans
+    fi
+
+    if [[ "$INFRA_COMMAND" == "up" ]]; then
+        ensure_shared_infra
+        exit 0
+    fi
+
+    shift || true
+    exec docker compose -p "$SHARED_INFRA_PROJECT" -f "$SHARED_INFRA_COMPOSE" \
+        "$INFRA_COMMAND" "$@"
+fi
+
 # Check if first arg is a cluster number or a command/flag
 CLUSTER_NUM=""
 AUTO_SELECT=true
@@ -679,6 +1168,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --ee-multi-tenant=*)
             CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        --standalone)
+            TOPOLOGY="standalone"
+            shift
+            ;;
+        --dev-stack)
+            TOPOLOGY="dev"
             shift
             ;;
         --sandbox)
@@ -756,6 +1253,14 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
             shift
             ;;
+        --standalone)
+            TOPOLOGY="standalone"
+            shift
+            ;;
+        --dev-stack)
+            TOPOLOGY="dev"
+            shift
+            ;;
         --sandbox)
             CLUSTER_USE_SANDBOX_COMPOSE=true
             shift
@@ -797,8 +1302,9 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
             CLUSTER_NUM=$(get_next_cluster_num)
             echo "Auto-selected new cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
         else
-            # Reuse existing cluster for this worktree if one is running
-            running=$(get_running_clusters)
+            # Reuse this worktree's cluster, including one that is merely
+            # stopped — its volumes are still there and must not be orphaned.
+            running=$(get_running_clusters include_stopped)
             count=0
             if [[ -n "$running" ]]; then
                 count=$(echo "$running" | wc -l | tr -d ' ')
@@ -844,10 +1350,15 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
     fi
 fi
 
+# Project name for every docker compose invocation below.
+PROJECT_NAME=$(cluster_project_name "$CLUSTER_NUM")
+
 # Get compose file for profile
 COMPOSE_FILE=$(get_compose_file "$PROFILE")
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
-if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+# The sandbox overlay only patches the executor / agent-executor services, which
+# do not exist in a standalone stack — its executor runs in-process.
+if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" && "$TOPOLOGY" != "standalone" ]]; then
     COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
 fi
 
@@ -892,8 +1403,15 @@ if [[ "$COMMAND" == "db" ]]; then
     pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
     pg_pass="${TRACECAT__POSTGRES_PASSWORD:-postgres}"
 
-    echo "Opening TablePlus for cluster ${WORKTREE_ID}-${CLUSTER_NUM} (port ${PG_PORT})..."
-    open -a TablePlus "postgresql://${pg_user}:${pg_pass}@localhost:${PG_PORT}/postgres?sslmode=disable"
+    # A dev cluster keeps everything in its own postgres' default database; a
+    # standalone stack has its own database on the shared server.
+    pg_db="postgres"
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        pg_db=$(stack_id "$CLUSTER_NUM")
+    fi
+
+    echo "Opening TablePlus for ${PROJECT_NAME} (port ${PG_PORT}, database ${pg_db})..."
+    open -a TablePlus "postgresql://${pg_user}:${pg_pass}@localhost:${PG_PORT}/${pg_db}?sslmode=disable"
     exit 0
 fi
 
@@ -908,34 +1426,39 @@ if [[ "$COMMAND" == "attach" ]]; then
     build_env "$CLUSTER_NUM"
 
     # Try bash first, fall back to sh
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
-        || exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
+        || exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" exec "$SERVICE" /bin/sh "$@"
 fi
 
 # Handle 'restart' command
 if [[ "$COMMAND" == "restart" ]]; then
     build_env "$CLUSTER_NUM"
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" restart "$@"
 fi
 
 # Handle 'rm' command - down + remove volumes
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --volumes --remove-orphans "$@"
+        retire_stack_shared_state "$CLUSTER_NUM"
+        exit 0
+    fi
+    exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --volumes --remove-orphans "$@"
 fi
 
 # Handle 'down' command - stop containers and remove the stale portless alias.
 if [[ "$COMMAND" == "down" ]]; then
     build_env "$CLUSTER_NUM"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down "$@"
 fi
 
 # Handle 'nuke' command - destroy cluster and optionally volumes/images
 if [[ "$COMMAND" == "nuke" ]]; then
     build_env "$CLUSTER_NUM"
-    PROJECT_NAME="tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
+    PROJECT_NAME=$(cluster_project_name "$CLUSTER_NUM")
 
     # Parse nuke options
     NUKE_IMAGES=false
@@ -1113,8 +1636,17 @@ if [[ "$COMMAND" == "up" || "$COMMAND" == "seed" ]]; then
     echo "Syncing dependencies..."
     (cd "$REPO_ROOT" && uv sync --group admin --quiet)
 fi
-if [[ "$COMMAND" == "up" ]]; then
+if [[ "$COMMAND" == "up" && "$TOPOLOGY" != "standalone" ]]; then
+    # Standalone runs no frontend, so the install would be pure latency.
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
+fi
+
+# Standalone stacks need the shared infra healthy, and their own database and
+# Temporal namespace, before the container starts. Doing it here is what
+# replaces the cross-project `depends_on` that Compose cannot express.
+if [[ "$COMMAND" == "up" && "$TOPOLOGY" == "standalone" ]]; then
+    ensure_shared_infra
+    ensure_instance_bootstrap "$CLUSTER_NUM"
 fi
 
 # Check for seed flags in up command. Dev profile seeds by default.
@@ -1213,7 +1745,18 @@ seed_dev_user() {
     local seed_org_role="${TRACECAT__DEV_ORG_ROLE:-organization-owner}"
     local seed_workspace_role="${TRACECAT__DEV_WORKSPACE_ROLE:-workspace-admin}"
     local seed_default_tier_entitlements="${DEFAULT_TIER_ENTITLEMENTS}"
-    local seed_db_uri="postgresql+psycopg://postgres:postgres@localhost:${PG_PORT}/postgres"
+    # Dev clusters keep everything in the per-cluster postgres' default
+    # database; a standalone stack has its own database on the shared server.
+    local seed_db_name="postgres"
+    if [[ "$TOPOLOGY" == "standalone" ]]; then
+        seed_db_name=$(stack_id "$CLUSTER_NUM")
+    fi
+    # Use the configured credentials, not hardcoded postgres:postgres. Shared
+    # infra is started with these same values, so a non-default user would
+    # otherwise reach a healthy API and then fail authentication while seeding.
+    local seed_pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+    local seed_pg_pass="${TRACECAT__POSTGRES_PASSWORD:-postgres}"
+    local seed_db_uri="postgresql+psycopg://${seed_pg_user}:${seed_pg_pass}@localhost:${PG_PORT}/${seed_db_name}"
 
     echo "[dev-seed] Seeding dev superuser (${seed_superuser_email}), tenant user (${seed_email}), and default tier (${seed_default_tier_entitlements})..."
     (
@@ -1238,13 +1781,13 @@ fi
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
     if [[ "$DETACHED_UP" == "true" ]]; then
-        docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" "$COMMAND" "$@"
         seed_dev_user
     else
         # Keep compose attached while a background seeder waits for API readiness.
         seed_dev_user &
-        exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" "$COMMAND" "$@"
     fi
 else
-    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" "$COMMAND" "$@"
 fi

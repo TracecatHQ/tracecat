@@ -57,6 +57,7 @@ from saml2.config import Config as Saml2Config
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole, verify_auth_type
 from tracecat.auth.enums import AuthType
@@ -78,7 +79,6 @@ from tracecat.config import (
     TRACECAT__AUTH_ALLOWED_DOMAINS,
     TRACECAT__AUTH_SUPERADMIN_EMAIL,
     TRACECAT__EE_MULTI_TENANT,
-    TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
@@ -529,7 +529,7 @@ async def create_saml_client(
     # Handle SSL certificate configuration for self-signed certificates
     saml_settings = {
         "strict": True,
-        "entityid": TRACECAT__PUBLIC_API_URL,
+        "entityid": config.TRACECAT__PUBLIC_API_URL,
         "xmlsec_binary": XMLSEC_BINARY_PATH,
         "verify_ssl_cert": SAML_VERIFY_SSL_ENTITY,
         "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
@@ -572,14 +572,14 @@ async def create_saml_client(
                 logger.info(f"Using CA certificate file: {ca_cert_path}")
 
                 # Create and configure SAML settings within the context
-                config = Saml2Config()
-                config.load(
+                saml_config = Saml2Config()
+                saml_config.load(
                     {
                         **saml_settings,
                         "ca_certs": ca_cert_path,
                     }
                 )
-                client = Saml2Client(config)
+                client = Saml2Client(saml_config)
 
                 # Validate client
                 if not client.metadata:
@@ -611,8 +611,8 @@ async def create_saml_client(
     else:
         # No CA certificate - proceed with regular configuration
         try:
-            config = Saml2Config()
-            config.load(saml_settings)
+            saml_config = Saml2Config()
+            saml_config.load(saml_settings)
         except Exception as e:
             logger.error(f"Failed to load SAML configuration: {e}")
             raise HTTPException(
@@ -620,7 +620,7 @@ async def create_saml_client(
                 detail="Authentication service unavailable",
             ) from e
 
-        client = Saml2Client(config)
+        client = Saml2Client(saml_config)
 
         if not client.metadata:
             logger.error("SAML client has no metadata loaded")

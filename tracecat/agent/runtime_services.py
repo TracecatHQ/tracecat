@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 
+from tracecat.agent.common import config as agent_config
 from tracecat.logger import logger
 from tracecat.uvicorn_server import NoSignalUvicornServer
 
@@ -38,14 +39,11 @@ async def start_mcp_server(*, capture_signals: bool = True) -> None:
     """Start the trusted MCP HTTP server on Unix socket."""
     global _mcp_server_task
 
-    from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
     from tracecat.agent.mcp.trusted_server import app
 
-    socket_path = TRUSTED_MCP_SOCKET_PATH
+    socket_path = agent_config.TRACECAT__AGENT_MCP_SOCKET_PATH
     socket_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if socket_path.exists():
-        socket_path.unlink()
+    socket_path.unlink(missing_ok=True)
 
     logger.info("Starting MCP server", socket_path=str(socket_path))
     uvicorn_config = uvicorn.Config(

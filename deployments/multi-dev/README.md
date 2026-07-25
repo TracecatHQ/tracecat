@@ -1,92 +1,135 @@
-# Multi-dev shared infrastructure
+# Multi-instance development stacks
 
-This development-only profile runs one shared Postgres, Temporal dev server,
-MinIO, and Redis stack on a VPS. Each Tracecat instance is one combined Python
-process with its own Postgres database, Temporal namespace, MinIO bucket names,
-Redis database index, and host ports.
+A **stack** is one lightweight Tracecat instance: a single container running the
+API and all four Temporal workers in one Python process, against infrastructure
+shared by every stack on the machine.
 
-The infrastructure compose project is named `tracecat-infra`. Instance project
-names come from `TRACECAT_INSTANCE`. All published ports bind to localhost; use
-SSH tunnels or a separately managed reverse proxy for remote access.
+Stacks let you run several Tracecat instances at once — one per worktree, one
+per agent, one per branch under review — without paying for a full
+`docker-compose.dev.yml` cluster each time.
 
-## Quickstart
+## Nothing here is per-stack
 
-Run these commands from the repository root.
+There are no stack directories and no per-stack files to create. A stack's
+identity is derived from the **worktree** it is started in, so adding one is a
+command, not a commit:
 
-1. Start the shared infrastructure. The checked-in defaults are development
-   credentials; set matching `TRACECAT__POSTGRES_*` and `MINIO_ROOT_*` values in
-   your shell before the first start if the VPS is not disposable.
+```bash
+cd ~/dev/tracecat/trees/my-branch
+just cluster --standalone up -d
+```
 
-   ```bash
-   docker compose -f deployments/multi-dev/docker-compose.infra.yml up -d
-   ```
+That derives a stack id from the branch name and the globally allocated cluster
+number (for example `my-branch-5`), then uses it for the database, the Temporal
+namespace, all five bucket names, and the Redis database index. Secrets are
+minted once into `~/.tracecat/stacks/<stack-id>.env` — outside the repo, never
+committed.
 
-2. Create and edit one environment file per instance. Assign a unique instance
-   name, API/UI ports, Redis DB index, and secrets.
+Everything is driven by `scripts/cluster`. The two files here are assets it
+consumes:
 
-   ```bash
-   cp deployments/multi-dev/instance.env.example deployments/multi-dev/alpha.env
-   openssl rand -hex 32
-   uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-   ```
+| File | Role |
+| --- | --- |
+| `infra/compose.yaml` | Shared Postgres, Temporal, MinIO, Redis. One project per machine (`tracecat-shared-infra`). |
+| `stack.compose.yaml` | One parameterized stack. Every per-stack value is interpolated from the environment. |
 
-   Use the Fernet output for `TRACECAT__DB_ENCRYPTION_KEY` and separate random
-   values for `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, and
-   `USER_AUTH_SECRET`. Redis supports DB indexes 0 through 15 by default, so this
-   profile supports up to 16 isolated indexes without changing Redis config.
+## Usage
 
-3. Bootstrap the instance database and Temporal namespace once. The Temporal
-   `1.8.0` image was verified to provide both `operator namespace create` and the
-   `--address`/`--namespace` flags used here.
+```bash
+just cluster --standalone up -d      # start (or reuse) this worktree's stack
+just cluster --standalone ports      # URLs, database, namespace, Redis index
+just cluster --standalone ps         # container status
+just cluster --standalone logs -f    # follow logs
+just cluster --standalone down       # stop, keep all data
+just cluster --standalone rm         # delete the stack AND its shared-infra slice
+```
 
-   ```bash
-   set -a
-   . deployments/multi-dev/alpha.env
-   set +a
+`rm` deletes the stack's database, Temporal namespace, buckets, Redis database
+and minted secrets as well as its container and volume. Anything less would let
+the freed cluster number hand a later stack the previous stack's data.
 
-   docker compose -f deployments/multi-dev/docker-compose.infra.yml exec -T postgres \
-     createdb -U "$TRACECAT__POSTGRES_USER" "$TRACECAT_INSTANCE"
-   docker compose -f deployments/multi-dev/docker-compose.infra.yml exec -T temporal \
-     temporal operator namespace create \
-       --address localhost:7233 \
-       --namespace "$TRACECAT_INSTANCE"
-   ```
+`up` is self-contained. It starts the shared infra if it is not already
+running, creates this stack's database and Temporal namespace if they do not
+exist, then builds, starts, and seeds a dev user. Every step is idempotent, so
+re-running `up` is safe.
 
-   Bootstrap is documented instead of modeled as an init service because the
-   shared infrastructure and each instance have intentionally independent
-   Compose lifecycles. Explicit one-time commands also make duplicate database
-   names or namespaces visible instead of hiding them in restart behavior.
+Source is bind-mounted but the virtualenv lives in the image, so a rebase that
+changes dependencies leaves the container importing packages it does not have.
+Rebuild when that happens:
 
-4. Start the headless instance. Add `--profile ui` to start its optional frontend.
+```bash
+just cluster --standalone up -d --build
+```
 
-   ```bash
-   docker compose \
-     --env-file deployments/multi-dev/alpha.env \
-     -f deployments/multi-dev/docker-compose.instance.yml \
-     up -d --build
-   ```
+Shared infrastructure has its own subcommand, because no single stack should
+tear down what every other stack depends on:
 
-   ```bash
-   docker compose \
-     --env-file deployments/multi-dev/alpha.env \
-     -f deployments/multi-dev/docker-compose.instance.yml \
-     --profile ui up -d --build
-   ```
+```bash
+just cluster infra ps
+just cluster infra logs
+just cluster infra down      # stop, keeping all data
+just cluster infra nuke      # destroy it and EVERY stack's data (prompts)
+```
 
-5. Stop an instance without deleting its cache volume, then stop shared infra
-   after all instances are down. These commands preserve all named volumes.
+## Credentials
 
-   ```bash
-   docker compose \
-     --env-file deployments/multi-dev/alpha.env \
-     -f deployments/multi-dev/docker-compose.instance.yml \
-     down
-   docker compose -f deployments/multi-dev/docker-compose.infra.yml down
-   ```
+Shared-infra credentials are pinned machine-wide in
+`~/.tracecat/stacks/shared-infra.env` on first use, and override any per-worktree
+values. Postgres and MinIO bake their users into their data volumes on first
+init and ignore changed environment values afterwards, so a second worktree with
+different credentials in its `.env` would otherwise fail to authenticate against
+the volume the first one created. Changing them requires
+`just cluster infra nuke`.
+
+## Ports
+
+A stack publishes exactly one port. Everything else lives in shared infra on
+fixed ports.
+
+| | Port |
+| --- | --- |
+| Stack app + API | `10080 + (cluster_num - 1) * 100` (`80 + …` without portless) |
+| Shared Postgres | 5442 |
+| Shared Redis | 6389 |
+| Shared Temporal | 7243 |
+| Shared Temporal UI | 8243 |
+| Shared MinIO | 9010 |
+| Shared MinIO console | 9011 |
+
+Each shared port sits 10 above the matching dev-cluster base. Dev clusters
+stride by 100 from those same bases, so a shared port can never collide with a
+cluster's. Both topologies also draw cluster numbers from one global pool, so a
+stack and a dev cluster can never claim the same 100-block.
+
+`scripts/cluster` exports these as `TC_SHARED_*` and `infra/compose.yaml` reads
+them, so the script is the single source of truth rather than the two files
+agreeing by convention.
+
+## What a stack does not include
+
+- **No UI.** A stack is API-only. To put a browser in front of one, run the
+  frontend against it — but note that `frontend/next.config.mjs` sets
+  `connect-src 'self'`, so the UI and the API must share an origin. Put them on
+  one host behind a reverse proxy that strips `/api` (the repo-root `Caddyfile`
+  is the pattern). A UI served from a different port than the API has every
+  request blocked by CSP.
+- **No LiteLLM.** Point `TRACECAT__LITELLM_BASE_URL` at one running elsewhere.
+- **No nsjail sandbox.** Stacks run `TRACECAT__EXECUTOR_BACKEND=direct` with the
+  executor in-process, which is why the sandbox compose overlay is skipped.
+
+## Memory
+
+Roughly 300 MiB for shared infra, once, plus one container per stack. A stack is
+heaviest during its first boot, while it runs migrations and builds registry
+artifacts, and settles substantially lower once those are cached.
+
+Because infra is shared, the marginal cost of the next stack is just its own
+container; the fixed cost amortizes across every stack on the machine.
 
 ## Memory and concurrency knobs
 
-The instance compose file uses small development defaults:
+`stack.compose.yaml` uses small development defaults, all overridable from the
+environment:
 
 | Variable | Default | Effect |
 | --- | ---: | --- |
@@ -95,11 +138,17 @@ The instance compose file uses small development defaults:
 | `TEMPORAL__MAX_CONCURRENT_ACTIVITIES` | `8` | Caps DSL worker activities in flight. |
 | `TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS` | `4` | Caps DSL workflow tasks; keep this at least `2`. |
 
-Lower concurrency first when a small VPS is memory- or CPU-constrained. The
+Lower concurrency first when the machine is memory- or CPU-constrained. The
 combined process still creates separate activity thread pools for worker types,
 but it imports the Tracecat package only once.
 
-LiteLLM remains external and optional. By default the instance reaches a proxy
-on VPS host port 4000 through `host.docker.internal`; change
-`TRACECAT__LITELLM_BASE_URL` when the proxy lives elsewhere. The frontend is
-also optional and is excluded unless the `ui` profile is selected.
+## Why one container per stack
+
+An earlier iteration forked N children from one warmed parent process, so they
+could share imported pages copy-on-write.
+
+Measured across three instances, that saved about 19 MiB per child while making
+per-stack restart, health checks and resource limits impossible — Docker only
+ever saw one container, so a crashed instance was invisible to `ps` and the
+restart policy never fired. One container per stack trades that ~19 MiB for real
+per-stack lifecycle, which is the better deal at these instance counts.

@@ -1,4 +1,11 @@
-name: ${TRACECAT_INSTANCE:?Set TRACECAT_INSTANCE in the instance env file}
+# One lightweight Tracecat stack: a single container running the API and all
+# four Temporal workers in one process, against the shared infra project.
+#
+# Every per-stack value is interpolated from the environment. `scripts/cluster`
+# derives them from the worktree identity and cluster number — there is nothing
+# per-stack checked in, and no file to edit to add a stack.
+#
+# Not runnable by hand: `just cluster --standalone up -d`.
 
 services:
   standalone:
@@ -9,7 +16,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "tracecat.standalone"]
     ports:
-      - "127.0.0.1:${TRACECAT_API_PORT:?Set TRACECAT_API_PORT}:8000"
+      - "127.0.0.1:${PUBLIC_APP_PORT:?set by scripts/cluster}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PORT: 8000
@@ -19,28 +26,36 @@ services:
       TRACECAT__APP_ENV: development
       TRACECAT__API_ROOT_PATH: /api
       TRACECAT__API_URL: http://127.0.0.1:8000
-      TRACECAT__PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
-      TRACECAT__PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
-      TRACECAT__ALLOW_ORIGINS: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL:?set by scripts/cluster}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL:?set by scripts/cluster}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS:?set by scripts/cluster}
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES:-basic}
       TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL:-}
       TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS:-}
       TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH:-12}
-      USER_AUTH_SECRET: ${USER_AUTH_SECRET:?Set USER_AUTH_SECRET}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY:?Set TRACECAT__DB_ENCRYPTION_KEY}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY:?Set TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET:?Set TRACECAT__SIGNING_SECRET}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS:-}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       TRACECAT__STANDALONE_RUN_MIGRATIONS: ${TRACECAT__STANDALONE_RUN_MIGRATIONS:-true}
 
-      # Per-instance database on shared Postgres
-      TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER:-postgres}:${TRACECAT__POSTGRES_PASSWORD:-postgres}@tracecat-shared-postgres:5432/${TRACECAT_INSTANCE}
-      TRACECAT__DB_SSLMODE: disable
+      # Secrets, minted once per stack into a gitignored env file.
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET:?set by scripts/cluster}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY:?set by scripts/cluster}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY:?set by scripts/cluster}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET:?set by scripts/cluster}
 
-      # Per-instance namespace on shared Temporal
+      # This stack's slice of the shared infra.
+      TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER:-postgres}:${TRACECAT__POSTGRES_PASSWORD:-postgres}@tracecat-shared-postgres:5432/${STACK_ID:?set by scripts/cluster}
+      TRACECAT__DB_SSLMODE: disable
+      TEMPORAL__CLUSTER_NAMESPACE: ${STACK_ID:?set by scripts/cluster}
+      REDIS_URL: redis://tracecat-shared-redis:6379/${STACK_REDIS_DB:?set by scripts/cluster}
+      TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${STACK_ID}-tracecat-workflow
+      TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${STACK_ID}-tracecat-attachments
+      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${STACK_ID}-tracecat-registry
+      TRACECAT__BLOB_STORAGE_BUCKET_SKILLS: ${STACK_ID}-tracecat-skills
+      TRACECAT__BLOB_STORAGE_BUCKET_AGENT: ${STACK_ID}-tracecat-agent
+
+      # Shared Temporal endpoint and small development concurrency defaults
       TEMPORAL__CLUSTER_URL: tracecat-shared-temporal:7233
-      TEMPORAL__CLUSTER_NAMESPACE: ${TRACECAT_INSTANCE}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE:-tracecat-task-queue}
       TEMPORAL__API_KEY: ""
       TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION: ${TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION:-true}
@@ -64,22 +79,14 @@ services:
       TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://host.docker.internal:4000}
 
-      # Per-instance buckets on shared MinIO
+      # Shared MinIO
       TRACECAT__BLOB_STORAGE_ENDPOINT: http://tracecat-shared-minio:9000
-      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT_MINIO_PUBLIC_URL:?Set TRACECAT_MINIO_PUBLIC_URL}
-      TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT_INSTANCE}-tracecat-workflow
-      TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT_INSTANCE}-tracecat-attachments
-      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT_INSTANCE}-tracecat-registry
-      TRACECAT__BLOB_STORAGE_BUCKET_SKILLS: ${TRACECAT_INSTANCE}-tracecat-skills
-      TRACECAT__BLOB_STORAGE_BUCKET_AGENT: ${TRACECAT_INSTANCE}-tracecat-agent
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT_MINIO_PUBLIC_URL:-http://localhost:9010}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
       TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING: ${TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING:-true}
       TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED:-true}
       TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED:-true}
-
-      # Per-instance logical database on shared Redis
-      REDIS_URL: redis://tracecat-shared-redis:6379/${TRACECAT_REDIS_DB:?Set TRACECAT_REDIS_DB}
 
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -87,7 +94,7 @@ services:
       - ../../tracecat:/app/tracecat
       - ../../packages:/app/packages
       - ../../alembic:/app/alembic
-      - standalone-cache:/var/lib/tracecat/sandbox-cache
+      - sandbox-cache:/var/lib/tracecat/sandbox-cache
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -97,40 +104,12 @@ services:
       retries: 30
       start_period: 10s
     networks:
-      - default
       - shared
 
-  ui:
-    profiles: ["ui"]
-    build:
-      context: ../../frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
-        NEXT_PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
-        NEXT_SERVER_API_URL: http://standalone:8000
-        NODE_ENV: development
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${TRACECAT_UI_PORT:?Set TRACECAT_UI_PORT}:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: ${TRACECAT_PUBLIC_API_URL:?Set TRACECAT_PUBLIC_API_URL}
-      NEXT_PUBLIC_APP_ENV: development
-      NEXT_PUBLIC_APP_URL: ${TRACECAT_PUBLIC_APP_URL:?Set TRACECAT_PUBLIC_APP_URL}
-      NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES:-basic}
-      NEXT_SERVER_API_URL: http://standalone:8000
-      NODE_ENV: development
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY:?Set TRACECAT__SERVICE_KEY}
-    depends_on:
-      standalone:
-        condition: service_healthy
-
 volumes:
-  standalone-cache:
+  sandbox-cache:
 
 networks:
-  default:
-    name: tracecat-${TRACECAT_INSTANCE}
   shared:
     external: true
-    name: tracecat-multi-dev
+    name: tracecat-shared-infra

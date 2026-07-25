@@ -31,7 +31,7 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
     socket_path = tmp_path / "trusted-mcp.sock"
 
     monkeypatch.setattr(
-        "tracecat.agent.common.config.TRUSTED_MCP_SOCKET_PATH",
+        "tracecat.agent.common.config.TRACECAT__AGENT_MCP_SOCKET_PATH",
         socket_path,
     )
     monkeypatch.setattr(
