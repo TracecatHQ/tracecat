@@ -16,7 +16,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.audit.logger import audit_log
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
@@ -129,6 +129,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
     """Manages CRUD operations for Workflows."""
 
     service_name = "workflows"
+
+    def _workflow_update_audit_details(
+        self, workflow_id: WorkflowID, params: WorkflowUpdate
+    ) -> AuditEventDetails:
+        return AuditEventDetails(
+            data={"changed_fields": sorted(params.model_fields_set)}
+        )
 
     @staticmethod
     def _workflow_fields_from_dsl(dsl: DSLInput) -> dict[str, Any]:
@@ -764,17 +771,22 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return WorkflowUUID.new(res) if res else None
 
     @require_scope("workflow:update")
+    @audit_log(
+        resource_type="workflow",
+        action="update",
+        attempt_metadata=_workflow_update_audit_details,
+    )
     async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         workflow_uuid = WorkflowUUID.new(workflow_id)
+        set_fields = params.model_dump(exclude_unset=True)
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_uuid,
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()
-        set_fields = params.model_dump(exclude_unset=True)
         if "object" in set_fields:
             graph = RFGraph.model_validate(set_fields["object"])
             normalized_graph = graph.normalize_action_ids()
@@ -928,6 +940,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
             raise e
 
     @require_scope("workflow:update")
+    @audit_log(
+        resource_type="workflow",
+        action="publish",
+    )
     async def publish_workflow(self, workflow_id: WorkflowID) -> WorkflowPublishResult:
         """Publish (commit) a workflow's current draft as a new versioned definition.
 
@@ -942,6 +958,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the workflow does not exist.
         """
+
         workflow = await self.get_workflow(workflow_id)
         if workflow is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
@@ -978,8 +995,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
         ):
             return WorkflowPublishResult(version=None, errors=list(val_errors))
 
-        # Phase 1: resolve a registry lock over the DSL's actions so the published
-        # definition is pinned to exact action versions.
+        # Phase 1: resolve a registry lock over the DSL's actions so the
+        # published definition is pinned to exact action versions.
         lock_service = RegistryLockService(self.session, self.role)
         action_names = {action.action for action in dsl.actions}
         try:
@@ -1155,6 +1172,11 @@ class WorkflowsManagementService(BaseWorkspaceService):
         )
 
     @require_scope("workflow:update")
+    @audit_log(
+        resource_type="workflow",
+        action="update",
+        resource_id_attr="id",
+    )
     async def restore_workflow_definition(
         self, workflow: Workflow, definition: WorkflowDefinition
     ) -> Workflow:
@@ -1225,8 +1247,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             if item["ref"] in ref_to_action_id
         ]
         graph_service = WorkflowGraphService(self.session, role=self.role)
-        await graph_service.apply_operations(
-            workflow_id=WorkflowUUID.new(workflow.id),
+        await graph_service.apply_operations_to_locked_workflow(
+            workflow,
             base_version=workflow.graph_version,
             operations=[
                 GraphOperation(
@@ -1377,6 +1399,11 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return dsl.model_copy(update={"actions": new_actions})
 
     @require_scope("workflow:create")
+    @audit_log(
+        resource_type="workflow",
+        action="create",
+        resource_id_attr="id",
+    )
     async def create_workflow_from_external_definition(
         self,
         import_data: dict[str, Any],

@@ -308,6 +308,10 @@ import type {
   CaseDurationsUpdateCaseDurationResponse,
   CasesAddTagData,
   CasesAddTagResponse,
+  CasesBatchDeleteCasesData,
+  CasesBatchDeleteCasesResponse,
+  CasesBatchUpdateCasesData,
+  CasesBatchUpdateCasesResponse,
   CasesCreateCaseData,
   CasesCreateCaseResponse,
   CasesCreateCommentData,
@@ -9710,6 +9714,58 @@ export const casesSearchCaseAggregates = (
 }
 
 /**
+ * Batch Update Cases
+ * Update multiple cases with per-case results.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchUpdateCases = (
+  data: CasesBatchUpdateCasesData
+): CancelablePromise<CasesBatchUpdateCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/batch-update",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Delete Cases
+ * Delete multiple cases with per-case results.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchDeleteCases = (
+  data: CasesBatchDeleteCasesData
+): CancelablePromise<CasesBatchDeleteCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/batch-delete",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Case
  * Get a specific case.
  * @param data The data for the request.
@@ -11019,7 +11075,7 @@ export const caseDurationsDeleteCaseDurationDefinition = (
 
 /**
  * List Case Durations
- * Sync and list case durations for the provided case.
+ * List materialized case durations for the provided case.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId

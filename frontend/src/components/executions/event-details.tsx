@@ -1,35 +1,52 @@
 "use client"
 
-import { FileInputIcon, ShapesIcon, TriangleAlert } from "lucide-react"
-import React from "react"
-import { CodeBlock } from "@/components/code-block"
-import { CollectionObjectResult } from "@/components/executions/collection-object-result"
-import { ExternalObjectResult } from "@/components/executions/external-object-result"
-import { JsonViewWithControls } from "@/components/json-viewer"
+import { FileInputIcon, ShapesIcon } from "lucide-react"
+import { useState } from "react"
+import {
+  ActionEventDetails,
+  type ActionEventPayloadType,
+} from "@/components/executions/action-event-details"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
+  type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
-import {
-  isCollectionStoredObject,
-  isExternalStoredObject,
-} from "@/lib/stored-object"
 
-export function WorkflowExecutionEventDetailView({
-  event,
-  executionId,
-}: {
-  event: WorkflowExecutionEventCompact
+/** Props for the grouped workflow execution event detail pane. */
+export interface WorkflowExecutionEventDetailViewProps {
+  actionRef: string
+  events: WorkflowExecutionEventCompact[]
   executionId: string
-}) {
-  const hasFailure = Boolean(event.action_error)
+  executionStatus: WorkflowExecutionReadCompact["status"]
+}
+
+/** Render grouped action input and per-stream results in the run details page. */
+export function WorkflowExecutionEventDetailView(
+  props: WorkflowExecutionEventDetailViewProps
+) {
+  return (
+    <WorkflowExecutionEventDetailTabs
+      key={`${props.executionId}:${props.actionRef}`}
+      {...props}
+    />
+  )
+}
+
+function WorkflowExecutionEventDetailTabs({
+  actionRef,
+  events,
+  executionId,
+  executionStatus,
+}: WorkflowExecutionEventDetailViewProps) {
+  const relatedEvents = events.filter((event) => event.action_ref === actionRef)
+  const hasInput = relatedEvents.some(
+    (event) => event.action_input !== null && event.action_input !== undefined
+  )
   const hasResult =
-    event.action_result !== null && event.action_result !== undefined
-  const hasInput =
-    event.action_input !== null && event.action_input !== undefined
+    actionRef !== WF_TRIGGER_EVENT_REF && relatedEvents.length > 0
   const tabItems: {
-    value: "input" | "result"
+    value: ActionEventPayloadType
     label: "Input" | "Result"
     icon: typeof FileInputIcon | typeof ShapesIcon
   }[] = []
@@ -48,155 +65,84 @@ export function WorkflowExecutionEventDetailView({
       icon: ShapesIcon,
     })
   }
-
-  const initialTab = hasResult ? "result" : tabItems[0]?.value
-  const [activeTab, setActiveTab] = React.useState<"input" | "result" | null>(
-    initialTab ?? null
+  // Last pushed tab (result over input) is the preferred default.
+  const [activeTab, setActiveTab] = useState<ActionEventPayloadType | null>(
+    tabItems.at(-1)?.value ?? null
   )
+  // Shared stream selection (by `source_event_id`) so the Input and Result
+  // tabs stay pinned to the same stream. Radix unmounts inactive tabs, so
+  // hoisting selection here survives switching between them. The component is
+  // remounted per action via the parent key, resetting this on action change.
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
 
-  React.useEffect(() => {
-    setActiveTab(initialTab ?? null)
-  }, [event.source_event_id, initialTab])
+  if (tabItems.length === 0 || !activeTab) {
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground">
+        No input or result is available for this event.
+      </div>
+    )
+  }
 
   return (
     <div className="size-full min-h-0 overflow-hidden">
-      <div className="flex h-full min-h-0 flex-col">
-        {hasFailure && (
-          <div className="border-b">
-            <div className="flex h-8 items-center border-b px-3 text-[11px] font-semibold text-muted-foreground">
-              <TriangleAlert
-                className="mr-2 size-4 fill-rose-500 stroke-white"
-                strokeWidth={2}
-              />
-              <span>Event failure</span>
-            </div>
-            <div className="p-3">
-              <CodeBlock title="Message">
-                <span className="text-xs">
-                  {event.action_error?.root_cause_message ??
-                    event.action_error?.message ??
-                    "No error message"}
-                </span>
-              </CodeBlock>
-            </div>
-          </div>
-        )}
-
-        {tabItems.length > 0 && activeTab ? (
-          <Tabs
-            value={activeTab}
-            onValueChange={(value: string) => {
-              setActiveTab(value as "input" | "result")
-            }}
-            className="flex min-h-0 flex-1 flex-col"
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          if (value === "input" || value === "result") {
+            setActiveTab(value)
+          }
+        }}
+        className="flex h-full min-h-0 flex-col"
+      >
+        <div className="sticky top-0 z-10 border-b bg-background">
+          <TabsList className="inline-flex h-8 items-center justify-start bg-transparent px-0 py-0">
+            {tabItems.map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="flex h-full min-w-20 items-center justify-start rounded-none px-3 py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
+                <tab.icon className="mr-2 size-4" />
+                <span>{tab.label}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        {hasInput && (
+          <TabsContent
+            value="input"
+            className="m-0 flex-1 overflow-auto p-3 data-[state=active]:overflow-auto"
           >
-            <div className="sticky top-0 z-10 border-b bg-background">
-              <TabsList className="inline-flex h-8 items-center justify-start bg-transparent px-0 py-0">
-                {tabItems.map((tab) => (
-                  <TabsTrigger
-                    key={tab.value}
-                    value={tab.value}
-                    className="flex h-full min-w-20 items-center justify-start rounded-none px-3 py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                  >
-                    <tab.icon className="mr-2 size-4" />
-                    <span>{tab.label}</span>
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
-            {hasInput && (
-              <TabsContent
-                value="input"
-                className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
-              >
-                <JsonViewContent
-                  src={event.action_input}
-                  copyPrefix={getExecutionEventCopyPrefix(
-                    event.action_ref,
-                    "input"
-                  )}
-                  copyMode="jsonpath-and-payload"
-                />
-              </TabsContent>
-            )}
-            {hasResult && (
-              <TabsContent
-                value="result"
-                className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
-              >
-                {isExternalStoredObject(event.action_result) ? (
-                  <ExternalObjectResult
-                    executionId={executionId}
-                    eventId={event.source_event_id}
-                    external={event.action_result}
-                  />
-                ) : isCollectionStoredObject(event.action_result) ? (
-                  <CollectionObjectResult
-                    executionId={executionId}
-                    eventId={event.source_event_id}
-                    collection={event.action_result}
-                    copyPrefix={getExecutionEventCopyPrefix(
-                      event.action_ref,
-                      "result"
-                    )}
-                    copyMode="jsonpath-and-payload"
-                  />
-                ) : (
-                  <JsonViewContent
-                    src={event.action_result}
-                    copyPrefix={getExecutionEventCopyPrefix(
-                      event.action_ref,
-                      "result"
-                    )}
-                    copyMode="jsonpath-and-payload"
-                  />
-                )}
-              </TabsContent>
-            )}
-          </Tabs>
-        ) : !hasFailure ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            No input or result is available for this event.
-          </div>
-        ) : (
-          <div className="px-4 py-4 text-sm text-muted-foreground">
-            No input or result is available for this event.
-          </div>
+            <ActionEventDetails
+              executionId={executionId}
+              actionRef={actionRef}
+              status={executionStatus}
+              events={events}
+              type="input"
+              presentation="single"
+              selectedEventId={selectedEventId}
+              onSelectedEventIdChange={setSelectedEventId}
+            />
+          </TabsContent>
         )}
-      </div>
+        {hasResult && (
+          <TabsContent
+            value="result"
+            className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
+          >
+            <ActionEventDetails
+              executionId={executionId}
+              actionRef={actionRef}
+              status={executionStatus}
+              events={events}
+              type="result"
+              presentation="single"
+              selectedEventId={selectedEventId}
+              onSelectedEventIdChange={setSelectedEventId}
+            />
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   )
-}
-
-function JsonViewContent({
-  src,
-  copyPrefix,
-  copyMode = "jsonpath-only",
-}: {
-  src: unknown
-  copyPrefix?: string
-  copyMode?: "jsonpath-only" | "jsonpath-and-payload"
-}): JSX.Element {
-  return (
-    <div className="p-3">
-      <JsonViewWithControls
-        src={src}
-        defaultExpanded={true}
-        copyPrefix={copyPrefix}
-        copyMode={copyMode}
-      />
-    </div>
-  )
-}
-
-function getExecutionEventCopyPrefix(
-  actionRef: string,
-  kind: "input" | "result"
-): string {
-  if (actionRef === WF_TRIGGER_EVENT_REF) {
-    return "TRIGGER"
-  }
-  return kind === "input"
-    ? `ACTIONS.${actionRef}`
-    : `ACTIONS.${actionRef}.result`
 }

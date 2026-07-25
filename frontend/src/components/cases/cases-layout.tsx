@@ -1,20 +1,20 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  type CaseDropdownDefinitionRead,
-  type CaseDurationDefinitionRead,
-  type CaseFieldReadMinimal,
-  type CasePriority,
-  type CaseReadMinimal,
-  type CaseSearchAggregateRead,
-  type CaseSeverity,
-  type CaseStatus,
-  type CaseTagRead,
-  type CaseUpdate,
-  casesUpdateCase,
-  type WorkspaceMember,
+import type {
+  CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
+  CasePriority,
+  CaseReadMinimal,
+  CaseSearchAggregateRead,
+  CaseSeverity,
+  CaseStatus,
+  CaseTagRead,
+  CaseUpdate,
+  WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
@@ -31,11 +31,20 @@ import type {
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
-import { useDeleteCase } from "@/lib/hooks"
-import { runWithConcurrencyLimit } from "@/lib/utils"
+import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const BULK_CASE_REQUEST_CONCURRENCY = 8
+// Keep aligned with the CaseBatchUpdate and CaseBatchDelete schema cap.
+const CASE_BATCH_MAX_IDS = 1000
+
+/** Split case IDs into requests that satisfy the server batch-size contract. */
+export function chunkCaseIds(caseIds: string[]): string[][] {
+  const chunks: string[][] = []
+  for (let start = 0; start < caseIds.length; start += CASE_BATCH_MAX_IDS) {
+    chunks.push(caseIds.slice(start, start + CASE_BATCH_MAX_IDS))
+  }
+  return chunks
+}
 
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
@@ -77,7 +86,6 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
-  refetch?: () => void
 }
 
 export function CasesLayout({
@@ -120,7 +128,6 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
-  refetch,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -131,7 +138,9 @@ export function CasesLayout({
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
-  const { deleteCase } = useDeleteCase({ workspaceId })
+  const queryClient = useQueryClient()
+  const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
+  const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
   const { toast } = useToast()
 
   const handleSelectCase = useCallback(
@@ -171,32 +180,60 @@ export function CasesLayout({
   const handleBulkDelete = useCallback(async () => {
     if (selectedCaseIds.size === 0) return
 
+    const caseIds = Array.from(selectedCaseIds)
+    const succeededIds = new Set<string>()
+    let failed = 0
     try {
       setIsDeleting(true)
-      const caseIds = Array.from(selectedCaseIds)
-      await runWithConcurrencyLimit(
-        caseIds.map((caseId) => () => deleteCase(caseId)),
-        BULK_CASE_REQUEST_CONCURRENCY
-      )
+      for (const chunk of chunkCaseIds(caseIds)) {
+        const response = await batchDeleteCases({ case_ids: chunk })
+        for (const result of response.results) {
+          if (result.success) {
+            succeededIds.add(result.case_id)
+          }
+        }
+        failed += response.failed
+      }
 
-      toast({
-        title: `${caseIds.length} case(s) deleted`,
-        description: "The selected cases have been deleted successfully.",
-      })
-
-      refetch?.()
-      setSelectedCaseIds(new Set())
+      if (failed > 0) {
+        toast({
+          variant: "destructive",
+          title: `${succeededIds.size} deleted, ${failed} failed`,
+          description: "Some selected cases could not be deleted.",
+        })
+        // Drop succeeded cases from the current selection so a retry targets
+        // the remainder without discarding selection changes made mid-flight.
+        setSelectedCaseIds(
+          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+        )
+      } else {
+        toast({
+          title: `${caseIds.length} case(s) deleted`,
+          description: "The selected cases have been deleted successfully.",
+        })
+        setSelectedCaseIds(new Set())
+      }
     } catch (err) {
       console.error("Failed to delete cases:", err)
       toast({
         variant: "destructive",
-        title: "Failed to delete cases",
-        description: "Please try again.",
+        title:
+          succeededIds.size > 0
+            ? `${succeededIds.size} deleted before a request failed`
+            : "Failed to delete cases",
+        description: "Please retry to delete the remaining cases.",
       })
+      // Keep only unprocessed/failed cases selected so a retry cannot
+      // resubmit already-deleted IDs.
+      setSelectedCaseIds(
+        (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+      )
     } finally {
+      // Refetch once per bulk operation, not once per chunk.
+      queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
       setIsDeleting(false)
     }
-  }, [deleteCase, refetch, selectedCaseIds, toast])
+  }, [batchDeleteCases, queryClient, selectedCaseIds, toast])
 
   const handleBulkUpdate = useCallback(
     async (
@@ -206,44 +243,68 @@ export function CasesLayout({
       if (selectedCaseIds.size === 0) return
 
       const caseIds = Array.from(selectedCaseIds)
+      const succeededIds = new Set<string>()
+      let failed = 0
 
       try {
         setIsBulkUpdating(true)
 
-        await runWithConcurrencyLimit(
-          caseIds.map(
-            (caseId) => () =>
-              casesUpdateCase({
-                workspaceId,
-                caseId,
-                requestBody: updates,
-              })
-          ),
-          BULK_CASE_REQUEST_CONCURRENCY
-        )
+        for (const chunk of chunkCaseIds(caseIds)) {
+          const response = await batchUpdateCases({
+            case_ids: chunk,
+            update: updates,
+          })
+          for (const result of response.results) {
+            if (result.success) {
+              succeededIds.add(result.case_id)
+            }
+          }
+          failed += response.failed
+        }
 
-        toast({
-          title:
-            options?.successTitle ||
-            `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
-          description:
-            options?.successDescription ||
-            "The selected cases have been updated successfully.",
-        })
-
-        refetch?.()
+        if (failed > 0) {
+          toast({
+            variant: "destructive",
+            title: `${succeededIds.size} updated, ${failed} failed`,
+            description: "Some selected cases could not be updated.",
+          })
+          // Drop succeeded cases from the current selection so a retry targets
+          // the remainder without discarding selection changes made mid-flight.
+          setSelectedCaseIds(
+            (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+          )
+        } else {
+          toast({
+            title:
+              options?.successTitle ||
+              `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
+            description:
+              options?.successDescription ||
+              "The selected cases have been updated successfully.",
+          })
+        }
       } catch (err) {
         console.error("Failed to update cases:", err)
         toast({
           variant: "destructive",
-          title: "Failed to update cases",
-          description: "Please try again.",
+          title:
+            succeededIds.size > 0
+              ? `${succeededIds.size} updated before a request failed`
+              : "Failed to update cases",
+          description: "Please retry to update the remaining cases.",
         })
+        // Keep only unprocessed/failed cases selected so a retry targets
+        // just the remainder.
+        setSelectedCaseIds(
+          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
+        )
       } finally {
+        // Refetch once per bulk operation, not once per chunk.
+        queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
         setIsBulkUpdating(false)
       }
     },
-    [refetch, selectedCaseIds, toast, workspaceId]
+    [batchUpdateCases, queryClient, selectedCaseIds, toast]
   )
 
   // Sync selection state with context

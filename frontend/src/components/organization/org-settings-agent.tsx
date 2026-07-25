@@ -522,6 +522,8 @@ function getProviderDisplayLabel(provider: string): string {
       return "Anthropic"
     case "gemini":
       return "Google Gemini"
+    case "mistral":
+      return "Mistral AI"
     case "openai":
       return "OpenAI"
     case "custom-model-provider":
@@ -543,6 +545,8 @@ function getProviderIconId(provider?: string | null): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:
@@ -1139,16 +1143,48 @@ function CustomSourceModelRow({
           </p>
         ) : null}
       </div>
-      <Button
-        disabled={disabled}
-        onClick={() => {
-          void onToggle(model)
-        }}
-        size="sm"
-        variant={model.enabled ? "secondary" : "outline"}
-      >
-        {model.enabled ? "Disable" : "Enable"}
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="Model actions"
+            disabled={disabled}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <MoreVertical className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onSelect={() => {
+              void onToggle(model)
+            }}
+          >
+            {model.enabled ? "Disable" : "Enable"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={async () => {
+              try {
+                await navigator.clipboard.writeText(model.id)
+                toast({
+                  title: "Copied",
+                  description: `Catalog ID ${model.id} copied to clipboard.`,
+                })
+              } catch {
+                toast({
+                  title: "Copy failed",
+                  description:
+                    "Could not copy the catalog ID to your clipboard.",
+                  variant: "destructive",
+                })
+              }
+            }}
+          >
+            Copy catalog ID
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

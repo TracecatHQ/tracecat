@@ -121,6 +121,35 @@ class CaseUpdate(Schema):
     payload: dict[str, Any] | None = None
 
 
+class CaseBatchUpdate(Schema):
+    """Request body for updating multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+    update: CaseUpdate
+
+
+class CaseBatchDelete(Schema):
+    """Request body for deleting multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class CaseBatchItemResult(Schema):
+    """Result of a batch operation for one case."""
+
+    case_id: uuid.UUID
+    success: bool
+    error: str | None = None
+
+
+class CaseBatchResponse(Schema):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 # Case Fields
 
 

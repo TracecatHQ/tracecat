@@ -16,6 +16,7 @@ from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     FINALIZE_TURN_PATCH,
+    FINALIZE_TURN_WITH_END_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     PERSIST_SESSION_ERROR_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
@@ -31,6 +32,7 @@ from tracecat.agent.executor.activity import AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.session.activities import FinalizeTurnInput, FinalizeTurnResult
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -88,7 +90,7 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
 
 
-def test_legacy_workflow_rotates_stream_from_new_approval_update() -> None:
+def test_workflow_rotates_stream_from_new_approval_update() -> None:
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -101,7 +103,6 @@ def test_legacy_workflow_rotates_stream_from_new_approval_update() -> None:
     previous_stream_id = uuid.uuid4()
     new_stream_id = uuid.uuid4()
     workflow_instance.active_stream_id = previous_stream_id
-    workflow_instance._approval_stream_v2 = False
 
     cast(Any, workflow_instance.set_approvals)(
         WorkflowApprovalSubmission(
@@ -260,18 +261,232 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
+        patch.object(
+            workflow_instance,
+            "_finalize_turn",
+            AsyncMock(),
+        ) as finalize_turn_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
     ):
         result = await workflow_instance.run(workflow_args)
 
-    # run() gates the search-attribute upsert (entry) and finalize_turn (finally)
-    # behind patch markers; legacy histories see False for both.
+    # Search-attribute upsert and both finalization history shapes retain their
+    # independent patch gates.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((FINALIZE_TURN_WITH_END_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
+    finalize_turn_mock.assert_not_awaited()
+    emit_terminal_done_mock.assert_awaited_once_with(None)
     assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_run_preserves_v1_finalize_then_done_history_shape() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    active_stream_id = uuid.uuid4()
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+    call_order: list[str] = []
+
+    async def terminal_run(*_: object) -> AgentOutput:
+        workflow_instance.active_stream_id = active_stream_id
+        return expected_output
+
+    async def finalize(*_: object, **__: object) -> None:
+        call_order.append("finalize")
+
+    async def emit_done(*_: object) -> None:
+        call_order.append("done")
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=lambda patch_id: patch_id == FINALIZE_TURN_PATCH,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_agent_executor",
+            AsyncMock(side_effect=terminal_run),
+        ),
+        patch.object(
+            workflow_instance,
+            "_finalize_turn",
+            AsyncMock(side_effect=finalize),
+        ) as finalize_turn_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(side_effect=emit_done),
+        ) as emit_terminal_done_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    assert result == expected_output
+    finalize_turn_mock.assert_awaited_once_with(None, emit_terminal_done=False)
+    emit_terminal_done_mock.assert_awaited_once_with(active_stream_id)
+    assert call_order == ["finalize", "done"]
+
+
+@pytest.mark.anyio
+async def test_run_does_not_emit_done_after_combined_finalize_failure() -> None:
+    """A failed DB/Redis finalization must not claim the stream is complete."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    rotated_stream_id = uuid.uuid4()
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+    finalize_error = ActivityError(
+        "finalize failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="finalize_turn_activity",
+        activity_id="activity-id",
+        retry_state=None,
+    )
+
+    async def terminal_run(*args: object) -> AgentOutput:
+        del args
+        workflow_instance.active_stream_id = rotated_stream_id
+        return expected_output
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=lambda patch_id: patch_id == FINALIZE_TURN_WITH_END_PATCH,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=f"agent/{workflow_args.agent_args.session_id}"
+            ),
+        ),
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_agent_executor",
+            AsyncMock(side_effect=terminal_run),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(side_effect=finalize_error),
+        ) as execute_activity_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(),
+        ) as execute_activity_method_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    assert result == expected_output
+    execute_activity_mock.assert_awaited_once()
+    execute_activity_method_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("activity_result", "expects_fallback"),
+    [
+        pytest.param(None, True, id="legacy-worker"),
+        pytest.param(
+            FinalizeTurnResult(terminal_done_emitted=True),
+            False,
+            id="combined-worker",
+        ),
+    ],
+)
+async def test_finalize_turn_falls_back_only_for_legacy_worker_result(
+    activity_result: FinalizeTurnResult | None,
+    *,
+    expects_fallback: bool,
+) -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    active_stream_id = uuid.uuid4()
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=f"agent/{workflow_args.agent_args.session_id}"
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=activity_result),
+        ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
+    ):
+        await workflow_instance._finalize_turn(
+            active_stream_id,
+            emit_terminal_done=True,
+        )
+
+    execute_activity_mock.assert_awaited_once()
+    activity_call = execute_activity_mock.await_args
+    assert activity_call is not None
+    finalize_input = activity_call.args[1]
+    assert isinstance(finalize_input, FinalizeTurnInput)
+    assert finalize_input.active_stream_id == active_stream_id
+    assert finalize_input.emit_terminal_done is True
+    if expects_fallback:
+        emit_terminal_done_mock.assert_awaited_once_with(active_stream_id)
+    else:
+        emit_terminal_done_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -301,7 +516,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False, False, False],
+            side_effect=[False, False, False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -319,6 +534,11 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
             AsyncMock(),
         ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
     ):
         with pytest.raises(ActivityError):
             await workflow_instance.run(workflow_args)
@@ -330,9 +550,11 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
         ((PERSIST_SESSION_ERROR_PATCH,),),
+        ((FINALIZE_TURN_WITH_END_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
     execute_activity_mock.assert_not_awaited()
+    emit_terminal_done_mock.assert_awaited_once_with(None)
 
 
 @pytest.mark.anyio

@@ -71,7 +71,6 @@ from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
     MCPConnectionVerificationError,
     MCPValidationError,
-    sanitize_urls_in_text,
     validate_mcp_command_config,
 )
 from tracecat.integrations.providers import get_provider_class
@@ -119,6 +118,7 @@ from tracecat.integrations.types import (
     OAuthServerMetadata,
     TokenResponse,
 )
+from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement

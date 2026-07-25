@@ -11,7 +11,7 @@ from aiocache import Cache
 from sqlalchemy import and_, or_, select, union_all
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
 from tracecat.contexts import (
@@ -77,6 +77,30 @@ from tracecat.variables.service import VariablesService
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+
+def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
+    """Classify the trusted entry point that dispatched an executor action."""
+    match role:
+        case Role(type="service", service_id="tracecat-mcp"):
+            return "agent"
+        case _:
+            return "workflow"
+
+
+def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
+    """Mint SDK credentials carrying the root action's trusted provenance."""
+    if role.workspace_id is None:
+        raise ValueError("workspace_id is required for action execution")
+    return mint_executor_token(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        service_id=role.service_id,
+        execution_origin=_execution_origin_for_role(role),
+        root_action=input.task.action,
+        wf_id=str(input.run_context.wf_id),
+        wf_exec_id=str(input.run_context.wf_run_id),
+    )
 
 
 @dataclass
@@ -398,16 +422,8 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
-    # Mint new executor token for step (required for SDK authentication)
-    if role.workspace_id is None:
-        raise ValueError("workspace_id is required for template step execution")
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
-    )
+    # Mint a fresh step token while retaining the root action's provenance.
+    executor_token = _mint_action_executor_token(input, role)
 
     # Reuse parent secrets/variables, use pre-evaluated args
     return ResolvedContext(
@@ -731,13 +747,7 @@ async def prepare_resolved_context(
         mask_values = set(secret_projection.mask_values)
 
     # Generate executor token for SDK authentication
-    executor_token = mint_executor_token(
-        workspace_id=role.workspace_id,
-        user_id=role.user_id,
-        service_id=role.service_id,
-        wf_id=str(input.run_context.wf_id),
-        wf_exec_id=str(input.run_context.wf_run_id),
-    )
+    executor_token = _mint_action_executor_token(input, role)
 
     resolved_context = ResolvedContext(
         secrets=secrets,
@@ -827,10 +837,13 @@ async def invoke_once(
             exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
         raise ExecutionError(info=exec_result) from e
 
-    # Apply secret masking at root level only
-    # Steps don't mask - masking happens once here after all execution completes
+    # Apply secret masking at root level only. Large action results can make this
+    # CPU-bound traversal expensive, so keep it off the activity event loop where
+    # it could otherwise delay heartbeats for every activity on the worker.
     if mask_values:
-        action_result = apply_masks_object(action_result, masks=mask_values)
+        action_result = await asyncio.to_thread(
+            apply_masks_object, action_result, masks=mask_values
+        )
     return action_result
 
 
