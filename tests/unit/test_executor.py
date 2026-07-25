@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
 from tracecat import config
+from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
@@ -138,6 +139,28 @@ def make_registry_lock(action: str, origin: str = "tracecat_registry") -> Regist
     )
 
 
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        pytest.param(
+            Role(type="service", service_id="tracecat-mcp"),
+            "agent",
+            id="agent-service",
+        ),
+        pytest.param(
+            Role(type="service", service_id="tracecat-executor"),
+            "workflow",
+            id="workflow",
+        ),
+    ],
+)
+def test_execution_origin_for_role(
+    role: Role,
+    expected: str,
+) -> None:
+    assert executor_service._execution_origin_for_role(role) == expected
+
+
 async def run_action_test(input: RunActionInput, role: Role) -> Any:
     """Test helper: execute action using production code path.
 
@@ -167,6 +190,67 @@ def mock_run_context():
         environment="default",
         logical_time=datetime.now(UTC),
     )
+
+
+@pytest.mark.anyio
+async def test_template_step_token_preserves_root_execution_claims(
+    mock_run_context: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    root_action = "testing.template"
+    step_action = "core.script.run_python"
+    action_impl = ActionImplementation(
+        type="udf",
+        action_name=step_action,
+        module="tracecat_registry.core.python",
+        name="run_python",
+    )
+
+    async def resolve_action(*_args: Any, **_kwargs: Any) -> ActionImplementation:
+        return action_impl
+
+    monkeypatch.setattr(
+        executor_service.registry_resolver,
+        "resolve_action",
+        resolve_action,
+    )
+    input = RunActionInput(
+        task=ActionStatement(ref="template", action=root_action, args={}),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock(step_action),
+    )
+    parent_resolved = executor_service.ResolvedContext(
+        action_impl=ActionImplementation(
+            type="template",
+            action_name=root_action,
+            template_definition={},
+        ),
+        evaluated_args={},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(mock_run_context.wf_id),
+        run_id=str(mock_run_context.wf_run_id),
+        executor_token="parent-token",
+    )
+
+    step_resolved = await executor_service._prepare_step_context(
+        step_action=step_action,
+        evaluated_args={},
+        parent_resolved=parent_resolved,
+        input=input,
+        role=role,
+    )
+
+    claims = verify_executor_token(step_resolved.executor_token)
+    assert claims.execution_origin == "agent"
+    assert claims.root_action == root_action
 
 
 @pytest.fixture(scope="function")

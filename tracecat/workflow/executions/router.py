@@ -2,7 +2,6 @@ import base64
 from datetime import datetime
 from typing import Any, Literal
 
-import temporalio.service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -1134,14 +1133,6 @@ async def cancel_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring cancellation request",
-            )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e
 
 
 @router.post(
@@ -1163,11 +1154,3 @@ async def terminate_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring termination request",
-            )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e

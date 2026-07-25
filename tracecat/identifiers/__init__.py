@@ -90,6 +90,7 @@ InternalServiceID = Literal[
     "tracecat-cli",
     "tracecat-executor",
     "tracecat-agent-executor",
+    "tracecat-case-duration-sync",
     "tracecat-case-triggers",
     "tracecat-llm-gateway",
     "tracecat-mcp",

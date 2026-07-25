@@ -12,7 +12,11 @@ from tracecat.agent.catalog.schemas import (
     AgentCatalogUpdate,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
+from tracecat.auth.dependencies import (
+    OrgActorRole,
+    OrgUserRole,
+    WorkspaceUserPathRole,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -27,7 +31,7 @@ router = APIRouter()
 )
 @require_scope("agent:read")
 async def list_catalog(
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     provider: str | None = Query(None),
     model_name: str | None = Query(None),
@@ -35,6 +39,9 @@ async def list_catalog(
     limit: int = Query(50, ge=1, le=100),
 ) -> AgentCatalogListResponse:
     """List catalog entries with optional filtering and pagination."""
+    # Workspace-bound keys must use the workspace-effective model view instead.
+    if role.type == "service_account" and role.bound_workspace_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     service = AgentCatalogService(session=session)
     try:
         params = CursorPaginationParams(cursor=cursor, limit=limit)
@@ -59,11 +66,14 @@ async def list_catalog(
 @require_scope("agent:read")
 async def get_catalog_entry(
     catalog_id: UUID,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> AgentCatalogRead:
     """Get a specific catalog entry."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    assert role.organization_id is not None  # OrgActorRole guarantees this
+    # Workspace-bound keys must use the workspace-effective model view instead.
+    if role.type == "service_account" and role.bound_workspace_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     service = AgentCatalogService(session=session)
     try:
         row = await service.get_catalog_entry(
