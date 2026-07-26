@@ -624,6 +624,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.google_api": createIconRenderer(GoogleIcon),
+    "tools.google_scc": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
     "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),

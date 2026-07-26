@@ -1,0 +1,106 @@
+type: action
+definition:
+  title: List findings
+  description: >
+    List Security Command Center findings under an organization, folder, or
+    project scope. Returns `findings`, `total_size`, and a `truncated` flag.
+    Pages are held in memory, so `max_pages` is bounded by default.
+  display_group: Google Security Command Center
+  doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.findings/list
+  namespace: tools.google_scc
+  name: list_findings
+  secrets:
+    - type: oauth
+      provider_id: google
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional: true
+  expects:
+    scope:
+      type: str
+      description: Parent scope. One of `organizations/{id}`, `folders/{id}`, or `projects/{id}`.
+    source:
+      type: str
+      description: Source ID to list findings from. Use `-` for all sources.
+      default: "-"
+    filter:
+      type: str | None
+      description: SCC filter expression, e.g. `state="ACTIVE" AND severity="HIGH"`.
+      default: null
+    order_by:
+      type: str | None
+      description: Comma-separated fields to sort by, e.g. `event_time desc`.
+      default: null
+    page_size:
+      type: int
+      description: Number of findings per page (max 1000).
+      default: 100
+    max_pages:
+      type: int | None
+      description: >
+        Maximum pages to fetch. Null fetches every page. If the cap truncates the
+        result, `truncated` is true and `next_page_token` is returned.
+      default: 10
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          scope: ${{ inputs.scope }}
+          source: ${{ inputs.source }}
+          filter_: ${{ inputs.filter }}
+          order_by: ${{ inputs.order_by }}
+          page_size: ${{ inputs.page_size }}
+        script: |
+          SCOPE_TYPES = ("organizations", "folders", "projects")
+
+          def main(scope, source, filter_, order_by, page_size):
+              scope_type, _, scope_id = scope.partition("/")
+              if scope_type not in SCOPE_TYPES or not scope_id:
+                  raise ValueError(
+                      "`scope` must be one of "
+                      "organizations/{id}, folders/{id}, or projects/{id}. "
+                      f"Got: {scope!r}"
+                  )
+              parent = f"{scope}/sources/{source}"
+              resource = f"{scope_type}.sources.findings"
+              params = {"parent": parent, "pageSize": page_size}
+              if filter_:
+                  params["filter"] = filter_
+              if order_by:
+                  params["orderBy"] = order_by
+              return {"resource": resource, "params": params}
+    - ref: list_findings
+      action: tools.google_api.call_paginated_api
+      args:
+        service_name: securitycenter
+        version: v2
+        resource: ${{ steps.build_request.result.resource }}
+        method_name: list
+        params: ${{ steps.build_request.result.params }}
+        max_pages: ${{ inputs.max_pages }}
+        static_discovery: false
+    - ref: flatten
+      action: core.script.run_python
+      args:
+        inputs:
+          pages: ${{ steps.list_findings.result }}
+        script: |
+          def main(pages):
+              findings = []
+              for page in pages:
+                  findings.extend(page.get("listFindingsResults", []))
+              # A page cap stops the fetch early, and the last page still carries
+              # a nextPageToken. Surface it: a truncated result must never look
+              # like a complete one to a downstream triage step.
+              last = pages[-1] if pages else {}
+              next_page_token = last.get("nextPageToken")
+              return {
+                  "findings": findings,
+                  "total_size": last.get("totalSize"),
+                  "truncated": bool(next_page_token),
+                  "next_page_token": next_page_token,
+              }
+  returns: ${{ steps.flatten.result }}
