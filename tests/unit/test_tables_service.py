@@ -17,7 +17,7 @@ from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams, InvalidCursorError
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     handle_default_value,
@@ -1436,6 +1436,63 @@ class TestTableRows:
         # - has_previous: there are no older rows before this reverse page
         assert reverse_page.has_more is True
         assert reverse_page.has_previous is False
+
+    async def test_list_rows_reverse_pagination_returns_preceding_page(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Paging backward should land on the page immediately before the cursor."""
+        for i in range(6):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"Row{i}", "age": i})
+            )
+
+        page_1 = await _list_rows_page(tables_service, table, limit=2)
+        page_2 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page_1.next_cursor
+        )
+        page_3 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page_2.next_cursor
+        )
+
+        assert page_3.prev_cursor is not None
+        back_to_2 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page_3.prev_cursor, reverse=True
+        )
+
+        assert [row["id"] for row in back_to_2.items] == [
+            row["id"] for row in page_2.items
+        ]
+        assert back_to_2.has_more is True
+        assert back_to_2.has_previous is True
+
+        forward_to_3 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=back_to_2.next_cursor
+        )
+        assert [row["id"] for row in forward_to_3.items] == [
+            row["id"] for row in page_3.items
+        ]
+
+    async def test_list_rows_rejects_a_cursor_from_a_different_sort(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """A stale-sort cursor must fail loudly instead of rewinding to page 1."""
+        for i in range(3):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"Stale{i}", "age": i})
+            )
+
+        page_1 = await _list_rows_page(tables_service, table, limit=1)
+        assert page_1.next_cursor is not None
+
+        with pytest.raises(InvalidCursorError):
+            await tables_service.list_rows(
+                table,
+                params=CursorPaginationParams(
+                    limit=1, cursor=page_1.next_cursor, reverse=False
+                ),
+                order_by="age",
+                sort="asc",
+            )
 
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table

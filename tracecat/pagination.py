@@ -2,6 +2,8 @@
 
 import base64
 import json
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TypeVar
 from uuid import UUID
@@ -45,6 +47,94 @@ class CursorPaginatedResponse[T](BaseModel):
     )
 
 
+class InvalidCursorError(ValueError):
+    """A cursor that cannot be applied to the query it was submitted with.
+
+    Raised when the cursor's sort column or sort value does not line up with
+    the current sort, which happens when a client changes the sort without
+    restarting pagination. Dropping the cursor filter instead would silently
+    return the first page while still reporting ``has_previous``.
+
+    Subclasses ``ValueError`` so routers surface it as 400, the same way
+    ``decode_cursor`` already reports a structurally malformed cursor.
+    """
+
+
+@dataclass(slots=True)
+class CursorPage[T]:
+    """A single page of keyset-paginated rows in display order."""
+
+    items: list[T]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+
+
+def take_cursor_page[T](rows: Sequence[T], *, limit: int) -> tuple[list[T], bool]:
+    """Trim an over-fetched keyset scan to a page.
+
+    Args:
+        rows: Rows returned by a scan that requested ``limit + 1`` rows.
+        limit: Page size requested by the caller.
+
+    Returns:
+        The page rows (still in scan order) and whether the scan found more
+        rows beyond the page in the direction it was scanning.
+    """
+    has_more = len(rows) > limit
+    return list(rows[:limit]), has_more
+
+
+def build_cursor_page[T](
+    rows: Sequence[T],
+    *,
+    cursor: str | None,
+    reverse: bool,
+    has_more: bool,
+    encode_cursor: Callable[[T], str],
+) -> CursorPage[T]:
+    """Derive page items, cursors, and flags from a trimmed keyset scan.
+
+    Reverse pagination scans away from the cursor in the inverted sort order,
+    so the caller must invert its ``ORDER BY`` (and the cursor predicate) when
+    ``reverse`` is set. This function then puts the rows back into display
+    order and swaps the cursors and flags, since the scan's "more rows ahead"
+    is the page's "more rows behind".
+
+    Args:
+        rows: Page rows in scan order, already trimmed by ``take_cursor_page``.
+        cursor: The cursor the scan started from, if any.
+        reverse: Whether the scan ran backwards from ``cursor``.
+        has_more: Whether the scan found rows beyond the page.
+        encode_cursor: Encodes the cursor anchored at a given row.
+
+    Returns:
+        The page in display order with cursors and flags in forward semantics.
+    """
+    items = list(rows)
+    next_cursor = encode_cursor(items[-1]) if has_more and items else None
+    prev_cursor = encode_cursor(items[0]) if cursor is not None and items else None
+    has_previous = cursor is not None
+
+    if reverse:
+        items.reverse()
+        next_cursor, prev_cursor = prev_cursor, next_cursor
+        # In reverse mode "next" walks back toward the page we came from, which
+        # is only reachable when this page produced an anchor cursor. Tying it
+        # to a bare `cursor is not None` would advertise has_more=True with
+        # next_cursor=None on an empty page, enabling a dead pagination control.
+        has_more, has_previous = next_cursor is not None, has_more
+
+    return CursorPage(
+        items=items,
+        next_cursor=next_cursor,
+        prev_cursor=prev_cursor,
+        has_more=has_more,
+        has_previous=has_previous,
+    )
+
+
 class CursorData(BaseModel):
     """Internal structure for cursor data."""
 
@@ -71,6 +161,43 @@ class CursorData(BaseModel):
                 # Not a datetime string, return as-is
                 return v
         return v
+
+
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = None,
+) -> str | int | float | datetime:
+    """Return the cursor's sort value, or raise if it cannot filter this query.
+
+    Args:
+        cursor: The decoded cursor.
+        sort_column: The sort column of the current request.
+        expected_type: Type the sort value must have, when the column's cursor
+            representation is narrower than the query's column type (enum sorts
+            encode a rank, not the enum value).
+
+    Raises:
+        InvalidCursorError: The cursor belongs to a different sort.
+    """
+    if cursor.sort_column != sort_column:
+        raise InvalidCursorError(
+            f"Cursor was created for sort column {cursor.sort_column!r}, "
+            f"but this request sorts by {sort_column!r}. "
+            "Restart pagination without a cursor after changing the sort."
+        )
+    if cursor.sort_value is None:
+        raise InvalidCursorError(
+            f"Cursor is missing a sort value for column {sort_column!r}. "
+            "Restart pagination without a cursor."
+        )
+    if expected_type is not None and not isinstance(cursor.sort_value, expected_type):
+        raise InvalidCursorError(
+            f"Cursor sort value for column {sort_column!r} has the wrong type. "
+            "Restart pagination without a cursor."
+        )
+    return cursor.sort_value
 
 
 class BaseCursorPaginator:

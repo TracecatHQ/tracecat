@@ -71,6 +71,8 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    build_cursor_page,
+    take_cursor_page,
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.storage import blob
@@ -1628,33 +1630,26 @@ class SkillService(BaseWorkspaceService):
             stmt = stmt.order_by(Skill.updated_at.desc(), Skill.id.desc())
         stmt = stmt.limit(params.limit + 1)
         skills = (await self.session.execute(stmt)).scalars().all()
-        has_more = len(skills) > params.limit
-        items = skills[: params.limit]
+        scanned, has_more = take_cursor_page(skills, limit=params.limit)
 
-        next_cursor = None
-        if has_more and items:
-            last = items[-1]
-            next_cursor = paginator.encode_cursor(
-                last.id,
+        page = build_cursor_page(
+            scanned,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            encode_cursor=lambda skill: paginator.encode_cursor(
+                skill.id,
                 sort_column="updated_at",
-                sort_value=last.updated_at,
-            )
-
-        prev_cursor = None
-        if params.cursor and items:
-            first = items[0]
-            prev_cursor = paginator.encode_cursor(
-                first.id,
-                sort_column="updated_at",
-                sort_value=first.updated_at,
-            )
+                sort_value=skill.updated_at,
+            ),
+        )
 
         return CursorPaginatedResponse(
-            items=[self._build_skill_read_minimal(skill) for skill in items],
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=params.cursor is not None,
+            items=[self._build_skill_read_minimal(skill) for skill in page.items],
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -2202,26 +2197,19 @@ class SkillService(BaseWorkspaceService):
             stmt = stmt.order_by(SkillVersion.version.desc(), SkillVersion.id.desc())
         stmt = stmt.limit(params.limit + 1)
         versions = (await self.session.execute(stmt)).scalars().all()
-        has_more = len(versions) > params.limit
-        items = versions[: params.limit]
+        scanned, has_more = take_cursor_page(versions, limit=params.limit)
 
-        next_cursor = None
-        if has_more and items:
-            last = items[-1]
-            next_cursor = paginator.encode_cursor(
-                last.id,
+        page = build_cursor_page(
+            scanned,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            encode_cursor=lambda version: paginator.encode_cursor(
+                version.id,
                 sort_column="version",
-                sort_value=last.version,
-            )
-
-        prev_cursor = None
-        if params.cursor and items:
-            first = items[0]
-            prev_cursor = paginator.encode_cursor(
-                first.id,
-                sort_column="version",
-                sort_value=first.version,
-            )
+                sort_value=version.version,
+            ),
+        )
 
         return CursorPaginatedResponse(
             items=[
@@ -2238,12 +2226,12 @@ class SkillService(BaseWorkspaceService):
                     created_at=version.created_at,
                     updated_at=version.updated_at,
                 )
-                for version in items
+                for version in page.items
             ],
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=params.cursor is not None,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)

@@ -53,7 +53,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
 )
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams, InvalidCursorError
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1745,6 +1745,180 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_reverse_pagination_returns_preceding_page(
+        self, cases_service: CasesService
+    ) -> None:
+        """Paging backward should land on the page immediately before the cursor."""
+        for i in range(6):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Case {i}",
+                    description=f"Case {i}",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+            await asyncio.sleep(0.01)
+
+        async def page(cursor: str | None, reverse: bool = False):
+            return await cases_service.search_cases(
+                params=CursorPaginationParams(limit=2, cursor=cursor, reverse=reverse)
+            )
+
+        page_1 = await page(None)
+        page_2 = await page(page_1.next_cursor)
+        page_3 = await page(page_2.next_cursor)
+
+        # Sanity check the forward walk before asserting on the backward one.
+        forward_ids = [
+            item.id for item in (*page_1.items, *page_2.items, *page_3.items)
+        ]
+        assert len(set(forward_ids)) == 6
+
+        # Stepping back from page 3 must return page 2, not the first page.
+        assert page_3.prev_cursor is not None
+        back_to_2 = await page(page_3.prev_cursor, reverse=True)
+        assert [item.id for item in back_to_2.items] == [
+            item.id for item in page_2.items
+        ]
+        assert back_to_2.has_more is True
+        assert back_to_2.has_previous is True
+        assert back_to_2.prev_cursor is not None
+
+        # Reverse responses must keep advertising a usable prev_cursor.
+        back_to_1 = await page(back_to_2.prev_cursor, reverse=True)
+        assert [item.id for item in back_to_1.items] == [
+            item.id for item in page_1.items
+        ]
+        assert back_to_1.has_previous is False
+        assert back_to_1.prev_cursor is None
+        assert back_to_1.has_more is True
+
+        # And the reverse page's next_cursor must walk forward again.
+        forward_to_3 = await page(back_to_2.next_cursor)
+        assert [item.id for item in forward_to_3.items] == [
+            item.id for item in page_3.items
+        ]
+
+    async def test_search_cases_reverse_pagination_ascending_sort(
+        self, cases_service: CasesService
+    ) -> None:
+        """Backward paging should also invert an ascending sort correctly."""
+        for i in range(6):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Ascending {i}",
+                    description=f"Ascending {i}",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+            await asyncio.sleep(0.01)
+
+        async def page(cursor: str | None, reverse: bool = False):
+            return await cases_service.search_cases(
+                params=CursorPaginationParams(limit=2, cursor=cursor, reverse=reverse),
+                order_by="created_at",
+                sort="asc",
+            )
+
+        page_1 = await page(None)
+        page_2 = await page(page_1.next_cursor)
+        page_3 = await page(page_2.next_cursor)
+
+        back_to_2 = await page(page_3.prev_cursor, reverse=True)
+
+        assert [item.id for item in back_to_2.items] == [
+            item.id for item in page_2.items
+        ]
+        assert back_to_2.has_more is True
+        assert back_to_2.has_previous is True
+
+    async def test_search_cases_reverse_pagination_enum_sort(
+        self, cases_service: CasesService
+    ) -> None:
+        """Backward paging should work for enum sorts, which rank rather than compare."""
+        priorities = [
+            CasePriority.CRITICAL,
+            CasePriority.HIGH,
+            CasePriority.MEDIUM,
+            CasePriority.LOW,
+        ]
+        for i, priority in enumerate(priorities):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Priority {i}",
+                    description=f"Priority {i}",
+                    status=CaseStatus.NEW,
+                    priority=priority,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+            await asyncio.sleep(0.01)
+
+        async def page(cursor: str | None, reverse: bool = False):
+            return await cases_service.search_cases(
+                params=CursorPaginationParams(limit=1, cursor=cursor, reverse=reverse),
+                order_by="priority",
+                sort="desc",
+            )
+
+        page_1 = await page(None)
+        page_2 = await page(page_1.next_cursor)
+        page_3 = await page(page_2.next_cursor)
+
+        back_to_2 = await page(page_3.prev_cursor, reverse=True)
+
+        assert [item.id for item in back_to_2.items] == [
+            item.id for item in page_2.items
+        ]
+        assert back_to_2.items[0].priority == page_2.items[0].priority
+        assert back_to_2.has_more is True
+        assert back_to_2.has_previous is True
+
+    async def test_search_cases_rejects_a_cursor_from_a_different_sort(
+        self, cases_service: CasesService
+    ) -> None:
+        """A stale-sort cursor must fail loudly instead of rewinding to page 1."""
+        for i in range(3):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Stale cursor {i}",
+                    description=f"Stale cursor {i}",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+            await asyncio.sleep(0.01)
+
+        page_1 = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=1, cursor=None, reverse=False),
+            order_by="created_at",
+        )
+        assert page_1.next_cursor is not None
+
+        # Same cursor, different sort column: the cursor's sort value cannot be
+        # compared against the new ORDER BY.
+        with pytest.raises(InvalidCursorError):
+            await cases_service.search_cases(
+                params=CursorPaginationParams(
+                    limit=1, cursor=page_1.next_cursor, reverse=False
+                ),
+                order_by="priority",
+            )
+
+        # The cursor still works for the sort it was issued under.
+        page_2 = await cases_service.search_cases(
+            params=CursorPaginationParams(
+                limit=1, cursor=page_1.next_cursor, reverse=False
+            ),
+            order_by="created_at",
+        )
+        assert page_2.items[0].id != page_1.items[0].id
 
     async def test_search_cases_gates_duration_selectinload(
         self, cases_service: CasesService

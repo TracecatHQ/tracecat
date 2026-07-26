@@ -23,7 +23,12 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.logger import logger
-from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    build_cursor_page,
+    take_cursor_page,
+)
 from tracecat_ee.agent.types import AgentWorkflowID
 
 # The error signal is fully persisted (AgentSession.last_error), so Temporal is
@@ -379,69 +384,39 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         stmt = base_stmt.order_by(order_clause, id_order).limit(limit + 1)
 
         result = await self.session.execute(stmt)
-        sessions = list(result.scalars().all())
+        scanned_sessions, has_more = take_cursor_page(
+            list(result.scalars().all()), limit=limit
+        )
 
-        # Check if there are more items
-        has_more = len(sessions) > limit
-        if has_more:
-            sessions = sessions[:limit]
-
-        # The scan ran in scan_desc order; reverse back into display order so
-        # the page reads in the requested sort regardless of pagination
-        # direction.
-        if reverse:
-            sessions.reverse()
+        # The scan ran in scan_desc order; build_cursor_page reverses the page
+        # back into display order so it reads in the requested sort regardless
+        # of pagination direction, and swaps the cursors and flags accordingly.
+        page = build_cursor_page(
+            scanned_sessions,
+            cursor=cursor,
+            reverse=reverse,
+            has_more=has_more,
+            encode_cursor=lambda session: self.encode_cursor(
+                id=session.id,
+                sort_column=sort_col,
+                # Use the correct column value based on sort_col
+                sort_value=(
+                    session.updated_at
+                    if sort_col == "updated_at"
+                    else session.created_at
+                ),
+            ),
+        )
 
         # Enrich sessions
-        items = await self._enrich_sessions(sessions)
-
-        # Generate cursors
-        next_cursor = None
-        prev_cursor = None
-
-        if items:
-            if has_more:
-                last_item = items[-1]
-                # Get the session for this item to access the sort column value
-                last_session = next(
-                    (s for s in sessions if s.id == last_item.source_id), None
-                )
-                if last_session:
-                    # Use the correct column value based on sort_col
-                    sort_value = (
-                        last_session.updated_at
-                        if sort_col == "updated_at"
-                        else last_session.created_at
-                    )
-                    next_cursor = self.encode_cursor(
-                        id=last_item.id,
-                        sort_column=sort_col,
-                        sort_value=sort_value,
-                    )
-            if cursor:
-                first_item = items[0]
-                first_session = next(
-                    (s for s in sessions if s.id == first_item.source_id), None
-                )
-                if first_session:
-                    # Use the correct column value based on sort_col
-                    sort_value = (
-                        first_session.updated_at
-                        if sort_col == "updated_at"
-                        else first_session.created_at
-                    )
-                    prev_cursor = self.encode_cursor(
-                        id=first_item.id,
-                        sort_column=sort_col,
-                        sort_value=sort_value,
-                    )
+        items = await self._enrich_sessions(page.items)
 
         return CursorPaginatedResponse(
             items=items,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=cursor is not None,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
             total_estimate=None,
         )
 
