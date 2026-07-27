@@ -42,18 +42,14 @@ For a custom remote MCP server, first create a custom OAuth provider in [OAuth](
 
 ### Custom headers for remote MCP
 
-`Custom` authentication stores request headers as JSON.
+`Custom` authentication stores request headers as JSON. Header values support workspace secret and variable expressions.
 
 ```json
 {
-  "Authorization": "Bearer token123",
-  "X-API-Key": "abc123"
+  "Authorization": "ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}",
+  "X-Tenant": "${{ VARS.elastic_security.tenant }}"
 }
 ```
-
-<Info>
-Remote MCP custom header JSON does not resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`. Header values are sent as literal strings.
-</Info>
 
 ## Stdio MCP
 
@@ -72,11 +68,7 @@ Tracecat resolves those expressions from the workflow default environment unless
 
 ## Secrets and variables in MCP configuration
 
-Expression support differs by MCP integration type:
-
-- `stdio` environment variables support `${{ SECRETS.* }}` and `${{ VARS.* }}`.
-- Remote MCP OAuth mode does not need secret expressions for the bearer token because Tracecat injects the OAuth token automatically.
-- Remote MCP custom header JSON does not currently resolve `${{ SECRETS.* }}` or `${{ VARS.* }}`.
+Both remote and `stdio` MCP integrations support template strings.
 
 ## Related pages
 
