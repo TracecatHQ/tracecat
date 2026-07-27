@@ -6,14 +6,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.pool import QueuePool
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     _get_db_uri,
+    get_async_engine,
+    get_async_internal_engine,
     get_async_session,
     get_async_session_bypass_rls,
+    reset_async_engine,
 )
 
 
@@ -178,7 +183,9 @@ async def test_get_async_session_bypass_sets_explicit_bypass(
         "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
     )
     monkeypatch.setattr("tracecat.db.engine.set_rls_context", set_context)
-    monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
+    monkeypatch.setattr(
+        "tracecat.db.engine.get_async_internal_engine", lambda: object()
+    )
 
     generator = get_async_session_bypass_rls()
     yielded = await anext(generator)
@@ -192,3 +199,67 @@ async def test_get_async_session_bypass_sets_explicit_bypass(
         user_id=None,
         bypass=True,
     )
+
+
+@pytest.mark.anyio
+async def test_bypass_session_binds_to_internal_engine_not_request_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bypass sessions must not share a pool with request-scoped sessions.
+
+    A request session holds its connection for the whole request while the auth
+    dependency chain opens a bypass session. If both draw from the same pool,
+    every in-flight request waits on a connection it is itself holding and the
+    pool deadlocks under saturation.
+    """
+    binds: list[AsyncEngine] = []
+
+    def record_bind(bind: AsyncEngine, **kwargs: object) -> AsyncMock:
+        binds.append(bind)
+        session_cm = AsyncMock()
+        session_cm.__aenter__.return_value = AsyncMock()
+        session_cm.__aexit__.return_value = None
+        return session_cm
+
+    monkeypatch.setattr("tracecat.db.engine.AsyncSession", record_bind)
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", AsyncMock())
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.OFF)
+
+    request_generator = get_async_session()
+    await anext(request_generator)
+    await request_generator.aclose()
+
+    bypass_generator = get_async_session_bypass_rls()
+    await anext(bypass_generator)
+    await bypass_generator.aclose()
+
+    request_bind, bypass_bind = binds
+    assert request_bind is get_async_engine()
+    assert bypass_bind is get_async_internal_engine()
+    assert request_bind is not bypass_bind
+    assert request_bind.pool is not bypass_bind.pool
+
+
+@pytest.mark.anyio
+async def test_internal_engine_pool_size_honors_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__DB_POOL_SIZE", 11)
+    monkeypatch.setattr(config, "TRACECAT__DB_INTERNAL_POOL_SIZE", 3)
+    monkeypatch.setattr(config, "TRACECAT__DB_INTERNAL_MAX_OVERFLOW", 4)
+    reset_async_engine()
+
+    engine = get_async_engine()
+    internal_engine = get_async_internal_engine()
+    try:
+        pool = engine.pool
+        internal_pool = internal_engine.pool
+        assert isinstance(pool, QueuePool)
+        assert isinstance(internal_pool, QueuePool)
+        assert internal_pool.size() == 3
+        assert pool.size() == 11
+    finally:
+        await engine.dispose()
+        await internal_engine.dispose()
+        reset_async_engine()

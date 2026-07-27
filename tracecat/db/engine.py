@@ -22,6 +22,17 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 # connections and not create a new pool on every request
 _async_engine: AsyncEngine | None = None
 
+# Dedicated engine for internal RLS-bypass lookups (auth, effective scopes,
+# workspace membership). These run *inside* a request that is already holding a
+# connection from the main pool, so sharing that pool creates a hold-and-wait
+# cycle: every in-flight request parks its own connection on an open transaction
+# while waiting for one more, and the pool deadlocks until pool_timeout fires.
+#
+# INVARIANT: the dependency between pools is one-directional. Main-pool code may
+# acquire an internal-pool connection, but internal-pool code must NEVER wait on
+# the main pool. Without a cycle there is no deadlock.
+_async_internal_engine: AsyncEngine | None = None
+
 
 async def _initialize_session_rls_context(session: AsyncSession) -> None:
     """Initialize RLS context for a newly opened request session."""
@@ -208,6 +219,30 @@ def _create_async_db_engine() -> AsyncEngine:
     )
 
 
+def _create_async_internal_db_engine() -> AsyncEngine:
+    """Create the dedicated engine for internal RLS-bypass lookups.
+
+    Same connection settings as the main engine, but a separate (small) pool and
+    a distinct `application_name` so `pg_stat_activity` attributes internal
+    lookups separately from request-scoped work.
+    """
+    uri = _get_db_uri(driver="asyncpg")
+    return create_async_engine(
+        uri,
+        max_overflow=config.TRACECAT__DB_INTERNAL_MAX_OVERFLOW,
+        pool_recycle=config.TRACECAT__DB_POOL_RECYCLE,
+        pool_size=config.TRACECAT__DB_INTERNAL_POOL_SIZE,
+        pool_timeout=config.TRACECAT__DB_POOL_TIMEOUT,
+        pool_pre_ping=True,
+        pool_use_lifo=True,  # Better for burst workloads
+        connect_args={
+            "server_settings": {
+                "application_name": f"{config.TRACECAT__SERVICE_NAME}-internal"
+            }
+        },
+    )
+
+
 def get_async_engine() -> AsyncEngine:
     """Get the db async connection pool."""
     global _async_engine
@@ -216,13 +251,27 @@ def get_async_engine() -> AsyncEngine:
     return _async_engine
 
 
+def get_async_internal_engine() -> AsyncEngine:
+    """Get the db async connection pool for internal RLS-bypass lookups.
+
+    Kept separate from `get_async_engine()` so nested acquisition (a request
+    session opening a bypass session) crosses pools one-directionally instead of
+    competing for the same connections. See `_async_internal_engine`.
+    """
+    global _async_internal_engine
+    if _async_internal_engine is None:
+        _async_internal_engine = _create_async_internal_db_engine()
+    return _async_internal_engine
+
+
 def reset_async_engine() -> None:
-    """Reset the global async engine.
+    """Reset the global async engines.
 
     This should only be used in tests to ensure clean state between tests.
     """
-    global _async_engine
+    global _async_engine, _async_internal_engine
     _async_engine = None
+    _async_internal_engine = None
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -248,8 +297,14 @@ async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
 
     WARNING: Use sparingly and only when necessary. Prefer get_async_session()
     with proper role context for most operations.
+
+    Binds to the dedicated internal pool, never the main request pool, so a
+    caller already holding a request-scoped connection cannot deadlock waiting
+    on itself.
     """
-    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+    async with AsyncSession(
+        get_async_internal_engine(), expire_on_commit=False
+    ) as session:
         await set_rls_context(
             session,
             org_id=None,

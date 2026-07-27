@@ -242,6 +242,18 @@ TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT") or 3
 """The timeout for the connection pool."""
 TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 600)
 """The time to recycle the connection pool."""
+TRACECAT__DB_INTERNAL_POOL_SIZE = int(
+    os.environ.get("TRACECAT__DB_INTERNAL_POOL_SIZE") or 5
+)
+"""The size of the dedicated connection pool for internal RLS-bypass lookups.
+
+Internal lookups (auth, scopes, membership resolution) run on their own pool so
+they never contend with request-scoped sessions on the main pool.
+"""
+TRACECAT__DB_INTERNAL_MAX_OVERFLOW = int(
+    os.environ.get("TRACECAT__DB_INTERNAL_MAX_OVERFLOW") or 5
+)
+"""The maximum number of overflow connections for the internal RLS-bypass pool."""
 
 
 # === Auth config === #
