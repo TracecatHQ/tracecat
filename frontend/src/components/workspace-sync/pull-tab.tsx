@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from "react"
 import type { GitCommitInfo, PullResult, VcsProvider } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -254,10 +255,13 @@ export function WorkspaceSyncPullTab({
  */
 function SyncWarning({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-      <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
-      <span>{children}</span>
-    </div>
+    <Alert
+      variant="warning"
+      className="rounded-md px-3 py-2 text-[11px] [&>svg]:left-3 [&>svg]:top-2.5 [&>svg~*]:pl-5"
+    >
+      <AlertTriangleIcon className="size-3.5" />
+      <AlertDescription className="text-[11px]">{children}</AlertDescription>
+    </Alert>
   )
 }
 

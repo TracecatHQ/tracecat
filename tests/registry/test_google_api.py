@@ -81,8 +81,61 @@ def test_call_api_prefers_oauth_token(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result == {"files": [{"id": "1"}]}
     assert calls == [{"pageSize": 10}]
     assert built["args"] == ("drive", "v3")
-    assert built["kwargs"]["cache_discovery"] is False
     assert built["kwargs"]["credentials"].token == "service-token"
+    # Default preserves the client library behaviour (bundled static discovery).
+    assert built["kwargs"]["static_discovery"] is None
+    # No document is fetched on this path, and the cache must stay disabled:
+    # googleapiclient checks the cache before it falls back to the bundled
+    # document, so a cached runtime-fetched doc could otherwise shadow it.
+    assert built["kwargs"]["cache_discovery"] is False
+    assert built["kwargs"]["cache"] is None
+
+
+def test_call_api_forwards_static_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+    built: dict[str, Any] = {}
+
+    def build(*args: Any, **kwargs: Any) -> FakeService:
+        built["kwargs"] = kwargs
+        return FakeService(calls, [{"files": [{"id": "1"}]}])
+
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: "service-token" if key == "GOOGLE_SERVICE_TOKEN" else None,
+    )
+    monkeypatch.setattr(google_api, "build", build)
+
+    google_api.call_api(
+        service_name="securitycenter",
+        version="v2",
+        resource="files",
+        method_name="list",
+        static_discovery=False,
+    )
+
+    # Non-bundled API versions must be fetched at runtime, and only that path
+    # gets the cache so the fetched document cannot shadow a bundled one.
+    assert built["kwargs"]["static_discovery"] is False
+    assert built["kwargs"]["cache_discovery"] is True
+    assert built["kwargs"]["cache"] is google_api._discovery_cache
+
+
+def test_discovery_cache_reuses_fetched_document() -> None:
+    """Runtime-fetched discovery documents are cached per process.
+
+    Discovery documents are large (securitycenter v2 is ~420 KB). Executor
+    workers are reused across actions, so without this the document would be
+    re-downloaded on every single call.
+    """
+    cache = google_api._DiscoveryCache()
+    url = "https://securitycenter.googleapis.com/$discovery/rest?version=v2"
+
+    assert cache.get(url) is None  # cold
+    cache.set(url, '{"name": "securitycenter"}')
+    assert cache.get(url) == '{"name": "securitycenter"}'  # warm: no refetch
+    # Distinct documents do not collide.
+    assert cache.get("https://sheets.googleapis.com/$discovery/rest?version=v4") is None
 
 
 def test_call_api_uses_service_account_json_fallback(
@@ -415,3 +468,38 @@ def test_call_paginated_api_supports_custom_token_fields(
         {"packageName": "com.example.app"},
         {"packageName": "com.example.app", "token": "next-token"},
     ]
+
+
+def test_call_paginated_api_forwards_static_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The paginated helper must forward `static_discovery` like `call_api` does.
+
+    Templates for non-bundled API versions (e.g. `securitycenter` v2) rely on
+    this; without it the client cannot build the service at all.
+    """
+    calls: list[dict[str, Any]] = []
+    built: dict[str, Any] = {}
+
+    def build(*args: Any, **kwargs: Any) -> FakeService:
+        built["kwargs"] = kwargs
+        return FakeService(calls, [{"files": [{"id": "1"}]}])
+
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: "service-token" if key == "GOOGLE_SERVICE_TOKEN" else None,
+    )
+    monkeypatch.setattr(google_api, "build", build)
+
+    google_api.call_paginated_api(
+        service_name="securitycenter",
+        version="v2",
+        resource="files",
+        method_name="list",
+        static_discovery=False,
+    )
+
+    assert built["kwargs"]["static_discovery"] is False
+    assert built["kwargs"]["cache_discovery"] is True
+    assert built["kwargs"]["cache"] is google_api._discovery_cache

@@ -2063,6 +2063,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                                 <PopoverContent
                                   className="w-auto overflow-hidden p-0"
                                   align="start"
+                                  portal={true}
                                 >
                                   <Calendar
                                     mode="single"
@@ -2169,6 +2170,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                                 <PopoverContent
                                   className="w-auto overflow-hidden p-0"
                                   align="start"
+                                  portal={true}
                                 >
                                   <Calendar
                                     mode="single"

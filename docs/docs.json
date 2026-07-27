@@ -168,6 +168,7 @@
               "tools/google_docs",
               "tools/google_drive",
               "tools/google_maps",
+              "tools/google_scc",
               "tools/google_secops_detection",
               "tools/google_secops_soar",
               "tools/google_sheets",

@@ -135,20 +135,55 @@ def _get_value_by_path(data: dict[str, Any], path: str) -> Any | None:
     return current
 
 
+class _DiscoveryCache:
+    """Process-local cache for runtime-fetched discovery documents.
+
+    Only used when `static_discovery` is disabled, i.e. when the discovery
+    document is fetched over the network instead of read from the copy bundled
+    with the client library. Those documents are large (the Security Command
+    Center v2 document is ~420 KB) and would otherwise be re-downloaded on every
+    single call. Executor workers are reused across actions, so caching per
+    process means each worker fetches a given document at most once.
+
+    Implements the `get`/`set` interface `googleapiclient.discovery.build`
+    expects from a cache object.
+    """
+
+    def __init__(self) -> None:
+        self._documents: dict[str, str] = {}
+
+    def get(self, url: str) -> str | None:
+        return self._documents.get(url)
+
+    def set(self, url: str, content: str) -> None:
+        self._documents[url] = content
+
+
+_discovery_cache = _DiscoveryCache()
+
+
 def _build_google_service(
     service_name: str,
     version: str,
     scopes: list[str] | None = None,
     subject: str | None = None,
+    static_discovery: bool | None = None,
 ) -> Resource:
     credentials = _get_google_credentials(scopes=scopes, subject=subject)
+    # `googleapiclient` consults the cache *before* it decides whether to use a
+    # bundled document, so a cached runtime-fetched document would otherwise
+    # shadow the bundled one for every later call in this worker. Only enable
+    # the cache on the path that actually fetches over the network.
+    fetches_discovery_doc = static_discovery is False
     return cast(
         Resource,
         build(
             service_name,
             version,
             credentials=credentials,
-            cache_discovery=False,
+            cache_discovery=fetches_discovery_doc,
+            cache=_discovery_cache if fetches_discovery_doc else None,
+            static_discovery=static_discovery,
         ),
     )
 
@@ -198,6 +233,19 @@ def call_api(
             ..., description="Optional service account domain-wide delegation subject."
         ),
     ] = None,
+    static_discovery: Annotated[
+        bool | None,
+        Field(
+            ...,
+            description=(
+                "Whether to use the discovery document bundled with the client "
+                "library. Defaults to the library behaviour (bundled). Set to "
+                "false to fetch the discovery document at runtime, which is "
+                "required for API versions that are not bundled (e.g. "
+                "`securitycenter` `v2`)."
+            ),
+        ),
+    ] = None,
 ) -> GoogleAPIResult:
     params = params or {}
     service = _build_google_service(
@@ -205,6 +253,7 @@ def call_api(
         version=version,
         scopes=scopes,
         subject=subject,
+        static_discovery=static_discovery,
     )
     request = getattr(_resolve_resource(service, resource), method_name)(**params)
     return request.execute()
@@ -277,6 +326,19 @@ def call_paginated_api(
             description="Maximum number of pages to fetch. If null, fetches every page.",
         ),
     ] = None,
+    static_discovery: Annotated[
+        bool | None,
+        Field(
+            ...,
+            description=(
+                "Whether to use the discovery document bundled with the client "
+                "library. Defaults to the library behaviour (bundled). Set to "
+                "false to fetch the discovery document at runtime, which is "
+                "required for API versions that are not bundled (e.g. "
+                "`securitycenter` `v2`)."
+            ),
+        ),
+    ] = None,
 ) -> list[GoogleAPIResponse]:
     if not page_token_param:
         raise ValueError("Page token request parameter cannot be empty.")
@@ -290,6 +352,7 @@ def call_paginated_api(
         version=version,
         scopes=scopes,
         subject=subject,
+        static_discovery=static_discovery,
     )
     target_resource = _resolve_resource(service, resource)
 
