@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from tracecat.agent.provider.types import CustomProviderType
+
 
 def validate_base_url(value: str | None) -> str | None:
     """Validate a base_url is http(s) and has a hostname."""
@@ -24,6 +26,9 @@ class AgentCustomProviderCreate(BaseModel):
 
     display_name: str = Field(..., max_length=200)
     base_url: str | None = Field(default=None, max_length=500)
+    type: CustomProviderType = Field(
+        default=CustomProviderType.GENERIC_OPENAI_COMPATIBLE
+    )
     passthrough: bool = Field(default=False)
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
@@ -44,6 +49,7 @@ class AgentCustomProviderRead(BaseModel):
     organization_id: UUID
     display_name: str
     base_url: str | None
+    type: CustomProviderType
     passthrough: bool
     api_key_header: str | None
     last_refreshed_at: datetime | None
@@ -54,6 +60,7 @@ class AgentCustomProviderUpdate(BaseModel):
 
     display_name: str | None = Field(default=None, max_length=200)
     base_url: str | None = Field(default=None, max_length=500)
+    type: CustomProviderType | None = None
     passthrough: bool | None = None
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = None

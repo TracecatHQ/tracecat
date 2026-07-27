@@ -1480,6 +1480,10 @@ export const $AgentCustomProviderCreate = {
       ],
       title: "Base Url",
     },
+    type: {
+      $ref: "#/components/schemas/CustomProviderType",
+      default: "generic_openai_compatible",
+    },
     passthrough: {
       type: "boolean",
       title: "Passthrough",
@@ -1583,6 +1587,9 @@ export const $AgentCustomProviderRead = {
       ],
       title: "Base Url",
     },
+    type: {
+      $ref: "#/components/schemas/CustomProviderType",
+    },
     passthrough: {
       type: "boolean",
       title: "Passthrough",
@@ -1617,6 +1624,7 @@ export const $AgentCustomProviderRead = {
     "organization_id",
     "display_name",
     "base_url",
+    "type",
     "passthrough",
     "api_key_header",
     "last_refreshed_at",
@@ -1650,6 +1658,16 @@ export const $AgentCustomProviderUpdate = {
         },
       ],
       title: "Base Url",
+    },
+    type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CustomProviderType",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     passthrough: {
       anyOf: [
@@ -11507,6 +11525,13 @@ export const $CustomOAuthProviderCreate = {
   ],
   title: "CustomOAuthProviderCreate",
   description: "Request payload for creating a custom OAuth provider.",
+} as const
+
+export const $CustomProviderType = {
+  type: "string",
+  enum: ["generic_openai_compatible", "litellm", "ollama"],
+  title: "CustomProviderType",
+  description: "Explicit provider type driving discovery and validation.",
 } as const
 
 export const $DSLConfig_Input = {

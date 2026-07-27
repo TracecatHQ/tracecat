@@ -103,6 +103,11 @@ async def update_custom_provider(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.delete(
@@ -166,6 +171,7 @@ async def validate_custom_provider_connection(
     service = AgentCustomProviderService(session=session, role=role)
     is_valid = await service.validate_provider(
         base_url=provider.base_url or "",
+        provider_type=provider.type,
         api_key=provider.api_key,
         api_key_header=provider.api_key_header,
         custom_headers=provider.custom_headers,

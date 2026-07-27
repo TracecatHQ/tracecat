@@ -18,6 +18,7 @@ from litellm.types.utils import CallTypesLiteral
 
 from tracecat import config as app_config
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.provider.types import CustomProviderType, ensure_ollama_v1
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
@@ -445,6 +446,10 @@ class TracecatCallbackHandler(CustomLogger):
         if provider == "bedrock":
             _strip_bedrock_unsupported_params(data)
 
+        # Sanitize last so model_settings/base_url overrides are already applied.
+        if provider == "custom-model-provider":
+            _sanitize_ollama_request(data, creds)
+
         logger.info(
             "Injected credentials for LiteLLM call",
             workspace_id=str(workspace_id),
@@ -535,6 +540,71 @@ def _strip_bedrock_unsupported_params(data: dict) -> None:
     """Strip params that Bedrock doesn't reliably support."""
     data.pop("thinking", None)
     data.pop("reasoning_effort", None)
+
+
+# Message keys carrying reasoning artifacts that Ollama's /v1 parser chokes on.
+_OLLAMA_DROP_MESSAGE_KEYS = ("thinking_blocks", "reasoning_content")
+
+
+def _flatten_message_content(content: Any) -> Any:
+    """Flatten list content parts to a plain string of concatenated text parts.
+
+    Ollama's /v1 parser rejects assistant/user content lists that carry
+    thinking/redacted_thinking parts; keep only ``type == "text"`` parts.
+    """
+    if not isinstance(content, list):
+        return content
+    texts = [
+        text
+        for part in content
+        if isinstance(part, dict) and part.get("type") == "text"
+        if isinstance((text := part.get("text")), str)
+    ]
+    return "".join(texts)
+
+
+def _sanitize_ollama_messages(messages: Any) -> list[Any]:
+    """Rebuild messages so Ollama's strict /v1 parser accepts replayed turns.
+
+    Non-destructive: builds new message dicts, dropping reasoning-artifact keys
+    and flattening list content. ``tool_calls`` and ``role: tool`` messages keep
+    their structure; only their list content is flattened.
+    """
+    sanitized: list[Any] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            sanitized.append(message)
+            continue
+        new_message = {
+            key: value
+            for key, value in message.items()
+            if key not in _OLLAMA_DROP_MESSAGE_KEYS
+        }
+        if "content" in new_message:
+            new_message["content"] = _flatten_message_content(new_message["content"])
+        sanitized.append(new_message)
+    return sanitized
+
+
+def _sanitize_ollama_request(data: dict, creds: dict[str, str]) -> None:
+    """Adapt an ollama-type custom-provider request for Ollama's strict /v1.
+
+    Ollama routes go back through the ``hosted_vllm/*`` catch-all against the
+    ``/v1``-ensured base URL (native ``ollama_chat`` mangles streamed reasoning).
+    Ollama rejects any reasoning param on models without the thinking capability,
+    so drop ``thinking``/``reasoning_effort`` rather than translate, and sanitize
+    replayed messages so structured assistant turns don't 400.
+    """
+    if creds.get("CUSTOM_MODEL_PROVIDER_TYPE") != CustomProviderType.OLLAMA.value:
+        return
+    data.pop("thinking", None)
+    data.pop("reasoning_effort", None)
+    # Ollama's OpenAI-compatible surface lives only under /v1; a base_url
+    # override earlier in the hook may have reset it to the bare server root.
+    if base_url := data.get("api_base"):
+        data["api_base"] = ensure_ollama_v1(base_url)
+    if isinstance((messages := data.get("messages")), list):
+        data["messages"] = _sanitize_ollama_messages(messages)
 
 
 def _inject_provider_credentials(

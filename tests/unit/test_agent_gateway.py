@@ -13,8 +13,11 @@ from starlette.requests import Request
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
     _filter_allowed_model_settings,
+    _flatten_message_content,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
+    _sanitize_ollama_messages,
+    _sanitize_ollama_request,
     user_api_key_auth,
 )
 from tracecat.agent.tokens import verify_llm_token
@@ -666,3 +669,322 @@ async def test_pre_call_hook_strips_anthropic_beta_payload_fields_for_non_anthro
     assert "context_management" not in result
     assert "output_config" not in result
     assert "output_format" not in result
+
+
+# ---------------------------------------------------------------------------
+# Ollama request sanitization
+# ---------------------------------------------------------------------------
+
+
+def test_flatten_message_content_joins_text_parts_and_drops_thinking() -> None:
+    content = [
+        {"type": "thinking", "thinking": "internal reasoning"},
+        {"type": "text", "text": "Hello "},
+        {"type": "redacted_thinking", "data": "xxxx"},
+        {"type": "text", "text": "there!"},
+    ]
+
+    assert _flatten_message_content(content) == "Hello there!"
+
+
+def test_flatten_message_content_passes_through_plain_string() -> None:
+    assert _flatten_message_content("already a string") == "already a string"
+
+
+def test_sanitize_ollama_messages_flattens_and_strips_reasoning_keys() -> None:
+    messages = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "the user greeted me"},
+                {"type": "text", "text": "Hello there!"},
+            ],
+            "thinking_blocks": [{"type": "thinking", "thinking": "hmm"}],
+            "reasoning_content": "hmm",
+        },
+        {"role": "user", "content": "say bye"},
+    ]
+
+    sanitized = _sanitize_ollama_messages(messages)
+
+    assert sanitized[0] == {"role": "user", "content": "hi"}
+    assert sanitized[1] == {"role": "assistant", "content": "Hello there!"}
+    assert sanitized[2] == {"role": "user", "content": "say bye"}
+    # Source structures are not mutated.
+    assert isinstance(messages[1]["content"], list)
+    assert "thinking_blocks" in messages[1]
+
+
+def test_sanitize_ollama_messages_preserves_tool_calls() -> None:
+    messages = [
+        {"role": "user", "content": "what is 2+2"},
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": ""}],
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "calc", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": [{"type": "text", "text": "4"}],
+        },
+    ]
+
+    sanitized = _sanitize_ollama_messages(messages)
+
+    assert sanitized[1]["tool_calls"] == messages[1]["tool_calls"]
+    assert sanitized[1]["content"] == ""
+    # tool message keeps its structure; list content is flattened.
+    assert sanitized[2]["role"] == "tool"
+    assert sanitized[2]["tool_call_id"] == "c1"
+    assert sanitized[2]["content"] == "4"
+
+
+def test_sanitize_ollama_request_drops_thinking_and_reasoning_effort() -> None:
+    data = {
+        "model": "qwen2.5",
+        "api_base": "http://host:11434/v1",
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+        "reasoning_effort": {"effort": "high", "summary": "detailed"},
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+
+    _sanitize_ollama_request(data, {"CUSTOM_MODEL_PROVIDER_TYPE": "ollama"})
+
+    assert "thinking" not in data
+    assert "reasoning_effort" not in data
+    # Route stays on the catch-all against the /v1 base URL.
+    assert data["model"] == "qwen2.5"
+    assert data["api_base"] == "http://host:11434/v1"
+
+
+def test_sanitize_ollama_request_sanitizes_messages() -> None:
+    data = {
+        "model": "qwen2.5",
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "x"},
+                    {"type": "text", "text": "Hi"},
+                ],
+            }
+        ],
+    }
+
+    _sanitize_ollama_request(data, {"CUSTOM_MODEL_PROVIDER_TYPE": "ollama"})
+
+    assert data["messages"][0]["content"] == "Hi"
+
+
+@pytest.mark.parametrize("provider_type", ["generic_openai_compatible", "litellm"])
+def test_sanitize_ollama_request_noop_for_non_ollama(provider_type: str) -> None:
+    data = {
+        "model": "gpt-4o",
+        "api_base": "https://gateway.example.com/v1",
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Hi"}],
+            }
+        ],
+    }
+
+    _sanitize_ollama_request(data, {"CUSTOM_MODEL_PROVIDER_TYPE": provider_type})
+
+    assert data["model"] == "gpt-4o"
+    assert data["api_base"] == "https://gateway.example.com/v1"
+    # Non-ollama routes are untouched: thinking and list content pass through.
+    assert data["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+    assert data["messages"][0]["content"] == [{"type": "text", "text": "Hi"}]
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_ollama_drops_thinking_and_sanitizes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_TYPE": "ollama",
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "ollama",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "http://host:11434/v1",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "qwen2.5",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "qwen2.5",
+            "provider": "custom-model-provider",
+            "catalog_id": "00000000-0000-0000-0000-000000000003",
+            "base_url": "http://host:11434",
+            "model_settings": {"reasoning_effort": "high"},
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={
+            "model": "qwen2.5",
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "x"},
+                        {"type": "text", "text": "Hello!"},
+                    ],
+                },
+            ],
+        },
+        call_type="completion",
+    )
+
+    # Route stays on the catch-all; api_base carries /v1.
+    assert result["model"] == "qwen2.5"
+    assert result["api_base"] == "http://host:11434/v1"
+    assert result["api_base"].endswith("/v1")
+    assert "thinking" not in result
+    assert "reasoning_effort" not in result
+    assert result["messages"][1]["content"] == "Hello!"
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_generic_route_leaves_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic custom-provider routes are not sanitized (thinking passes)."""
+
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_TYPE": "generic_openai_compatible",
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "key",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://gateway.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "gpt-4o",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-4o",
+            "provider": "custom-model-provider",
+            "catalog_id": "00000000-0000-0000-0000-000000000003",
+            "base_url": "https://gateway.example.com/v1",
+            "model_settings": {},
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={
+            "model": "gpt-4o",
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        },
+        call_type="completion",
+    )
+
+    assert result["model"] == "gpt-4o"
+    assert result["api_base"] == "https://gateway.example.com/v1"
+    assert result["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_ollama_subagent_route_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ollama root and a non-ollama subagent each resolve their own route."""
+    creds_by_catalog = {
+        "00000000-0000-0000-0000-0000000000aa": {
+            "CUSTOM_MODEL_PROVIDER_TYPE": "ollama",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "http://host:11434/v1",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "qwen2.5",
+        },
+        "00000000-0000-0000-0000-0000000000bb": {
+            "CUSTOM_MODEL_PROVIDER_TYPE": "generic_openai_compatible",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://gateway.example.com/v1",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "gpt-4o",
+        },
+    }
+
+    async def mock_get_provider_credentials(**kwargs: Any) -> dict[str, str]:
+        return creds_by_catalog[str(kwargs["catalog_id"])]
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    metadata: dict[str, Any] = {
+        "workspace_id": "00000000-0000-0000-0000-000000000001",
+        "organization_id": "00000000-0000-0000-0000-000000000002",
+        "model": "qwen2.5",
+        "provider": "custom-model-provider",
+        "catalog_id": "00000000-0000-0000-0000-0000000000aa",
+        "model_settings": {},
+        "routes": {
+            "hosted_vllm/gpt-4o::tracecat-subagent::helper": {
+                "model": "gpt-4o",
+                "provider": "custom-model-provider",
+                "catalog_id": "00000000-0000-0000-0000-0000000000bb",
+                "base_url": None,
+                "model_settings": {},
+                "use_workspace_credentials": False,
+            }
+        },
+    }
+    handler = TracecatCallbackHandler()
+
+    # Root ollama route: thinking dropped, catch-all model + /v1 base URL.
+    root = await handler.async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(api_key="llm-token", metadata=metadata),
+        cache=cast(DualCache, object()),
+        data={
+            "model": "qwen2.5",
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        },
+        call_type="completion",
+    )
+    assert root["model"] == "qwen2.5"
+    assert root["api_base"] == "http://host:11434/v1"
+    assert "thinking" not in root
+
+    # Non-ollama subagent route stays on hosted_vllm passthrough with thinking.
+    sub = await handler.async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(api_key="llm-token", metadata=metadata),
+        cache=cast(DualCache, object()),
+        data={
+            "model": "hosted_vllm/gpt-4o::tracecat-subagent::helper",
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        },
+        call_type="completion",
+    )
+    assert sub["model"] == "gpt-4o"
+    assert sub["api_base"] == "https://gateway.example.com/v1"
+    assert sub["thinking"] == {"type": "enabled", "budget_tokens": 2048}

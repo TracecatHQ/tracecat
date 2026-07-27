@@ -407,3 +407,42 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"
     assert result.passthrough is True
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_activity_forwards_ollama_v1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The v2 catalog path resolves creds via ``get_catalog_credentials``, which
+    ensures ``/v1`` for ollama; the activity forwards that base_url verbatim."""
+    catalog_id = uuid.uuid4()
+    service = SimpleNamespace()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities._load_custom_model_provider_creds",
+        AsyncMock(
+            return_value={
+                # Already-ensured shape returned by get_catalog_credentials.
+                "CUSTOM_MODEL_PROVIDER_BASE_URL": "http://host:11434/v1",
+                "CUSTOM_MODEL_PROVIDER_API_KEY": "ollama",
+                "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "llama3",
+            }
+        ),
+    )
+
+    result = await resolve_custom_model_provider_config_activity(
+        role, catalog_id=catalog_id
+    )
+
+    assert result.base_url == "http://host:11434/v1"
+    assert result.model_name == "llama3"

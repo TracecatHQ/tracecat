@@ -23,6 +23,7 @@ from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.provider.types import CustomProviderType, ensure_ollama_v1
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -649,6 +650,21 @@ class AgentManagementService(BaseOrgService):
             credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
                 "true" if provider_row.passthrough else "false"
             )
+            # Type marker lets the gateway drop thinking and sanitize replayed
+            # messages for Ollama's strict /v1 parser.
+            credentials["CUSTOM_MODEL_PROVIDER_TYPE"] = provider_row.type
+            if provider_row.type == CustomProviderType.OLLAMA.value:
+                # Ollama needs no key, but the OpenAI-compatible client requires
+                # one. Inject a placeholder when none is stored.
+                if not credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
+                    credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = "ollama"
+                # Ollama's OpenAI-compatible chat surface lives only under /v1;
+                # the stored base_url is a bare server root. Ensure /v1 for
+                # runtime use without mutating what is persisted.
+                if base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
+                    credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = ensure_ollama_v1(
+                        base_url
+                    )
             # Pin the selected row's model_name so the shared provider blob
             # can't override it. The legacy backfill row is the exception: its
             # "custom" placeholder isn't a real model, so leave the blob's

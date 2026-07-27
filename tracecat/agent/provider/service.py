@@ -13,13 +13,17 @@ import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.service import AgentCatalogService, DiscoveredModel
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
+from tracecat.agent.provider.types import (
+    CustomProviderType,
+    ResolvedCustomProviderCredentials,
+    ollama_gateway_root,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
@@ -88,6 +92,7 @@ class AgentCustomProviderService(BaseOrgService):
             organization_id=self.organization_id,
             display_name=provider.display_name,
             base_url=provider.base_url,
+            type=provider.type.value,
             passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
             encrypted_config=encrypted_config,
@@ -284,7 +289,10 @@ class AgentCustomProviderService(BaseOrgService):
                 model.encrypted_config = None
 
         for key, value in update_data.items():
+            if key == "type" and isinstance(value, CustomProviderType):
+                value = value.value
             setattr(model, key, value)
+
         await self.session.commit()
         await self.session.refresh(model)
         return AgentCustomProviderRead.model_validate(model)
@@ -342,14 +350,24 @@ class AgentCustomProviderService(BaseOrgService):
         api_key = provider_config.get("api_key")
         custom_headers = provider_config.get("custom_headers")
 
-        models = await self._discover_models(
-            base_url,
-            api_key=api_key if isinstance(api_key, str) else None,
-            custom_headers=(
-                custom_headers if isinstance(custom_headers, dict) else None
-            ),
-            api_key_header=provider.api_key_header,
-        )
+        provider_type = CustomProviderType(provider.type)
+        resolved_api_key = api_key if isinstance(api_key, str) else None
+        resolved_headers = custom_headers if isinstance(custom_headers, dict) else None
+
+        if provider_type is CustomProviderType.OLLAMA:
+            models = await self._discover_ollama_models(
+                base_url,
+                api_key=resolved_api_key,
+                custom_headers=resolved_headers,
+                api_key_header=provider.api_key_header,
+            )
+        else:
+            models = await self._discover_openai_models(
+                base_url,
+                api_key=resolved_api_key,
+                custom_headers=resolved_headers,
+                api_key_header=provider.api_key_header,
+            )
 
         catalog_service = AgentCatalogService(session=self.session)
         await catalog_service.upsert_discovered_models(
@@ -362,16 +380,18 @@ class AgentCustomProviderService(BaseOrgService):
         provider.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
 
+        catalog_ids = await self._provider_catalog_ids(provider_id)
+
         # Auto-grant org-wide access to every catalog row this custom provider
         # now exposes. Orgs without the ``agent_addons`` entitlement cannot
         # toggle per-model enablement, so discovering a model has to double as
         # enabling it; idempotent via the unique index on (org, workspace,
         # catalog).
-        await self._auto_grant_custom_provider_access(provider_id)
+        await self._auto_grant_custom_provider_access(catalog_ids)
 
-    async def _auto_grant_custom_provider_access(self, provider_id: UUID) -> None:
-        """Grant org-wide access to all catalog rows for a custom provider."""
-        catalog_ids = (
+    async def _provider_catalog_ids(self, provider_id: UUID) -> list[UUID]:
+        """Return all catalog row ids owned by this provider in the org."""
+        return list(
             (
                 await self.session.execute(
                     select(AgentCatalog.id).where(
@@ -383,6 +403,9 @@ class AgentCustomProviderService(BaseOrgService):
             .scalars()
             .all()
         )
+
+    async def _auto_grant_custom_provider_access(self, catalog_ids: list[UUID]) -> None:
+        """Grant org-wide access to the given custom-provider catalog rows."""
         if not catalog_ids:
             return
 
@@ -408,72 +431,132 @@ class AgentCustomProviderService(BaseOrgService):
         await self.session.execute(stmt)
         await self.session.commit()
 
-    @staticmethod
-    async def _fetch_models(
-        *,
+    async def validate_provider(
+        self,
         base_url: str,
+        provider_type: CustomProviderType = CustomProviderType.GENERIC_OPENAI_COMPATIBLE,
+        api_key: str | None = None,
+        api_key_header: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+    ) -> bool:
+        """Test provider connectivity, probing the type-appropriate endpoint.
+
+        Ollama serves discovery under the native ``/api/tags`` off the server
+        root; other types probe OpenAI-compatible ``{base_url}/models``.
+        """
+        if not base_url or not base_url.strip():
+            return False
+        headers = self._build_discovery_headers(
+            api_key=api_key,
+            api_key_header=api_key_header,
+            custom_headers=custom_headers,
+        )
+        if provider_type is CustomProviderType.OLLAMA:
+            url = f"{self._ollama_gateway_root(base_url)}/api/tags"
+        else:
+            url = f"{base_url.rstrip('/')}/models"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+            return response.status_code == 200
+        except Exception:
+            return False
+
+    @staticmethod
+    def _build_discovery_headers(
+        *,
         api_key: str | None,
         api_key_header: str | None,
         custom_headers: dict[str, str] | None,
-        timeout: float,
-    ) -> httpx.Response:
-        """Make a GET /models request against a provider base URL."""
+    ) -> dict[str, str]:
+        """Build request headers for a discovery call."""
         headers = custom_headers.copy() if custom_headers else {}
         if api_key:
             if not api_key_header:
                 headers["Authorization"] = f"Bearer {api_key}"
             else:
                 headers[api_key_header] = api_key
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.get(
-                f"{base_url.rstrip('/')}/models",
-                headers=headers,
-            )
+        return headers
 
-    async def validate_provider(
-        self,
-        base_url: str,
-        api_key: str | None = None,
-        api_key_header: str | None = None,
-        custom_headers: dict[str, str] | None = None,
-    ) -> bool:
-        """Test provider connectivity."""
-        if not base_url or not base_url.strip():
-            return False
+    @staticmethod
+    async def _get_json(url: str, headers: dict[str, str]) -> Any:
+        """GET a discovery URL and return parsed JSON."""
         try:
-            response = await self._fetch_models(
-                base_url=base_url,
-                api_key=api_key,
-                api_key_header=api_key_header,
-                custom_headers=custom_headers,
-                timeout=10.0,
-            )
-            return response.status_code == 200
-        except Exception:
-            return False
-
-    async def _discover_models(
-        self,
-        base_url: str,
-        api_key: str | None = None,
-        custom_headers: dict[str, str] | None = None,
-        api_key_header: str | None = None,
-    ) -> list[dict[str, object]]:
-        """Discover available models from a provider endpoint."""
-        try:
-            response = await self._fetch_models(
-                base_url=base_url,
-                api_key=api_key,
-                api_key_header=api_key_header,
-                custom_headers=custom_headers,
-                timeout=30.0,
-            )
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=headers)
             response.raise_for_status()
-            data = response.json()
+            return response.json()
         except httpx.HTTPError as err:
             raise ValueError(f"Failed to discover models: {err}") from err
+
+    async def _discover_openai_models(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+        api_key_header: str | None = None,
+    ) -> list[DiscoveredModel]:
+        """Discover models via ``GET {base_url}/models`` (OpenAI-compatible)."""
+        headers = self._build_discovery_headers(
+            api_key=api_key,
+            api_key_header=api_key_header,
+            custom_headers=custom_headers,
+        )
+        data = await self._get_json(f"{base_url.rstrip('/')}/models", headers)
         if isinstance(data, dict) and isinstance(data.get("data"), list):
-            return [item for item in data["data"] if isinstance(item, dict)]
-        if isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
-        raise ValueError(f"Unexpected response format: {type(data)}")
+            raw_items = [item for item in data["data"] if isinstance(item, dict)]
+        elif isinstance(data, list):
+            raw_items = [item for item in data if isinstance(item, dict)]
+        else:
+            raise ValueError(f"Unexpected response format: {type(data)}")
+
+        discovered: list[DiscoveredModel] = []
+        for raw in raw_items:
+            model_name = raw.get("id") or raw.get("model_name")
+            if not isinstance(model_name, str):
+                continue
+            discovered.append(
+                DiscoveredModel(model_name=model_name, metadata=dict(raw))
+            )
+        return discovered
+
+    _ollama_gateway_root = staticmethod(ollama_gateway_root)
+
+    async def _discover_ollama_models(
+        self,
+        base_url: str,
+        *,
+        api_key: str | None = None,
+        custom_headers: dict[str, str] | None = None,
+        api_key_header: str | None = None,
+    ) -> list[DiscoveredModel]:
+        """Discover models via ``GET {gateway_root}/api/tags`` (Ollama).
+
+        Stores each model's ``digest`` in metadata.
+        """
+        headers = self._build_discovery_headers(
+            api_key=api_key,
+            api_key_header=api_key_header,
+            custom_headers=custom_headers,
+        )
+        gateway_root = self._ollama_gateway_root(base_url)
+        data = await self._get_json(f"{gateway_root}/api/tags", headers)
+        if not isinstance(data, dict) or not isinstance(data.get("models"), list):
+            raise ValueError(f"Unexpected response format: {type(data)}")
+
+        discovered: list[DiscoveredModel] = []
+        for raw in data["models"]:
+            if not isinstance(raw, dict):
+                continue
+            model_name = raw.get("name")
+            if not isinstance(model_name, str):
+                continue
+            digest = raw.get("digest")
+            digest_str = digest if isinstance(digest, str) else None
+            discovered.append(
+                DiscoveredModel(
+                    model_name=model_name,
+                    metadata={"digest": digest_str},
+                )
+            )
+        return discovered
