@@ -142,31 +142,6 @@ class ActionRunner:
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
 
-    async def ensure_registry_environment(self, artifact_uri: str | None) -> list[Path]:
-        """Ensure the registry environment is set up and return PYTHONPATH entries.
-
-        This is the public API for pool workers to get the paths to add to PYTHONPATH.
-
-        Args:
-            artifact_uri: S3 URI to the registry execution artifact.
-
-        Returns:
-            Paths to add to PYTHONPATH (empty if no artifact is available).
-        """
-        return await self.registry_artifacts.ensure_environment(artifact_uri)
-
-    async def resolve_registry_paths(
-        self, artifact_uris: list[str] | None = None
-    ) -> list[Path]:
-        """Materialize registry artifacts and return importable Python paths.
-
-        The artifacts are only pinned for the duration of this call. Callers that
-        execute a subprocess against the returned paths should hold
-        ``registry_artifacts.lease`` for the whole execution instead.
-        """
-        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
-            return registry_paths
-
     async def execute_action(
         self,
         input: RunActionInput,

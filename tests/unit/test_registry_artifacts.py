@@ -18,6 +18,7 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactCache,
     RegistryArtifactFormat,
     SquashfsArtifact,
+    SquashfsMountCommandError,
     TarballArtifact,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
@@ -154,7 +155,7 @@ class TestRegistryArtifactCache:
         assert output_path.read_bytes() == b"squashfs"
 
     @pytest.mark.anyio
-    async def test_ensure_environment_uses_bundled_current_builtin(
+    async def test_lease_uses_bundled_current_builtin(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
         """In-tree builtin registry returns only the installed site-packages."""
@@ -173,12 +174,11 @@ class TestRegistryArtifactCache:
         )
 
         cache = RegistryArtifactCache(temp_cache_dir)
-        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
-
-        assert result == [site_packages.resolve()]
+        async with cache.lease([bundled_builtin_registry_uri(version)]) as result:
+            assert result == [site_packages.resolve()]
 
     @pytest.mark.anyio
-    async def test_ensure_environment_exposes_editable_builtin_parent(
+    async def test_lease_exposes_editable_builtin_parent(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
         """Editable builtin registry exposes the package wrapper + site-packages."""
@@ -201,12 +201,11 @@ class TestRegistryArtifactCache:
         )
 
         cache = RegistryArtifactCache(temp_cache_dir)
-        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
-
-        assert result == [source_root.resolve(), site_packages.resolve()]
+        async with cache.lease([bundled_builtin_registry_uri(version)]) as result:
+            assert result == [source_root.resolve(), site_packages.resolve()]
 
     @pytest.mark.anyio
-    async def test_ensure_environment_rejects_stale_bundled_builtin(
+    async def test_lease_rejects_stale_bundled_builtin(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
         """Bundled pseudo-URIs must match this executor's installed package."""
@@ -214,7 +213,8 @@ class TestRegistryArtifactCache:
 
         cache = RegistryArtifactCache(temp_cache_dir)
         with pytest.raises(RuntimeError, match="does not match installed version"):
-            await cache.ensure_environment(bundled_builtin_registry_uri("1.2.4"))
+            async with cache.lease([bundled_builtin_registry_uri("1.2.4")]):
+                pass
 
     @pytest.mark.anyio
     async def test_download_artifact_normalizes_missing_objects_to_http_404(
@@ -509,7 +509,7 @@ class TestRegistryArtifactCache:
         cache = RegistryArtifactCache(temp_cache_dir)
 
         async def mock_mount(self, ctx, image_path):
-            raise RuntimeError("operation not permitted")
+            raise SquashfsMountCommandError("operation not permitted")
 
         async def mock_extract(self, ctx, image_path):
             target_dir = ctx.paths.squashfs_extract_dir
@@ -601,7 +601,7 @@ class TestRegistryArtifactCache:
                 tar.add(source / "module.py", arcname="module.py")
 
         async def mock_mount(self, ctx, image_path):
-            raise RuntimeError("operation not permitted")
+            raise SquashfsMountCommandError("operation not permitted")
 
         async def mock_extract(self, ctx, image_path):
             raise RuntimeError("unsquashfs unavailable")
@@ -782,6 +782,76 @@ class TestRegistryArtifactCacheLease:
             assert registry_paths == expected
 
     @pytest.mark.anyio
+    async def test_lease_is_never_admitted_across_an_in_flight_eviction(
+        self, temp_cache_dir
+    ):
+        """A lease must not return a mount an in-flight eviction is deleting."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/site-packages.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        paths = cache._paths_for(cache_key)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        mounted = {paths.squashfs_mount_dir}
+        umount_started = asyncio.Event()
+        finish_umount = asyncio.Event()
+        remounts: list[str] = []
+
+        umount_process = AsyncMock()
+        umount_process.communicate.return_value = (b"", b"")
+        umount_process.returncode = 0
+
+        async def mock_umount(*args, **kwargs):
+            umount_started.set()
+            await finish_umount.wait()
+            mounted.discard(paths.squashfs_mount_dir)
+            return umount_process
+
+        async def mock_mount(self, ctx, image_path):
+            remounts.append(ctx.cache_key)
+            target_dir = ctx.paths.squashfs_mount_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "module.py").write_text("VALUE = 1")
+            mounted.add(target_dir)
+            return target_dir
+
+        leased_paths: list[Path] = []
+        leased_path_exists: list[bool] = []
+
+        async def take_lease() -> None:
+            async with cache.lease([artifact_uri]) as registry_paths:
+                leased_paths.extend(registry_paths)
+                leased_path_exists.append(registry_paths[0].is_dir())
+
+        with (
+            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/umount",
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                side_effect=mock_umount,
+            ),
+            patch.object(SquashfsArtifact, "mount", mock_mount),
+        ):
+            eviction = asyncio.create_task(cache._evict_entry(cache_key))
+            await umount_started.wait()
+            lease = asyncio.create_task(take_lease())
+            # Let the lease block on the per-key lock the eviction holds.
+            await asyncio.sleep(0)
+            finish_umount.set()
+            evicted, _ = await asyncio.gather(eviction, lease)
+
+        assert evicted is True
+        # The lease waited for the eviction and re-materialized the entry.
+        assert remounts == [cache_key]
+        assert leased_paths == [paths.squashfs_mount_dir]
+        assert leased_path_exists == [True]
+        assert (paths.squashfs_mount_dir / "module.py").read_text() == "VALUE = 1"
+
+    @pytest.mark.anyio
     async def test_builtin_artifact_is_exempt_from_cache_accounting(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
@@ -849,6 +919,78 @@ class TestRegistryArtifactCacheEviction:
 
         assert leased_dir.is_dir()
         assert not idle_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_releasing_a_lease_converges_the_cache_to_budget(
+        self, temp_cache_dir
+    ):
+        """Enforcement before materialization cannot see the new entry's size."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        idle = _write_image_entry(temp_cache_dir, "idle", size=4096, mtime=100.0)
+        new_uri = "s3://bucket/new.tar.gz"
+        new_key = compute_registry_artifact_cache_key(new_uri)
+
+        async def mock_download(self, ctx, path):
+            path.write_bytes(b"fake tarball")
+
+        async def mock_extract(self, tarball_path, target_dir):
+            (target_dir / "module.py").write_bytes(b"x" * 4096)
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, 6000),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            async with cache.lease([new_uri]) as registry_paths:
+                # Both entries fit only because the new one is still leased.
+                assert registry_paths == [temp_cache_dir / f"tarball-{new_key}"]
+                assert idle.exists()
+
+        assert not idle.exists()
+        assert (temp_cache_dir / f"tarball-{new_key}").is_dir()
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
+    async def test_releasing_a_lease_skips_the_scan_for_a_cache_hit(
+        self, temp_cache_dir
+    ):
+        """Steady-state cache hits must not pay for a full cache scan."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cached.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        _write_tarball_entry(temp_cache_dir, cache_key)
+        cache._budget_dirty = False
+
+        with patch.object(
+            cache,
+            "_scan_cache_entries",
+            side_effect=AssertionError("cache hits must not scan the cache dir"),
+        ):
+            async with cache.lease([artifact_uri]):
+                pass
+
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
+    async def test_release_keeps_retrying_while_the_cache_stays_over_budget(
+        self, temp_cache_dir
+    ):
+        """A cache that cannot shrink yet must stay marked for re-enforcement."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/pinned.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        _write_image_entry(temp_cache_dir, cache_key, size=4096, mtime=100.0)
+        _write_tarball_entry(temp_cache_dir, cache_key)
+        cache._budget_dirty = True
+        # A second holder keeps the entry pinned past the inner lease.
+        cache._acquire_lease(cache_key)
+
+        with patch(MAX_ENTRIES_CONFIG, 0), patch(MAX_BYTES_CONFIG, 1):
+            async with cache.lease([artifact_uri]):
+                pass
+
+        assert cache._budget_dirty is True
 
     @pytest.mark.anyio
     async def test_enforce_budget_evicts_least_recently_used_until_under_max_bytes(
@@ -985,16 +1127,18 @@ class TestRegistryArtifactCacheEviction:
         assert not idle.exists()
 
     @pytest.mark.anyio
-    async def test_eviction_drops_in_memory_bookkeeping(self, temp_cache_dir):
-        """Evicting a key releases its lock and lease records."""
+    async def test_eviction_drops_lease_records_but_keeps_the_key_lock(
+        self, temp_cache_dir
+    ):
+        """Locks are stable for the process lifetime; lease records are not."""
         cache = RegistryArtifactCache(temp_cache_dir)
         _write_tarball_entry(temp_cache_dir, "bookkeeping")
         cache._acquire_lease("bookkeeping")
         cache._release_lease("bookkeeping")
-        await cache._lock_for("bookkeeping")
+        lock = await cache._lock_for("bookkeeping")
 
         assert await cache._evict_entry("bookkeeping") is True
-        assert "bookkeeping" not in cache._locks
+        assert cache._locks["bookkeeping"] is lock
         assert "bookkeeping" not in cache._leases
 
     @pytest.mark.anyio
@@ -1077,7 +1221,7 @@ class TestSquashfsMountCapability:
         cache = RegistryArtifactCache(temp_cache_dir)
 
         async def mock_mount(self, ctx, image_path):
-            raise RuntimeError("operation not permitted")
+            raise SquashfsMountCommandError("operation not permitted")
 
         async def mock_extract(self, ctx, image_path):
             target_dir = ctx.paths.squashfs_extract_dir
@@ -1122,7 +1266,7 @@ class TestSquashfsMountCapability:
         async def mock_mount(self, ctx, image_path):
             attempts.append(ctx.cache_key)
             if mounted:
-                raise RuntimeError("failed to setup loop device")
+                raise SquashfsMountCommandError("failed to setup loop device")
             target_dir = ctx.paths.squashfs_mount_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "module.py").write_text("VALUE = 1")
@@ -1162,6 +1306,88 @@ class TestSquashfsMountCapability:
         assert not idle.squashfs_mount_dir.exists()
 
     @pytest.mark.anyio
+    async def test_download_failure_does_not_disable_squashfs_process_wide(
+        self, temp_cache_dir
+    ):
+        """A transient download error is not a missing mount capability."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        tarball_dir = temp_cache_dir / "gzip-fallback"
+        tarball_dir.mkdir()
+
+        async def mock_download(self, ctx, image_path):
+            raise RuntimeError("connection reset by peer")
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "download", mock_download),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+                return_value=[tarball_dir],
+            ) as tarball_materialize,
+            patch.object(
+                cache,
+                "_release_mounted_slot",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as release_mounted_slot,
+        ):
+            result = await cache.materialize(
+                "download-failure", "s3://bucket/path/site-packages.squashfs"
+            )
+
+        assert result == [tarball_dir]
+        assert cache._squashfs_mount_state.disabled is False
+        tarball_materialize.assert_awaited_once()
+        release_mounted_slot.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_download_failure_after_a_mount_success_does_not_reclaim_a_slot(
+        self, temp_cache_dir
+    ):
+        """A transient download error must not evict an unrelated idle mount."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache._squashfs_mount_state.mounted_once = True
+        tarball_dir = temp_cache_dir / "gzip-fallback"
+        tarball_dir.mkdir()
+
+        async def mock_download(self, ctx, image_path):
+            raise RuntimeError("connection reset by peer")
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "download", mock_download),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+                return_value=[tarball_dir],
+            ),
+            patch.object(
+                cache,
+                "_release_mounted_slot",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as release_mounted_slot,
+        ):
+            result = await cache.materialize(
+                "download-failure", "s3://bucket/path/site-packages.squashfs"
+            )
+
+        assert result == [tarball_dir]
+        assert cache._squashfs_mount_state.disabled is False
+        release_mounted_slot.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_mount_failure_without_reclaimable_slot_falls_back_to_extraction(
         self, temp_cache_dir
     ):
@@ -1170,7 +1396,7 @@ class TestSquashfsMountCapability:
         cache._squashfs_mount_state.mounted_once = True
 
         async def mock_mount(self, ctx, image_path):
-            raise RuntimeError("failed to setup loop device")
+            raise SquashfsMountCommandError("failed to setup loop device")
 
         async def mock_extract(self, ctx, image_path):
             target_dir = ctx.paths.squashfs_extract_dir

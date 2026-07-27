@@ -8,8 +8,12 @@ using the already-resolved ActionImplementation (module/name/origin).
 
 from __future__ import annotations
 
+import sys
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from tracecat_registry import secrets as registry_secrets
@@ -239,6 +243,88 @@ class TestTestBackendNoRegistryAction:
 
             assert result.type == "failure"
             assert "module" in result.error.message.lower()
+        finally:
+            await backend.shutdown()
+
+    @pytest.mark.anyio
+    async def test_execute_holds_artifact_leases_for_the_whole_execution(
+        self,
+        test_role: Role,
+        test_resolved_context: ResolvedContext,
+        test_run_action_input: RunActionInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Leases span execution, and one bad artifact does not drop the others."""
+        good_path = tmp_path / "good-artifact"
+        good_path.mkdir()
+        broken_uri = "s3://bucket/broken.tar.gz"
+        good_uri = "s3://bucket/good.tar.gz"
+
+        class FakeRegistryArtifacts:
+            def __init__(self) -> None:
+                self.active = 0
+
+            @asynccontextmanager
+            async def lease(
+                self, artifact_uris: list[str] | None = None
+            ) -> AsyncIterator[list[Path]]:
+                if artifact_uris == [broken_uri]:
+                    raise RuntimeError("artifact unavailable")
+                self.active += 1
+                try:
+                    yield [good_path]
+                finally:
+                    self.active -= 1
+
+        class FakeActionRunner:
+            def __init__(self) -> None:
+                self.registry_artifacts = FakeRegistryArtifacts()
+
+        fake_runner = FakeActionRunner()
+        observed: list[tuple[int, bool]] = []
+
+        async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+            return [broken_uri, good_uri]
+
+        backend = TestBackend()
+        await backend.start()
+
+        try:
+            monkeypatch.setattr(
+                "tracecat.executor.backends.test.config"
+                ".TRACECAT__LOCAL_REPOSITORY_ENABLED",
+                False,
+            )
+            monkeypatch.setattr(
+                "tracecat.executor.backends.test.get_action_runner",
+                lambda: fake_runner,
+            )
+            monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+            monkeypatch.setattr(
+                backend,
+                "_load_udf_callable",
+                lambda _action_impl: (
+                    lambda **_kwargs: observed.append(
+                        (
+                            fake_runner.registry_artifacts.active,
+                            str(good_path) in sys.path,
+                        )
+                    )
+                ),
+            )
+
+            result = await backend.execute(
+                input=test_run_action_input,
+                role=test_role,
+                resolved_context=test_resolved_context,
+                timeout=30.0,
+            )
+
+            assert result.type == "success"
+            assert observed == [(1, True)]
+            assert fake_runner.registry_artifacts.active == 0
+            assert str(good_path) not in sys.path
         finally:
             await backend.shutdown()
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
@@ -121,20 +121,24 @@ class TestBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        artifact_paths = await self._ensure_registry_artifacts(input, role)
-        if artifact_paths:
-            logger.debug(
-                "Adding artifact paths to sys.path for test execution",
-                paths=artifact_paths,
-            )
-
         try:
-            with _temporary_sys_path(artifact_paths):
-                result = await asyncio.wait_for(
-                    self._execute_with_context(input, role, resolved_context),
-                    timeout=timeout,
+            # The leases are held for the whole in-process execution so cache
+            # eviction cannot delete a directory sys.path still points at.
+            async with AsyncExitStack() as leases:
+                artifact_paths = await self._lease_registry_artifacts(
+                    leases, input, role
                 )
-            return ExecutorResultSuccess(result=result)
+                if artifact_paths:
+                    logger.debug(
+                        "Adding artifact paths to sys.path for test execution",
+                        paths=artifact_paths,
+                    )
+                with _temporary_sys_path(artifact_paths):
+                    result = await asyncio.wait_for(
+                        self._execute_with_context(input, role, resolved_context),
+                        timeout=timeout,
+                    )
+                return ExecutorResultSuccess(result=result)
         except TimeoutError:
             logger.error(
                 "Test backend execution timed out",
@@ -247,10 +251,26 @@ class TestBackend(ExecutorBackend):
         )
         return load_udf_impl(udf_impl)
 
-    async def _ensure_registry_artifacts(
-        self, input: RunActionInput, role: Role
+    async def _lease_registry_artifacts(
+        self,
+        leases: AsyncExitStack,
+        input: RunActionInput,
+        role: Role,
     ) -> list[str]:
-        """Materialize registry artifacts, returning paths for sys.path."""
+        """Lease registry artifacts, returning paths for sys.path.
+
+        Each artifact is leased independently so one unavailable artifact only
+        drops its own paths: the remaining artifacts still load, matching the
+        best-effort behaviour tests rely on.
+
+        Args:
+            leases: Exit stack that owns the leases for the caller's execution.
+            input: Action input used to resolve artifact URIs.
+            role: Role used to resolve artifact URIs.
+
+        Returns:
+            Importable paths for every artifact that could be materialized.
+        """
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return []
 
@@ -259,14 +279,13 @@ class TestBackend(ExecutorBackend):
             logger.debug("No artifact URIs found, using empty paths")
             return []
 
-        runner = get_action_runner()
+        registry_artifacts = get_action_runner().registry_artifacts
         extracted_paths: list[str] = []
 
         for artifact_uri in artifact_uris:
             try:
-                extracted_paths.extend(
-                    str(p)
-                    for p in await runner.ensure_registry_environment(artifact_uri)
+                artifact_paths = await leases.enter_async_context(
+                    registry_artifacts.lease([artifact_uri])
                 )
             except Exception as e:
                 logger.warning(
@@ -274,6 +293,8 @@ class TestBackend(ExecutorBackend):
                     artifact_uri=artifact_uri,
                     error=str(e),
                 )
+                continue
+            extracted_paths.extend(str(path) for path in artifact_paths)
 
         logger.debug(
             "Materialized registry artifacts for test execution",

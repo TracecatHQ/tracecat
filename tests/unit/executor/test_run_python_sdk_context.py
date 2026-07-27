@@ -10,9 +10,11 @@ import sys
 import sysconfig
 import tempfile
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, assert_type
+from typing import TYPE_CHECKING, Any, Never, assert_type
 
 import pytest
 import tracecat_registry
@@ -465,16 +467,37 @@ async def _run_sandbox_registry_ctx_smoke(
     )
 
 
-class _FakeRunPythonRegistryPathRunner:
+class _FakeRunPythonRegistryArtifacts:
+    """Stand-in for the executor registry artifact cache."""
+
     def __init__(self, paths: list[Path]) -> None:
         self.paths = paths
         self.artifact_uris: list[str] | None = None
+        self.leased = False
 
-    async def resolve_registry_paths(
+    @asynccontextmanager
+    async def lease(
         self, artifact_uris: list[str] | None = None
-    ) -> list[Path]:
+    ) -> AsyncIterator[list[Path]]:
         self.artifact_uris = artifact_uris
-        return self.paths
+        self.leased = True
+        try:
+            yield self.paths
+        finally:
+            self.leased = False
+
+
+class _FakeRunPythonRegistryPathRunner:
+    def __init__(self, paths: list[Path]) -> None:
+        self.registry_artifacts = _FakeRunPythonRegistryArtifacts(paths)
+
+    @property
+    def paths(self) -> list[Path]:
+        return self.registry_artifacts.paths
+
+    @property
+    def artifact_uris(self) -> list[str] | None:
+        return self.registry_artifacts.artifact_uris
 
 
 async def _run_backend_registry_ctx_smoke(
@@ -1170,6 +1193,48 @@ async def test_run_python_backend_always_injects_sdk_context(
 
 
 @pytest.mark.anyio
+async def test_run_python_backend_holds_registry_lease_for_whole_sandbox_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Registry artifacts stay pinned until the run_python sandbox has finished."""
+    artifact_path = tmp_path / "registry-artifact"
+    artifact_path.mkdir()
+    fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
+    leased_during_run: list[bool] = []
+
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    class FakeSandboxService:
+        async def run_python(self, **kwargs: Any) -> dict[str, bool]:
+            del kwargs
+            leased_during_run.append(fake_runner.registry_artifacts.leased)
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.SandboxService",
+        FakeSandboxService,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.get_action_runner",
+        lambda: fake_runner,
+    )
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+
+    result = await backend.execute(
+        input=_make_run_python_input(),
+        role=_make_role(),
+        resolved_context=_make_run_python_context(),
+    )
+
+    assert result.type == "success"
+    assert leased_during_run == [True]
+    assert fake_runner.registry_artifacts.leased is False
+
+
+@pytest.mark.anyio
 async def test_run_python_backend_fails_without_registry_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1221,13 +1286,14 @@ async def test_run_python_backend_uses_local_registry_paths(
             captured.update(kwargs)
             return {"ok": True}
 
-    class FailingRegistryPathRunner:
-        async def resolve_registry_paths(
-            self, artifact_uris: list[str] | None = None
-        ) -> list[Path]:
+    class FailingRegistryArtifacts:
+        def lease(self, artifact_uris: list[str] | None = None) -> Never:
             raise AssertionError(
-                f"local repository mode should not resolve {artifact_uris=}"
+                f"local repository mode should not lease {artifact_uris=}"
             )
+
+    class FailingRegistryPathRunner:
+        registry_artifacts = FailingRegistryArtifacts()
 
     monkeypatch.setattr(executor_backend_module, "SandboxService", FakeSandboxService)
     monkeypatch.setattr(

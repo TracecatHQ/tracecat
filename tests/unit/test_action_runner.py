@@ -117,15 +117,15 @@ class TestActionRunner:
         return communication
 
     @pytest.mark.anyio
-    async def test_ensure_registry_environment_no_tarball(self, temp_cache_dir):
-        """Test that an empty list is returned when no tarball URI provided."""
+    async def test_lease_without_artifacts_yields_base_pythonpath(self, temp_cache_dir):
+        """Test that the base PYTHONPATH directory is used without artifacts."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        result = await runner.ensure_registry_environment(None)
-        assert result == []
+        async with runner.registry_artifacts.lease(None) as registry_paths:
+            assert registry_paths == [temp_cache_dir / "base"]
 
-        result = await runner.ensure_registry_environment("")
-        assert result == []
+        async with runner.registry_artifacts.lease([]) as registry_paths:
+            assert registry_paths == [temp_cache_dir / "base"]
 
     @pytest.mark.anyio
     async def test_execute_action_timeout(
