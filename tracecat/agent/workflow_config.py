@@ -37,6 +37,7 @@ def _mcp_server_to_payload(
                 env=server.get("env"),
                 timeout=server.get("timeout"),
                 id=server.get("id"),
+                environment=server.get("environment"),
                 tools=(
                     [MCPServerToolSummaryPayload.model_validate(tool) for tool in tools]
                     if (tools := server.get("tools")) is not None
@@ -55,6 +56,7 @@ def _mcp_server_to_payload(
                 transport=server.get("transport"),
                 timeout=server.get("timeout"),
                 id=server.get("id"),
+                environment=server.get("environment"),
             )
         case _:
             raise ValueError(f"Unsupported MCP server config: {server!r}")
@@ -76,6 +78,8 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 stdio_server["timeout"] = server.timeout
             if server.id is not None:
                 stdio_server["id"] = server.id
+            if server.environment is not None:
+                stdio_server["environment"] = server.environment
             if server.tools is not None:
                 tools: list[MCPServerToolSummary] = []
                 for tool in server.tools:
@@ -104,6 +108,8 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 http_server["timeout"] = server.timeout
             if server.id is not None:
                 http_server["id"] = server.id
+            if server.environment is not None:
+                http_server["environment"] = server.environment
             return http_server
 
 

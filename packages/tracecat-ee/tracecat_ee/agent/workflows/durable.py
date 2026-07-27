@@ -51,9 +51,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
+        ResolveAgentPresetConfigWithEnvironmentActivityInput,
         ResolveAgentsConfigActivityInput,
+        ResolveAgentsConfigWithEnvironmentActivityInput,
         resolve_agent_preset_config_activity,
+        resolve_agent_preset_config_with_environment_activity,
         resolve_agents_config_activity,
+        resolve_agents_config_with_environment_activity,
         resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.preset.resolver import (
@@ -400,6 +404,8 @@ class AgentWorkflowArgs(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     role: Role
+    environment: str | None = None
+    """Effective DSL action environment for workspace-backed agent resources."""
     agent_args: RunAgentArgs
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
@@ -471,6 +477,7 @@ LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-histo
 PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
     "durable-agent-preserve-resumed-agent-bindings-v1"
 )
+AGENT_ACTION_ENVIRONMENT_PATCH = "durable-agent-action-environment-v1"
 
 
 def _agents_config_from_binding(
@@ -599,24 +606,45 @@ class DurableAgentWorkflow:
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
-            activity_input = (
-                ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_version_id=args.agent_preset_version_id,
+            use_action_environment = workflow.patched(AGENT_ACTION_ENVIRONMENT_PATCH)
+            if use_action_environment and args.environment is not None:
+                preset_config_payload = await workflow.execute_activity(
+                    resolve_agent_preset_config_with_environment_activity,
+                    (
+                        ResolveAgentPresetConfigWithEnvironmentActivityInput(
+                            role=self.role,
+                            preset_version_id=args.agent_preset_version_id,
+                            environment=args.environment,
+                        )
+                        if args.agent_preset_version_id is not None
+                        else ResolveAgentPresetConfigWithEnvironmentActivityInput(
+                            role=self.role,
+                            preset_slug=args.agent_args.preset_slug,
+                            preset_version=args.agent_args.preset_version,
+                            environment=args.environment,
+                        )
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-                if args.agent_preset_version_id is not None
-                else ResolveAgentPresetConfigActivityInput(
-                    role=self.role,
-                    preset_slug=args.agent_args.preset_slug,
-                    preset_version=args.agent_args.preset_version,
+            else:
+                preset_config_payload = await workflow.execute_activity(
+                    resolve_agent_preset_config_activity,
+                    (
+                        ResolveAgentPresetConfigActivityInput(
+                            role=self.role,
+                            preset_version_id=args.agent_preset_version_id,
+                        )
+                        if args.agent_preset_version_id is not None
+                        else ResolveAgentPresetConfigActivityInput(
+                            role=self.role,
+                            preset_slug=args.agent_args.preset_slug,
+                            preset_version=args.agent_args.preset_version,
+                        )
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-            )
-            preset_config_payload = await workflow.execute_activity(
-                resolve_agent_preset_config_activity,
-                activity_input,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
             preset_config = agent_config_from_payload(preset_config_payload)
             # Apply overrides from the provided config (if any)
             # When using a preset, the 'config' in args acts as an override layer
@@ -660,6 +688,21 @@ class DurableAgentWorkflow:
             return ResolvedAgentsRuntimeConfig()
         if not agents_config.subagents:
             return ResolvedAgentsRuntimeConfig(enabled=True)
+        use_action_environment = workflow.patched(AGENT_ACTION_ENVIRONMENT_PATCH)
+        if use_action_environment and args.environment is not None:
+            return await workflow.execute_activity(
+                resolve_agents_config_with_environment_activity,
+                ResolveAgentsConfigWithEnvironmentActivityInput(
+                    role=self.role,
+                    agents=agents_config,
+                    parent_preset_id=args.agent_preset_id,
+                    parent_slug=args.agent_args.preset_slug,
+                    follow_latest_versions=follow_latest_versions,
+                    environment=args.environment,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(

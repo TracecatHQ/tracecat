@@ -972,6 +972,7 @@ class DSLWorkflow:
                     session_id = action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
+                        environment=action_args.environment,
                         agent_args=RunAgentArgs(
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
@@ -1038,6 +1039,7 @@ class DSLWorkflow:
                     session_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
+                        environment=action_args.environment,
                         agent_args=RunAgentArgs(
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
@@ -1128,6 +1130,7 @@ class DSLWorkflow:
                     session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
+                        environment=preset_action_args.environment,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,

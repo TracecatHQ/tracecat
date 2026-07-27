@@ -2181,6 +2181,33 @@ class TestMCPIntegrationCRUD:
         assert retrieved.name == created.name
         assert retrieved.server_uri == created.server_uri
 
+    async def test_resolve_mcp_refs_carry_effective_environment(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Boundary-safe refs retain the environment needed at the trusted edge."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Environment-scoped ref",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+
+        resolved = await preset_service.resolve_mcp_integration_refs(
+            [str(created.id)],
+            environment="staging",
+        )
+
+        assert resolved is not None
+        assert resolved[0].get("id") == str(created.id)
+        assert resolved[0].get("environment") == "staging"
+        assert "headers" not in resolved[0]
+
     async def test_resolve_oauth2_mcp_with_additional_headers(
         self,
         integration_service: IntegrationService,

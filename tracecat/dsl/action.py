@@ -103,12 +103,18 @@ class _ThreadLocalRunner:
 
 
 async def _resolve_mcp_integrations(
-    mcp_integration_ids: list[str], *, role: Role
+    mcp_integration_ids: list[str],
+    *,
+    role: Role,
+    environment: str,
 ) -> list[MCPServerConfig]:
     try:
         async with AgentPresetService.with_session(role=role) as svc:
             await svc.load_selected_mcp_integrations(mcp_integration_ids)
-            servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
+            servers = await svc.resolve_mcp_integration_refs(
+                mcp_integration_ids,
+                environment=environment,
+            )
     except (MCPValidationError, TracecatValidationError) as e:
         raise ApplicationError(str(e), non_retryable=True) from e
     return servers or []
@@ -711,10 +717,13 @@ class DSLActivities:
         evaled_args = await asyncio.to_thread(
             eval_templated_object, args, operand=materialized
         )
+        evaled_args["environment"] = environment
         mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
         if mcp_integration_ids:
             evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
-                mcp_integration_ids, role=input.role
+                mcp_integration_ids,
+                role=input.role,
+                environment=environment,
             )
         return AgentActionArgs(**evaled_args)
 
@@ -752,6 +761,7 @@ class DSLActivities:
         evaled_args = await asyncio.to_thread(
             eval_templated_object, args, operand=materialized
         )
+        evaled_args["environment"] = environment
         return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod

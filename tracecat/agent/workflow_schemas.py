@@ -46,6 +46,8 @@ class MCPHttpServerConfigPayload(BaseModel):
     """UUID of the source ``mcp_integrations`` row. Lets trusted callers
     re-resolve secrets per use without carrying them through workflow
     history."""
+    environment: str | None = Field(default=None)
+    """Effective environment used when resolving workspace-backed templates."""
 
 
 class MCPServerToolSummaryPayload(BaseModel):
@@ -74,6 +76,8 @@ class MCPStdioServerConfigPayload(BaseModel):
     id: str | None = Field(default=None)
     """UUID of the source ``mcp_integrations`` row. See
     :class:`MCPHttpServerConfigPayload.id`."""
+    environment: str | None = Field(default=None)
+    """Effective environment used when resolving workspace-backed templates."""
     tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
     """Latest verified stdio tool summaries. Non-secret and safe for workflow
     history."""
