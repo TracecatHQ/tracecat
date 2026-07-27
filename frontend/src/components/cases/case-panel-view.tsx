@@ -704,7 +704,10 @@ export function CasePanelView({
                 </TabsContent>
 
                 <TabsContent value="rows" className="mt-4">
-                  <CaseLinkedRowsSection caseData={caseData} />
+                  <CaseLinkedRowsSection
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                  />
                 </TabsContent>
 
                 <TabsContent value="payload" className="mt-4">

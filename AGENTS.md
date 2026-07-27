@@ -208,7 +208,8 @@ just gen-functions
   hardcoded literal so `.env` overrides still work. In `.env.example`, use an
   explicit `true` or `false`, never a blank value. Update
   `tests/unit/test_config.py` when adding deployment env files.
-- Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
+- Use `pnpm` instead of `npm`, prefer `rg` over slower text-search tools, and
+  prefer `fd` over `find` when `fd` is available.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
 
@@ -247,9 +248,9 @@ just gen-functions
 ## Infra and migrations
 
 - Infrastructure changes must be reviewed across all relevant deployment
-  targets: `docker-compose*.yml`, `deployments/fargate/`,
-  `deployments/k8s/eks/`, `deployments/k8s/eks/modules/eks/`, and
-  `deployments/k8s/helm/`.
+  targets: `docker-compose*.yml` and `deployments/fargate/`. Kubernetes
+  infrastructure lives in the separate `TracecatHQ/k8s` repository and must be
+  reviewed there when relevant.
 - Check the matching `values.yaml`, `variables.tf`, and `main.tf` files before
   closing out infra work.
 - For Alembic work, bring up the database first, check the cluster port with

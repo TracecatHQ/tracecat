@@ -1,8 +1,15 @@
 """Type definitions for the nsjail Python sandbox."""
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+
+class SandboxErrorCode(StrEnum):
+    """Machine-readable reasons for sandbox execution failures."""
+
+    TIMEOUT = "timeout"
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,7 @@ class SandboxResult:
         stdout: Captured standard output.
         stderr: Captured standard error.
         error: Error message if execution failed.
+        error_code: Machine-readable failure reason.
         exit_code: Process exit code.
         execution_time_ms: Execution time in milliseconds.
     """
@@ -67,5 +75,6 @@ class SandboxResult:
     stdout: str = ""
     stderr: str = ""
     error: str | None = None
+    error_code: SandboxErrorCode | None = None
     exit_code: int | None = None
     execution_time_ms: float | None = None

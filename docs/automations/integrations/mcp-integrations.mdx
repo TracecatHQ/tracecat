@@ -1,6 +1,6 @@
 ---
 title: "MCP servers"
-description: "Connect remote and stdio MCP servers to Tracecat agents: register tools, scope authentication, and call third-party MCP tools from agent runs."
+description: "Connect custom remote and stdio MCP servers to Tracecat agents, or use the Enterprise catalog of preconfigured servers."
 ---
 
 ## Overview
@@ -10,7 +10,15 @@ Tracecat supports two MCP integration types:
 - Remote MCP over URL (`HTTP` or `SSE`)
 - Local MCP over `stdio`
 
-Agents attach MCP integrations from the preset builder.
+## Availability
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+In open-source deployments, bring your own remote or `stdio` MCP server. Select the saved integration in the `mcp_integrations` input on `ai.agent`.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Enterprise includes a catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. You can also attach MCP integrations to reusable agent presets.
 
 ![MCP options](/img/integrations/mcp-options.png)
 
@@ -72,6 +80,7 @@ Expression support differs by MCP integration type:
 
 ## Related pages
 
+- See [AI agent](/agents/ai-agent) for `ai.agent` and `ai.preset_agent` inputs and examples.
 - See [OAuth](/automations/integrations/oauth-integrations) for custom OAuth providers and OAuth token expressions.
 - See [Secrets](/automations/core-concepts/secrets) for environment-scoped secret resolution.
 - See [Variables](/automations/core-concepts/variables) for non-secret values used in `stdio` environment variables.

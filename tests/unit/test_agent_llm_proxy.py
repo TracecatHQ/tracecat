@@ -270,6 +270,48 @@ async def test_write_stream_response_emits_error_after_headers_sent(
 
 
 @pytest.mark.anyio
+async def test_write_stream_response_surfaces_friendly_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT",
+        600.0,
+    )
+    errors: list[str] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def timed_out_stream() -> AsyncIterator[bytes]:
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        raise httpx.ReadTimeout("")
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=timed_out_stream(),
+        trace_request_id="trace-test-timeout",
+        path="/v1/messages",
+    )
+
+    expected_message = (
+        "Model response timed out after 10 minutes without receiving data. "
+        "Please retry the agent execution."
+    )
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert "event: error" in response_text
+    assert expected_message in response_text
+    assert errors == [expected_message]
+
+
+@pytest.mark.anyio
 async def test_forward_request_strips_authorization_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:

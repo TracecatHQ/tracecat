@@ -847,6 +847,10 @@ function McpCatalogCard({
   } else if (locked) {
     statusLabel = "Locked"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
+  } else if (entry.state === "reauth_required") {
+    // OAuth token expired with no refresh token: only re-auth revives it.
+    statusLabel = "Reconnect required"
+    statusClassName = "border-amber-200 bg-amber-50 text-amber-700"
   } else if (connected) {
     if (activeToolCount !== null && totalToolCount !== null) {
       const toolCountLabel =

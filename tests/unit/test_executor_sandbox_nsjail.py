@@ -488,19 +488,17 @@ async def _run_executor_action_smoke_case(
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
+    action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
-    monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", False)
-    if smoke_case is SmokeCase.NSJAIL_GATEWAY:
-        monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", True)
-        monkeypatch.setattr(
-            config,
-            "TRACECAT__ACTION_GATEWAY_SOCKET",
-            str(tmp_path / "action-gateway.sock"),
-        )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
 
     source_dir = tmp_path / "site-packages"
     tar_gz_path = tmp_path / "site-packages.tar.gz"
@@ -548,12 +546,10 @@ async def _run_executor_action_smoke_case(
         input=action_input,
         role=role,
     )
-    action_gateway: ActionGateway | None = None
+    action_gateway = ActionGateway()
 
     try:
-        if smoke_case is SmokeCase.NSJAIL_GATEWAY:
-            action_gateway = ActionGateway()
-            await action_gateway.start()
+        await action_gateway.start()
 
         patches = [
             patch.object(runner.registry_artifacts, "_sidecar_exists", sidecar_exists),
@@ -612,8 +608,7 @@ async def _run_executor_action_smoke_case(
             else:
                 assert tarball_dir.exists()
     finally:
-        if action_gateway is not None:
-            await action_gateway.stop()
+        await action_gateway.stop()
         _unmount_if_needed(mount_dir)
 
 
@@ -625,13 +620,24 @@ async def _run_current_builtin_smoke_case(
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
+    action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(
         config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
     )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
-    monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+    # EphemeralBackend executes in a child process, so export the socket path in
+    # addition to patching this process's config module.
+    monkeypatch.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
 
     action_name = "core.transform.reshape"
     role = _make_role()
@@ -643,12 +649,17 @@ async def _run_current_builtin_smoke_case(
     )
 
     backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
-    result = await backend.execute(
-        input=action_input,
-        role=role,
-        resolved_context=resolved_context,
-        timeout=30,
-    )
+    action_gateway = ActionGateway()
+    try:
+        await action_gateway.start()
+        result = await backend.execute(
+            input=action_input,
+            role=role,
+            resolved_context=resolved_context,
+            timeout=30,
+        )
+    finally:
+        await action_gateway.stop()
 
     assert result.type == "success"
     assert result.result == {"source": "current-builtin"}

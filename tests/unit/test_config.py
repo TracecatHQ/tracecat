@@ -220,26 +220,6 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
-def test_action_gateway_enabled_defaults_true_and_allows_false(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    try:
-        with monkeypatch.context() as env:
-            env.delenv("TRACECAT__ACTION_GATEWAY_ENABLED", raising=False)
-            reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__ACTION_GATEWAY_ENABLED is True
-
-            env.setenv("TRACECAT__ACTION_GATEWAY_ENABLED", "")
-            reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__ACTION_GATEWAY_ENABLED is True
-
-            env.setenv("TRACECAT__ACTION_GATEWAY_ENABLED", "false")
-            reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__ACTION_GATEWAY_ENABLED is False
-    finally:
-        importlib.reload(tracecat_config)
-
-
 def test_bound_env_rejects_invalid_numeric_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

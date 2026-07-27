@@ -41,6 +41,10 @@ definition:
       type: int | None
       description: End of the displayed time range in epoch milliseconds. Defaults to now.
       default: null
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for the Purple AI request.
+      default: 120
     base_url:
       type: str | None
       description: SentinelOne console URL.
@@ -61,7 +65,10 @@ definition:
         script: |
           import json
           import secrets
+          import string
           import time
+          import uuid
+          from datetime import datetime
 
           def main(
               base_url,
@@ -76,7 +83,12 @@ definition:
               now_ms = int(time.time() * 1000)
               end = end_time if end_time is not None else now_ms
               start = start_time if start_time is not None else now_ms - 24 * 60 * 60 * 1000
-              conversation_id = "PURPLE-MCP" + secrets.token_hex(5)
+              conversation_id = "PURPLE-MCP" + "".join(
+                  secrets.choice(string.ascii_letters + string.digits)
+                  for _ in range(10)
+              )
+              session_id = uuid.uuid4().hex
+              user_time = datetime.now().astimezone().isoformat()
 
               # Identical tenant-details block is required at both request.tenantDetails
               # and request.inputContent.tenantDetails. All dynamic values are escaped
@@ -84,8 +96,10 @@ definition:
               tenant_details = (
                   "tenantDetails: { "
                   "userDetails: { "
-                  "sessionId: null emailAddress: null userAgent: null "
+                  f"sessionId: {json.dumps(session_id)} emailAddress: null "
+                  f"userAgent: {json.dumps('tracecat')} "
                   "buildDate: null buildHash: null "
+                  f"userTime: {json.dumps(user_time)} "
                   "} "
                   "consoleDetails: { "
                   f"consoleId: {json.dumps(console_id)} "
@@ -133,4 +147,5 @@ definition:
           query: ${{ steps.build_query.result }}
           variables:
             input: ${{ inputs.question }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.ask_purple.result.data }}

@@ -38,6 +38,8 @@ import {
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
+  type CaseBatchDelete,
+  type CaseBatchUpdate,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentThreadRead,
@@ -63,6 +65,7 @@ import {
   type CasesListTagsData,
   type CasesListTasksData,
   type CasesSearchCasesData,
+  type CaseTableRowRead,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
@@ -84,12 +87,15 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchDeleteCases,
+  casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
   casesCreateTask,
   casesDeleteCase,
   casesDeleteComment,
   casesDeleteTask,
+  casesListCaseRows,
   casesListComments,
   casesListCommentThreads,
   casesListEventsWithUsers,
@@ -3770,6 +3776,7 @@ export function useSearchCases(params: CasesSearchCasesData) {
 interface UseGetCaseOptions {
   enabled?: boolean
 }
+
 export function useGetCase(
   { caseId, workspaceId }: CasesGetCaseData,
   options?: UseGetCaseOptions
@@ -3782,7 +3789,7 @@ export function useGetCase(
     queryKey: ["case", caseId],
     queryFn: async () => {
       const response = await apiClient.get<CaseRead>(`/cases/${caseId}`, {
-        params: { workspace_id: workspaceId, include_rows: true },
+        params: { workspace_id: workspaceId },
       })
       return response.data
     },
@@ -3793,6 +3800,42 @@ export function useGetCase(
     caseData,
     caseDataIsLoading,
     caseDataError,
+  }
+}
+
+const CASE_ROWS_PAGE_SIZE = 200
+
+/** Fetch all linked rows for a case, including hydrated row data. */
+export function useListCaseRows(caseId: string, workspaceId: string) {
+  const {
+    data: caseRows = [],
+    isLoading: caseRowsIsLoading,
+    error: caseRowsError,
+  } = useQuery<CaseTableRowRead[], TracecatApiError>({
+    queryKey: ["case-rows", caseId],
+    queryFn: async () => {
+      const rows: CaseTableRowRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await casesListCaseRows({
+          caseId,
+          workspaceId,
+          limit: CASE_ROWS_PAGE_SIZE,
+          cursor,
+        })
+        rows.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return rows
+    },
+  })
+
+  return {
+    caseRows,
+    caseRowsIsLoading,
+    caseRowsError,
   }
 }
 
@@ -3929,6 +3972,48 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
   }
 }
 
+/** Update a collection of cases in one server-side batch. */
+export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchUpdateCases,
+    isPending: batchUpdateCasesIsPending,
+    error: batchUpdateCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchUpdate) =>
+      await casesBatchUpdateCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchUpdateCases,
+    batchUpdateCasesIsPending,
+    batchUpdateCasesError,
+  }
+}
+
+/** Delete a collection of cases in one server-side batch. */
+export function useBatchDeleteCases({ workspaceId }: { workspaceId: string }) {
+  const {
+    mutateAsync: batchDeleteCases,
+    isPending: batchDeleteCasesIsPending,
+    error: batchDeleteCasesError,
+  } = useMutation({
+    mutationFn: async (params: CaseBatchDelete) =>
+      await casesBatchDeleteCases({ workspaceId, requestBody: params }),
+    // Cache invalidation is the caller's responsibility: bulk operations issue
+    // one request per 1000-ID chunk, and invalidating per chunk would refetch
+    // the case list repeatedly mid-operation.
+  })
+
+  return {
+    batchDeleteCases,
+    batchDeleteCasesIsPending,
+    batchDeleteCasesError,
+  }
+}
+
 export function useCaseDurations({
   caseId,
   workspaceId,
@@ -3946,6 +4031,10 @@ export function useCaseDurations({
     queryKey: ["case-durations", caseId, workspaceId],
     queryFn: async () => await listCaseDurations(workspaceId, caseId),
     enabled: Boolean(caseId && workspaceId) && enabled,
+    // Durations materialize asynchronously (Redis consumer), so a mutation's
+    // one-shot invalidation can read before the worker finishes. Poll while
+    // the case is open so the recomputed values eventually appear.
+    refetchInterval: 5000,
   })
 
   return {

@@ -19,12 +19,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
+from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -832,6 +834,73 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     assert parent_version["instructions"] == (
         "Use the enrichment skill and escalate high severity."
     )
+
+
+@pytest.mark.anyio
+async def test_large_agent_preset_workspace_preview_matches_export(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    repo_url = "git+ssh://git@github.com/TracecatHQ/large-workspace-sync-test.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="large-workspace-sync-test",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    source_files = _large_agent_preset_git_tree()
+    snapshot, diagnostics = await service.parse_files(
+        source_files,
+        commit_sha="7" * 40,
+    )
+    assert diagnostics == []
+    imported = await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    assert (
+        sum(
+            resource.resource_type is SyncResourceType.AGENT_PRESET
+            for resource in imported
+        )
+        == 37
+    )
+
+    preview = await service.preview_export_workspace(
+        WorkspaceSyncExportPreviewRequest()
+    )
+    export = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Export generated large workspace",
+            branch="sync/large-workspace",
+            create_pr=False,
+        )
+    )
+
+    expected_paths = set(source_files)
+    assert preview.resource_counts[SyncResourceType.AGENT_PRESET.value] == 37
+    assert len(expected_paths) == 75
+    assert set(preview.files) == expected_paths
+    assert set(export.files) == expected_paths
+    assert export.commit.sha is not None
+    assert set(fake_vcs.repo_files(git_url, ref=export.commit.sha)) == expected_paths
 
 
 @pytest.mark.anyio
@@ -6684,6 +6753,35 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
             }
         ),
     }
+    return dict(sorted(files.items()))
+
+
+def _large_agent_preset_git_tree() -> dict[str, str]:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for index in range(37):
+        source_id = f"generated-agent-{index:02d}"
+        name = f"Generated agent {index:02d}"
+        files[f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"] = _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": source_id,
+                "slug": source_id,
+                "name": name,
+                "current_version": 1,
+            }
+        )
+        files[f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"] = _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": name,
+                "instructions": f"Handle generated test workload {index:02d}.",
+                "skills": [],
+                "subagents": [],
+            }
+        )
     return dict(sorted(files.items()))
 
 

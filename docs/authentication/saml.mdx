@@ -54,7 +54,7 @@ Tracecat always requires signed assertions and signed responses.
     </Step>
     <Step title="Configure SAML settings">
         - Set the **Single sign-on URL**, **Recipient URL**, and **Destination URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
-        - Set the **Audience Restriction** to `https://<your-tracecat-instance>`.
+        - Set the **Audience Restriction** (SP Entity ID) to `https://<your-tracecat-instance>/api`.
 
         ![Okta SAML](/img/self-hosting/okta-saml.png)
     </Step>

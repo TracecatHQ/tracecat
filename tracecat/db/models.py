@@ -48,6 +48,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
@@ -2673,7 +2674,7 @@ class Approval(WorkspaceModel):
         nullable=True,
         doc="Optional reason for approval decision",
     )
-    decision: Mapped[bool | dict[str, Any] | None] = mapped_column(
+    decision: Mapped[PersistedApprovalDecision | None] = mapped_column(
         JSONB,
         nullable=True,
         doc=(
@@ -4516,6 +4517,15 @@ class OAuthIntegration(TimestampMixin, Base):
 
         # Return status based on conditions
         if is_connected:
+            # Authorization-code credentials need interactive reauthorization
+            # once expired unless they have a usable refresh token. Client
+            # credentials refresh non-interactively using their stored config.
+            if (
+                self.grant_type == OAuthGrantType.AUTHORIZATION_CODE
+                and self.is_expired
+                and not self.encrypted_refresh_token
+            ):
+                return IntegrationStatus.REAUTH_REQUIRED
             return IntegrationStatus.CONNECTED
         elif is_configured:
             return IntegrationStatus.CONFIGURED

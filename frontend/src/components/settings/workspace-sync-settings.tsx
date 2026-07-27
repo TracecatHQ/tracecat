@@ -81,7 +81,7 @@ export function WorkspaceSyncSettings({
   const showConnectionForm = !persistedGitUrl || isEditingConnection
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {showConnectionForm ? (
         <WorkspaceSyncConnectionForm
           workspaceId={workspace.id}
@@ -129,7 +129,7 @@ export function WorkspaceSyncSettings({
         <Tabs
           value={mode}
           onValueChange={(value) => setMode(value as SyncMode)}
-          className="space-y-5"
+          className="min-w-0 space-y-5"
         >
           <TabsList>
             <TabsTrigger value="push" disableUnderline className="gap-1.5">
@@ -155,7 +155,7 @@ export function WorkspaceSyncSettings({
             />
           </TabsContent>
 
-          <TabsContent value="pull" className="space-y-4">
+          <TabsContent value="pull" className="min-w-0 space-y-4">
             <WorkspaceSyncPullTab
               workspaceId={workspace.id}
               provider={persistedProvider}

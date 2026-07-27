@@ -11,6 +11,7 @@ import pytest
 
 from tracecat.agent.tools import (
     ToolExecutionError,
+    build_agent_tools,
     denormalize_tool_name,
 )
 from tracecat.agent.types import Tool
@@ -113,6 +114,23 @@ class TestToolExecutionError:
         """Test that ToolExecutionError inherits from Exception."""
         error = ToolExecutionError("test")
         assert isinstance(error, Exception)
+
+
+# =============================================================================
+# build_agent_tools Tests
+# =============================================================================
+
+
+class TestBuildAgentTools:
+    """Tests for shared agent tool filtering."""
+
+    @pytest.mark.anyio
+    async def test_excludes_agent_actions_before_registry_lookup(self) -> None:
+        """Excluded actions are unavailable to every agent harness."""
+        result = await build_agent_tools(actions=["core.script.run_python"])
+
+        assert result.tools == []
+        assert result.collected_secrets == set()
 
 
 # =============================================================================

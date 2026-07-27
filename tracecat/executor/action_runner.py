@@ -29,7 +29,6 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -314,24 +313,12 @@ class ActionRunner:
             sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             action_gateway_socket = action_gateway_socket_path()
-            if action_gateway_socket is not None:
-                sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
-                    ACTION_GATEWAY_SANDBOX_SOCKET
-                )
-            else:
-                sandbox_env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
-
-            # Mint an executor token for SDK calls
-            if role.workspace_id is None:
-                raise ValueError("workspace_id is required for sandbox execution")
-            executor_token = mint_executor_token(
-                workspace_id=role.workspace_id,
-                user_id=role.user_id,
-                service_id=role.service_id,
-                wf_id=str(input.run_context.wf_id),
-                wf_exec_id=str(input.run_context.wf_run_id),
+            sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
+                ACTION_GATEWAY_SANDBOX_SOCKET
             )
-            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
+
+            # Preserve the signed execution provenance from the service boundary.
+            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
 
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",
@@ -439,10 +426,7 @@ class ActionRunner:
             env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
-            if socket_path := action_gateway_socket_path():
-                env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(socket_path)
-            else:
-                env.pop("TRACECAT__ACTION_GATEWAY_SOCKET", None)
+            env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(action_gateway_socket_path())
 
         # Build PYTHONPATH with multiple registry paths (deterministic order)
         pythonpath_parts = [str(p) for p in registry_paths if p.exists()]

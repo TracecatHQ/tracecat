@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tracecat_registry.context import RegistryContext
+from tracecat_registry.sdk.client import TracecatClient
 
 
 def test_registry_context_preserves_positional_executor_url_token_compat() -> None:
@@ -26,3 +27,16 @@ def test_registry_context_preserves_positional_executor_url_token_compat() -> No
     assert context.api_url == "http://api:8000"
     assert context.executor_url == "http://executor:8000"
     assert context.token == "executor-token"
+
+
+def test_registry_context_uses_injected_client() -> None:
+    """In-process executor backends can bind SDK calls to their gateway."""
+    client = TracecatClient(action_gateway_socket="/tmp/action-gateway.sock")
+    context = RegistryContext(
+        workspace_id="workspace-id",
+        workflow_id="workflow-id",
+        run_id="run-id",
+        _client=client,
+    )
+
+    assert context.client is client

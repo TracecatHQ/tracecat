@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from pathlib import Path
 from types import TracebackType
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -13,13 +14,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
-from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
 )
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -77,9 +83,10 @@ def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamRea
 @pytest.fixture
 def loopback_input(tmp_path: Path) -> LoopbackInput:
     del tmp_path
+    workspace_id = uuid.uuid4()
     return LoopbackInput(
         session_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
+        workspace_id=workspace_id,
     )
 
 
@@ -157,7 +164,7 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
         stream_id=loopback_input.active_stream_id,
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
-    fake_stream.done.assert_awaited_once()
+    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -188,7 +195,7 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     assert failed_event.type == StreamEventType.COMPACTION
     assert failed_event.metadata == {"phase": "failed"}
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
-    fake_stream.done.assert_awaited_once()
+    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -469,6 +476,100 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
 
 @pytest.mark.anyio
+async def test_close_external_stream_leaves_redis_open() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    await handler._close_external_stream()
+
+    stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_terminal_success_closes_only_external_sink() -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+
+    await handler.send_result(output={"status": "done"})
+    await handler.send_done()
+    await handler.send_done()
+
+    assert handler.build_result().success is True
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
+async def test_terminal_error_streams_error_and_closes_only_external_sink() -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+
+    await handler.send_error("runtime failed")
+
+    redis_stream.error.assert_awaited_once_with("runtime failed")
+    external_stream.error.assert_awaited_once_with("runtime failed")
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
+async def test_terminal_error_leaves_redis_open_for_workflow() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    event_order: list[str] = []
+
+    async def record_error(error: str) -> None:
+        assert error == "runtime failed"
+        event_order.append("error")
+
+    stream.error.side_effect = record_error
+    handler._stream_sink = stream
+
+    await handler.send_error("runtime failed")
+
+    assert event_order == ["error"]
+    stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_close_external_stream_is_deduplicated_on_approval_pause() -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+    handler._result.approval_requested = True
+
+    await handler._close_external_stream()
+    await handler._close_external_stream()
+
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
 async def test_process_runtime_events_emits_failed_compaction_on_runtime_error() -> (
     None
 ):
@@ -500,7 +601,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
         {"phase": "failed"},
     ]
     stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -533,7 +634,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_done_without_bo
         {"phase": "failed"},
     ]
     stream.error.assert_not_awaited()
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -547,7 +648,7 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
 
     assert handler._result.error == "Runtime completed without final result"
     stream.error.assert_awaited_once_with("Runtime completed without final result")
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -591,4 +692,67 @@ async def test_send_done_preserves_existing_error_state() -> None:
     assert handler._result.success is False
     assert handler._result.error == "runtime failed"
     stream.error.assert_not_awaited()
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_parallel_approval_requests_accumulate_across_events() -> None:
+    """N parallel gated tool calls arrive as N approval events; keep them all."""
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    first = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-1", name="core.http_request", input={"n": 1})]
+    )
+    second = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-2", name="core.http_request", input={"n": 2})]
+    )
+
+    await handler._handle_stream_event(first)
+    await handler._handle_stream_event(second)
+
+    result = handler.build_result()
+    assert result.approval_requested is True
+    assert [item.id for item in result.approval_items] == ["call-1", "call-2"]
+    assert handler._pending_approval_tool_call_ids == {"call-1", "call-2"}
+
+
+@pytest.mark.anyio
+async def test_accumulated_approval_request_copies_input() -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+    original_input = {"n": 1, "nested": {"flag": True}}
+
+    event = UnifiedStreamEvent.approval_request_event(
+        [
+            ToolCallContent(
+                id="call-1",
+                name="core.http_request",
+                input=original_input,
+            )
+        ]
+    )
+
+    await handler._handle_stream_event(event)
+
+    original_input["n"] = 2
+    original_input["nested"]["flag"] = False
+
+    result = handler.build_result()
+    assert result.approval_items[0].input == {"n": 1, "nested": {"flag": True}}
+
+
+@pytest.mark.anyio
+async def test_duplicate_approval_request_events_are_deduped() -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    event = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-1", name="core.http_request", input={"n": 1})]
+    )
+
+    await handler._handle_stream_event(event)
+    await handler._handle_stream_event(event)
+
+    result = handler.build_result()
+    assert [item.id for item in result.approval_items] == ["call-1"]

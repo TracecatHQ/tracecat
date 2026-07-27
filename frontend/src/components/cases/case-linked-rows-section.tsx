@@ -1,17 +1,27 @@
 "use client"
 
+import { Table2 } from "lucide-react"
 import { useMemo } from "react"
-import type { CaseRead, CaseTableRowRead, TableRowRead } from "@/client"
-import { Spinner } from "@/components/loading/spinner"
+import type { CaseTableRowRead, TableRowRead } from "@/client"
+import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import { AgGridTable } from "@/components/tables/ag-grid-table"
-import { useGetTable } from "@/lib/hooks"
-import { useWorkspaceId } from "@/providers/workspace-id"
+import { useGetTable, useListCaseRows } from "@/lib/hooks"
 
-export function CaseLinkedRowsSection({ caseData }: { caseData: CaseRead }) {
-  const workspaceId = useWorkspaceId()
-  const rows = (
-    (caseData as CaseRead & { rows?: CaseTableRowRead[] }).rows ?? []
-  ).filter((row) => row.row_data)
+interface CaseLinkedRowsSectionProps {
+  caseId: string
+  workspaceId: string
+}
+
+/** Display the hydrated table rows linked to a case. */
+export function CaseLinkedRowsSection({
+  caseId,
+  workspaceId,
+}: CaseLinkedRowsSectionProps) {
+  const { caseRows, caseRowsIsLoading, caseRowsError } = useListCaseRows(
+    caseId,
+    workspaceId
+  )
+  const rows = caseRows.filter((row) => row.row_data)
 
   const grouped = useMemo(() => {
     const map = new Map<
@@ -36,10 +46,20 @@ export function CaseLinkedRowsSection({ caseData }: { caseData: CaseRead }) {
     }))
   }, [rows])
 
-  if (grouped.length === 0) {
+  if (caseRowsIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (caseRowsError) {
     return (
-      <p className="p-2 text-sm text-muted-foreground">No linked table rows</p>
+      <p className="p-2 text-sm text-destructive">
+        Failed to load linked table rows.
+      </p>
     )
+  }
+
+  if (grouped.length === 0) {
+    return <NoLinkedRows />
   }
 
   return (
@@ -53,6 +73,22 @@ export function CaseLinkedRowsSection({ caseData }: { caseData: CaseRead }) {
           workspaceId={workspaceId}
         />
       ))}
+    </div>
+  )
+}
+
+function NoLinkedRows() {
+  return (
+    <div className="flex flex-col items-center justify-center py-4">
+      <div className="mb-3 rounded-full bg-muted/50 p-2">
+        <Table2 className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+        No linked table rows
+      </h3>
+      <p className="max-w-[250px] text-center text-xs text-muted-foreground/75">
+        Rows linked to this case will appear here
+      </p>
     </div>
   )
 }

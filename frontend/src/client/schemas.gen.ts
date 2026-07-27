@@ -4700,28 +4700,7 @@ export const $ApprovalInteraction = {
 
 export const $ApprovalMap = {
   additionalProperties: {
-    anyOf: [
-      {
-        type: "boolean",
-      },
-      {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/ToolApproved",
-          },
-          {
-            $ref: "#/components/schemas/ToolDenied",
-          },
-        ],
-        discriminator: {
-          propertyName: "kind",
-          mapping: {
-            "tool-approved": "#/components/schemas/ToolApproved",
-            "tool-denied": "#/components/schemas/ToolDenied",
-          },
-        },
-      },
-    ],
+    $ref: "#/components/schemas/ApprovalResult",
   },
   type: "object",
 } as const
@@ -4770,17 +4749,12 @@ export const $ApprovalRead = {
     decision: {
       anyOf: [
         {
-          type: "boolean",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
+          $ref: "#/components/schemas/PersistedApprovalDecision",
         },
         {
           type: "null",
         },
       ],
-      title: "Decision",
     },
     approved_by: {
       anyOf: [
@@ -4816,6 +4790,31 @@ export const $ApprovalRead = {
   required: ["id", "tool_call_id", "tool_name", "status", "created_at"],
   title: "ApprovalRead",
   description: "Response schema for approval data in chat timeline.",
+} as const
+
+export const $ApprovalResult = {
+  anyOf: [
+    {
+      type: "boolean",
+    },
+    {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ToolApproved",
+        },
+        {
+          $ref: "#/components/schemas/ToolDenied",
+        },
+      ],
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          "tool-approved": "#/components/schemas/ToolApproved",
+          "tool-denied": "#/components/schemas/ToolDenied",
+        },
+      },
+    },
+  ],
 } as const
 
 export const $ApprovalStatus = {
@@ -6139,6 +6138,24 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $BooleanApprovalDecision = {
+  properties: {
+    value: {
+      type: "boolean",
+      title: "Value",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["value", "metadata"],
+  title: "BooleanApprovalDecision",
+  description: "Persisted boolean decision enriched with submission metadata.",
+} as const
+
 export const $CachePoint = {
   properties: {
     kind: {
@@ -6297,6 +6314,100 @@ export const $CaseAttachmentRead = {
   ],
   title: "CaseAttachmentRead",
   description: "Model for reading a case attachment.",
+} as const
+
+export const $CaseBatchDelete = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+  },
+  type: "object",
+  required: ["case_ids"],
+  title: "CaseBatchDelete",
+  description: "Request body for deleting multiple cases.",
+} as const
+
+export const $CaseBatchItemResult = {
+  properties: {
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["case_id", "success"],
+  title: "CaseBatchItemResult",
+  description: "Result of a batch operation for one case.",
+} as const
+
+export const $CaseBatchResponse = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/CaseBatchItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+    succeeded: {
+      type: "integer",
+      title: "Succeeded",
+    },
+    failed: {
+      type: "integer",
+      title: "Failed",
+    },
+  },
+  type: "object",
+  required: ["results", "succeeded", "failed"],
+  title: "CaseBatchResponse",
+  description: "Per-case results and aggregate counts for a batch operation.",
+} as const
+
+export const $CaseBatchUpdate = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+    update: {
+      $ref: "#/components/schemas/CaseUpdate",
+    },
+  },
+  type: "object",
+  required: ["case_ids", "update"],
+  title: "CaseBatchUpdate",
+  description: "Request body for updating multiple cases.",
 } as const
 
 export const $CaseCommentCreate = {
@@ -14879,7 +14990,7 @@ export const $IntegrationReadMinimal = {
 
 export const $IntegrationStatus = {
   type: "string",
-  enum: ["not_configured", "configured", "connected"],
+  enum: ["not_configured", "configured", "connected", "reauth_required"],
   title: "IntegrationStatus",
   description: "Status of an integration.",
 } as const
@@ -15646,6 +15757,17 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       type: "array",
       title: "Scopes",
     },
+    oauth_resource: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Resource",
+    },
     oauth_authorization_endpoint: {
       anyOf: [
         {
@@ -16010,7 +16132,13 @@ export const $MCPIntegrationRead = {
     },
     state: {
       type: "string",
-      enum: ["not_configured", "configured", "connected", "error"],
+      enum: [
+        "not_configured",
+        "configured",
+        "connected",
+        "reauth_required",
+        "error",
+      ],
       title: "State",
     },
     stdio_command: {
@@ -18474,6 +18602,23 @@ export const $PayloadChangedEventRead = {
   description: "Event for when a case payload is changed.",
 } as const
 
+export const $PersistedApprovalDecision = {
+  anyOf: [
+    {
+      type: "boolean",
+    },
+    {
+      $ref: "#/components/schemas/ToolApprovedDecision",
+    },
+    {
+      $ref: "#/components/schemas/ToolDeniedDecision",
+    },
+    {
+      $ref: "#/components/schemas/BooleanApprovalDecision",
+    },
+  ],
+} as const
+
 export const $PlatformAuditSettingsRead = {
   properties: {
     audit_webhook_url: {
@@ -18729,7 +18874,13 @@ export const $PlatformMCPCatalogRead = {
     },
     state: {
       type: "string",
-      enum: ["not_configured", "configured", "connected", "error"],
+      enum: [
+        "not_configured",
+        "configured",
+        "connected",
+        "reauth_required",
+        "error",
+      ],
       title: "State",
     },
     mcp_integration_id: {
@@ -21183,6 +21334,7 @@ export const $Role = {
         "tracecat-cli",
         "tracecat-executor",
         "tracecat-agent-executor",
+        "tracecat-case-duration-sync",
         "tracecat-case-triggers",
         "tracecat-llm-gateway",
         "tracecat-mcp",
@@ -26617,6 +26769,31 @@ export const $ToolApproved = {
   title: "ToolApproved",
 } as const
 
+export const $ToolApprovedDecision = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "tool-approved",
+      title: "Kind",
+    },
+    override_args: {
+      additionalProperties: true,
+      type: "object",
+      title: "Override Args",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "ToolApprovedDecision",
+  description:
+    "Persisted decision for a tool approved with argument overrides.",
+} as const
+
 export const $ToolDenied = {
   properties: {
     message: {
@@ -26633,6 +26810,29 @@ export const $ToolDenied = {
   },
   type: "object",
   title: "ToolDenied",
+} as const
+
+export const $ToolDeniedDecision = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "tool-denied",
+      title: "Kind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["kind"],
+  title: "ToolDeniedDecision",
+  description: "Persisted decision for a denied tool call.",
 } as const
 
 export const $ToolResultBlock = {

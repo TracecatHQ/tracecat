@@ -201,6 +201,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-case-triggers",
+    "tracecat-case-duration-sync",
     "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
@@ -658,11 +659,6 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
 # === Action Gateway === #
-TRACECAT__ACTION_GATEWAY_ENABLED = env_bool(
-    "TRACECAT__ACTION_GATEWAY_ENABLED", default=True
-)
-"""Enable the executor-local action gateway for action SDK calls."""
-
 TRACECAT__ACTION_GATEWAY_SOCKET = (
     os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
     or "/var/run/tracecat/action-gateway.sock"
@@ -752,9 +748,9 @@ TRACECAT__LITELLM_BASE_URL = os.environ.get(
 """Internal base URL for the managed LiteLLM service."""
 
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
-    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
+    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 600.0
 )
-"""Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+"""Read timeout for the LLM socket proxy in seconds (default: 10 minutes)."""
 
 
 TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(
@@ -997,6 +993,36 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
     os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS") or 300
 )
 """TTL for case trigger lock keys in seconds."""
+
+TRACECAT__CASE_DURATION_SYNC_STREAM_KEY = os.environ.get(
+    "TRACECAT__CASE_DURATION_SYNC_STREAM_KEY", "case-duration-sync"
+)
+"""Redis stream key for case duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_GROUP = os.environ.get(
+    "TRACECAT__CASE_DURATION_SYNC_GROUP", "case-duration-sync"
+)
+"""Redis consumer group for case duration sync processing."""
+
+TRACECAT__CASE_DURATION_SYNC_BLOCK_MS = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BLOCK_MS") or 2000
+)
+"""XREADGROUP block timeout in milliseconds for duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_BATCH = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BATCH") or 100
+)
+"""Maximum number of duration sync jobs to read per batch."""
+
+TRACECAT__CASE_DURATION_SYNC_CLAIM_IDLE_MS = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_CLAIM_IDLE_MS") or 300000
+)
+"""Idle time before claiming pending duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH") or 250
+)
+"""Number of cases to enqueue per duration definition backfill job."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(

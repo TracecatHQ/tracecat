@@ -57,15 +57,7 @@ export function InboxDetail({
   // User must make an approval decision before they can send messages
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
-
-  // Only resume the live stream when the session is actually streaming;
-  // resuming a terminal session replays its last turn and duplicates the chat.
-  // A fork is live only when just created here, signalled by a queued
-  // pendingMessage (a fork found on mount has none). `resume` is read once on
-  // mount (pane keyed by sessionId), so clearing pendingMessage later is fine.
-  const shouldResume = isForkedSession
-    ? pendingMessage !== undefined
-    : isLiveAgentStatus(session.derivedStatus)
+  const resume = isLiveAgentStatus(session.derivedStatus)
 
   /**
    * Fork the session and notify parent with the message to send.
@@ -181,7 +173,9 @@ export function InboxDetail({
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
       inputDisabledPlaceholder="Make an approval decision to continue..."
-      resume={shouldResume}
+      // Re-arm the SDK reconnect when an externally resolved approval moves
+      // the session from PENDING_APPROVAL to RUNNING.
+      resume={resume}
     />
   )
 }

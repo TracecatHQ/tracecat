@@ -6,8 +6,8 @@ Terminology:
 """
 
 import uuid
-from datetime import datetime
-from typing import Annotated, Any, Literal, Self, TypedDict
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal, NamedTuple, Self, TypedDict
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -602,8 +602,28 @@ PlatformMCPCatalogState = Literal[
     "not_configured",
     "configured",
     "connected",
+    "reauth_required",
     "error",
 ]
+
+
+class OAuthTokenState(NamedTuple):
+    """Credential columns needed to derive connection state without the full row."""
+
+    encrypted_access_token: bytes | None
+    encrypted_refresh_token: bytes | None
+    expires_at: datetime | None
+
+
+def credential_reauth_required(
+    *, has_refresh_token: bool, expires_at: datetime | None
+) -> bool:
+    """Dead credential: expired with no refresh token to revive it."""
+    if has_refresh_token:
+        return False
+    return expires_at is not None and datetime.now(UTC) >= expires_at
+
+
 MCPCatalogConnectStatus = Literal["configured", "connected", "oauth_redirect"]
 MCPVerificationStatus = Literal[
     "idle", "verifying", "succeeded", "failed", "superseded"
@@ -692,6 +712,12 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
     server_uri: str
     scopes: list[str] = Field(default_factory=list)
+    oauth_resource: str | None = None
+    """OAuth resource indicator pinned by the repo-owned catalog row.
+
+    This may differ from ``server_uri`` when a provider protects every MCP
+    route under one origin-level audience.
+    """
     oauth_authorization_endpoint: str | None = None
     """Known OAuth authorization endpoint pinned by the repo-owned catalog row.
 

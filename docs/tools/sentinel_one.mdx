@@ -112,6 +112,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for the Purple AI request.
+
+Default: `120`.
+
+</ParamField>
+
 <ParamField path="version" type="string | null">
 
 Console version string.
@@ -153,6 +161,14 @@ SDL query ID returned by submit_powerquery.
 SentinelOne tenant URL. /sdl is appended automatically.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for the SDL delete request.
+
+Default: `60`.
 
 </ParamField>
 
@@ -273,6 +289,14 @@ Default: `null`.
 Last step seen for incremental polling.
 
 Default: `0`.
+
+</ParamField>
+
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for the SDL results request.
+
+Default: `60`.
 
 </ParamField>
 
@@ -446,7 +470,7 @@ Default: `null`.
 
 <ParamField path="filters" type="object">
 
-REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
+REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. The limit and skip inputs override matching keys.
 
 Default: `{}`.
 
@@ -948,6 +972,14 @@ Default: `"/web/api/v2.1/graphql"`.
 
 </ParamField>
 
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for the GraphQL request.
+
+Default: `30`.
+
+</ParamField>
+
 <ParamField path="variables" type="object">
 
 Variables to bind to the GraphQL query.
@@ -1006,7 +1038,7 @@ Default: `"0s"`.
 
 PowerQuery frequency hint.
 
-Default: `"low"`.
+Default: `"LOW"`.
 
 </ParamField>
 
@@ -1014,7 +1046,7 @@ Default: `"low"`.
 
 Seconds between poll attempts while the query runs.
 
-Default: `2`.
+Default: `5`.
 
 </ParamField>
 
@@ -1022,7 +1054,7 @@ Default: `2`.
 
 Maximum number of poll attempts. Set to 0 to poll until timeout.
 
-Default: `30`.
+Default: `60`.
 
 </ParamField>
 
@@ -1046,7 +1078,7 @@ Default: `"LOW"`.
 
 PowerQuery result type.
 
-Default: `"table"`.
+Default: `"TABLE"`.
 
 </ParamField>
 
@@ -1063,6 +1095,14 @@ Default: `"24h"`.
 Query the tenant scope available to the token. Set to false when using account_ids.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for each SDL request.
+
+Default: `60`.
 
 </ParamField>
 
@@ -1116,7 +1156,7 @@ Default: `"0s"`.
 
 PowerQuery frequency hint.
 
-Default: `"low"`.
+Default: `"LOW"`.
 
 </ParamField>
 
@@ -1140,7 +1180,7 @@ Default: `"LOW"`.
 
 PowerQuery result type.
 
-Default: `"table"`.
+Default: `"TABLE"`.
 
 </ParamField>
 
@@ -1157,6 +1197,14 @@ Default: `"24h"`.
 Query the tenant scope available to the token. Set to false when using account_ids.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeout_seconds" type="number">
+
+HTTP timeout in seconds for the SDL submission request.
+
+Default: `60`.
 
 </ParamField>
 
@@ -1179,6 +1227,78 @@ Required secrets:
 <ParamField path="endpoint_id" type="string" required>
 
 ID of the endpoint/agent to connect.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL.
+
+Default: `null`.
+
+</ParamField>
+
+## Update alert analyst verdict
+
+Action ID: `tools.sentinel_one.update_alert_analyst_verdict`
+
+Update the analyst verdict for one or more SentinelOne alerts.
+
+Reference: [https://github.com/Sentinel-One/ai-siem/blob/main/plugins/s1-secops-skills/skills/mgmt-console-api/references/tags/alerts.md](https://github.com/Sentinel-One/ai-siem/blob/main/plugins/s1-secops-skills/skills/mgmt-console-api/references/tags/alerts.md)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="alert_ids" type="array[string]" required>
+
+IDs of the alerts to update.
+
+</ParamField>
+
+<ParamField path="analyst_verdict" type="string" required>
+
+Analyst verdict to apply to the alerts.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL.
+
+Default: `null`.
+
+</ParamField>
+
+## Update alert incident status
+
+Action ID: `tools.sentinel_one.update_alert_incident_status`
+
+Update the incident status for one or more SentinelOne alerts.
+
+Reference: [https://github.com/Sentinel-One/ai-siem/blob/main/plugins/s1-secops-skills/skills/mgmt-console-api/references/tags/alerts.md](https://github.com/Sentinel-One/ai-siem/blob/main/plugins/s1-secops-skills/skills/mgmt-console-api/references/tags/alerts.md)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="alert_ids" type="array[string]" required>
+
+IDs of the alerts to update.
+
+</ParamField>
+
+<ParamField path="incident_status" type="string" required>
+
+Incident status to apply to the alerts.
 
 </ParamField>
 

@@ -12,7 +12,7 @@ definition:
   expects:
     filters:
       type: dict[str, Any]
-      description: REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
+      description: REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. The limit and skip inputs override matching keys.
       default: {}
     limit:
       type: int
@@ -35,5 +35,6 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
         payload:
-          filter: '${{ FN.merge([{"limit": inputs.limit, "skip": inputs.skip}, inputs.filters]) }}'
+          filter: '${{ FN.merge([inputs.filters, {"limit": inputs.limit, "skip": inputs.skip}]) }}'
+        timeout: 30
   returns: ${{ steps.list_items.result.data }}

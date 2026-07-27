@@ -113,6 +113,7 @@ def _http_spec(raw_spec: RawHttpConnectionSpec) -> MCPConnectionSpec | None:
                 requires_config=requires_config,
                 credentials=credentials,
                 scopes=raw_spec.scopes or [],
+                oauth_resource=raw_spec.oauth_resource,
                 oauth_authorization_endpoint=raw_spec.oauth_authorization_endpoint,
                 oauth_token_endpoint=raw_spec.oauth_token_endpoint,
             )

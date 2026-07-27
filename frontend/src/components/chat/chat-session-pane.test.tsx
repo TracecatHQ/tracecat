@@ -48,6 +48,7 @@ jest.mock("@/components/json-viewer", () => ({
 
 jest.mock("@/hooks/use-chat", () => ({
   makeContinueMessage: jest.fn(),
+  useAdoptServerTranscript: jest.fn(),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   useUpdateChat: () => ({

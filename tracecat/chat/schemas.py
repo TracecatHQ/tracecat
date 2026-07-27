@@ -11,6 +11,7 @@ from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
@@ -76,6 +77,16 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
+    active_stream_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Per-turn Redis stream ID the caller should attach to. For approval "
+            "continuations, this is a newly rotated stream containing only events "
+            "emitted after approval resumes. Callers must attach to this stream "
+            "instead of the stream that ended at the approval pause, which may "
+            "already have expired."
+        ),
+    )
     curr_run_id: uuid.UUID | None = Field(
         default=None,
         description=(
@@ -199,7 +210,7 @@ class ApprovalRead(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     status: ApprovalStatus
     reason: str | None = None
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision | None = None
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
     created_at: datetime

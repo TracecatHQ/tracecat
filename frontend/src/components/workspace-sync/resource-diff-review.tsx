@@ -178,7 +178,7 @@ export function ResourceDiffSection({
   emptyRef?: string
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 max-w-full flex-col gap-2">
       <span className="text-xs font-semibold">File changes</span>
       {diffs.length > 0 ? (
         <ResourceDiffReviewList diffs={diffs} />
@@ -256,7 +256,7 @@ export function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="overflow-hidden rounded-md border">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-md border">
         <div className="flex flex-wrap items-center gap-3 border-b bg-muted/50 px-3 py-2">
           <span className="text-xs font-medium tabular-nums">
             {viewedCount} of {diffs.length}{" "}

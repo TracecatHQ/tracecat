@@ -16,6 +16,10 @@ definition:
     forward_tag:
       type: str
       description: X-Dataset-Query-Forward-Tag returned by submit_powerquery response headers.
+    timeout_seconds:
+      type: float
+      description: HTTP timeout in seconds for the SDL delete request.
+      default: 60
     base_url:
       type: str | None
       description: SentinelOne tenant URL. /sdl is appended automatically.
@@ -29,4 +33,5 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
           X-Dataset-Query-Forward-Tag: ${{ inputs.forward_tag }}
+        timeout: ${{ inputs.timeout_seconds }}
   returns: ${{ steps.delete_query.result.data }}

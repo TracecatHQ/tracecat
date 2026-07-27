@@ -288,6 +288,7 @@ async def main():
 
 def _registry_ctx_env_vars() -> dict[str, str]:
     return {
+        "TRACECAT__ACTION_GATEWAY_SOCKET": str(ACTION_GATEWAY_SANDBOX_SOCKET),
         "TRACECAT__API_URL": "http://api.test:8000",
         "TRACECAT__WORKSPACE_ID": "workspace-id",
         "TRACECAT__WORKFLOW_ID": "workflow-id",
@@ -503,12 +504,6 @@ async def _run_backend_registry_ctx_smoke(
         "TRACECAT__API_URL",
         "http://api.test:8000",
     )
-    monkeypatch.setattr(
-        executor_backend_module.config,
-        "TRACECAT__ACTION_GATEWAY_ENABLED",
-        False,
-    )
-
     input_data = _make_run_python_input()
     resolved_context = _make_run_python_context()
     resolved_context.evaluated_args.update(
@@ -571,11 +566,6 @@ async def _run_backend_registry_ctx_gateway_smoke(
     )
     monkeypatch.setattr(
         executor_backend_module.config,
-        "TRACECAT__ACTION_GATEWAY_ENABLED",
-        True,
-    )
-    monkeypatch.setattr(
-        executor_backend_module.config,
         "TRACECAT__ACTION_GATEWAY_SOCKET",
         str(action_gateway_socket),
     )
@@ -613,13 +603,26 @@ async def _run_backend_registry_ctx_smoke_matrix(
     monkeypatch: pytest.MonkeyPatch,
     cache_dir: Path,
 ) -> None:
-    for backend in (DirectBackend(), EphemeralBackend()):
-        result = await _run_backend_registry_ctx_smoke(
-            backend=backend,
-            monkeypatch=monkeypatch,
-            cache_dir=cache_dir / backend.__class__.__name__,
-        )
-        assert isinstance(result, dict)
+    action_gateway_socket = (
+        Path("/tmp") / f"tracecat-run-python-gateway-{uuid.uuid4().hex}.sock"
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+    action_gateway = ActionGateway(socket_path=action_gateway_socket)
+    await action_gateway.start()
+    try:
+        for backend in (DirectBackend(), EphemeralBackend()):
+            result = await _run_backend_registry_ctx_smoke(
+                backend=backend,
+                monkeypatch=monkeypatch,
+                cache_dir=cache_dir / backend.__class__.__name__,
+            )
+            assert isinstance(result, dict)
+    finally:
+        await action_gateway.stop()
 
 
 async def _run_backend_registry_ctx_gateway_smoke_matrix(
@@ -628,11 +631,6 @@ async def _run_backend_registry_ctx_gateway_smoke_matrix(
     cache_dir: Path,
 ) -> None:
     action_gateway_socket = cache_dir / "action-gateway.sock"
-    monkeypatch.setattr(
-        executor_backend_module.config,
-        "TRACECAT__ACTION_GATEWAY_ENABLED",
-        True,
-    )
     action_gateway = ActionGateway(socket_path=action_gateway_socket)
     await action_gateway.start()
     legacy_registry_root = _write_legacy_registry_sdk(cache_dir / "legacy-registry")
@@ -954,6 +952,7 @@ def test_registry_pythonpaths_can_import_ctx_without_site_packages(
         env={
             "PYTHONPATH": env_vars["PYTHONPATH"],
             "PYTHONDONTWRITEBYTECODE": "1",
+            "TRACECAT__ACTION_GATEWAY_SOCKET": str(ACTION_GATEWAY_SANDBOX_SOCKET),
         },
     )
 
@@ -1376,11 +1375,6 @@ async def test_run_python_pid_sdk_calls_use_action_gateway_with_legacy_registry(
         executor_backend_module.config,
         "TRACECAT__API_URL",
         "http://tracecat-api:8000",
-    )
-    monkeypatch.setattr(
-        executor_backend_module.config,
-        "TRACECAT__ACTION_GATEWAY_ENABLED",
-        True,
     )
     monkeypatch.setattr(
         executor_backend_module.config,

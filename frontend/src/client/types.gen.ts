@@ -1156,7 +1156,7 @@ export type ApprovalInteraction = {
 }
 
 export type ApprovalMap = {
-  [key: string]: boolean | ToolApproved | ToolDenied
+  [key: string]: ApprovalResult
 }
 
 /**
@@ -1171,16 +1171,13 @@ export type ApprovalRead = {
   } | null
   status: ApprovalStatus
   reason?: string | null
-  decision?:
-    | boolean
-    | {
-        [key: string]: unknown
-      }
-    | null
+  decision?: PersistedApprovalDecision | null
   approved_by?: string | null
   approved_at?: string | null
   created_at: string
 }
+
+export type ApprovalResult = boolean | ToolApproved | ToolDenied
 
 /**
  * Possible states for a deferred tool approval.
@@ -1573,6 +1570,16 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
+/**
+ * Persisted boolean decision enriched with submission metadata.
+ */
+export type BooleanApprovalDecision = {
+  value: boolean
+  metadata: {
+    [key: string]: unknown
+  }
+}
+
 export type CachePoint = {
   kind?: "cache-point"
   ttl?: "5m" | "1h"
@@ -1625,6 +1632,39 @@ export type CaseAttachmentRead = {
   updated_at: string
   creator_id?: string | null
   is_deleted?: boolean
+}
+
+/**
+ * Request body for deleting multiple cases.
+ */
+export type CaseBatchDelete = {
+  case_ids: Array<string>
+}
+
+/**
+ * Result of a batch operation for one case.
+ */
+export type CaseBatchItemResult = {
+  case_id: string
+  success: boolean
+  error?: string | null
+}
+
+/**
+ * Per-case results and aggregate counts for a batch operation.
+ */
+export type CaseBatchResponse = {
+  results: Array<CaseBatchItemResult>
+  succeeded: number
+  failed: number
+}
+
+/**
+ * Request body for updating multiple cases.
+ */
+export type CaseBatchUpdate = {
+  case_ids: Array<string>
+  update: CaseUpdate
 }
 
 export type CaseCommentCreate = {
@@ -4568,7 +4608,11 @@ export type IntegrationReadMinimal = {
 /**
  * Status of an integration.
  */
-export type IntegrationStatus = "not_configured" | "configured" | "connected"
+export type IntegrationStatus =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
 
 /**
  * Response for testing integration connection.
@@ -4818,6 +4862,7 @@ export type MCPHTTPOAuth2ConnectionSpec = {
   auth_type?: "OAUTH2"
   server_uri: string
   scopes?: Array<string>
+  oauth_resource?: string | null
   oauth_authorization_endpoint?: string | null
   oauth_token_endpoint?: string | null
   /**
@@ -4932,7 +4977,12 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
-  state: "not_configured" | "configured" | "connected" | "error"
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
@@ -4942,7 +4992,12 @@ export type MCPIntegrationRead = {
   updated_at: string
 }
 
-export type state = "not_configured" | "configured" | "connected" | "error"
+export type state =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
+  | "error"
 
 export type MCPIntegrationTestConnectionRequest =
   | MCPHttpIntegrationTestConnectionRequest
@@ -5558,6 +5613,12 @@ export type PayloadChangedEventRead = {
   created_at: string
 }
 
+export type PersistedApprovalDecision =
+  | boolean
+  | ToolApprovedDecision
+  | ToolDeniedDecision
+  | BooleanApprovalDecision
+
 /**
  * Platform audit settings response.
  */
@@ -5634,7 +5695,12 @@ export type PlatformMCPCatalogRead = {
    * Whether this platform MCP catalog row is locked by entitlement.
    */
   locked: boolean
-  state: "not_configured" | "configured" | "connected" | "error"
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
   mcp_integration_id: string | null
   mcp_server_type?: MCPServerType | null
   mcp_auth_type?: MCPAuthType | null
@@ -6417,6 +6483,7 @@ export type Role = {
     | "tracecat-cli"
     | "tracecat-executor"
     | "tracecat-agent-executor"
+    | "tracecat-case-duration-sync"
     | "tracecat-case-triggers"
     | "tracecat-llm-gateway"
     | "tracecat-mcp"
@@ -6437,6 +6504,7 @@ export type service_id =
   | "tracecat-cli"
   | "tracecat-executor"
   | "tracecat-agent-executor"
+  | "tracecat-case-duration-sync"
   | "tracecat-case-triggers"
   | "tracecat-llm-gateway"
   | "tracecat-mcp"
@@ -8041,9 +8109,33 @@ export type ToolApproved = {
   kind?: "tool-approved"
 }
 
+/**
+ * Persisted decision for a tool approved with argument overrides.
+ */
+export type ToolApprovedDecision = {
+  kind: "tool-approved"
+  override_args?: {
+    [key: string]: unknown
+  }
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
+}
+
+/**
+ * Persisted decision for a denied tool call.
+ */
+export type ToolDeniedDecision = {
+  kind: "tool-denied"
+  message?: string
+  metadata?: {
+    [key: string]: unknown
+  }
 }
 
 export type ToolResultBlock = {
@@ -12667,6 +12759,20 @@ export type CasesSearchCaseAggregatesData = {
 }
 
 export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
+
+export type CasesBatchUpdateCasesData = {
+  requestBody: CaseBatchUpdate
+  workspaceId: string
+}
+
+export type CasesBatchUpdateCasesResponse = CaseBatchResponse
+
+export type CasesBatchDeleteCasesData = {
+  requestBody: CaseBatchDelete
+  workspaceId: string
+}
+
+export type CasesBatchDeleteCasesResponse = CaseBatchResponse
 
 export type CasesGetCaseData = {
   caseId: string
@@ -18454,6 +18560,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseSearchAggregateRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-update": {
+    post: {
+      req: CasesBatchUpdateCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-delete": {
+    post: {
+      req: CasesBatchDeleteCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
         /**
          * Validation Error
          */

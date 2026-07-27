@@ -17,6 +17,7 @@ import orjson
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PERSIST_ACTIVITY_NAME,
     MCP_STDIO_PROBE_ACTIVITY_NAME,
+    MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER,
     MCP_STDIO_PROBE_TIMEOUT_CAP,
     MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX,
     StdioMCPPersistInput,
@@ -31,12 +32,18 @@ from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxErrorCode,
+    SandboxResult,
+)
 from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 
 __all__ = [
     "MCP_STDIO_PERSIST_ACTIVITY_NAME",
     "MCP_STDIO_PROBE_ACTIVITY_NAME",
+    "MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER",
     "MCP_STDIO_PROBE_TIMEOUT_CAP",
     "MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX",
     "StdioMCPPersistInput",
@@ -138,7 +145,7 @@ async def main() -> None:
     command = payload["command"]
     args = payload.get("args") or []
     env = payload.get("env") or {}
-    timeout = int(payload.get("timeout") or 30)
+    timeout = int(payload["timeout"])
     stderr_log = Path("mcp-server.stderr.log")
 
     try:
@@ -178,6 +185,7 @@ async def main() -> None:
                 "stdout": "",
                 "stderr": "",
                 "error": f"Timed out after {timeout}s while probing stdio MCP server",
+                "error_code": "timeout",
             }
         )
     except BaseException as exc:
@@ -308,6 +316,11 @@ async def _execute_probe_without_nsjail(
                 stdout=result_data.get("stdout", stdout),
                 stderr=result_data.get("stderr", stderr),
                 error=result_data.get("error"),
+                error_code=(
+                    SandboxErrorCode(error_code)
+                    if (error_code := result_data.get("error_code"))
+                    else None
+                ),
                 exit_code=process.returncode,
             )
 
@@ -325,14 +338,15 @@ async def probe_stdio_mcp_tools_in_sandbox(
     command: str,
     args: list[str] | None,
     env: dict[str, str] | None,
-    timeout: int | None,
+    timeout: int,
 ) -> StdioMCPProbeResult:
     """Run a stdio MCP server in a sandbox and list its tools.
 
     Uses nsjail when available; otherwise falls back to the same best-effort
     PID-level isolation that unsandboxed Python actions use.
     """
-    timeout_seconds = min(timeout or 30, MCP_STDIO_PROBE_TIMEOUT_CAP)
+    timeout_seconds = timeout
+    hard_timeout_seconds = timeout_seconds + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
     payload = {
         "command": command,
         "args": args or [],
@@ -357,10 +371,10 @@ async def probe_stdio_mcp_tools_in_sandbox(
                         network_enabled=True,
                         resources=ResourceLimits(
                             memory_mb=1024,
-                            cpu_seconds=timeout_seconds,
+                            cpu_seconds=hard_timeout_seconds,
                             max_open_files=512,
                             max_processes=128,
-                            timeout_seconds=timeout_seconds,
+                            timeout_seconds=hard_timeout_seconds,
                         ),
                         python_path_dirs=[_site_packages_dir()],
                     ),
@@ -390,6 +404,12 @@ async def probe_stdio_mcp_tools_in_sandbox(
         )
 
     if not result.success:
+        if result.error_code is SandboxErrorCode.TIMEOUT:
+            return StdioMCPProbeResult(
+                success=False,
+                message="Connection to the MCP server timed out",
+                error=f"Timed out after {timeout_seconds}s while probing stdio MCP server",
+            )
         error = sanitize_stdio_probe_error(result.error or result.stderr, env=env)
         return StdioMCPProbeResult(
             success=False,

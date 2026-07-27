@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import orjson
 import pytest
@@ -11,7 +12,8 @@ from tracecat.db.models import MCPIntegration
 from tracecat.integrations.catalog import loader
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.catalog.types import RawCatalogRow
-from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.schemas import OAuthTokenState
 
 
 class _CatalogResource:
@@ -114,6 +116,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                             "server_type": "http",
                             "auth_type": "OAUTH2",
                             "server_uri": "https://mcp.example.com/mcp",
+                            "oauth_resource": "https://mcp.example.com",
                         },
                     },
                     {
@@ -252,6 +255,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
     generic_oauth_spec = entries[2].connection_spec
     assert generic_oauth_spec is not None
     assert generic_oauth_spec.auth_type == MCPAuthType.OAUTH2
+    assert generic_oauth_spec.oauth_resource == "https://mcp.example.com"
     assert entries[3].status == "available"
     assert entries[3].provider_id == "runreveal_mcp"
     provider_oauth_spec = entries[3].connection_spec
@@ -588,10 +592,15 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     for entry in public_entries:
         assert entry.slug in private_by_slug
 
-    terraform_spec = private_by_slug["terraform-mcp"].connection_spec
-    if terraform_spec is not None:
-        assert terraform_spec.server_type == "stdio"
-        assert terraform_spec.requires_config is True
+    for slug in (
+        "splunk-mcp",
+        "hashicorp-vault-mcp",
+        "palo-alto-mcp",
+        "terraform-mcp",
+    ):
+        coming_soon = private_by_slug[slug]
+        assert coming_soon.status == "coming_soon"
+        assert coming_soon.connection_spec is None
 
     # jamf-mcp defaults to Jamf's hosted no-auth HTTP server; the local
     # stdio (device management) option survives alongside it.
@@ -644,7 +653,8 @@ def test_catalog_state_marks_unverified_non_oauth_mcp_rows_configured() -> None:
             slug="no-auth-mcp",
             auth_type=MCPAuthType.NONE,
         ),
-        encrypted_access_token=None,
+        token_state=None,
+        oauth_grant_type=None,
     )
 
     assert state == "configured"
@@ -660,7 +670,78 @@ def test_catalog_state_marks_verified_non_oauth_mcp_rows_connected() -> None:
             auth_type=MCPAuthType.NONE,
             tools=[],
         ),
-        encrypted_access_token=None,
+        token_state=None,
+        oauth_grant_type=None,
+    )
+
+    assert state == "connected"
+
+
+def _oauth_mcp_row() -> MCPIntegration:
+    return MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="OAuth MCP",
+        slug="oauth-mcp",
+        auth_type=MCPAuthType.OAUTH2,
+        tools=[],
+    )
+
+
+def test_catalog_state_flags_dead_oauth_token_as_reauth_required() -> None:
+    """Expired access token with no refresh token cannot self-heal."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "reauth_required"
+
+
+def test_catalog_state_keeps_refreshable_expired_oauth_token_connected() -> None:
+    """An expired access token with a refresh token self-heals on next use."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=b"refresh",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_non_expiring_oauth_token_connected() -> None:
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=None,
+        ),
+        oauth_grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+    )
+
+    assert state == "connected"
+
+
+def test_catalog_state_keeps_expired_client_credentials_connected() -> None:
+    """Client credentials renew without an interactive reauthorization flow."""
+    state = PlatformMCPCatalogService._catalog_state(
+        mcp_integration=_oauth_mcp_row(),
+        token_state=OAuthTokenState(
+            encrypted_access_token=b"token",
+            encrypted_refresh_token=None,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        oauth_grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
     )
 
     assert state == "connected"

@@ -53,6 +53,7 @@ from tracecat.agent.mcp.stdio_probe import (
     probe_stdio_mcp_tools_in_sandbox,
 )
 from tracecat.agent.mcp.stdio_probe_types import (
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
@@ -1065,7 +1066,6 @@ async def _resolve_and_probe_stdio_config(
     command: str,
     args: list[str] | None,
     stdio_env: dict[str, str] | None,
-    timeout: int | None,
     mcp_integration_id: uuid.UUID,
     mcp_integration_slug: str,
 ) -> StdioMCPProbeResult:
@@ -1106,7 +1106,7 @@ async def _resolve_and_probe_stdio_config(
         command=command,
         args=args,
         env=stdio_env,
-        timeout=timeout,
+        timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
     )
 
 
@@ -1147,7 +1147,6 @@ async def probe_stdio_mcp_connection_activity(
             command=integration.stdio_command,
             args=integration.stdio_args,
             stdio_env=integrations_svc.decrypt_stdio_env(integration),
-            timeout=integration.timeout,
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )

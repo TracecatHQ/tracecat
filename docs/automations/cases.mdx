@@ -170,16 +170,28 @@ When you create a table for case-linked evidence, use the same `columns` JSON sc
 
 Use `core.cases.*` actions when you want your workflows to create or update cases.
 
+Case descriptions and comments support Markdown whether you write them in the case UI or pass them to an action.
+Use the `description` input for case descriptions and the `content` input for comments and replies.
+
+You can include standard Markdown formatting, Markdown tables, and Mermaid diagrams.
+To add a diagram, wrap valid Mermaid syntax in a fenced code block labeled `mermaid`.
+
 See [Case actions](/automations/core-actions/case-actions/cases) to create, fetch, update, search, and delete cases; manage comments and attachments; and use Enterprise tasks, linked rows, and metrics.
 
 For example:
 
-```yaml
+````yaml
 - ref: create_case
   action: core.cases.create_case
   args:
     summary: "Investigate alert ${{ TRIGGER.alert_id }}"
-    description: "Created from the SIEM alert pipeline."
+    description: |
+      ## Initial findings
+
+      | Check | Result |
+      | --- | --- |
+      | Endpoint | Isolated |
+      | Credentials | Reset required |
     priority: high
     severity: high
     tags:
@@ -188,5 +200,10 @@ For example:
   action: core.cases.create_comment
   args:
     case_id: ${{ ACTIONS.create_case.result.id }}
-    content: "Automated triage started."
-```
+    content: |
+      ```mermaid
+      flowchart LR
+        Alert --> Triage
+        Triage --> Containment
+      ```
+````

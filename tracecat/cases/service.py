@@ -2,6 +2,7 @@ import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 from typing import cast as typing_cast
 
@@ -10,15 +11,17 @@ from asyncpg import UndefinedColumnError
 from pydantic import ValidationError
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, require_scope
@@ -28,8 +31,11 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_sync_after_commit,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -39,6 +45,8 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
+    CaseBatchItemResult,
+    CaseBatchResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -100,11 +108,12 @@ from tracecat.db.models import (
     Workflow,
     WorkspaceSyncResourceMapping,
 )
-from tracecat.db.session_events import add_after_commit_callback
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatException,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -201,6 +210,8 @@ def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
 
 # Treat multiple views inside this window as a single "view" to avoid spam.
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+CASE_BATCH_LOCK_TIMEOUT = "5s"
+CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
 
 
 class CasesService(BaseWorkspaceService):
@@ -1003,6 +1014,18 @@ class CasesService(BaseWorkspaceService):
             TracecatNotFoundError: If the case has no fields when trying to update fields
         """
 
+        try:
+            await self._apply_case_update(case, params)
+            # Commit once to persist all updates and emitted events atomically
+            await self.session.commit()
+            await self.session.refresh(case)
+            return case
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def _apply_case_update(self, case: Case, params: CaseUpdate) -> None:
+        """Apply a case update without committing the active transaction."""
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
@@ -1098,7 +1121,7 @@ class CasesService(BaseWorkspaceService):
                 for value in dropdown_values
             ]
             await self.dropdowns.apply_values(
-                case.id,
+                case,
                 normalized_dropdown_values,
                 commit=False,
             )
@@ -1109,32 +1132,338 @@ class CasesService(BaseWorkspaceService):
             old = getattr(case, key, None)
             setattr(case, key, value)
             if key == "assignee_id":
-                events.append(
-                    AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
-                )
-            elif key == "summary":
-                events.append(
-                    UpdatedEvent(
-                        field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                # Only record event if the assignee actually changed
+                if old != value:
+                    events.append(
+                        AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
-                )
+            elif key == "summary":
+                # Only record event if the summary actually changed
+                if old != value:
+                    events.append(
+                        UpdatedEvent(
+                            field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                        )
+                    )
             elif key == "payload":
                 # Only record event if payload actually changed
                 if old != value:
                     events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
-        try:
-            # If there are any remaining changed fields, record a general update activity
-            for event in events:
-                await self.events.create_event(case=case, event=event)
+        # If there are any remaining changed fields, record a general update activity
+        for event in events:
+            await self.events.create_event(case=case, event=event)
 
-            # Commit once to persist all updates and emitted events atomically
-            await self.session.commit()
-            await self.session.refresh(case)
-            return case
+    async def _audit_batch_event(
+        self,
+        *,
+        action: Literal["update", "delete"],
+        status: AuditEventStatus,
+        data: dict[str, Any],
+    ) -> None:
+        """Emit a batch audit event without allowing audit failures to fail the batch."""
+        try:
+            async with AuditService.with_session(role=self.role) as service:
+                await service.create_event(
+                    resource_type="case",
+                    action=action,
+                    resource_id=None,
+                    status=status,
+                    data=data,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Batch case audit log failed",
+                action=action,
+                status=status,
+                error=str(exc),
+            )
+
+    async def _lock_cases(
+        self,
+        case_ids: list[uuid.UUID],
+        *,
+        load_dropdown_values: bool = False,
+        key_share: bool = False,
+    ) -> dict[uuid.UUID, Case]:
+        """Lock and return workspace-scoped cases in deterministic ID order.
+
+        Relationship loading is suppressed so a 1000-case batch does not
+        materialize unrelated collections; `load_dropdown_values` opts into the
+        one relationship closure validation reads.
+        """
+        options: list[ExecutableOption] = [raiseload("*")]
+        if load_dropdown_values:
+            options.append(selectinload(Case.dropdown_values))
+        statement = (
+            select(Case)
+            .options(*options)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.id.in_(sorted(case_ids)),
+            )
+            .order_by(Case.id)
+            .with_for_update(key_share=key_share)
+        )
+        result = await self.session.execute(statement)
+        return {case.id: case for case in result.scalars().all()}
+
+    @require_scope("case:update")
+    async def batch_update_cases(
+        self, case_ids: list[uuid.UUID], params: CaseUpdate
+    ) -> CaseBatchResponse:
+        """Update multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
+        audit_data: dict[str, Any] = {
+            "is_batch": True,
+            "case_ids": [str(case_id) for case_id in case_ids],
+            "case_count": len(case_ids),
+        }
+        await self._audit_batch_event(
+            action="update",
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
+
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                cases_by_id = await self._lock_cases(
+                    case_ids,
+                    load_dropdown_values=params.status
+                    in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+                    key_share=True,
+                )
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch update"
+                    ) from exc
+                raise
+            results: list[CaseBatchItemResult] = []
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
+                            )
+                            continue
+
+                        try:
+                            with queue.checkpointed():
+                                async with self.session.begin_nested():
+                                    await self._apply_case_update(case, params)
+                        except TracecatNotFoundError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
+                            )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
+
+                await self.session.commit()
         except Exception:
             await self.session.rollback()
+            await self._audit_batch_event(
+                action="update",
+                status=AuditEventStatus.FAILURE,
+                data={
+                    **audit_data,
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
+                },
+            )
             raise
+
+        succeeded = sum(result.success for result in results)
+        response = CaseBatchResponse(
+            results=results,
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+        )
+        await self._audit_batch_event(
+            action="update",
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
+            data={
+                **audit_data,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
+            },
+        )
+        return response
+
+    @require_scope("case:delete")
+    async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
+        """Delete multiple cases atomically with isolated per-case failures."""
+        case_ids = list(dict.fromkeys(case_ids))
+        audit_data: dict[str, Any] = {
+            "is_batch": True,
+            "case_ids": [str(case_id) for case_id in case_ids],
+            "case_count": len(case_ids),
+        }
+        await self._audit_batch_event(
+            action="delete",
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
+
+        try:
+            await self.session.execute(
+                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+            )
+            try:
+                cases_by_id = await self._lock_cases(case_ids)
+            except DBAPIError as exc:
+                if (
+                    getattr(exc.orig, "sqlstate", None)
+                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
+                ):
+                    raise TracecatConflictError(
+                        "Timed out waiting to lock cases for batch delete"
+                    ) from exc
+                raise
+            results: list[CaseBatchItemResult] = []
+            queue = AfterCommitQueue.of(self.session)
+            with queue.checkpointed():
+                with queue.deferred():
+                    for case_id in case_ids:
+                        if (case := cases_by_id.get(case_id)) is None:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Case not found",
+                                )
+                            )
+                            continue
+
+                        try:
+                            with queue.checkpointed():
+                                async with self.session.begin_nested():
+                                    # Rely on database ON DELETE CASCADE instead
+                                    # of ORM cascades, which lazy-load every
+                                    # child collection per case. Reply comments
+                                    # must be unlinked first: the
+                                    # (case_id, parent_id) self-FK is
+                                    # ON DELETE RESTRICT, so a cascading case
+                                    # delete is order-sensitive with threads.
+                                    await self.session.execute(
+                                        sa.update(CaseComment)
+                                        .where(
+                                            CaseComment.case_id == case.id,
+                                            CaseComment.parent_id.is_not(None),
+                                        )
+                                        .values(parent_id=None)
+                                    )
+                                    await self.session.execute(
+                                        sa.delete(Case).where(
+                                            Case.id == case.id,
+                                            Case.workspace_id == self.workspace_id,
+                                        )
+                                    )
+                        except TracecatValidationError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except ValueError as exc:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error=str(exc),
+                                )
+                            )
+                        except DBAPIError:
+                            results.append(
+                                CaseBatchItemResult(
+                                    case_id=case_id,
+                                    success=False,
+                                    error="Database operation failed",
+                                )
+                            )
+                        else:
+                            results.append(
+                                CaseBatchItemResult(case_id=case_id, success=True)
+                            )
+
+                await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            await self._audit_batch_event(
+                action="delete",
+                status=AuditEventStatus.FAILURE,
+                data={
+                    **audit_data,
+                    "succeeded_count": 0,
+                    "failed_count": len(case_ids),
+                },
+            )
+            raise
+
+        succeeded = sum(result.success for result in results)
+        response = CaseBatchResponse(
+            results=results,
+            succeeded=succeeded,
+            failed=len(results) - succeeded,
+        )
+        await self._audit_batch_event(
+            action="delete",
+            status=AuditEventStatus.SUCCESS
+            if response.succeeded
+            else AuditEventStatus.FAILURE,
+            data={
+                **audit_data,
+                "succeeded_count": response.succeeded,
+                "failed_count": response.failed,
+            },
+        )
+        return response
 
     @require_scope("case:delete")
     @audit_log(resource_type="case", action="delete")
@@ -1711,13 +2040,14 @@ class CaseCommentsService(BaseWorkspaceService):
         case_id: uuid.UUID,
         comment_id: uuid.UUID,
         parent_id: uuid.UUID | None,
-        content: str | None = None,
         delete_mode: Literal["soft", "hard"] | None = None,
         workflow: Workflow | None = None,
         wf_exec_id: str | None = None,
         workflow_status: CaseCommentWorkflowStatus | None = None,
-    ) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    ) -> dict[str, AuditMetadataValue]:
+        """Build identifier-only metadata for a case-comment audit event."""
+
+        data: dict[str, AuditMetadataValue] = {
             "case_id": str(case_id),
             "comment_id": str(comment_id),
             "parent_id": str(parent_id) if parent_id is not None else None,
@@ -1726,13 +2056,10 @@ class CaseCommentsService(BaseWorkspaceService):
             ),
             "is_reply": parent_id is not None,
         }
-        if content is not None:
-            data["content"] = content
         if delete_mode is not None:
             data["delete_mode"] = delete_mode
         if workflow is not None:
             data["workflow_id"] = str(workflow.id)
-            data["workflow_alias"] = workflow.alias
             data["is_workflow_comment"] = True
             data["uses_case_addons"] = True
         if wf_exec_id is not None:
@@ -1801,7 +2128,6 @@ class CaseCommentsService(BaseWorkspaceService):
                     "comment_id": str(comment_id),
                     "parent_id": str(parent_id) if parent_id is not None else None,
                     "workflow_id": str(workflow.id),
-                    "workflow_alias": workflow.alias,
                     "wf_exec_id": wf_exec_id,
                     "trigger_type": "case",
                 },
@@ -1828,7 +2154,7 @@ class CaseCommentsService(BaseWorkspaceService):
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
         status: AuditEventStatus,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         async with AuditService.with_session(
             role=self.role, session=self.session
@@ -1846,7 +2172,7 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         action: Literal["create", "update", "delete"],
         comment_id: uuid.UUID,
-        data: dict[str, Any],
+        data: AuditMetadata,
     ) -> None:
         """Emit post-commit success audits without failing the mutation."""
         try:
@@ -2092,7 +2418,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=case.id,
             comment_id=comment_id,
             parent_id=params.parent_id,
-            content=params.content,
             workflow=workflow,
             wf_exec_id=wf_exec_id,
             workflow_status=workflow_status,
@@ -2242,7 +2567,6 @@ class CaseCommentsService(BaseWorkspaceService):
             case_id=comment.case_id,
             comment_id=comment.id,
             parent_id=comment.parent_id,
-            content=params.content,
         )
         await self._audit_comment_event(
             action="update",
@@ -2412,6 +2736,7 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
+        sync_durations: bool = True,
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2419,8 +2744,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is performed automatically after each event is created,
-        so callers do not need to call sync_case_durations separately.
+        Duration sync is queued after commit, with an inline fallback when
+        Redis publication fails.
         """
 
         db_event = CaseEvent(
@@ -2453,11 +2778,22 @@ class CaseEventsService(BaseWorkspaceService):
                     created_at=created_at,
                 )
 
-            add_after_commit_callback(self.session, _publish_case_event)
+            AfterCommitQueue.of(self.session).add(_publish_case_event)
 
-        # Auto-sync durations whenever an event is created
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        if sync_durations:
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
+            )
 
         return db_event
 
@@ -2494,7 +2830,10 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        return await self.create_event(case=case, event=CaseViewedEvent())
+        return await self.create_event(
+            case=case,
+            event=CaseViewedEvent(),
+        )
 
 
 class CaseTasksService(BaseWorkspaceService):
