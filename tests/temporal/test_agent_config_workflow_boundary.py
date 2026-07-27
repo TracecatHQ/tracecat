@@ -57,6 +57,7 @@ def _build_agent_config() -> TracecatAgentConfig:
                 "url": "http://host.docker.internal:8080",
                 "transport": "http",
                 "headers": {"Authorization": "Bearer secret123"},
+                "environment": "staging",
             }
         ],
         model_settings={"parallel_tool_calls": False},
@@ -113,6 +114,7 @@ class AgentConfigDecodeWorkflow:
                 "url": "http://host.docker.internal:8080",
                 "transport": "http",
                 "headers": {"Authorization": "Bearer secret123"},
+                "environment": "staging",
             }
         ]
         assert config.model_settings == {"parallel_tool_calls": False}
@@ -220,8 +222,9 @@ async def test_legacy_agent_config_payload_replays_as_agent_config_payload(
 # These pin that:
 #   * the legacy MCP server shape (no ``id``, inline ``headers``) recorded in
 #     pre-rollout workflow history still decodes,
-#   * the new ref shape (carrying ``id``, no ``headers``) round-trips through
-#     the workflow boundary so trusted callers can re-resolve secrets,
+#   * the new ref shape (carrying ``id`` and ``environment``, no ``headers``)
+#     round-trips through the workflow boundary so trusted callers can
+#     re-resolve secrets,
 #   * a payload containing a mix of the two shapes (and a stdio server)
 #     decodes intact.
 # ---------------------------------------------------------------------------
@@ -246,7 +249,7 @@ def _legacy_mcp_agent_config() -> TracecatAgentConfig:
 
 
 def _ref_mcp_agent_config() -> TracecatAgentConfig:
-    """Post-rollout config: ``id`` set, no ``headers``."""
+    """Post-rollout config: ``id`` and ``environment`` set, no ``headers``."""
     return TracecatAgentConfig(
         model_name="gpt-5.2",
         model_provider="openai",
@@ -257,6 +260,7 @@ def _ref_mcp_agent_config() -> TracecatAgentConfig:
                 "url": "http://host.docker.internal:8080",
                 "transport": "http",
                 "id": "11111111-1111-1111-1111-111111111111",
+                "environment": "staging",
             }
         ],
         retries=3,
@@ -277,13 +281,14 @@ def _mixed_mcp_agent_config() -> TracecatAgentConfig:
                 "transport": "http",
                 "headers": {"Authorization": "Bearer legacy"},
             },
-            # New http with id, no headers
+            # New http with id and environment, no headers
             {
                 "type": "http",
                 "name": "modern",
                 "url": "http://modern.local",
                 "transport": "http",
                 "id": "22222222-2222-2222-2222-222222222222",
+                "environment": "staging",
             },
             # Stdio with id
             {
@@ -292,6 +297,7 @@ def _mixed_mcp_agent_config() -> TracecatAgentConfig:
                 "command": "/usr/bin/echo",
                 "args": ["hello"],
                 "id": "33333333-3333-3333-3333-333333333333",
+                "environment": "production",
                 "tools": [
                     {
                         "name": "list_alerts",
@@ -396,7 +402,7 @@ async def test_legacy_mcp_payload_decodes_without_id(
 async def test_ref_mcp_payload_preserves_id_across_boundary(
     env: WorkflowEnvironment,
 ) -> None:
-    """New ref shape must round-trip with ``id`` intact and no headers added."""
+    """New ref shape preserves ``id`` and ``environment`` without adding headers."""
     task_queue = "test-ref-mcp-payload-decode"
     async with Worker(
         env.client,
@@ -419,6 +425,7 @@ async def test_ref_mcp_payload_preserves_id_across_boundary(
             "url": "http://host.docker.internal:8080",
             "transport": "http",
             "id": "11111111-1111-1111-1111-111111111111",
+            "environment": "staging",
         }
     ]
 
@@ -457,6 +464,7 @@ async def test_mixed_mcp_payload_decodes_intact(
             "url": "http://modern.local",
             "transport": "http",
             "id": "22222222-2222-2222-2222-222222222222",
+            "environment": "staging",
         },
         {
             "type": "stdio",
@@ -464,6 +472,7 @@ async def test_mixed_mcp_payload_decodes_intact(
             "command": "/usr/bin/echo",
             "args": ["hello"],
             "id": "33333333-3333-3333-3333-333333333333",
+            "environment": "production",
             "tools": [
                 {
                     "name": "list_alerts",

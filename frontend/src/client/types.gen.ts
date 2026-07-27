@@ -5093,6 +5093,7 @@ export type MCPHttpServerConfig = {
   transport?: "http" | "sse"
   timeout?: number
   id?: string
+  environment?: string
 }
 
 export type transport = "http" | "sse"
@@ -5340,6 +5341,7 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
   id?: string
+  environment?: string
   tools?: Array<MCPServerToolSummary>
 }
 

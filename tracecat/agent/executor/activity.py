@@ -1068,7 +1068,10 @@ async def _hydrate_stdio_env(
                         f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
                     )
                 try:
-                    env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
+                    env = await svc.resolve_mcp_integration_secrets(
+                        uuid.UUID(cfg_id),
+                        environment=cfg.get("environment"),
+                    )
                 except (ValueError, MCPSecretResolutionError):
                     env = None
                 result.append({**cfg, "env": env} if env else cfg)
