@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
-    ModelKey,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelKey
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
@@ -1170,7 +1170,7 @@ async def test_is_catalog_id_enabled_respects_workspace_override(
 
 
 @pytest.mark.anyio
-async def test_enabled_catalog_ids_returns_visible_enabled_subset(
+async def test_enabled_catalog_models_returns_visible_enabled_subset(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
@@ -1239,14 +1239,14 @@ async def test_enabled_catalog_ids_returns_visible_enabled_subset(
         unknown_id,
     }
 
-    enabled = await service.enabled_catalog_ids(
+    enabled_models = await service.enabled_catalog_models(
         org_id=svc_organization.id,
         catalog_ids=catalog_ids,
     )
 
-    assert enabled == {enabled_org_row.id, enabled_platform_row.id}
+    assert set(enabled_models) == {enabled_org_row.id, enabled_platform_row.id}
     for catalog_id in catalog_ids:
-        assert (catalog_id in enabled) is await service.is_catalog_id_enabled(
+        assert (catalog_id in enabled_models) is await service.is_catalog_id_enabled(
             org_id=svc_organization.id,
             catalog_id=catalog_id,
         )
@@ -1293,7 +1293,7 @@ async def test_enabled_catalog_models_returns_batch_model_identities(
 
 
 @pytest.mark.anyio
-async def test_enabled_catalog_ids_respects_workspace_override(
+async def test_enabled_catalog_models_respects_workspace_override(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
@@ -1328,15 +1328,15 @@ async def test_enabled_catalog_ids_respects_workspace_override(
     await session.commit()
     catalog_ids = {org_row.id, workspace_row.id}
 
-    enabled = await service.enabled_catalog_ids(
+    enabled_models = await service.enabled_catalog_models(
         org_id=svc_organization.id,
         workspace_id=svc_workspace.id,
         catalog_ids=catalog_ids,
     )
 
-    assert enabled == {workspace_row.id}
+    assert set(enabled_models) == {workspace_row.id}
     for catalog_id in catalog_ids:
-        assert (catalog_id in enabled) is await service.is_catalog_id_enabled(
+        assert (catalog_id in enabled_models) is await service.is_catalog_id_enabled(
             org_id=svc_organization.id,
             workspace_id=svc_workspace.id,
             catalog_id=catalog_id,

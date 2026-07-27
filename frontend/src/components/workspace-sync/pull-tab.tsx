@@ -140,9 +140,7 @@ export function WorkspaceSyncPullTab({
         catalog_mappings: selectedCatalogMappings,
       })
       setPullPreview(result)
-      if (result.catalog_mapping_requirements?.length) {
-        setCatalogMappingRequirements(result.catalog_mapping_requirements)
-      }
+      setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
       setPullPreviewOptions({
         commitSha: effectivePullSha,
         syncSchedules,
@@ -185,9 +183,7 @@ export function WorkspaceSyncPullTab({
         setCatalogMappingRequirements([])
       } else {
         setPullPreview(result)
-        if (result.catalog_mapping_requirements?.length) {
-          setCatalogMappingRequirements(result.catalog_mapping_requirements)
-        }
+        setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
         setPullPreviewOptions({
           commitSha: effectivePullSha,
           syncSchedules,

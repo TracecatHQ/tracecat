@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
@@ -13,8 +13,8 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.agent.catalog.schemas import ModelKey
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.db.models import (
     AgentFolder,
@@ -61,44 +61,18 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
+from tracecat.workspace_sync.types import (
+    AgentPresetCatalogReference,
+    CatalogReference,
+    CorrelatedAgentPresets,
+    WorkflowCatalogReference,
+)
 from tracecat.workspace_sync.workflow import workflow_source_path
 
 AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
-
-
-class CorrelatedAgentPresets(NamedTuple):
-    """Catalog-correlated sync specs plus any blocking diagnostics."""
-
-    presets: dict[str, AgentPresetResourceSpec]
-    workflows: dict[str, WorkflowResourceSpec]
-    diagnostics: list[PullDiagnostic]
-    requirements: list[CatalogMappingRequirement]
-
-
-class AgentPresetCatalogReference(NamedTuple):
-    """One preset version referencing a deployment-local source catalog UUID."""
-
-    path: str
-    preset_slug: str
-    preset_name: str
-    version_number: int
-    model_key: ModelKey
-
-
-class WorkflowCatalogReference(NamedTuple):
-    """One workflow action referencing a deployment-local source catalog UUID."""
-
-    path: str
-    workflow_source_id: str
-    workflow_title: str
-    action_ref: str
-    model_key: ModelKey
-
-
-type CatalogReference = AgentPresetCatalogReference | WorkflowCatalogReference
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -493,11 +467,29 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 raw_catalog_id = merged_args.get("catalog_id")
                 model_provider = merged_args.get("model_provider")
                 model_name = merged_args.get("model_name")
-                if not raw_catalog_id or not model_provider or not model_name:
+                if raw_catalog_id is None or not model_provider or not model_name:
                     continue
                 try:
                     catalog_id = uuid.UUID(str(raw_catalog_id))
                 except (TypeError, ValueError):
+                    diagnostics.append(
+                        PullDiagnostic(
+                            workflow_path=workflow_source_path(source_id),
+                            workflow_title=workflow.definition.title,
+                            error_type="validation",
+                            message=(
+                                f"Workflow action {action.ref!r} has an invalid "
+                                f"catalog_id {raw_catalog_id!r}; catalog_id must "
+                                "be a UUID."
+                            ),
+                            details={
+                                "code": "catalog_id_invalid",
+                                "workflow_source_id": source_id,
+                                "action_ref": action.ref,
+                                "catalog_id": str(raw_catalog_id),
+                            },
+                        )
+                    )
                     continue
                 present_catalog_ids.add(catalog_id)
                 references_by_catalog_id.setdefault(catalog_id, []).append(

@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -112,6 +112,7 @@ from tracecat.workspace_sync.transport import (
     VcsTreeSnapshot,
     vcs_transport_for_provider,
 )
+from tracecat.workspace_sync.types import PreparedSnapshot
 from tracecat.workspace_sync.workflow import (
     workflow_source_path,
     workflow_spec_from_orm,
@@ -130,14 +131,6 @@ class ProjectableWorkflowClosure:
 
     workflows: list[Workflow]
     dsl_by_id: dict[uuid.UUID, DSLInput]
-
-
-class PreparedSnapshot(NamedTuple):
-    """Snapshot with deployment-local references resolved, plus any diagnostics."""
-
-    snapshot: WorkspaceRemoteSnapshot
-    diagnostics: list[PullDiagnostic]
-    catalog_mapping_requirements: list[CatalogMappingRequirement]
 
 
 @dataclass(frozen=True, slots=True)

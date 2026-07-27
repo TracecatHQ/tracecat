@@ -13,7 +13,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
-from tracecat.agent.catalog.schemas import AgentCatalogRead, ModelKey
+from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.types import ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
@@ -200,27 +201,6 @@ class AgentCatalogService(BaseService):
             )
         )
         return bool(await self.session.scalar(stmt))
-
-    async def enabled_catalog_ids(
-        self,
-        *,
-        org_id: UUID,
-        catalog_ids: Collection[UUID],
-        workspace_id: UUID | None = None,
-    ) -> set[UUID]:
-        """Return the visible, enabled subset of ``catalog_ids``.
-
-        This has parity with ``is_catalog_id_enabled`` for every input id. The
-        batch exists so sync import correlation can resolve all incoming catalog
-        ids with one query while evaluating the workspace override only once.
-        """
-        return set(
-            await self.enabled_catalog_models(
-                org_id=org_id,
-                catalog_ids=catalog_ids,
-                workspace_id=workspace_id,
-            )
-        )
 
     async def enabled_catalog_models(
         self,

@@ -5274,6 +5274,63 @@ async def test_workspace_sync_workflow_catalog_rejects_non_candidate_selection(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("action_type", ["ai.agent", "ai.action"])
+async def test_workspace_sync_rejects_malformed_workflow_catalog_id(
+    session: AsyncSession,
+    svc_role: Role,
+    action_type: str,
+) -> None:
+    model_provider = "custom-model-provider"
+    model_name = "qa-workflow-malformed-catalog-model"
+    await _enable_duplicate_catalog_candidates(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    workflow_alias = f"qa-{action_type.replace('.', '-')}-malformed-catalog"
+    files = _workflow_agent_git_tree(
+        source_id=workflow_alias,
+        alias=workflow_alias,
+        title="QA workflow malformed catalog ID",
+        action_ref="run_malformed_catalog_agent",
+        action_type=action_type,
+        action_args={
+            "user_prompt": "Investigate the event.",
+            "model": {
+                "model_provider": model_provider,
+                "model_name": model_name,
+                "catalog_id": "not-a-uuid",
+            },
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is False
+    assert result.catalog_mapping_requirements == []
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].details == {
+        "code": "catalog_id_invalid",
+        "workflow_source_id": workflow_alias,
+        "action_ref": "run_malformed_catalog_agent",
+        "catalog_id": "not-a-uuid",
+    }
+    assert (
+        await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == workflow_alias,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("resource_kind", ["preset", "workflow"])
 async def test_workspace_sync_rejects_enabled_catalog_model_identity_mismatch(
     session: AsyncSession,
