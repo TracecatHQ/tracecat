@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import uuid
 
@@ -87,7 +88,9 @@ async def create_attachment(
         )
 
     try:
-        content = base64.b64decode(params.content_base64, validate=True)
+        content = await asyncio.to_thread(
+            base64.b64decode, params.content_base64, validate=True
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -214,8 +217,9 @@ async def download_attachment_content(
             detail=str(e),
         ) from e
 
+    encoded_content = await asyncio.to_thread(base64.b64encode, content)
     return {
-        "content_base64": base64.b64encode(content).decode("utf-8"),
+        "content_base64": encoded_content.decode("utf-8"),
         "file_name": filename,
         "content_type": content_type,
     }
