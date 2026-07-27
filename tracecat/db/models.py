@@ -2712,6 +2712,12 @@ class AgentCustomProvider(OrganizationModel):
     )
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Plain string column (not a DB enum), mirroring AgentCatalog.model_provider.
+    type: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        server_default=text("'generic_openai_compatible'"),
+    )
     passthrough: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )

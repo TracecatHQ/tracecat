@@ -116,11 +116,8 @@ async def create_catalog_entry(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
-    try:
-        await access_service.enable_model(row.id)
-    except TracecatValidationError:
-        # Already enabled — ignore duplicate access row
-        pass
+    # enable_model is idempotent: enabling an already-enabled row is a no-op.
+    await access_service.enable_model(row.id)
     return AgentCatalogRead.model_validate(row)
 
 

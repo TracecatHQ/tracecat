@@ -8,11 +8,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
 )
-from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.service import AgentCatalogService, DiscoveredModel
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
@@ -214,8 +215,8 @@ async def test_upsert_discovered_models_inserts_rows(
         custom_provider_id=provider.id,
         model_provider="custom-model-provider",
         models=[
-            {"id": "model-a", "context_window": 8192},
-            {"id": "model-b", "context_window": 16384},
+            DiscoveredModel(model_name="model-a", metadata={"digest": "a"}),
+            DiscoveredModel(model_name="model-b", metadata={"digest": "b"}),
         ],
     )
 
@@ -254,9 +255,9 @@ async def test_upsert_discovered_models_removes_stale_models(
         custom_provider_id=provider.id,
         model_provider="custom-model-provider",
         models=[
-            {"id": "model-a"},
-            {"id": "model-b"},
-            {"id": "model-c"},
+            DiscoveredModel(model_name="model-a"),
+            DiscoveredModel(model_name="model-b"),
+            DiscoveredModel(model_name="model-c"),
         ],
     )
 
@@ -265,8 +266,8 @@ async def test_upsert_discovered_models_removes_stale_models(
         custom_provider_id=provider.id,
         model_provider="custom-model-provider",
         models=[
-            {"id": "model-b"},
-            {"id": "model-d"},
+            DiscoveredModel(model_name="model-b"),
+            DiscoveredModel(model_name="model-d"),
         ],
     )
 
@@ -304,7 +305,10 @@ async def test_upsert_discovered_models_clears_catalog_when_empty(
         org_id=svc_organization.id,
         custom_provider_id=provider.id,
         model_provider="custom-model-provider",
-        models=[{"id": "model-a"}, {"id": "model-b"}],
+        models=[
+            DiscoveredModel(model_name="model-a"),
+            DiscoveredModel(model_name="model-b"),
+        ],
     )
 
     count = await service.upsert_discovered_models(
@@ -1093,3 +1097,81 @@ async def test_is_catalog_id_enabled_respects_workspace_override(
         )
         is True
     )
+
+
+@pytest.mark.anyio
+async def test_enable_model_is_idempotent_at_org_level(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """Enabling an already-enabled org model returns the existing row, no error."""
+    service = AgentModelAccessService(
+        session=session, role=_user_role(svc_organization.id)
+    )
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="custom",
+        model_name="gw-model-a",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.commit()
+    # Capture ids before the enable calls; the second enable rolls back a
+    # duplicate insert, expiring ORM instances still bound to this session.
+    org_id = svc_organization.id
+    catalog_id = row.id
+
+    first = await service.enable_model(catalog_id)
+    second = await service.enable_model(catalog_id)
+
+    # The duplicate call is a no-op that resolves to the same access row.
+    assert second.id == first.id
+
+    access_rows = (
+        (
+            await session.execute(
+                select(AgentModelAccess).where(
+                    AgentModelAccess.organization_id == org_id,
+                    AgentModelAccess.catalog_id == catalog_id,
+                    AgentModelAccess.workspace_id.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(access_rows) == 1
+
+
+@pytest.mark.anyio
+async def test_enable_model_is_idempotent_at_workspace_level(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace,
+) -> None:
+    """Double-enabling a workspace-scoped model is a no-op success."""
+    service = AgentModelAccessService(
+        session=session, role=_user_role(svc_organization.id)
+    )
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="custom",
+        model_name="gw-model-b",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.commit()
+    catalog_id = row.id
+    workspace_id = svc_workspace.id
+
+    first = await service.enable_model(catalog_id, workspace_id=workspace_id)
+    second = await service.enable_model(catalog_id, workspace_id=workspace_id)
+
+    assert second.id == first.id
+    assert second.workspace_id == workspace_id
+
+    # The duplicate insert's rollback expired the shared workspace fixture;
+    # refresh it so fixture teardown sees a live instance.
+    await session.refresh(svc_workspace)

@@ -1,6 +1,6 @@
 """Service for managing agent model catalog."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypedDict
@@ -40,6 +40,17 @@ class PlatformCatalogEntry:
     """
 
     model_provider: str
+    model_name: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredModel:
+    """A model returned by a custom provider's discovery endpoint.
+
+    ``metadata`` is merged onto the existing row's ``model_metadata``.
+    """
+
     model_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -467,23 +478,45 @@ class AgentCatalogService(BaseService):
         *,
         org_id: UUID,
         custom_provider_id: UUID,
-        models: Sequence[Mapping[str, Any]],
+        models: Sequence[DiscoveredModel],
         model_provider: str,
     ) -> int:
-        """Bulk upsert discovered models for a custom provider."""
-        values: list[_CatalogRowValues] = []
+        """Bulk upsert discovered models for a custom provider.
+
+        Merges ``model_metadata`` rather than clobbering it: existing keys
+        (notably an ollama ``digest``) are preserved unless a model explicitly
+        overwrites the key.
+        """
         now = datetime.now(UTC)
-        for raw in models:
-            model_name = raw.get("id") or raw.get("model_name")
-            if not isinstance(model_name, str):
-                continue
+        model_names = [m.model_name for m in models]
+
+        existing_metadata: dict[str, dict[str, Any]] = {}
+        if model_names:
+            existing_rows = (
+                await self.session.execute(
+                    select(AgentCatalog.model_name, AgentCatalog.model_metadata).where(
+                        AgentCatalog.organization_id == org_id,
+                        AgentCatalog.custom_provider_id == custom_provider_id,
+                        AgentCatalog.model_provider == model_provider,
+                        AgentCatalog.model_name.in_(model_names),
+                    )
+                )
+            ).all()
+            existing_metadata = {
+                name: dict(metadata or {}) for name, metadata in existing_rows
+            }
+
+        values: list[_CatalogRowValues] = []
+        for model in models:
+            merged = existing_metadata.get(model.model_name, {})
+            merged = {**merged, **model.metadata}
             values.append(
                 {
                     "organization_id": org_id,
                     "custom_provider_id": custom_provider_id,
                     "model_provider": model_provider,
-                    "model_name": model_name,
-                    "model_metadata": dict(raw),
+                    "model_name": model.model_name,
+                    "model_metadata": merged,
                     "last_refreshed_at": now,
                 }
             )

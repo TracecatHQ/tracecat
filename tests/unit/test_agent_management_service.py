@@ -17,6 +17,7 @@ from tracecat import config as tracecat_config
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.provider.types import CustomProviderType
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -387,6 +388,7 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
         "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
         "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "custom-model-provider",
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "false",
+        "CUSTOM_MODEL_PROVIDER_TYPE": "generic_openai_compatible",
     }
 
     provider.base_url = "https://column.example.com/v1"
@@ -398,6 +400,222 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
     assert credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == (
         "https://column.example.com/v1"
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_injects_ollama_placeholder_key(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama needs no key; the OpenAI-compatible client requires one, so a
+    keyless ollama provider gets a placeholder ``CUSTOM_MODEL_PROVIDER_API_KEY``.
+    """
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Ollama",
+        base_url="http://host:11434/v1",
+        type=CustomProviderType.OLLAMA.value,
+        passthrough=False,
+        encrypted_config=None,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="llama3",
+        custom_provider_id=provider.id,
+    )
+    await _grant_access(session, org_id=svc_organization.id, catalog_id=catalog.id)
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] == "ollama"
+    assert credentials["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] == "llama3"
+    # Type marker drives the gateway's thinking-drop + message sanitization.
+    assert credentials["CUSTOM_MODEL_PROVIDER_TYPE"] == "ollama"
+    # Bare server root gets /v1 ensured for the OpenAI-compatible runtime.
+    assert credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == "http://host:11434/v1"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    ("stored_base_url", "expected_base_url"),
+    [
+        ("http://host:11434", "http://host:11434/v1"),
+        ("http://host:11434/", "http://host:11434/v1"),
+        ("http://host:11434/v1", "http://host:11434/v1"),
+        ("http://host:11434/v1/", "http://host:11434/v1"),
+    ],
+)
+async def test_get_catalog_credentials_ensures_ollama_v1_base_url(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_base_url: str,
+    expected_base_url: str,
+) -> None:
+    """Ollama runtime base_url ends with a single ``/v1`` (idempotent)."""
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Ollama",
+        base_url=stored_base_url,
+        type=CustomProviderType.OLLAMA.value,
+        passthrough=False,
+        encrypted_config=None,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="llama3",
+        custom_provider_id=provider.id,
+    )
+    await _grant_access(session, org_id=svc_organization.id, catalog_id=catalog.id)
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == expected_base_url
+    # The persisted column is never mutated by the runtime ensure.
+    await session.refresh(provider)
+    assert provider.base_url == stored_base_url
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+@pytest.mark.parametrize(
+    "provider_type",
+    [
+        CustomProviderType.GENERIC_OPENAI_COMPATIBLE,
+        CustomProviderType.LITELLM,
+    ],
+)
+async def test_get_catalog_credentials_leaves_non_ollama_base_url_untouched(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+    provider_type: CustomProviderType,
+) -> None:
+    """Generic/LiteLLM base_url is returned as-is (no /v1 ensure)."""
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Gateway",
+        base_url="https://gateway.example.com",
+        type=provider_type.value,
+        passthrough=False,
+        encrypted_config=None,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="gpt-4o",
+        custom_provider_id=provider.id,
+    )
+    await _grant_access(session, org_id=svc_organization.id, catalog_id=catalog.id)
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert (
+        credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == "https://gateway.example.com"
+    )
+    assert credentials["CUSTOM_MODEL_PROVIDER_TYPE"] == provider_type.value
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_keeps_ollama_stored_key(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stored ollama key is not replaced by the placeholder."""
+    import orjson
+
+    from tracecat.auth.secrets import get_db_encryption_key
+    from tracecat.secrets.encryption import encrypt_value
+
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    blob = encrypt_value(
+        orjson.dumps({"api_key": "real-key"}), key=get_db_encryption_key()
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Ollama",
+        base_url="http://host:11434/v1",
+        type=CustomProviderType.OLLAMA.value,
+        passthrough=False,
+        encrypted_config=blob,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="llama3",
+        custom_provider_id=provider.id,
+    )
+    await _grant_access(session, org_id=svc_organization.id, catalog_id=catalog.id)
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] == "real-key"
 
 
 @pytest.mark.anyio
@@ -620,6 +838,7 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
         # The selected row's model_name is pinned (it's a real, non-placeholder
         # name) so the provider blob can't override the per-row selection.
         "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "custom-model-provider",
+        "CUSTOM_MODEL_PROVIDER_TYPE": "generic_openai_compatible",
     }
 
 

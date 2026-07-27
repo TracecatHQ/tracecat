@@ -12,7 +12,7 @@ from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess, Workspace
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseOrgService
 
@@ -76,9 +76,9 @@ class AgentModelAccessService(BaseOrgService):
             await self.session.rollback()
             pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
             if pgcode == "23505":
-                raise TracecatValidationError(
-                    f"Model access for catalog {catalog_id} already enabled"
-                ) from err
+                # Already enabled — treat as an idempotent no-op and return the
+                # existing access row rather than erroring.
+                return await self._get_access_row(catalog_id, workspace_id)
             if pgcode == "23503":
                 raise TracecatNotFoundError(
                     f"Catalog {catalog_id} or workspace {workspace_id} not found"
@@ -86,6 +86,29 @@ class AgentModelAccessService(BaseOrgService):
             raise
         await self.session.refresh(access)
         return AgentModelAccessRead.model_validate(access)
+
+    async def _get_access_row(
+        self,
+        catalog_id: UUID,
+        workspace_id: UUID | None,
+    ) -> AgentModelAccessRead:
+        """Fetch the existing org/workspace access row for a catalog entry."""
+        workspace_condition = (
+            AgentModelAccess.workspace_id == workspace_id
+            if workspace_id is not None
+            else AgentModelAccess.workspace_id.is_(None)
+        )
+        stmt = select(AgentModelAccess).where(
+            AgentModelAccess.organization_id == self.organization_id,
+            workspace_condition,
+            AgentModelAccess.catalog_id == catalog_id,
+        )
+        existing = (await self.session.execute(stmt)).scalar_one_or_none()
+        if existing is None:
+            raise TracecatNotFoundError(
+                f"Model access for catalog {catalog_id} not found"
+            )
+        return AgentModelAccessRead.model_validate(existing)
 
     @require_scope("agent:delete")
     @audit_log(

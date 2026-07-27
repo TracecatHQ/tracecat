@@ -82,6 +82,7 @@ const customProviders = [
     organization_id: "org-1",
     display_name: "Custom",
     base_url: "https://models.example.com/v1",
+    type: "generic_openai_compatible" as const,
     passthrough: true,
     api_key_header: "Authorization",
     last_refreshed_at: null,

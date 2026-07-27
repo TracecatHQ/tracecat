@@ -2,15 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, Loader2, MoreVertical } from "lucide-react"
+import { Loader2, MoreHorizontal, MoreVertical } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type AgentCatalogRead,
-  type AgentCustomProviderCreate,
   type AgentCustomProviderRead,
-  type AgentCustomProviderUpdate,
   type AgentModelAccessRead,
   type ApiError,
   type AzureAICatalogCreate,
@@ -18,7 +16,6 @@ import {
   agentDeleteProviderCredentials,
   type BedrockCatalogCreate,
   createCatalogEntry,
-  createCustomProvider,
   deleteCatalogEntry,
   deleteCustomProvider,
   disableModel,
@@ -28,13 +25,17 @@ import {
   listEnabledModels,
   refreshCustomProviderCatalog,
   updateCatalogEntry,
-  updateCustomProvider,
   type VertexAICatalogCreate,
-  validateCustomProviderConnection,
 } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { CustomProviderDialog } from "@/components/organization/custom-provider-dialog"
+import {
+  getCustomProviderIconId,
+  getCustomProviderTypeLabel,
+} from "@/components/organization/custom-provider-form"
+import { CustomProviderWizard } from "@/components/organization/custom-provider-wizard"
 import { AgentCredentialsDialog } from "@/components/organization/org-agent-credentials-dialog"
 import {
   RbacListContainer,
@@ -50,20 +51,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -97,7 +85,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -110,61 +97,6 @@ import {
 import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
-
-const customProviderSchema = z
-  .object({
-    displayName: z.string().trim().min(1, "Name is required"),
-    baseUrl: z.union([z.string().url(), z.literal(""), z.undefined()]),
-    apiKeyHeader: z.string().trim().optional(),
-    apiKey: z.string().optional(),
-    customHeadersJson: z.string().optional(),
-    passthrough: z.boolean(),
-  })
-  .superRefine((value, ctx) => {
-    const raw = value.customHeadersJson?.trim()
-    if (!raw) {
-      return
-    }
-
-    try {
-      const parsed = JSON.parse(raw)
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Custom headers must be a JSON object.",
-          path: ["customHeadersJson"],
-        })
-        return
-      }
-      for (const [key, headerValue] of Object.entries(parsed)) {
-        if (typeof key !== "string" || typeof headerValue !== "string") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Custom headers must map string keys to string values.",
-            path: ["customHeadersJson"],
-          })
-          return
-        }
-      }
-    } catch {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Custom headers must be valid JSON.",
-        path: ["customHeadersJson"],
-      })
-    }
-  })
-
-type CustomProviderFormValues = z.infer<typeof customProviderSchema>
-
-const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
-  displayName: "",
-  baseUrl: "",
-  apiKeyHeader: "",
-  apiKey: "",
-  customHeadersJson: "",
-  passthrough: false,
-}
 
 const CLOUD_CATALOG_PROVIDERS = [
   "bedrock",
@@ -453,7 +385,7 @@ interface CustomSourceRead {
   last_error?: string | null
 }
 
-interface CustomSourceCard extends CustomSourceRead {
+export interface CustomSourceCard extends CustomSourceRead {
   models: ModelCatalogEntry[]
   provider: AgentCustomProviderRead
 }
@@ -474,24 +406,6 @@ function toModelSelection(
     model_provider: model.model_provider,
     model_name: model.model_name,
   }
-}
-
-function normalizeOptional(value: string | null | undefined): string | null {
-  if (value == null) {
-    return null
-  }
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function parseCustomHeaders(
-  value: string | null | undefined
-): Record<string, string> | null {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return null
-  }
-  return JSON.parse(trimmed) as Record<string, string>
 }
 
 function formatDateTime(value?: string | null): string {
@@ -551,42 +465,6 @@ function getProviderIconId(provider?: string | null): string {
       return "openai"
     default:
       return "custom"
-  }
-}
-
-function normalizeSourceName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, "")
-}
-
-function getCustomSourceTypeLabel(type: string): string {
-  switch (type) {
-    case "manual_custom":
-      return "Manual custom"
-    case "openai_compatible_gateway":
-      return "OpenAI-compatible"
-    default:
-      return type.replaceAll("_", " ")
-  }
-}
-
-function getCustomSourceFlavorLabel(flavor?: string | null): string | null {
-  if (!flavor) {
-    return null
-  }
-  switch (flavor) {
-    case "generic_openai_compatible":
-      return "Generic OpenAI-compatible"
-    case "ollama":
-      return "Ollama"
-    case "vllm":
-      return "vLLM"
-    case "manual":
-      return "Manual"
-    default:
-      return flavor.replaceAll("_", " ")
   }
 }
 
@@ -654,37 +532,6 @@ function getModelSourceLabel(
   )
 }
 
-function getCustomSourceIconId(
-  source: Pick<CustomSourceRead, "type" | "flavor">
-): string {
-  switch (source.flavor) {
-    case "ollama":
-      return "ollama"
-    case "vllm":
-      return "vllm"
-    case "manual":
-      return "manual-custom-source"
-    default:
-      return source.type === "manual_custom" ? "manual-custom-source" : "custom"
-  }
-}
-
-function inferCustomSourceFlavor(
-  provider: Pick<AgentCustomProviderRead, "base_url" | "display_name">
-): string | null {
-  const candidates = [provider.display_name, provider.base_url ?? ""].map(
-    normalizeSourceName
-  )
-
-  if (candidates.some((candidate) => candidate.includes("ollama"))) {
-    return "ollama"
-  }
-  if (candidates.some((candidate) => candidate.includes("vllm"))) {
-    return "vllm"
-  }
-  return null
-}
-
 function canEnableBuiltInCatalogModel(model: BuiltInCatalogEntry): boolean {
   return (
     model.enabled ||
@@ -715,57 +562,6 @@ function ProviderMetaPill({
       {children}
     </span>
   )
-}
-
-function getProviderDialogDefaults(
-  provider: AgentCustomProviderRead | null
-): CustomProviderFormValues {
-  if (!provider) {
-    return DEFAULT_CUSTOM_PROVIDER_VALUES
-  }
-  return {
-    displayName: provider.display_name,
-    baseUrl: provider.base_url ?? "",
-    apiKeyHeader: provider.api_key_header ?? "",
-    apiKey: "",
-    customHeadersJson: "",
-    passthrough: provider.passthrough,
-  }
-}
-
-function buildProviderCreatePayload(
-  values: CustomProviderFormValues
-): AgentCustomProviderCreate {
-  return {
-    display_name: values.displayName.trim(),
-    base_url: normalizeOptional(values.baseUrl),
-    api_key_header: normalizeOptional(values.apiKeyHeader),
-    api_key: normalizeOptional(values.apiKey),
-    custom_headers: parseCustomHeaders(values.customHeadersJson),
-    passthrough: values.passthrough,
-  }
-}
-
-function buildProviderUpdatePayload(
-  values: CustomProviderFormValues
-): AgentCustomProviderUpdate {
-  const payload: AgentCustomProviderUpdate = {
-    display_name: values.displayName.trim(),
-    base_url: normalizeOptional(values.baseUrl),
-    api_key_header: normalizeOptional(values.apiKeyHeader),
-    passthrough: values.passthrough,
-  }
-
-  const apiKey = normalizeOptional(values.apiKey)
-  if (apiKey) {
-    payload.api_key = apiKey
-  }
-  const customHeaders = parseCustomHeaders(values.customHeadersJson)
-  if (customHeaders) {
-    payload.custom_headers = customHeaders
-  }
-
-  return payload
 }
 
 async function fetchAllProviders(): Promise<AgentCustomProviderRead[]> {
@@ -816,289 +612,6 @@ async function fetchAllEnabledModels(): Promise<AgentModelAccessRead[]> {
   return items
 }
 
-function CustomProviderDialog({
-  provider,
-  open,
-  onOpenChange,
-}: {
-  provider: AgentCustomProviderRead | null
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const queryClient = useQueryClient()
-  const form = useForm<CustomProviderFormValues>({
-    resolver: zodResolver(customProviderSchema),
-    mode: "onBlur",
-    defaultValues: getProviderDialogDefaults(provider),
-  })
-
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const hasCustomHeadersError = !!form.formState.errors.customHeadersJson
-
-  useEffect(() => {
-    form.reset(getProviderDialogDefaults(provider))
-    setAdvancedOpen(false)
-  }, [form, provider, open])
-
-  useEffect(() => {
-    if (hasCustomHeadersError) {
-      setAdvancedOpen(true)
-    }
-  }, [hasCustomHeadersError])
-
-  const saveMutation = useMutation({
-    mutationFn: async (values: CustomProviderFormValues) => {
-      if (provider) {
-        return await updateCustomProvider({
-          providerId: provider.id,
-          requestBody: buildProviderUpdatePayload(values),
-        })
-      }
-      return await createCustomProvider({
-        requestBody: buildProviderCreatePayload(values),
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["organization", "agent-providers"],
-      })
-      onOpenChange(false)
-      toast({
-        title: provider ? "Custom source updated" : "Custom source created",
-        description: provider
-          ? "Saved the custom source configuration."
-          : "Created the custom source.",
-      })
-    },
-    onError: (error: ApiError) => {
-      toast({
-        title: provider ? "Update failed" : "Create failed",
-        description:
-          getApiErrorDetail(error) ?? "Unable to save the custom source.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  const validateMutation = useMutation({
-    mutationFn: async (values: CustomProviderFormValues) =>
-      await validateCustomProviderConnection({
-        requestBody: buildProviderCreatePayload(values),
-      }),
-    onSuccess: (result) => {
-      toast({
-        title: result.valid ? "Connection looks good" : "Connection failed",
-        description: result.valid
-          ? "The provider responded successfully."
-          : "The provider did not respond successfully.",
-        variant: result.valid ? "default" : "destructive",
-      })
-    },
-    onError: (error: ApiError) => {
-      toast({
-        title: "Connection test failed",
-        description:
-          getApiErrorDetail(error) ?? "Unable to validate the custom source.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  async function handleValidate() {
-    const valid = await form.trigger()
-    if (!valid) {
-      if (form.formState.errors.customHeadersJson) {
-        setAdvancedOpen(true)
-      }
-      return
-    }
-    await validateMutation.mutateAsync(form.getValues())
-  }
-
-  async function handleSubmit(values: CustomProviderFormValues) {
-    await saveMutation.mutateAsync(values)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
-        <DialogHeader>
-          <DialogTitle>
-            {provider ? "Edit custom source" : "Add custom source"}
-          </DialogTitle>
-          <DialogDescription>
-            Configure a user-defined OpenAI-compatible endpoint. Discovery reads
-            the source&apos;s <code>/models</code> endpoint.
-          </DialogDescription>
-        </DialogHeader>
-
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleSubmit, () => {
-              if (form.formState.errors.customHeadersJson) setAdvancedOpen(true)
-            })}
-            className="space-y-4"
-          >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Local gateway" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="baseUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Base URL</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="http://localhost:11434/v1" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="space-y-2">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="apiKeyHeader"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth header</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Authorization" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="apiKey"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth value</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="password"
-                          placeholder={
-                            provider
-                              ? "Leave blank to keep saved value"
-                              : "sk-••••••••"
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Defaults to{" "}
-                <code className="bg-muted rounded px-1 py-0.5 font-mono">
-                  Authorization: Bearer &lt;value&gt;
-                </code>{" "}
-                if no header is set.
-              </p>
-            </div>
-
-            <FormField
-              control={form.control}
-              name="passthrough"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
-                    <FormDescription>
-                      Recommended for bring-your-own gateways (LiteLLM, vLLM,
-                      etc.). Skips Tracecat&apos;s transforms and forwards
-                      requests directly to your endpoint.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
-                <ChevronDown className="size-4 transition-transform duration-200" />
-                Advanced
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="pt-3">
-                  <FormField
-                    control={form.control}
-                    name="customHeadersJson"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Additional headers</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            {...field}
-                            className="min-h-28 font-mono text-xs"
-                            placeholder='{"X-Custom-Header":"value"}'
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Optional JSON object of extra static headers sent on
-                          every request. Use this for non-auth headers not
-                          covered by the API key above. Saving new JSON replaces
-                          the saved value.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={saveMutation.isPending || validateMutation.isPending}
-                onClick={() => void handleValidate()}
-              >
-                {validateMutation.isPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : null}
-                Test connection
-              </Button>
-              <Button
-                type="submit"
-                disabled={saveMutation.isPending || validateMutation.isPending}
-              >
-                {saveMutation.isPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : null}
-                {provider ? "Save source" : "Add source"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function CustomSourceModelRow({
   disabled,
   model,
@@ -1110,18 +623,10 @@ function CustomSourceModelRow({
 }) {
   const title = getCustomSourceModelTitle(model)
   const showModelName = title !== model.model_name
-  const contextLabel = getModelContextLabel(model)
-  const outputLabel = getModelOutputLabel(model)
   const modeLabel = getModelModeLabel(model)
-  const sourceLabel = getModelSourceLabel(model)
   const detailParts = [
-    sourceLabel,
     showModelName ? model.model_name : null,
     modeLabel !== "n/a" ? modeLabel : null,
-  ].filter(Boolean)
-  const capabilityParts = [
-    contextLabel !== "n/a" ? `${contextLabel} ctx` : null,
-    outputLabel !== "n/a" ? `${outputLabel} out` : null,
   ].filter(Boolean)
 
   return (
@@ -1129,17 +634,10 @@ function CustomSourceModelRow({
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <p className="truncate text-sm font-medium">{title}</p>
-          <Badge variant="outline">{model.model_provider}</Badge>
-          {model.base_url ? <Badge variant="outline">Custom URL</Badge> : null}
         </div>
         {detailParts.length ? (
           <p className="truncate text-xs text-muted-foreground">
             {detailParts.join(" · ")}
-          </p>
-        ) : null}
-        {capabilityParts.length ? (
-          <p className="truncate text-xs text-muted-foreground">
-            {capabilityParts.join(" · ")}
           </p>
         ) : null}
       </div>
@@ -1633,6 +1131,147 @@ function ProviderConnectionItem({
   )
 }
 
+/**
+ * Accordion section for a single custom source, mirroring the first-class
+ * provider layout: icon + name + type label in the header, an enabled-count
+ * {@link ProviderMetaPill}, provider-level actions (edit/refresh/delete), and
+ * the discovered-model rows inside the expanded body.
+ */
+export function CustomSourceConnectionItem({
+  source,
+  agentAddonsEnabled,
+  actionsDisabled,
+  modelsDisabled,
+  isExpanded,
+  onExpandedChange,
+  onEdit,
+  onRefresh,
+  onDelete,
+  onToggleModel,
+}: {
+  source: CustomSourceCard
+  agentAddonsEnabled: boolean
+  actionsDisabled: boolean
+  modelsDisabled: boolean
+  isExpanded: boolean
+  onExpandedChange: (expanded: boolean) => void
+  onEdit: (provider: AgentCustomProviderRead) => void
+  onRefresh: (source: CustomSourceCard) => void
+  onDelete: (provider: AgentCustomProviderRead) => void
+  onToggleModel: (model: ModelCatalogEntry) => Promise<void>
+}) {
+  const totalModels = source.models.length
+  const enabledModels = source.models.filter((model) => model.enabled).length
+  const typeLabel = getCustomProviderTypeLabel(source.provider.type)
+  const subtitleParts = [
+    typeLabel,
+    formatStatus(source.discovery_status),
+    source.base_url ?? null,
+  ].filter(Boolean)
+
+  return (
+    <RbacListItem
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {source.provider.passthrough ? (
+            <ProviderMetaPill>Passthrough</ProviderMetaPill>
+          ) : null}
+          <ProviderMetaPill active={enabledModels > 0}>
+            {totalModels ? `${enabledModels} enabled` : "No models discovered"}
+          </ProviderMetaPill>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Source actions"
+                className="size-8 p-0"
+                disabled={actionsDisabled}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onEdit(source.provider)}>
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onRefresh(source)}>
+                Refresh
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-rose-500 focus:text-rose-600"
+                onSelect={() => onDelete(source.provider)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      }
+      badges={null}
+      icon={
+        <ProviderIcon
+          className="size-8 rounded-md"
+          providerId={getCustomProviderIconId(source.provider.type)}
+        />
+      }
+      isExpanded={isExpanded}
+      onExpandedChange={onExpandedChange}
+      reserveExpandSpace
+      subtitle={subtitleParts.join(" · ")}
+      title={source.display_name}
+    >
+      <div className="space-y-4">
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <p>Last refreshed: {formatDateTime(source.last_refreshed_at)}</p>
+          {source.base_url ? (
+            <p>
+              Base URL: <span className="font-mono">{source.base_url}</span>
+            </p>
+          ) : null}
+        </div>
+
+        {source.last_error ? (
+          <div className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive">
+            {source.last_error}
+          </div>
+        ) : null}
+
+        {!source.base_url ? (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            Set a base URL before refreshing this custom endpoint.
+          </div>
+        ) : null}
+
+        {source.models.length ? (
+          <div className="space-y-3">
+            {!agentAddonsEnabled ? (
+              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                Upgrade to enable or disable specific source-backed models for
+                presets and defaults.
+              </div>
+            ) : null}
+            {source.models.map((model) => (
+              <CustomSourceModelRow
+                disabled={modelsDisabled}
+                key={getModelSelectionKey(toModelSelection(model))}
+                model={model}
+                onToggle={onToggleModel}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            Refresh this source, then enable the entries you want available to
+            presets and defaults.
+          </div>
+        )}
+      </div>
+    </RbacListItem>
+  )
+}
+
 interface CloudCatalogModelDialogProps {
   provider: CloudCatalogProvider | null
   entry: AgentCatalogRead | null
@@ -1929,8 +1568,10 @@ export function OrgSettingsAgentForm() {
   const [deletingProvider, setDeletingProvider] =
     useState<AgentCustomProviderRead | null>(null)
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
-  const [customProviderDialogOpen, setCustomProviderDialogOpen] =
-    useState(false)
+  const [expandedCustomSource, setExpandedCustomSource] = useState<
+    string | null
+  >(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [cloudModelDialog, setCloudModelDialog] = useState<{
     provider: CloudCatalogProvider
     entry: AgentCatalogRead | null
@@ -2156,7 +1797,6 @@ export function OrgSettingsAgentForm() {
         left.display_name.localeCompare(right.display_name)
       )
       .map((provider): CustomSourceCard => {
-        const sourceFlavor = inferCustomSourceFlavor(provider)
         const providerEntries = [
           ...(catalogByProviderId.get(provider.id) ?? []),
         ]
@@ -2180,7 +1820,7 @@ export function OrgSettingsAgentForm() {
         return {
           id: provider.id,
           type: "openai_compatible_gateway",
-          flavor: sourceFlavor,
+          flavor: null,
           display_name: provider.display_name,
           base_url: provider.base_url,
           api_key_configured: false,
@@ -2758,13 +2398,7 @@ export function OrgSettingsAgentForm() {
               gateways.
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setEditingProvider(null)
-              setCustomProviderDialogOpen(true)
-            }}
-            variant="outline"
-          >
+          <Button onClick={() => setWizardOpen(true)} variant="outline">
             Add custom source
           </Button>
         </div>
@@ -2772,133 +2406,35 @@ export function OrgSettingsAgentForm() {
         {customSourcesSectionLoading ? (
           <CenteredSpinner />
         ) : customSourceCards.length ? (
-          <div className="space-y-4">
+          <RbacListContainer>
             {customSourceCards.map((source) => (
-              <Card key={source.id}>
-                <CardHeader className="space-y-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-start gap-3">
-                      <ProviderIcon
-                        className="size-8 rounded-md"
-                        providerId={getCustomSourceIconId(source)}
-                      />
-                      <div className="space-y-2">
-                        <CardTitle>{source.display_name}</CardTitle>
-                        <CardDescription>
-                          {getCustomSourceTypeLabel(source.type)}
-                          {getCustomSourceFlavorLabel(source.flavor)
-                            ? ` · ${getCustomSourceFlavorLabel(source.flavor)}`
-                            : ""}
-                          {` · ${formatStatus(source.discovery_status)}`}
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        disabled={
-                          refreshProviderMutation.isPending ||
-                          deleteCustomProviderMutation.isPending
-                        }
-                        onClick={() => {
-                          setEditingProvider(source.provider)
-                          setCustomProviderDialogOpen(true)
-                        }}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        disabled={
-                          refreshProviderMutation.isPending ||
-                          deleteCustomProviderMutation.isPending
-                        }
-                        onClick={() => {
-                          void handleRefreshCustomProvider(source)
-                        }}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Refresh
-                      </Button>
-                      <Button
-                        disabled={
-                          refreshProviderMutation.isPending ||
-                          deleteCustomProviderMutation.isPending
-                        }
-                        onClick={() => setDeletingProvider(source.provider)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                    <p>
-                      Last refreshed: {formatDateTime(source.last_refreshed_at)}
-                    </p>
-                    {source.base_url ? (
-                      <p>
-                        Base URL:{" "}
-                        <span className="font-mono">{source.base_url}</span>
-                      </p>
-                    ) : null}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {source.last_error ? (
-                    <div className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive">
-                      {source.last_error}
-                    </div>
-                  ) : null}
-
-                  {!source.base_url ? (
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      Set a base URL before refreshing this custom endpoint.
-                    </div>
-                  ) : null}
-
-                  {source.models.length ? (
-                    <>
-                      {!agentAddonsEnabled ? (
-                        <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                          Upgrade to enable or disable specific source-backed
-                          models for presets and defaults.
-                        </div>
-                      ) : null}
-                      {source.models.map((model) => (
-                        <CustomSourceModelRow
-                          disabled={!agentAddonsEnabled || isSelectionUpdating}
-                          key={getModelSelectionKey(toModelSelection(model))}
-                          model={model}
-                          onToggle={handleModelToggle}
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      Refresh this source, then enable the entries you want
-                      available to presets and defaults.
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <CustomSourceConnectionItem
+                actionsDisabled={
+                  refreshProviderMutation.isPending ||
+                  deleteCustomProviderMutation.isPending
+                }
+                agentAddonsEnabled={agentAddonsEnabled}
+                isExpanded={expandedCustomSource === source.id}
+                key={source.id}
+                modelsDisabled={!agentAddonsEnabled || isSelectionUpdating}
+                onDelete={setDeletingProvider}
+                onEdit={setEditingProvider}
+                onExpandedChange={(expanded) => {
+                  setExpandedCustomSource(expanded ? source.id : null)
+                }}
+                onRefresh={(target) => {
+                  void handleRefreshCustomProvider(target)
+                }}
+                onToggleModel={handleModelToggle}
+                source={source}
+              />
             ))}
-          </div>
+          </RbacListContainer>
         ) : (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">No custom sources yet</p>
-                <p className="text-sm text-muted-foreground">
-                  Use custom sources only when you need a user-defined endpoint
-                  beyond the platform provider cards and shared platform
-                  catalog.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            No custom sources yet. Add one when you need a user-defined endpoint
+            beyond the platform provider cards and shared platform catalog.
+          </div>
         )}
       </section>
 
@@ -2910,16 +2446,19 @@ export function OrgSettingsAgentForm() {
         providerConfigured={selectedCredentialsConfigured}
       />
 
-      <CustomProviderDialog
-        provider={editingProvider}
-        open={customProviderDialogOpen}
-        onOpenChange={(open) => {
-          setCustomProviderDialogOpen(open)
-          if (!open) {
-            setEditingProvider(null)
-          }
-        }}
-      />
+      <CustomProviderWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+
+      {editingProvider ? (
+        <CustomProviderDialog
+          provider={editingProvider}
+          open={editingProvider !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditingProvider(null)
+            }
+          }}
+        />
+      ) : null}
 
       <AlertDialog
         onOpenChange={(open) => {
