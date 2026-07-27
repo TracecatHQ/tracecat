@@ -4047,7 +4047,6 @@ async def list_actions(
 async def sync_custom_registry(
     org_id: uuid.UUID | None = None,
     target_commit_sha: str | None = None,
-    force: bool = False,
 ) -> CustomRegistrySyncResponse:
     """Sync the organization's custom action registry from its remote git repository.
 
@@ -4064,8 +4063,6 @@ async def sync_custom_registry(
             single-org callers or tokens scoped with organization_id/org:<id>.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
-        force: Delete the repository's current registry version before
-            syncing, so the same commit can be re-synced from scratch.
 
     Returns JSON with `success`, `synced_at`, and a `results` array containing
     the per-repository `repository_id`, `origin`, `version`, `commit_sha`,
@@ -4102,7 +4099,6 @@ async def sync_custom_registry(
                     repo,
                     RegistryRepositorySync(
                         target_commit_sha=target_commit_sha,
-                        force=force,
                     ),
                 )
             except ScopeDeniedError:
@@ -4123,7 +4119,7 @@ async def sync_custom_registry(
                             synced_at=synced_at,
                             repository_id=repo.id,
                             origin=repo.origin,
-                            forced=force,
+                            forced=False,
                             error=str(exc),
                         )
                     ],
@@ -4141,7 +4137,7 @@ async def sync_custom_registry(
                         version=response.version,
                         commit_sha=response.commit_sha,
                         actions_count=response.actions_count,
-                        forced=force,
+                        forced=response.forced,
                     )
                 ],
             )
