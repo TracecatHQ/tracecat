@@ -1,5 +1,6 @@
+import httpx
 import pytest
-from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
@@ -124,3 +125,95 @@ def test_create_transport_lowercased_headers_survive_inbound_merge() -> None:
     assert merged.get("authorization") == "Bearer notion-real"
     auth_keys = [k for k in merged if k.lower() == "authorization"]
     assert auth_keys == ["authorization"]
+
+
+# Regression: lowercasing only wins fastmcp's `inbound | self.headers` union
+# when our own credential is an Authorization header. Servers authenticating
+# via non-Authorization headers (e.g. Wiz client-credentials sends
+# Wiz-Client-Id/Secret) never collide, so the inbound Tracecat session JWT
+# reached the third-party server and Wiz rejected the request with a 401.
+# _create_transport now installs a client factory that strips the forwarded
+# token unless our configured headers deliberately set Authorization.
+
+WIZ_CLIENT_CREDENTIALS = {
+    "Wiz-Client-Id": "svc-account-id",
+    "Wiz-Client-Secret": "svc-account-secret",
+    "Wiz-DataCenter": "us1",
+    "X-Wiz-MCP-Mode": "gateway",
+}
+
+
+def _outbound_headers(
+    configured: dict[str, str] | None,
+    inbound: dict[str, str],
+) -> httpx.Headers:
+    """Return the headers httpx receives after fastmcp's merge and our factory."""
+    transport = _create_transport(
+        url="https://mcp.example.com/mcp",
+        transport_type="http",
+        headers=configured,
+        timeout=None,
+    )
+    assert isinstance(transport, StreamableHttpTransport)
+    factory = transport.httpx_client_factory
+    assert factory is not None
+    # fastmcp http.py: get_http_headers(include={"authorization"}) | self.headers
+    merged = inbound | transport.headers
+    client = factory(headers=merged, timeout=None, auth=None)
+    return client.headers
+
+
+def test_create_transport_strips_forwarded_auth_for_non_authorization_credentials() -> (
+    None
+):
+    """A server authenticating via custom headers must not receive our JWT."""
+    headers = _outbound_headers(
+        dict(WIZ_CLIENT_CREDENTIALS),
+        {"authorization": "Bearer tracecat-session-jwt"},
+    )
+
+    assert "authorization" not in headers
+    assert headers["wiz-client-id"] == "svc-account-id"
+    assert headers["wiz-client-secret"] == "svc-account-secret"
+    assert headers["wiz-datacenter"] == "us1"
+    assert headers["x-wiz-mcp-mode"] == "gateway"
+
+
+def test_create_transport_strips_forwarded_auth_when_no_credentials_configured() -> (
+    None
+):
+    """Servers configured with no auth must not receive an Authorization header."""
+    headers = _outbound_headers(None, {"authorization": "Bearer tracecat-session-jwt"})
+
+    # Not merely emptied: the header must be absent, since httpx transmits
+    # empty-valued headers rather than dropping them.
+    assert "authorization" not in headers
+
+
+def test_create_transport_preserves_configured_authorization_credential() -> None:
+    """OAuth-backed servers must still receive their own bearer token."""
+    headers = _outbound_headers(
+        {"Authorization": "Bearer wiz-oauth-token"},
+        {"authorization": "Bearer tracecat-session-jwt"},
+    )
+
+    assert headers["authorization"] == "Bearer wiz-oauth-token"
+
+
+def test_sse_transport_also_strips_forwarded_auth() -> None:
+    """The leak is transport-independent; fastmcp merges in the shared base."""
+    transport = _create_transport(
+        url="https://mcp.example.com/sse",
+        transport_type="sse",
+        headers=dict(WIZ_CLIENT_CREDENTIALS),
+        timeout=None,
+    )
+    assert isinstance(transport, SSETransport)
+    factory = transport.httpx_client_factory
+    assert factory is not None
+
+    merged = {"authorization": "Bearer tracecat-session-jwt"} | transport.headers
+    client = factory(headers=merged, timeout=None, auth=None)
+
+    assert "authorization" not in client.headers
+    assert client.headers["wiz-client-id"] == "svc-account-id"

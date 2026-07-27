@@ -16,6 +16,7 @@ import httpx
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 from mcp import McpError
+from mcp.shared._httpx_utils import McpHttpClientFactory
 from tenacity import (
     AsyncRetrying,
     retry_if_exception,
@@ -40,6 +41,34 @@ class UserMCPDiscoveryResult:
     failed_servers: dict[str, str]
 
 
+def _drop_forwarded_authorization(
+    configured: dict[str, str] | None,
+) -> McpHttpClientFactory:
+    """Build a client factory that strips fastmcp's forwarded inbound auth."""
+    keeps_authorization = configured is not None and "authorization" in configured
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+        **kwargs: Any,
+    ) -> httpx.AsyncClient:
+        merged = dict(headers or {})
+        if not keeps_authorization:
+            merged.pop("authorization", None)
+        if timeout is None:
+            timeout = httpx.Timeout(30.0, read=300.0)
+        kwargs.setdefault("follow_redirects", True)
+        return httpx.AsyncClient(
+            headers=merged,
+            timeout=timeout,
+            auth=auth,
+            **kwargs,
+        )
+
+    return factory
+
+
 def _create_transport(
     url: str,
     transport_type: Literal["http", "sse"],
@@ -52,10 +81,23 @@ def _create_transport(
     # producing duplicate Authorization headers with different casing.
     if headers is not None:
         headers = {name.lower(): value for name, value in headers.items()}
+    # Lowercasing alone only wins the merge when our credential is itself an
+    # Authorization header; strip the forwarded token in every other case.
+    httpx_client_factory = _drop_forwarded_authorization(headers)
     if transport_type == "sse":
-        return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
+        return SSETransport(
+            url=url,
+            headers=headers,
+            sse_read_timeout=timeout,
+            httpx_client_factory=httpx_client_factory,
+        )
     # Default to HTTP (Streamable HTTP transport)
-    return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+    return StreamableHttpTransport(
+        url=url,
+        headers=headers,
+        sse_read_timeout=timeout,
+        httpx_client_factory=httpx_client_factory,
+    )
 
 
 async def list_remote_mcp_tools(
