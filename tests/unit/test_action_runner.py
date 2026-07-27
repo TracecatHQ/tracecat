@@ -22,6 +22,7 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor import action_runner
 from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.registry_artifacts import compute_registry_artifact_cache_key
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -573,3 +574,69 @@ class TestActionRunner:
         assert "temp_token" not in result.message
         assert "temp_secret" not in result.message
         assert "***" in result.message
+
+    @pytest.mark.anyio
+    async def test_execute_action_holds_registry_lease_for_whole_subprocess(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The artifact stays pinned until the action subprocess has exited."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        artifact_uri = "s3://bucket/execute.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        entry_dir = temp_cache_dir / f"tarball-{cache_key}"
+        entry_dir.mkdir()
+
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+        )
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        refcounts: list[int] = []
+        registry_paths: list[str] = []
+
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+            secret_projection=_empty_secret_projection(),
+        )
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            refcounts.append(runner.registry_artifacts._refcount(cache_key))
+            env = kwargs.get("env")
+            assert isinstance(env, dict)
+            registry_paths.append(env["PYTHONPATH"])
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner.execute_action(
+                input=mock_run_action_input,
+                role=mock_role,
+                resolved_context=resolved_context,
+                artifact_uris=[artifact_uri],
+                timeout=10.0,
+            )
+
+        assert result == {"data": "test"}
+        assert refcounts == [1]
+        assert registry_paths[0].startswith(str(entry_dir))
+        assert runner.registry_artifacts._refcount(cache_key) == 0

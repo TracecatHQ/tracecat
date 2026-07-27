@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import shutil
 import sysconfig
 import tarfile
 import time
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -43,6 +46,20 @@ native extension modules that need to be loaded from the mounted artifact.
 BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
 """Pseudo-URI for the builtin registry already installed in the executor image."""
 
+BASE_PYTHONPATH_DIR_NAME = "base"
+"""Cache subdirectory used as the PYTHONPATH entry when no artifact is requested."""
+
+CACHE_ENTRY_PREFIXES = ("squashfs-", "unsquashfs-", "tarball-")
+"""On-disk name prefixes owned by a registry artifact cache entry."""
+
+TEMP_ARTIFACT_PATTERN = re.compile(
+    r"^[^.]+\.(?P<pid>\d+)\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)$"
+)
+"""Matches in-flight materialization scratch names produced by ``_temp_path``."""
+
+type MountSlotReleaser = Callable[[str], Awaitable[bool]]
+"""Evicts one idle mounted artifact, excluding the given cache key."""
+
 
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactPaths:
@@ -59,6 +76,24 @@ class SquashfsMountState:
     """Shared process-local SquashFS mount state."""
 
     disabled: bool = False
+    mounted_once: bool = False
+
+
+@dataclass(slots=True)
+class RegistryArtifactLease:
+    """In-process lease bookkeeping for one registry artifact cache key."""
+
+    refcount: int = 0
+    last_used: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryArtifactCacheEntry:
+    """Measured on-disk footprint and recency for one registry artifact key."""
+
+    cache_key: str
+    size_bytes: int
+    last_used: float
 
 
 @dataclass(slots=True)
@@ -69,6 +104,7 @@ class RegistryArtifactMaterializationContext:
     cache_dir: Path
     paths: RegistryArtifactPaths
     squashfs_mount_state: SquashfsMountState
+    mount_slot_releaser: MountSlotReleaser | None = None
 
     def can_mount_squashfs(self) -> bool:
         return (
@@ -79,6 +115,20 @@ class RegistryArtifactMaterializationContext:
 
     def disable_squashfs_mount(self) -> None:
         self.squashfs_mount_state.disabled = True
+
+    def record_squashfs_mount(self) -> None:
+        """Record that this process has successfully mounted a SquashFS image."""
+        self.squashfs_mount_state.mounted_once = True
+
+    def has_mounted_squashfs(self) -> bool:
+        """Return whether any SquashFS mount has ever succeeded in this process."""
+        return self.squashfs_mount_state.mounted_once
+
+    async def release_mounted_slot(self) -> bool:
+        """Evict one idle mounted artifact to free a loop device."""
+        if self.mount_slot_releaser is None:
+            return False
+        return await self.mount_slot_releaser(self.cache_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,19 +222,74 @@ class SquashfsArtifact(RegistryArtifact):
     ) -> list[Path]:
         image_path = ctx.paths.squashfs_image_path
         if ctx.can_mount_squashfs():
-            try:
-                return [await self.mount(ctx, image_path)]
-            except Exception as e:
-                ctx.disable_squashfs_mount()
-                logger.warning(
-                    "Failed to mount SquashFS registry artifact, trying extraction",
-                    cache_key=ctx.cache_key,
-                    artifact_uri=self.uri,
-                    artifact_format=self.format.value,
-                    error=str(e),
-                )
+            if (mount_dir := await self._try_mount(ctx, image_path)) is not None:
+                return [mount_dir]
 
         return [await self.extract(ctx, image_path)]
+
+    async def _try_mount(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        image_path: Path,
+    ) -> Path | None:
+        """Mount the image, retrying once after reclaiming a loop device.
+
+        The first mount failure in a process is treated as a capability probe and
+        disables mounting process-wide. Once any mount has succeeded, later
+        failures are attributed to exhausted loop devices instead: one idle
+        mounted artifact is evicted and the mount is retried once, so a single
+        failure never downgrades the whole process to extraction.
+
+        Args:
+            ctx: Materialization context for the artifact being mounted.
+            image_path: Local path of the SquashFS image.
+
+        Returns:
+            The mount directory, or None if the caller should extract instead.
+        """
+        try:
+            return await self.mount(ctx, image_path)
+        except Exception as e:
+            mount_error = e
+
+        if not ctx.has_mounted_squashfs():
+            ctx.disable_squashfs_mount()
+            logger.warning(
+                "Failed to mount SquashFS registry artifact, trying extraction",
+                cache_key=ctx.cache_key,
+                artifact_uri=self.uri,
+                artifact_format=self.format.value,
+                error=str(mount_error),
+            )
+            return None
+
+        logger.warning(
+            "Failed to mount SquashFS registry artifact, reclaiming an idle mount",
+            cache_key=ctx.cache_key,
+            artifact_uri=self.uri,
+            artifact_format=self.format.value,
+            error=str(mount_error),
+        )
+        if not await ctx.release_mounted_slot():
+            logger.warning(
+                "No idle SquashFS mount to reclaim, trying extraction",
+                cache_key=ctx.cache_key,
+                artifact_uri=self.uri,
+                artifact_format=self.format.value,
+            )
+            return None
+
+        try:
+            return await self.mount(ctx, image_path)
+        except Exception as e:
+            logger.warning(
+                "SquashFS mount retry failed, trying extraction",
+                cache_key=ctx.cache_key,
+                artifact_uri=self.uri,
+                artifact_format=self.format.value,
+                error=str(e),
+            )
+            return None
 
     async def download(
         self,
@@ -215,6 +320,7 @@ class SquashfsArtifact(RegistryArtifact):
     ) -> Path:
         target_dir = ctx.paths.squashfs_mount_dir
         if target_dir.is_mount():
+            ctx.record_squashfs_mount()
             return target_dir
 
         ctx.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +337,7 @@ class SquashfsArtifact(RegistryArtifact):
 
         mount_start = time.monotonic()
         await self._mount_image(image_path, target_dir)
+        ctx.record_squashfs_mount()
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000
 
@@ -547,6 +654,68 @@ def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     return RegistryArtifactFormat.TAR_GZ
 
 
+def _is_cache_entry_uri(artifact_uri: str) -> bool:
+    """Return whether an artifact URI materializes into an evictable cache entry.
+
+    The bundled builtin registry is served from the executor image and never
+    writes into the cache directory, so it is exempt from eviction accounting.
+    """
+    return _bundled_builtin_registry_version(artifact_uri) is None
+
+
+def _cache_key_from_entry_name(name: str) -> str | None:
+    """Return the cache key owning a cache directory entry name, if any."""
+    for prefix in CACHE_ENTRY_PREFIXES:
+        if name.startswith(prefix):
+            cache_key = name.removeprefix(prefix).removesuffix(".squashfs")
+            return cache_key or None
+    return None
+
+
+def _directory_footprint(directory: Path) -> tuple[int, float]:
+    """Return the total file size and local creation time of a cache directory.
+
+    Directory ``mtime`` values inside extracted artifacts come from the artifact
+    build, so ``ctime`` (updated when the staging directory is renamed into
+    place) is used as the local recency signal instead.
+
+    Args:
+        directory: Cache directory to measure.
+
+    Returns:
+        Total byte size of contained files and the directory's ctime, or
+        ``(0, 0.0)`` when the directory is missing.
+    """
+    if not directory.is_dir():
+        return 0, 0.0
+
+    try:
+        created_at = directory.stat().st_ctime
+    except OSError:
+        created_at = 0.0
+
+    total_bytes = 0
+    for root, _dirs, files in os.walk(directory):
+        for file_name in files:
+            try:
+                total_bytes += os.lstat(os.path.join(root, file_name)).st_size
+            except OSError:
+                continue
+    return total_bytes, created_at
+
+
+def _delete_entry_paths(paths: RegistryArtifactPaths) -> None:
+    """Delete every on-disk path owned by a registry artifact cache key.
+
+    The caller must unmount ``squashfs_mount_dir`` first: unlinking the image
+    file behind a live mount leaves an open-file zombie pinning a loop device.
+    """
+    shutil.rmtree(paths.squashfs_extract_dir, ignore_errors=True)
+    shutil.rmtree(paths.tarball_target_dir, ignore_errors=True)
+    paths.squashfs_image_path.unlink(missing_ok=True)
+    shutil.rmtree(paths.squashfs_mount_dir, ignore_errors=True)
+
+
 class RegistryArtifactCache:
     """Materializes registry artifacts into executor-local Python paths."""
 
@@ -555,13 +724,56 @@ class RegistryArtifactCache:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
+        self._leases: dict[str, RegistryArtifactLease] = {}
+        self._sweep_startup_state()
+
+    @asynccontextmanager
+    async def lease(self, artifact_uris: list[str] | None) -> AsyncIterator[list[Path]]:
+        """Materialize registry artifacts and pin them for the life of the context.
+
+        Leased cache entries are never evicted, so callers may keep importing
+        from the returned paths until the context exits.
+
+        Args:
+            artifact_uris: Registry artifact URIs in deterministic PYTHONPATH
+                order, or None to use the base PYTHONPATH directory.
+
+        Yields:
+            Importable Python paths for the requested artifacts.
+        """
+        if not artifact_uris:
+            logger.info("No registry artifact URIs provided, using base PYTHONPATH")
+            yield [self._base_pythonpath_dir()]
+            return
+
+        leased_keys: list[str] = []
+        try:
+            registry_paths: list[Path] = []
+            for artifact_uri in artifact_uris:
+                cache_key = compute_registry_artifact_cache_key(artifact_uri)
+                if _is_cache_entry_uri(artifact_uri):
+                    self._acquire_lease(cache_key)
+                    leased_keys.append(cache_key)
+                registry_paths.extend(await self.materialize(cache_key, artifact_uri))
+            logger.info(
+                "Using registry artifact environments",
+                count=len(registry_paths),
+            )
+            yield registry_paths
+        finally:
+            for cache_key in leased_keys:
+                self._release_lease(cache_key)
 
     async def ensure_environment(self, artifact_uri: str | None) -> list[Path]:
-        """Materialize an optional registry artifact and return PYTHONPATH entries."""
+        """Materialize an optional registry artifact and return PYTHONPATH entries.
+
+        The artifact is only pinned for the duration of this call. Callers that
+        execute against the returned paths should hold a ``lease`` instead.
+        """
         if not artifact_uri:
             return []
-        cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        return await self.materialize(cache_key, artifact_uri)
+        async with self.lease([artifact_uri]) as registry_paths:
+            return registry_paths
 
     async def materialize(self, cache_key: str, artifact_uri: str) -> list[Path]:
         """Materialize a registry artifact as local importable directories."""
@@ -570,6 +782,11 @@ class RegistryArtifactCache:
 
         if cached_paths := self._first_cached_path(candidates, ctx):
             return cached_paths
+
+        if _is_cache_entry_uri(artifact_uri):
+            # Make room before downloading or expanding a new entry. This runs
+            # outside the per-key lock so eviction never nests key locks.
+            await self._enforce_cache_budget(protected_key=cache_key)
 
         lock = await self._lock_for(cache_key)
         async with lock:
@@ -615,7 +832,49 @@ class RegistryArtifactCache:
             cache_dir=self.cache_dir,
             paths=self._paths_for(cache_key),
             squashfs_mount_state=self._squashfs_mount_state,
+            mount_slot_releaser=self._release_mounted_slot,
         )
+
+    def _base_pythonpath_dir(self) -> Path:
+        """Return the base PYTHONPATH directory used when no artifact is requested."""
+        base_dir = self.cache_dir / BASE_PYTHONPATH_DIR_NAME
+        base_dir.mkdir(parents=True, exist_ok=True)
+        return base_dir
+
+    def _acquire_lease(self, cache_key: str) -> None:
+        """Pin a cache entry against eviction and mark it as recently used."""
+        lease = self._leases.setdefault(cache_key, RegistryArtifactLease())
+        lease.refcount += 1
+        lease.last_used = time.time()
+        self._touch_image(cache_key)
+
+    def _release_lease(self, cache_key: str) -> None:
+        """Release one pin on a cache entry."""
+        lease = self._leases.get(cache_key)
+        if lease is None:
+            return
+        lease.refcount = max(0, lease.refcount - 1)
+        lease.last_used = time.time()
+
+    def _refcount(self, cache_key: str) -> int:
+        """Return the number of live leases on a cache entry."""
+        lease = self._leases.get(cache_key)
+        return 0 if lease is None else lease.refcount
+
+    def _touch_image(self, cache_key: str) -> None:
+        """Best-effort refresh of an artifact image mtime for restart-safe LRU.
+
+        Only the downloaded image file has a locally meaningful mtime; mount and
+        extraction directory timestamps come from the artifact build.
+        """
+        image_path = self._paths_for(cache_key).squashfs_image_path
+        try:
+            os.utime(image_path)
+        except OSError:
+            logger.debug(
+                "Could not refresh registry artifact image mtime",
+                cache_key=cache_key,
+            )
 
     def _paths_for(self, cache_key: str) -> RegistryArtifactPaths:
         """Return local cache paths for a registry artifact key."""
@@ -732,3 +991,300 @@ class RegistryArtifactCache:
     def _can_try_squashfs(self) -> bool:
         """Return whether this process should prefer SquashFS artifacts."""
         return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+
+    async def _enforce_cache_budget(self, *, protected_key: str) -> None:
+        """Evict least-recently-used idle entries until the cache fits its budget.
+
+        Args:
+            protected_key: Cache key about to be materialized. It is counted
+                against the budget but never evicted.
+        """
+        max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
+        max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+        if max_entries <= 0 and max_bytes <= 0:
+            return
+
+        entries = await asyncio.to_thread(self._scan_cache_entries)
+        # The protected key is not on disk yet when it is a fresh entry.
+        pending_entries = 0 if protected_key in entries else 1
+        total_bytes = sum(entry.size_bytes for entry in entries.values())
+        skipped: set[str] = set()
+
+        while (max_entries > 0 and len(entries) + pending_entries > max_entries) or (
+            max_bytes > 0 and total_bytes > max_bytes
+        ):
+            candidate = self._least_recently_used(
+                entries.values(),
+                excluded=skipped | {protected_key},
+            )
+            if candidate is None:
+                logger.warning(
+                    "Registry artifact cache is over budget but every entry is in use",
+                    cache_dir=str(self.cache_dir),
+                    entries=len(entries) + pending_entries,
+                    max_entries=max_entries,
+                    total_bytes=total_bytes,
+                    max_bytes=max_bytes,
+                )
+                return
+
+            if await self._evict_entry(candidate.cache_key):
+                del entries[candidate.cache_key]
+                total_bytes -= candidate.size_bytes
+            else:
+                skipped.add(candidate.cache_key)
+
+    async def _release_mounted_slot(self, protected_key: str) -> bool:
+        """Evict one idle mounted artifact so its loop device can be reused.
+
+        Args:
+            protected_key: Cache key that must not be evicted.
+
+        Returns:
+            Whether a mounted artifact was unmounted and removed.
+        """
+        entries = await asyncio.to_thread(self._scan_cache_entries)
+        mounted = [
+            entry
+            for entry in entries.values()
+            if entry.cache_key != protected_key
+            and self._paths_for(entry.cache_key).squashfs_mount_dir.is_mount()
+        ]
+        skipped: set[str] = set()
+        while (
+            candidate := self._least_recently_used(mounted, excluded=skipped)
+        ) is not None:
+            if await self._evict_entry(candidate.cache_key):
+                return True
+            skipped.add(candidate.cache_key)
+        return False
+
+    def _least_recently_used(
+        self,
+        entries: Iterable[RegistryArtifactCacheEntry],
+        *,
+        excluded: set[str],
+    ) -> RegistryArtifactCacheEntry | None:
+        """Return the least recently used idle entry eligible for eviction."""
+        eligible = [
+            entry
+            for entry in entries
+            if entry.cache_key not in excluded and self._refcount(entry.cache_key) == 0
+        ]
+        if not eligible:
+            return None
+        return min(eligible, key=self._recency)
+
+    def _recency(self, entry: RegistryArtifactCacheEntry) -> float:
+        """Return the most recent known use time for a cache entry."""
+        lease = self._leases.get(entry.cache_key)
+        if lease is None:
+            return entry.last_used
+        return max(entry.last_used, lease.last_used)
+
+    async def _evict_entry(self, cache_key: str) -> bool:
+        """Remove one cache entry from disk, unmounting it first.
+
+        The entry is skipped rather than forced when it is leased, busy, or
+        cannot be unmounted: deleting the image file behind a live mount would
+        leave an open-file zombie holding the loop device.
+
+        Args:
+            cache_key: Cache key to evict.
+
+        Returns:
+            Whether the entry was removed.
+        """
+        lock = await self._lock_for(cache_key)
+        if lock.locked():
+            logger.debug(
+                "Skipping eviction of busy registry artifact",
+                cache_key=cache_key,
+            )
+            return False
+
+        async with lock:
+            if self._refcount(cache_key) > 0:
+                return False
+
+            paths = self._paths_for(cache_key)
+            if paths.squashfs_mount_dir.is_mount() and not await self._unmount(
+                paths.squashfs_mount_dir
+            ):
+                logger.warning(
+                    "Failed to unmount registry artifact, skipping eviction",
+                    cache_key=cache_key,
+                    mount_dir=str(paths.squashfs_mount_dir),
+                )
+                return False
+
+            _delete_entry_paths(paths)
+            logger.info("Evicted registry artifact from cache", cache_key=cache_key)
+
+        await self._forget(cache_key, lock)
+        return True
+
+    async def _forget(self, cache_key: str, lock: asyncio.Lock) -> None:
+        """Drop in-memory bookkeeping for an evicted cache key."""
+        async with self._locks_lock:
+            self._leases.pop(cache_key, None)
+            if self._locks.get(cache_key) is lock and not lock.locked():
+                del self._locks[cache_key]
+
+    async def _unmount(self, mount_dir: Path) -> bool:
+        """Unmount a SquashFS artifact directory, releasing its loop device."""
+        umount = shutil.which("umount")
+        if umount is None:
+            return False
+
+        proc = await asyncio.create_subprocess_exec(
+            umount,
+            str(mount_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0 or not mount_dir.is_mount():
+            return True
+
+        logger.warning(
+            "umount command failed",
+            mount_dir=str(mount_dir),
+            output=(stderr or stdout).decode(errors="replace").strip(),
+        )
+        return False
+
+    def _scan_cache_entries(self) -> dict[str, RegistryArtifactCacheEntry]:
+        """Measure every registry artifact entry currently on disk."""
+        return {
+            cache_key: self._measure_entry(cache_key)
+            for cache_key in self._discover_cache_keys()
+        }
+
+    def _discover_cache_keys(self) -> set[str]:
+        """Return the cache keys with at least one path in the cache directory."""
+        try:
+            names = os.listdir(self.cache_dir)
+        except OSError:
+            return set()
+
+        cache_keys: set[str] = set()
+        for name in names:
+            if (cache_key := _cache_key_from_entry_name(name)) is not None:
+                cache_keys.add(cache_key)
+        return cache_keys
+
+    def _measure_entry(self, cache_key: str) -> RegistryArtifactCacheEntry:
+        """Measure the on-disk footprint and recency of one cache entry.
+
+        The mount directory is excluded because a mounted view only costs the
+        image file that backs it.
+        """
+        paths = self._paths_for(cache_key)
+        size_bytes = 0
+        image_mtime = 0.0
+        created_at = 0.0
+
+        if paths.squashfs_image_path.is_file():
+            image_stat = paths.squashfs_image_path.stat()
+            size_bytes += image_stat.st_size
+            image_mtime = image_stat.st_mtime
+
+        for directory in (paths.squashfs_extract_dir, paths.tarball_target_dir):
+            directory_bytes, directory_created_at = _directory_footprint(directory)
+            size_bytes += directory_bytes
+            created_at = max(created_at, directory_created_at)
+
+        # Image mtimes are refreshed on lease; directory ctimes are only a
+        # fallback for entries that have no locally downloaded image.
+        last_used = image_mtime or created_at
+
+        return RegistryArtifactCacheEntry(
+            cache_key=cache_key,
+            size_bytes=size_bytes,
+            last_used=last_used,
+        )
+
+    def _sweep_startup_state(self) -> None:
+        """Reclaim orphaned cache state left behind by a previous process.
+
+        Mounts never survive a container restart, so any non-mountpoint mount
+        directory is stale. Scratch paths from interrupted materializations are
+        removed, and the cache is trimmed to budget using image mtimes as LRU
+        order. A missing or empty cache directory is a no-op.
+        """
+        if not self.cache_dir.is_dir():
+            return
+
+        try:
+            self._remove_orphaned_temp_paths()
+            self._remove_stale_mount_dirs()
+            self._trim_startup_cache()
+        except OSError as e:
+            logger.warning(
+                "Failed to sweep registry artifact cache",
+                cache_dir=str(self.cache_dir),
+                error=str(e),
+            )
+
+    def _remove_orphaned_temp_paths(self) -> None:
+        """Delete materialization scratch paths owned by dead processes."""
+        current_pid = os.getpid()
+        for name in os.listdir(self.cache_dir):
+            match = TEMP_ARTIFACT_PATTERN.match(name)
+            if match is None or int(match.group("pid")) == current_pid:
+                continue
+            path = self.cache_dir / name
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+            logger.info("Removed orphaned registry artifact scratch path", path=name)
+
+    def _remove_stale_mount_dirs(self) -> None:
+        """Remove empty mount directories left over from a previous process."""
+        for cache_key in self._discover_cache_keys():
+            mount_dir = self._paths_for(cache_key).squashfs_mount_dir
+            if not mount_dir.is_dir() or mount_dir.is_mount():
+                continue
+            try:
+                mount_dir.rmdir()
+            except OSError:
+                continue
+            logger.debug(
+                "Removed stale registry artifact mount directory",
+                cache_key=cache_key,
+            )
+
+    def _trim_startup_cache(self) -> None:
+        """Trim the cache to budget before any artifact is leased."""
+        max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
+        max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+        if max_entries <= 0 and max_bytes <= 0:
+            return
+
+        entries = self._scan_cache_entries()
+        total_bytes = sum(entry.size_bytes for entry in entries.values())
+        # Mounted entries belong to a live process sharing this cache directory.
+        candidates = sorted(
+            (
+                entry
+                for entry in entries.values()
+                if not self._paths_for(entry.cache_key).squashfs_mount_dir.is_mount()
+            ),
+            key=lambda entry: entry.last_used,
+        )
+
+        for entry in candidates:
+            if (max_entries <= 0 or len(entries) <= max_entries) and (
+                max_bytes <= 0 or total_bytes <= max_bytes
+            ):
+                return
+            _delete_entry_paths(self._paths_for(entry.cache_key))
+            del entries[entry.cache_key]
+            total_bytes -= entry.size_bytes
+            logger.info(
+                "Evicted stale registry artifact during startup sweep",
+                cache_key=entry.cache_key,
+                size_bytes=entry.size_bytes,
+            )

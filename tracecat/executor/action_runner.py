@@ -158,23 +158,14 @@ class ActionRunner:
     async def resolve_registry_paths(
         self, artifact_uris: list[str] | None = None
     ) -> list[Path]:
-        """Materialize registry artifacts and return importable Python paths."""
-        registry_paths: list[Path] = []
-        if artifact_uris:
-            for artifact_uri in artifact_uris:
-                registry_paths.extend(
-                    await self.ensure_registry_environment(artifact_uri)
-                )
-            logger.info(
-                "Using registry artifact environments",
-                count=len(registry_paths),
-            )
-            return registry_paths
+        """Materialize registry artifacts and return importable Python paths.
 
-        base_dir = self.cache_dir / "base"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("No registry artifact URIs provided, using base PYTHONPATH")
-        return [base_dir]
+        The artifacts are only pinned for the duration of this call. Callers that
+        execute a subprocess against the returned paths should hold
+        ``registry_artifacts.lease`` for the whole execution instead.
+        """
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
+            return registry_paths
 
     async def execute_action(
         self,
@@ -207,38 +198,38 @@ class ActionRunner:
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Materialize each registry artifact, collect paths in deterministic order.
-        registry_paths = await self.resolve_registry_paths(artifact_uris)
-
-        # Check if sandbox execution is enabled and available
-        # force_sandbox=True overrides config (used by ephemeral backend)
-        use_sandbox = force_sandbox or (
-            config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
-        )
-        logger.debug(
-            "Using sandbox execution",
-            use_sandbox=use_sandbox,
-            force_sandbox=force_sandbox,
-        )
-
-        secret_projection = resolved_context.secret_projection
-        if secret_projection is None:
-            secret_projection = await project_secret_env(
-                secrets=resolved_context.secrets,
-                role=role,
-                run_context=input.run_context,
+        # The lease is held for the whole subprocess execution so cache eviction
+        # cannot delete a directory the subprocess is still importing from.
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
+            # Check if sandbox execution is enabled and available
+            # force_sandbox=True overrides config (used by ephemeral backend)
+            use_sandbox = force_sandbox or (
+                config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
+            )
+            logger.debug(
+                "Using sandbox execution",
+                use_sandbox=use_sandbox,
+                force_sandbox=force_sandbox,
             )
 
-        if use_sandbox:
-            return await self._execute_sandboxed(
-                input=input,
-                role=role,
-                registry_paths=registry_paths,
-                secret_projection=secret_projection,
-                env_vars=env_vars,
-                timeout=timeout,
-                resolved_context=resolved_context,
-            )
-        else:
+            secret_projection = resolved_context.secret_projection
+            if secret_projection is None:
+                secret_projection = await project_secret_env(
+                    secrets=resolved_context.secrets,
+                    role=role,
+                    run_context=input.run_context,
+                )
+
+            if use_sandbox:
+                return await self._execute_sandboxed(
+                    input=input,
+                    role=role,
+                    registry_paths=registry_paths,
+                    secret_projection=secret_projection,
+                    env_vars=env_vars,
+                    timeout=timeout,
+                    resolved_context=resolved_context,
+                )
             return await self._execute_direct(
                 input=input,
                 role=role,
