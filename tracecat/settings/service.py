@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -43,6 +44,7 @@ from tracecat.settings.schemas import (
 VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
+AUDIT_SETTINGS_KEYS = AuditSettingsUpdate.keys()
 
 
 def _deserialize_setting_value(
@@ -215,6 +217,8 @@ class SettingsService(BaseOrgService):
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
         await self.session.commit()
+        if params.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         return setting
 
     async def _update_setting(
@@ -259,6 +263,8 @@ class SettingsService(BaseOrgService):
         updated_setting = await self._update_setting(setting, params)
         self.session.add(updated_setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         await self.session.refresh(updated_setting)
         return updated_setting
 
@@ -273,6 +279,8 @@ class SettingsService(BaseOrgService):
             return
         await self.session.delete(setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
 
     # Grouped settings
 
@@ -314,8 +322,9 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
-        audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
+        audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
+        clear_audit_setting_cache()
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")

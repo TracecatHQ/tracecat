@@ -218,7 +218,11 @@ class WorkspaceService(BaseOrgService):
         return workspace
 
     @require_scope("workspace:delete")
-    @audit_log(resource_type="workspace", action="delete")
+    @audit_log(
+        resource_type="workspace",
+        action="delete",
+        resource_id_attr="workspace_id",
+    )
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()
@@ -566,7 +570,11 @@ class WorkspaceService(BaseOrgService):
         return membership
 
     @require_scope("workspace:member:remove")
-    @audit_log(resource_type="workspace_invitation", action="revoke")
+    @audit_log(
+        resource_type="workspace_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_invitation(
         self,
         workspace_id: WorkspaceID,
