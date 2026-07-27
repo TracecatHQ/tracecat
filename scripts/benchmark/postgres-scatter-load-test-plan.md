@@ -199,8 +199,12 @@ Implementation should add the following:
    - `branch_seq`
    - `payload`
 
-   Add a unique index on `(run_id, workflow_seq, branch_seq)` so missing and
-   duplicate writes are measurable.
+   Missing and duplicate writes must be measurable via a unique constraint.
+   The public tables API only supports single-column unique indexes, so the
+   table carries a `dedupe_key` text column holding
+   `<run_id>:<workflow_seq>:<branch_seq>` with a unique index on it, rather
+   than a composite index on the three columns. Same measurability; it also
+   permits `upsert` semantics on the insert actions if a scenario needs them.
 
    The adversarial workflow should fan out `core.table.insert_row` over
    `FN.range(...)`, then gather a compact result. It must not return all inserted
@@ -271,7 +275,11 @@ Before choosing pool values:
 3. Reserve connections for migrations, administration, and recovery. PostgreSQL
    already withholds `superuser_reserved_connections` (default 3) from
    non-superuser roles; state whether the administrative reserve is in addition
-   to or inclusive of that built-in reserve.
+   to or inclusive of that built-in reserve. Caveat: the built-in reserve only
+   protects against non-superuser roles, and the dev stack connects as the
+   `postgres` superuser — so either run the test with a non-superuser
+   application role or treat the built-in reserve as advisory and verify the
+   operator can still connect at saturation.
 4. Set `TRACECAT__DB_POOL_SIZE` and `TRACECAT__DB_MAX_OVERFLOW` on every
    applicable service in the load-test override.
 5. Wire and test `TRACECAT__DB_POOL_TIMEOUT` so exhaustion fails within a known
@@ -562,9 +570,12 @@ ratio; do not use an undefined claim such as "significantly faster."
   phase 7, gated on permit leasing being activated in the product.)
 - Is PostgreSQL activity plus logs sufficient for the first pass, or should
   pool checkout/wait metrics be implemented first?
-- How does the runner authenticate: which auth mode does the test cluster run,
-  and what credential type (session, API key, or service token) does the
-  synthetic user hold? This gates building the runner.
+- Runner authentication (decided during implementation): cookie session via
+  `POST /auth/login` as the cluster-seeded synthetic user by default, with a
+  service-account API key taking precedence when provided. The internal
+  service-key header is not accepted on the executions routes. Note for the
+  baseline: session auth means every poll request also reads the token row
+  from the database under test.
 - What product SLO supplies the final latency, throughput, and maximum queueing
   thresholds?
 - After phases 1-4, is the remaining question connection reuse, failover
