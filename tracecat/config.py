@@ -86,6 +86,13 @@ TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
     os.environ.get("TRACECAT__APP_ENV", "development"),
 )
+TRACECAT__SERVICE_NAME = os.environ.get("TRACECAT__SERVICE_NAME") or "tracecat"
+"""Name of the Tracecat service running in this process.
+
+Used to attribute database connections in `pg_stat_activity` via the PostgreSQL
+`application_name` session setting.
+"""
+
 TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
 TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
 TRACECAT__PUBLIC_API_URL = os.environ.get(
