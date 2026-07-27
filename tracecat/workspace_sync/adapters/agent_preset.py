@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -73,6 +73,14 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
+
+
+class _AgentModelSelection(BaseModel):
+    """Model selection fields shared by AI agent and AI action arguments."""
+
+    catalog_id: uuid.UUID | None = None
+    model_provider: str = Field(min_length=1)
+    model_name: str = Field(min_length=1)
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -457,21 +465,37 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             for action in workflow.definition.actions:
                 if action.action not in workflow_action_types:
                     continue
-                nested_model = action.args.get("model")
-                nested_model = nested_model if isinstance(nested_model, dict) else None
+                raw_model = action.args.get("model")
+                nested_model = (
+                    cast(Mapping[str, Any], raw_model)
+                    if isinstance(raw_model, dict)
+                    else None
+                )
                 merged_args = (
                     {**action.args, **nested_model}
                     if nested_model is not None
                     else action.args
                 )
-                raw_catalog_id = merged_args.get("catalog_id")
-                model_provider = merged_args.get("model_provider")
-                model_name = merged_args.get("model_name")
-                if raw_catalog_id is None or not model_provider or not model_name:
-                    continue
                 try:
-                    catalog_id = uuid.UUID(str(raw_catalog_id))
-                except (TypeError, ValueError):
+                    selection = _AgentModelSelection.model_validate(merged_args)
+                except ValidationError as error:
+                    validation_errors = error.errors()
+                    if any(
+                        detail["loc"] in {("model_provider",), ("model_name",)}
+                        for detail in validation_errors
+                    ):
+                        continue
+                    catalog_error = next(
+                        (
+                            detail
+                            for detail in validation_errors
+                            if detail["loc"] == ("catalog_id",)
+                        ),
+                        None,
+                    )
+                    if catalog_error is None:
+                        continue
+                    raw_catalog_id = catalog_error["input"]
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_source_path(source_id),
@@ -491,16 +515,18 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                         )
                     )
                     continue
-                present_catalog_ids.add(catalog_id)
-                references_by_catalog_id.setdefault(catalog_id, []).append(
+                if selection.catalog_id is None:
+                    continue
+                present_catalog_ids.add(selection.catalog_id)
+                references_by_catalog_id.setdefault(selection.catalog_id, []).append(
                     WorkflowCatalogReference(
                         path=workflow_source_path(source_id),
                         workflow_source_id=source_id,
                         workflow_title=workflow.definition.title,
                         action_ref=action.ref,
                         model_key=ModelKey(
-                            str(model_provider),
-                            str(model_name),
+                            selection.model_provider,
+                            selection.model_name,
                         ),
                     )
                 )
@@ -699,25 +725,24 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     PlatformAction.AI_ACTION,
                 ):
                     continue
-                nested_model = action.args.get("model")
-                nested_model = nested_model if isinstance(nested_model, dict) else None
+                raw_model = action.args.get("model")
+                nested_model = (
+                    cast(Mapping[str, Any], raw_model)
+                    if isinstance(raw_model, dict)
+                    else None
+                )
                 merged_args = (
                     {**action.args, **nested_model}
                     if nested_model is not None
                     else action.args
                 )
-                raw_catalog_id = merged_args.get("catalog_id")
-                if (
-                    not raw_catalog_id
-                    or not merged_args.get("model_provider")
-                    or not merged_args.get("model_name")
-                ):
-                    continue
                 try:
-                    catalog_id = uuid.UUID(str(raw_catalog_id))
-                except (TypeError, ValueError):
+                    selection = _AgentModelSelection.model_validate(merged_args)
+                except ValidationError:
                     continue
-                local_catalog_id = resolved_catalog_ids.get(catalog_id)
+                if selection.catalog_id is None:
+                    continue
+                local_catalog_id = resolved_catalog_ids.get(selection.catalog_id)
                 if local_catalog_id is None:
                     continue
 
