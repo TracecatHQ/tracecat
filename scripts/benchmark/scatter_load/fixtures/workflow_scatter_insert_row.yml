@@ -1,0 +1,66 @@
+# Adversarial scatter fixture for the PostgreSQL scatter load test.
+#
+# Fans out `core.table.insert_row` over FN.range(0, branch_count), so each
+# logical branch is its own action execution and its own database write. The
+# gather step returns only a compact count: the workflow's `returns` never
+# echoes the inserted payloads back into workflow history or into the polling
+# responses the load runner reads.
+#
+# `retry_policy.max_attempts: 1` keeps the characterization pass honest — the
+# first failure boundary is not hidden behind retries. Run the retry pass as a
+# separate sub-scenario with a modified copy.
+#
+# External workflow definition format: POST as multipart/form-data to
+# `POST /workspaces/{workspace_id}/workflows`, then commit it.
+version: 1
+definition:
+  title: Scatter load - insert_row fan-out
+  description: >-
+    Adversarial scatter: one core.table.insert_row action execution per logical
+    branch, gathered into a compact count.
+  entrypoint:
+    ref: insert_branches
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      branch_count:
+        type: int
+        description: Number of logical branches (rows) this workflow writes.
+      payload:
+        type: str
+        description: Synthetic payload body written to every row.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: insert_branches
+      action: core.table.insert_row
+      description: One database write per logical branch.
+      for_each: ${{ for var.branch_seq in FN.range(0, TRIGGER.branch_count) }}
+      args:
+        table: scatter_load_rows
+        row_data:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branch_seq: ${{ var.branch_seq }}
+          payload: ${{ TRIGGER.payload }}
+          dedupe_key: ${{ TRIGGER.run_id }}:${{ TRIGGER.workflow_seq }}:${{ var.branch_seq }}
+      retry_policy:
+        max_attempts: 1
+    - ref: gather
+      action: core.transform.reshape
+      description: Compact gather. Deliberately drops the per-branch row bodies.
+      depends_on:
+        - insert_branches
+      args:
+        value:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branches_written: ${{ FN.length(ACTIONS.insert_branches.result) }}
+      retry_policy:
+        max_attempts: 1
+  returns: ${{ ACTIONS.gather.result }}

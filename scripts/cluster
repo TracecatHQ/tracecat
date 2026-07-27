@@ -43,6 +43,10 @@ ENV_FILE="${REPO_ROOT}/.env"
 PROFILE="dev"
 CLUSTER_EE_MULTI_TENANT=""
 CLUSTER_USE_SANDBOX_COMPOSE=true
+# Extra compose files layered on top of the profile (and sandbox) files.
+# These never change the project name, ports, or volume names, so the
+# numbered-cluster isolation is preserved.
+CLUSTER_COMPOSE_OVERRIDES=()
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -373,6 +377,27 @@ get_compose_file() {
     esac
 }
 
+# Register an extra compose override file. Relative paths resolve against the
+# current directory first, then the repo root. The path is absolutized so later
+# `cd` calls inside this script cannot invalidate it.
+add_compose_override() {
+    local path=$1
+
+    if [[ ! -f "$path" && -f "${REPO_ROOT}/${path}" ]]; then
+        path="${REPO_ROOT}/${path}"
+    fi
+
+    if [[ ! -f "$path" ]]; then
+        echo "Error: compose override file not found: '$1'" >&2
+        exit 1
+    fi
+
+    local dir base
+    dir=$(cd "$(dirname "$path")" && pwd)
+    base=$(basename "$path")
+    CLUSTER_COMPOSE_OVERRIDES+=("${dir}/${base}")
+}
+
 usage() {
     cat <<EOF
 Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
@@ -400,6 +425,13 @@ Sandbox mode:
   --no-sandbox                    Disable nsjail sandboxing and sandbox
                                   compose privileges
 
+Compose overrides:
+  Layered after the profile and sandbox compose files. They do not change the
+  project name, ports, or volume names, so cluster isolation is preserved.
+  --loadtest                      Layer docker-compose.loadtest.yml
+                                  (constrained postgres_db + pool budget)
+  --compose-override <path>       Layer an arbitrary compose file (repeatable)
+
 Commands:
   up [args]     Start the cluster (e.g., up -d)
                 Reuses existing cluster for this worktree if one is running.
@@ -424,6 +456,8 @@ Commands:
   open          Open the cluster UI in the default browser
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
+  compose-files Print the resolved compose files and project name, then exit
+                (dry run; does not touch Docker)
   nuke [opts]   Destroy cluster and optionally volumes/images
 
 Nuke options:
@@ -440,6 +474,9 @@ Examples:
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
   ./cluster up -d --no-sandbox    Start cluster without nsjail sandboxing
+  ./cluster up -d --loadtest      Start cluster with the load-test override
+  ./cluster --compose-override ./docker-compose.loadtest.yml compose-files
+                                  Show the resolved compose file list
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
@@ -689,6 +726,22 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
+        --loadtest)
+            add_compose_override "${REPO_ROOT}/docker-compose.loadtest.yml"
+            shift
+            ;;
+        --compose-override)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --compose-override requires a compose file path" >&2
+                exit 1
+            fi
+            add_compose_override "$2"
+            shift 2
+            ;;
+        --compose-override=*)
+            add_compose_override "${1#*=}"
+            shift
+            ;;
         *)
             break
             ;;
@@ -764,6 +817,22 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
+        --loadtest)
+            add_compose_override "${REPO_ROOT}/docker-compose.loadtest.yml"
+            shift
+            ;;
+        --compose-override)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --compose-override requires a compose file path" >&2
+                exit 1
+            fi
+            add_compose_override "$2"
+            shift 2
+            ;;
+        --compose-override=*)
+            add_compose_override "${1#*=}"
+            shift
+            ;;
         *)
             FILTERED_ARGS+=("$1")
             shift
@@ -815,6 +884,9 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
                 CLUSTER_NUM=$(echo "$running" | select_cluster_interactive)
             fi
         fi
+    elif [[ "$COMMAND" == "compose-files" ]]; then
+        # Dry run: never require a running cluster.
+        CLUSTER_NUM=$(get_next_cluster_num)
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
         nuke_running=$(get_running_clusters)
@@ -849,6 +921,22 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
 if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
     COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+fi
+for compose_override in ${CLUSTER_COMPOSE_OVERRIDES[@]+"${CLUSTER_COMPOSE_OVERRIDES[@]}"}; do
+    COMPOSE_FILES+=(-f "$compose_override")
+done
+
+# Handle 'compose-files' command - dry run that prints the resolved compose
+# invocation without touching Docker. Useful for verifying flag parsing.
+if [[ "$COMMAND" == "compose-files" ]]; then
+    echo "Project:  tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
+    echo "Profile:  ${PROFILE}"
+    echo "Compose files:"
+    for compose_arg in "${COMPOSE_FILES[@]}"; do
+        [[ "$compose_arg" == "-f" ]] && continue
+        echo "  ${compose_arg}"
+    done
+    exit 0
 fi
 
 # Handle 'ports' command

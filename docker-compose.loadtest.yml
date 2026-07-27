@@ -1,0 +1,136 @@
+# PostgreSQL scatter load-test override.
+#
+# Layer this on top of a profile compose file, e.g.
+#
+#   ./scripts/cluster up -d --loadtest
+#   docker compose -f docker-compose.dev.yml -f docker-compose.loadtest.yml config
+#
+# Scope: this override constrains ONLY `postgres_db`, the application database
+# under test. Temporal persistence runs on the separate `temporal_postgres_db`
+# service and is deliberately left unconstrained so Temporal scheduling
+# pressure is not coupled to the database under test. Verify at runtime that
+# Temporal still points at `temporal_postgres_db`.
+#
+# See scripts/benchmark/postgres-scatter-load-test-plan.md.
+
+services:
+  # === Database under test ===================================================
+  # Controlled test settings. These are NOT a claim that the container
+  # resembles a named RDS instance class.
+  postgres_db:
+    cpus: "1.0"
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 256
+    command:
+      - postgres
+      - -c
+      - max_connections=50
+      - -c
+      - shared_buffers=128MB
+
+  # === Connection budget =====================================================
+  #
+  # PLACEHOLDER VALUES. Finalize these after the phase 0/1 baseline
+  # measurement, then record the measured numbers in the run artifacts.
+  #
+  # The plan's invariant is:
+  #
+  #   C_budget     = max_connections - C_admin_reserve - C_nonload_baseline
+  #   C_configured = sum(replicas[i] * processes_per_replica[i]
+  #                      * (pool_size[i] + max_overflow[i]))
+  #   Required: C_configured <= C_budget
+  #
+  # We set a pool ceiling on EVERY database-capable service below, so
+  # C_nonload_baseline is zero by construction: every long-lived application
+  # connection is already inside C_configured. That avoids double-counting the
+  # idle connections of the non-load services against the same budget.
+  #
+  # Reserve arithmetic against max_connections=50:
+  #
+  #   superuser_reserved_connections (PostgreSQL built-in)          3
+  #   operator + metric-collector sessions (psql, pg_stat_activity) 3
+  #   `migrations` container burst (alembic, sync psycopg engine)   2
+  #   ------------------------------------------------------------ --
+  #   C_admin_reserve (INCLUSIVE of the built-in reserve)           8
+  #   C_budget = 50 - 8 - 0                                        42
+  #
+  # CAVEAT: the built-in `superuser_reserved_connections` only withholds slots
+  # from NON-superuser roles. The dev stack connects as `postgres`, which is a
+  # superuser, so those 3 slots are not actually protected today. Either point
+  # TRACECAT__POSTGRES_USER at a non-superuser role for the run, or treat the
+  # reserve as advisory and confirm it during the runtime checks.
+  #
+  # Per-service allocation. Every dev-profile service below is 1 replica
+  # running 1 process that can create the shared async SQLAlchemy engine
+  # (`api` runs a single uvicorn process with no --workers; the rest are single
+  # `python -m ...` processes). Verify this inventory at runtime before phase 2
+  # — in particular whether executor sandbox worker subprocesses
+  # (TRACECAT__EXECUTOR_WORKER_POOL_SIZE) create their own engine, which would
+  # multiply the executor row.
+  #
+  #   service          pool  overflow  ceiling  rationale
+  #   api                 8         4       12  submissions + fixed-interval
+  #                                             polling; every poll does auth +
+  #                                             membership queries, so this is
+  #                                             the hottest path
+  #   worker              6         3        9  DSL workflow worker
+  #   executor            6         3        9  runs core.table.insert_row(s)
+  #   mcp                 2         1        3  idle during the load test
+  #   litellm             2         1        3  idle during the load test
+  #   agent-executor      2         1        3  idle during the load test
+  #   ------------------------------------------
+  #   C_configured                          39  <= C_budget (42)   OK
+  #
+  # Executor capacity budget:
+  #
+  #   C_executor = executor_replicas * max_concurrent_activities_per_replica
+  #              = 1 * 8 = 8
+  #
+  # 8 is chosen to sit one below the executor's own 9-connection ceiling, on
+  # the assumption that a table-insert activity holds at most one session at a
+  # time, leaving one connection for registry/bookkeeping queries. Confirm that
+  # assumption from pg_stat_activity before trusting it.
+  #
+  # TRACECAT__DB_POOL_TIMEOUT is set here so pool exhaustion fails within a
+  # known bound rather than waiting indefinitely. It is honored by
+  # `tracecat/db/engine.py`, which passes `pool_timeout` to
+  # `create_async_engine`; re-confirm that during the phase 2 runtime checks
+  # before attributing any unbounded wait to something else.
+
+  api:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_API_DB_POOL_SIZE:-8}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_API_DB_MAX_OVERFLOW:-4}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
+
+  worker:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_WORKER_DB_POOL_SIZE:-6}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_WORKER_DB_MAX_OVERFLOW:-3}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
+
+  executor:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_EXECUTOR_DB_POOL_SIZE:-6}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_EXECUTOR_DB_MAX_OVERFLOW:-3}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
+      TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__LOADTEST_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-8}
+
+  mcp:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_MCP_DB_POOL_SIZE:-2}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_MCP_DB_MAX_OVERFLOW:-1}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
+
+  litellm:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_LITELLM_DB_POOL_SIZE:-2}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_LITELLM_DB_MAX_OVERFLOW:-1}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
+
+  agent-executor:
+    environment:
+      TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_AGENT_EXECUTOR_DB_POOL_SIZE:-2}
+      TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_AGENT_EXECUTOR_DB_MAX_OVERFLOW:-1}
+      TRACECAT__DB_POOL_TIMEOUT: ${TRACECAT__LOADTEST_DB_POOL_TIMEOUT:-10}
