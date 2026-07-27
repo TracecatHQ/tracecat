@@ -53,7 +53,7 @@ CACHE_ENTRY_PREFIXES = ("squashfs-", "unsquashfs-", "tarball-")
 """On-disk name prefixes owned by a registry artifact cache entry."""
 
 TEMP_ARTIFACT_PATTERN = re.compile(
-    r"^[^.]+\.(?P<pid>\d+)\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)$"
+    r"^[^.]+\.\d+\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)$"
 )
 """Matches in-flight materialization scratch names produced by ``_temp_path``."""
 
@@ -1086,18 +1086,29 @@ class RegistryArtifactCache:
         runs on release, when the real on-disk size is known and the entry is
         evictable. The scan is skipped entirely unless a new entry has landed
         since the last successful enforcement.
-        """
-        if not self._budget_dirty:
-            return
 
-        try:
-            self._budget_dirty = not await self._enforce_cache_budget()
-        except OSError as e:
-            logger.warning(
-                "Failed to converge registry artifact cache to budget",
-                cache_dir=str(self.cache_dir),
-                error=str(e),
-            )
+        Each successful pass consumes the dirty signal before its awaited scan.
+        A follow-up pass therefore occurs only when a concurrent materialization
+        sets the flag again. Without new materializations the loop terminates,
+        while an over-budget or failed scan restores the flag and breaks so it
+        cannot spin while entries remain leased.
+        """
+        while self._budget_dirty:
+            self._budget_dirty = False
+            try:
+                within_budget = await self._enforce_cache_budget()
+            except OSError as e:
+                logger.warning(
+                    "Failed to converge registry artifact cache to budget",
+                    cache_dir=str(self.cache_dir),
+                    error=str(e),
+                )
+                self._budget_dirty = True
+                break
+
+            if not within_budget:
+                self._budget_dirty = True
+                break
 
     async def _enforce_cache_budget(self, *, protected_key: str | None = None) -> bool:
         """Evict least-recently-used idle entries until the cache fits its budget.
@@ -1349,11 +1360,15 @@ class RegistryArtifactCache:
             )
 
     def _remove_orphaned_temp_paths(self) -> None:
-        """Delete materialization scratch paths owned by dead processes."""
-        current_pid = os.getpid()
+        """Delete every materialization scratch path during startup.
+
+        The sweep runs during cache construction, before this process can start
+        a materialization in the cache directory. Every matching path is
+        therefore interrupted scratch from an earlier process and is safe to
+        remove even when the operating system reused that process's PID.
+        """
         for name in os.listdir(self.cache_dir):
-            match = TEMP_ARTIFACT_PATTERN.match(name)
-            if match is None or int(match.group("pid")) == current_pid:
+            if TEMP_ARTIFACT_PATTERN.match(name) is None:
                 continue
             path = self.cache_dir / name
             if path.is_dir():

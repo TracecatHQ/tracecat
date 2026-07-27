@@ -993,6 +993,57 @@ class TestRegistryArtifactCacheEviction:
         assert cache._budget_dirty is True
 
     @pytest.mark.anyio
+    async def test_convergence_rescans_after_concurrent_materialization(
+        self, temp_cache_dir
+    ):
+        """A materialization during a budget scan must schedule another scan."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/concurrent.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        scan_started = asyncio.Event()
+        materialized = asyncio.Event()
+        convergence_scans = 0
+
+        async def mock_enforce_cache_budget(
+            *, protected_key: str | None = None
+        ) -> bool:
+            nonlocal convergence_scans
+            if protected_key is not None:
+                return True
+
+            convergence_scans += 1
+            if convergence_scans == 1:
+                scan_started.set()
+                await materialized.wait()
+            return True
+
+        async def mock_download(self, ctx, path):
+            path.write_bytes(b"fake tarball")
+
+        async def mock_extract(self, tarball_path, target_dir):
+            (target_dir / "module.py").write_text("VALUE = 1")
+
+        cache._budget_dirty = True
+        with (
+            patch.object(
+                cache,
+                "_enforce_cache_budget",
+                side_effect=mock_enforce_cache_budget,
+            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            convergence = asyncio.create_task(cache._converge_cache_budget())
+            await scan_started.wait()
+            registry_paths = await cache.materialize(cache_key, artifact_uri)
+            materialized.set()
+            await convergence
+
+        assert registry_paths == [temp_cache_dir / f"tarball-{cache_key}"]
+        assert convergence_scans == 2
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
     async def test_enforce_budget_evicts_least_recently_used_until_under_max_bytes(
         self, temp_cache_dir
     ):
@@ -1182,7 +1233,7 @@ class TestRegistryArtifactCacheStartupSweep:
 
         assert not orphaned.exists()
         assert not orphaned_dir.exists()
-        assert own.exists()
+        assert not own.exists()
         assert not stale_mount_dir.exists()
         assert entry_dir.is_dir()
 
