@@ -349,6 +349,7 @@ for when the feature activates.
 | 5 | Constrained | Aggregate budget enforced | Explicit per-process bound | Single-row scatter | 10k-action burst absorption via the Temporal queue |
 | 6, optional | Constrained behind PgBouncer | Same application budget | Same explicit bound | Both | Evaluate proxy compatibility and incremental value |
 | 7, optional | Constrained | Aggregate budget enforced | Same explicit bound | Single-row scatter | Validate permit admission once leasing is activated |
+| 8, follow-on | Constrained | Aggregate budget enforced | Same explicit bound | Single-row insert via child workflows | Characterize subflow fan-out as a distinct dimension |
 
 Phase 6 is warranted only if phases 2-5 show a remaining connection-churn or
 failover problem that a proxy could plausibly solve.
@@ -363,6 +364,20 @@ default maximum wait, so under a deep backlog a tight organization cap
 converts queue absorption into permit-wait failures. Phase 7 must characterize
 that behavior explicitly; the executor cap, not the permit, is the intended
 burst throttle.
+
+Phase 8 runs after the primary matrix and burst phases conclude. It replaces
+the action-level scatter with workflow-level fan-out: a parent workflow
+scatters `core.workflow.execute` over its branches, and each child workflow
+performs one logical insert. This is a deliberately different stress shape —
+it exercises workflow-execution throughput, DSL worker capacity, Temporal
+scheduling, and per-parent history growth rather than raw connection pressure,
+since each logical row still costs one executor activity. Keep total logical
+rows equal to a completed phase 3 or phase 5 cell so the per-logical-row cost
+of subflow fan-out is directly comparable with action scatter. It needs one
+additional fixture (the parent/child workflow pair); this is intentionally not
+part of the initial asset build. Findings about child-workflow admission,
+scheduler-cap interaction with pending child executions, and history growth
+should be recorded in the same result document.
 
 Executor capacity must be budgeted as:
 
@@ -521,6 +536,9 @@ ratio; do not use an undefined claim such as "significantly faster."
 8. Write a short result document containing the tested commit, environment,
    matrix, graphs, failure classifications, and recommendation.
 9. Decide whether an AWS proxy canary or local PgBouncer phase is justified.
+10. Schedule the phase 8 subflow fan-out follow-on: add the parent/child
+    workflow fixture and run it against the same bounded configuration,
+    comparing per-logical-row cost with the action-scatter results.
 
 ## Verification required for the implementation
 
