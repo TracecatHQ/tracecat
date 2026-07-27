@@ -151,10 +151,13 @@ async def test_refresh_provider_catalog_upserts_models(
         )
     )
 
-    with patch.object(
-        service,
-        "_discover_models",
-        return_value=[{"id": "model-a"}, {"id": "model-b"}],
+    with (
+        patch.object(
+            service,
+            "_discover_models",
+            return_value=[{"id": "model-a"}, {"id": "model-b"}],
+        ),
+        patch.object(service, "_fetch_metadata_rows", return_value=[]),
     ):
         await service.refresh_provider_catalog(provider.id)
 
@@ -171,6 +174,99 @@ async def test_refresh_provider_catalog_upserts_models(
     )
 
     assert {row.model_name for row in catalog_rows} == {"model-a", "model-b"}
+
+
+@pytest.mark.anyio
+async def test_refresh_provider_catalog_annotates_context_windows(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """/model/info windows land in catalog metadata; pre-annotated models are kept."""
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    provider = await service.create_provider(
+        AgentCustomProviderCreate(
+            display_name="Gateway",
+            base_url="https://api.example.com",
+        )
+    )
+
+    async def _fake_metadata_rows(path: str, **_kwargs: object) -> list[dict]:
+        if path == "/model/info":
+            return [
+                {"model_name": "prod-gpt", "model_info": {"max_input_tokens": 272000}},
+                {"model_name": "prod-null", "model_info": {"max_input_tokens": None}},
+            ]
+        # prod-null stays unresolved, so the /model_group/info fallback fires.
+        assert path == "/model_group/info"
+        return []
+
+    with (
+        patch.object(
+            service,
+            "_discover_models",
+            return_value=[
+                {"id": "prod-gpt"},
+                {"id": "prod-null"},
+                {"id": "big-model", "context_length": 1_000_000},
+            ],
+        ),
+        patch.object(service, "_fetch_metadata_rows", side_effect=_fake_metadata_rows),
+    ):
+        await service.refresh_provider_catalog(provider.id)
+
+    rows = (
+        (
+            await session.execute(
+                select(AgentCatalog).where(
+                    AgentCatalog.custom_provider_id == provider.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    metadata_by_name = {row.model_name: row.model_metadata or {} for row in rows}
+
+    assert metadata_by_name["prod-gpt"]["context_window"] == 272000
+    assert "context_window" not in metadata_by_name["prod-null"]
+    assert metadata_by_name["big-model"]["context_length"] == 1_000_000
+
+
+@pytest.mark.anyio
+async def test_refresh_provider_catalog_falls_back_to_model_group_info(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """Wildcard-routed gateways only resolve windows via /model_group/info."""
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    provider = await service.create_provider(
+        AgentCustomProviderCreate(
+            display_name="Wildcard gateway",
+            base_url="https://api.example.com",
+        )
+    )
+
+    async def _fake_metadata_rows(path: str, **_kwargs: object) -> list[dict]:
+        if path == "/model/info":
+            return [
+                {"model_name": "openai/*", "model_info": {"max_input_tokens": None}}
+            ]
+        assert path == "/model_group/info"
+        return [{"model_group": "prod-gpt", "max_input_tokens": 272000.0}]
+
+    with (
+        patch.object(service, "_discover_models", return_value=[{"id": "prod-gpt"}]),
+        patch.object(service, "_fetch_metadata_rows", side_effect=_fake_metadata_rows),
+    ):
+        await service.refresh_provider_catalog(provider.id)
+
+    row = (
+        await session.execute(
+            select(AgentCatalog).where(AgentCatalog.custom_provider_id == provider.id)
+        )
+    ).scalar_one()
+
+    assert (row.model_metadata or {})["context_window"] == 272000
 
 
 @pytest.mark.anyio
@@ -202,11 +298,14 @@ async def test_refresh_provider_catalog_uses_migrated_encrypted_base_url_fallbac
     session.add(provider)
     await session.commit()
 
-    with patch.object(
-        service,
-        "_discover_models",
-        return_value=[{"id": "migrated-model"}],
-    ) as discover:
+    with (
+        patch.object(
+            service,
+            "_discover_models",
+            return_value=[{"id": "migrated-model"}],
+        ) as discover,
+        patch.object(service, "_fetch_metadata_rows", return_value=[]),
+    ):
         await service.refresh_provider_catalog(provider.id)
 
     discover.assert_awaited_once_with(

@@ -256,7 +256,7 @@ TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mc
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
 # larger tool responses do not truncate during agent execution.
 CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
-CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = "128000"
+CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = 128_000
 
 # Cap on how many times the CLI may re-invoke the model to satisfy a Stop hook
 # (e.g. structured-output schema validation). Without a cap the CLI can death-loop
@@ -1458,10 +1458,19 @@ class ClaudeAgentRuntime:
     def _sdk_env(payload: RuntimeInitPayload) -> dict[str, str]:
         """Return child-process environment overrides for the Claude SDK."""
         env = {"ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token}
-        if payload.config.model_provider == "custom-model-provider":
-            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
-                CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
-            )
+        # The CLI assumes an Anthropic-sized (~200k) context window unless told
+        # otherwise; the env var is process-wide, so use the smallest known
+        # non-Anthropic window across the main agent and subagents.
+        windows: list[int] = []
+        for config in (payload.config, *(s.config for s in payload.subagents)):
+            if config.model_provider == "anthropic":
+                continue
+            if config.context_window:
+                windows.append(config.context_window)
+            elif config.model_provider == "custom-model-provider":
+                windows.append(CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW)
+        if windows:
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(min(windows))
         if payload.config.passthrough or any(
             subagent.config.passthrough for subagent in payload.subagents
         ):
