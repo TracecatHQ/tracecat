@@ -179,11 +179,15 @@ def eval_jsonpath(
         if strict:
             # We know that if this function is called, there was a templated field.
             # Therefore, it means the jsonpath was valid but there was no match.
-            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+            logger.error(
+                "Jsonpath no match",
+                expr=repr(expr),
+                operand_type=type(operand).__name__,
+            )
             formatted_expr = _expr_with_context(expr, context_type)
             raise TracecatExpressionError(
                 f"Couldn't resolve expression {formatted_expr!r} in the context",
-                detail={"expression": formatted_expr, "operand": operand},
+                detail={"expression": formatted_expr},
             )
         # Return None instead of empty list
         return None
