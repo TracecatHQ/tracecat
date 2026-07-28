@@ -352,7 +352,7 @@ async def test_user_manager_validate_email_first_user_lookup_uses_auth_pool(
         _open_binds,
     ) = _patch_user_manager_pool_sessions(monkeypatch)
     result = MagicMock()
-    result.scalars.return_value.all.return_value = []
+    result.scalar_one_or_none.return_value = None
     auth_session.execute.return_value = result
     email = "admin@example.com"
     monkeypatch.setattr(
@@ -367,6 +367,10 @@ async def test_user_manager_validate_email_first_user_lookup_uses_auth_pool(
     assert binds == [auth_bind]
     main_session.execute.assert_not_awaited()
     auth_session.execute.assert_awaited_once()
+    statement = auth_session.execute.await_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "LIMIT 1" in compiled
+    result.scalars.assert_not_called()
 
 
 @pytest.mark.anyio

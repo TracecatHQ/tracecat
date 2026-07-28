@@ -4,7 +4,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -131,8 +131,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> None:
         # Check if this is attempting to be the first user (superadmin)
         async with get_async_session_auth_context_manager() as session:
-            users = await list_users(session=session)
-            if len(users) == 0:  # This would be the first user
+            if not await users_exist(session=session):
                 # Only allow registration if this is the designated superadmin email
                 if not config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
                     self.logger.error(
@@ -780,10 +779,11 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
                     return await user_manager.get_by_email(params.email)
 
 
-async def list_users(*, session: SupportsExecute) -> Sequence[User]:
-    statement = select(User)
+async def users_exist(*, session: SupportsExecute) -> bool:
+    """Return whether at least one user exists without materializing user rows."""
+    statement = select(cast(Any, User.id)).limit(1)
     result = await session.execute(statement)
-    return result.scalars().all()
+    return result.scalar_one_or_none() is not None
 
 
 async def search_users(
