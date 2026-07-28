@@ -1076,6 +1076,36 @@ class TestRegistryArtifactCacheEviction:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
+    async def test_failed_materialization_rearms_budget_dirty(self, temp_cache_dir):
+        """A failed materialization may leave a canonical image to evict."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        assert cache._budget_dirty is False
+
+        artifact_uri = "s3://bucket/path/site-packages.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = SquashfsArtifact(uri=artifact_uri, cache_key=cache_key)
+
+        async def mock_materialize(self, ctx):
+            ctx.paths.squashfs_image_path.write_bytes(b"orphaned image")
+            raise RuntimeError("mount failed")
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[artifact],
+            ),
+            patch.object(SquashfsArtifact, "materialize", mock_materialize),
+        ):
+            with pytest.raises(RuntimeError, match="mount failed"):
+                await cache.materialize(cache_key, artifact_uri)
+
+        assert cache._paths_for(cache_key).squashfs_image_path.is_file()
+        assert cache._budget_dirty is True
+
+    @pytest.mark.anyio
     async def test_release_keeps_retrying_while_the_cache_stays_over_budget(
         self, temp_cache_dir
     ):

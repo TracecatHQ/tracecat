@@ -977,12 +977,12 @@ class RegistryArtifactCache:
                         candidate=index + 1,
                         candidates=len(candidates),
                     )
-                    registry_paths = await artifact.materialize(ctx)
                     if _is_cache_entry_uri(artifact.uri):
-                        # A new entry landed on disk after the budget was
-                        # measured, so the cache must be re-checked once the
-                        # entry goes idle.
+                        # Any attempt may deposit the canonical image before
+                        # failing or being cancelled, so the budget must be
+                        # re-checked once the entry goes idle.
                         self._budget_dirty = True
+                    registry_paths = await artifact.materialize(ctx)
                     return registry_paths
                 except Exception as e:
                     if index == len(candidates) - 1:
