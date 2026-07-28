@@ -12,21 +12,29 @@ if [[ "$(id -u)" == "0" ]]; then
     # Mirror config.env_bool falsy values so disabling the feature also skips
     # the root-side delegation, not just the Python-side preparation. The
     # privilege drop below is unconditional: root never reaches the worker.
-    cgroup_enabled="$(
-        printf '%s' "${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}" |
-            tr '[:upper:]' '[:lower:]' |
-            sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-    )"
-    case "$cgroup_enabled" in
-        1 | true | yes | on) cgroup_enabled=true ;;
-        0 | false | no | off) cgroup_enabled=false ;;
-        *)
-            echo "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED must be a boolean value" >&2
-            exit 64
-            ;;
-    esac
+    parse_bool_env() {
+        local name="$1" default="$2" value
+        value="$(
+            printf '%s' "${!name:-$default}" |
+                tr '[:upper:]' '[:lower:]' |
+                sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+        )"
+        case "$value" in
+            1 | true | yes | on) echo true ;;
+            0 | false | no | off) echo false ;;
+            *)
+                echo "$name must be a boolean value" >&2
+                exit 64
+                ;;
+        esac
+    }
+    cgroup_enabled="$(parse_bool_env TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED true)"
+    nsjail_disabled="$(parse_bool_env TRACECAT__DISABLE_NSJAIL true)"
 
-    if [[ "$cgroup_enabled" == "true" ]]; then
+    # The worker only uses the delegated cgroup when nsjail sandboxing is on
+    # (executor_worker.py computes cgroup_required the same way), so skip the
+    # remount + chown entirely when nsjail is disabled.
+    if [[ "$cgroup_enabled" == "true" && "$nsjail_disabled" == "false" ]]; then
         # Resolve this container's cgroup v2 directory: the mount root under a
         # private cgroup namespace, a subpath of the host cgroupfs otherwise
         # (e.g. privileged Kubernetes). Never touch anything above it, and
