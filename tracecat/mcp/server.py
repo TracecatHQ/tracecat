@@ -445,6 +445,13 @@ def _role_organization_id(role: Role) -> uuid.UUID:
     return role.organization_id
 
 
+def _role_user_id(role: Role) -> uuid.UUID:
+    """Return the authenticated user id for an MCP workspace role."""
+    if role.user_id is None:
+        raise ToolError("Resolved role is missing user context")
+    return role.user_id
+
+
 def _normalize_folder_path_arg(path: str, *, allow_root: bool = True) -> str:
     """Normalize a user-supplied folder path."""
     raw = path.strip()
@@ -1279,6 +1286,7 @@ class TemplateFileArtifact(BaseModel):
     artifact_id: uuid.UUID
     organization_id: uuid.UUID
     workspace_id: uuid.UUID
+    user_id: uuid.UUID
     client_id: str
     session_id: str
     relative_path: str
@@ -1678,6 +1686,8 @@ async def _require_template_file_artifact(
         raise ToolError("Template file artifact is not valid for this workspace")
     if artifact.organization_id != role.organization_id:
         raise ToolError("Template file artifact is not valid for this organization")
+    if artifact.user_id != role.user_id:
+        raise ToolError("Template file artifact is not valid for this user")
     if artifact.client_id != _current_mcp_client_id():
         raise ToolError("Template file artifact is not valid for this MCP client")
     # Streamable HTTP runs statelessly so subsequent tool calls can land on a
@@ -4413,6 +4423,7 @@ async def prepare_template_file_upload(
             artifact_id=artifact_id,
             organization_id=_role_organization_id(role),
             workspace_id=_role_workspace_id(role),
+            user_id=_role_user_id(role),
             client_id=_current_mcp_client_id(),
             session_id=_get_context_session_id(ctx),
             relative_path=normalized_relative_path,
