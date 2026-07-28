@@ -59,7 +59,7 @@ To enable nsjail, set the following in your `.env`:
 
 ```bash
 TRACECAT__DISABLE_NSJAIL=false
-TRACECAT__EXECUTOR_BACKEND=pool  # or 'ephemeral' for multi-tenant full isolation
+TRACECAT__EXECUTOR_BACKEND=ephemeral
 ```
 
 nsjail requires:
@@ -76,8 +76,15 @@ nsjail requires:
 | Backend | Isolation | Latency | Use case |
 | :------ | :-------- | :------ | :------- |
 | `direct` | PID namespace only | ~50ms | Development, trusted environments |
-| `pool` | nsjail sandbox (warm workers) | ~100-200ms | Single-tenant production |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Multi-tenant, maximum isolation |
+| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Production, maximum isolation |
+| `pool` | nsjail sandbox (warm workers) | ~100-200ms | Experimental — not production ready |
+
+<Warning>
+  The `pool` backend is experimental and not production ready. Its warm workers
+  import from registry cache paths that eviction cannot reclaim, so the
+  executor's registry cache can grow without bound. Use `ephemeral` for
+  production deployments.
+</Warning>
 
 ## Authentication
 
