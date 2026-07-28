@@ -837,13 +837,31 @@ class RegistryArtifactCache:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
         self._budget_lock = asyncio.Lock()
+        # Guard the off-loop startup sweep independently from cache operations.
+        self._swept: bool = False
+        self._sweep_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
         self._leases: dict[str, RegistryArtifactLease] = {}
         # Whether the on-disk cache may exceed its budget. Set when a new entry
         # is materialized and cleared once enforcement measures a cache that
         # fits, so steady-state cache hits never pay for a disk scan.
         self._budget_dirty = True
-        self._sweep_startup_state()
+
+    async def ensure_swept(self) -> None:
+        """Run the startup sweep exactly once, off the event loop.
+
+        Idempotent and safe under concurrency: the first caller performs the
+        sweep in a thread; concurrent callers wait; later callers return
+        immediately. Runs before the first lease or materialization so the
+        sweep never observes in-flight cache entries.
+        """
+        if self._swept:
+            return
+        async with self._sweep_lock:
+            if self._swept:
+                return
+            await asyncio.to_thread(self._sweep_startup_state)
+            self._swept = True
 
     @asynccontextmanager
     async def lease(self, artifact_uris: list[str] | None) -> AsyncIterator[list[Path]]:
@@ -859,6 +877,8 @@ class RegistryArtifactCache:
         Yields:
             Importable Python paths for the requested artifacts.
         """
+        await self.ensure_swept()
+
         if not artifact_uris:
             logger.info("No registry artifact URIs provided, using base PYTHONPATH")
             yield [self._base_pythonpath_dir()]
@@ -928,6 +948,8 @@ class RegistryArtifactCache:
 
     async def materialize(self, cache_key: str, artifact_uri: str) -> list[Path]:
         """Materialize a registry artifact as local importable directories."""
+        await self.ensure_swept()
+
         ctx = self._context_for(cache_key)
         candidates = await self._artifact_candidates(ctx, artifact_uri)
 
@@ -1476,8 +1498,8 @@ class RegistryArtifactCache:
         after warm workers have already inherited those paths. A missing or
         empty cache directory is a no-op.
 
-        Construction runs eagerly in a worker-startup thread before activities
-        can run; lazy in-activity construction remains a fallback.
+        The worker warms this sweep before activities can run; lazy first-use
+        sweeping remains a safe fallback.
         """
         if not self.cache_dir.is_dir():
             self._budget_dirty = False
@@ -1497,10 +1519,10 @@ class RegistryArtifactCache:
     def _remove_orphaned_temp_paths(self) -> None:
         """Delete every materialization scratch path during startup.
 
-        The sweep runs during cache construction, before this process can start
-        a materialization in the cache directory. Every matching path is
-        therefore interrupted scratch from an earlier process and is safe to
-        remove even when the operating system reused that process's PID.
+        The sweep runs before the first lease or materialization in this process.
+        Every matching path is therefore interrupted scratch from an earlier
+        process and is safe to remove even when the operating system reused that
+        process's PID.
         """
         for name in os.listdir(self.cache_dir):
             if TEMP_ARTIFACT_PATTERN.match(name) is None:

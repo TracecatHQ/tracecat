@@ -349,7 +349,8 @@ async def _run_mount_lifecycle_child() -> None:
         stale_mount_dir.mkdir()
 
         config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 1
-        RegistryArtifactCache(sweep_dir)
+        sweep_cache = RegistryArtifactCache(sweep_dir)
+        await sweep_cache.ensure_swept()
         payload["startup_sweep_trimmed"] = (
             not (sweep_dir / f"squashfs-{sweep_keys[0]}.squashfs").exists()
             and (sweep_dir / f"squashfs-{sweep_keys[1]}.squashfs").exists()

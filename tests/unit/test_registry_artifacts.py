@@ -1059,6 +1059,7 @@ class TestRegistryArtifactCacheEviction:
     ):
         """Steady-state cache hits must not pay for a full cache scan."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
         artifact_uri = "s3://bucket/cached.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         _write_tarball_entry(temp_cache_dir, cache_key)
@@ -1080,6 +1081,7 @@ class TestRegistryArtifactCacheEviction:
     ):
         """A cache that cannot shrink yet must stay marked for re-enforcement."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
         artifact_uri = "s3://bucket/pinned.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         _write_image_entry(temp_cache_dir, cache_key, size=4096, mtime=100.0)
@@ -1534,6 +1536,7 @@ class TestRegistryArtifactCacheEviction:
     ):
         """Cancellation cannot expose live paths that deletion still owns."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
         artifact_uri = "s3://bucket/cancelled-eviction.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         original_target = _write_tarball_entry(temp_cache_dir, cache_key)
@@ -1685,16 +1688,21 @@ class TestRegistryArtifactCacheEviction:
 class TestRegistryArtifactCacheStartupSweep:
     """Tests for the startup sweep that reclaims state from a dead process."""
 
-    def test_sweep_tolerates_missing_cache_dir(self, temp_cache_dir):
+    @pytest.mark.anyio
+    async def test_sweep_tolerates_missing_cache_dir(self, temp_cache_dir):
         """A cache directory that does not exist yet is a no-op."""
         cache_dir = temp_cache_dir / "missing"
 
         cache = RegistryArtifactCache(cache_dir)
+        await cache.ensure_swept()
 
         assert cache.cache_dir == cache_dir
         assert not cache_dir.exists()
 
-    def test_sweep_removes_orphaned_scratch_and_stale_mount_dirs(self, temp_cache_dir):
+    @pytest.mark.anyio
+    async def test_sweep_removes_orphaned_scratch_and_stale_mount_dirs(
+        self, temp_cache_dir
+    ):
         """Interrupted materializations and dead mount dirs are reclaimed."""
         orphaned = temp_cache_dir / "abc123.999999.4321.squashfs"
         orphaned.write_bytes(b"partial")
@@ -1706,7 +1714,8 @@ class TestRegistryArtifactCacheStartupSweep:
         stale_mount_dir.mkdir()
         entry_dir = _write_tarball_entry(temp_cache_dir, "abc123")
 
-        RegistryArtifactCache(temp_cache_dir)
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
 
         assert not orphaned.exists()
         assert not orphaned_dir.exists()
@@ -1714,17 +1723,20 @@ class TestRegistryArtifactCacheStartupSweep:
         assert not stale_mount_dir.exists()
         assert entry_dir.is_dir()
 
-    def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
+    @pytest.mark.anyio
+    async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
         """A live mountpoint belongs to a running process and must survive."""
         mount_dir = temp_cache_dir / "squashfs-abc123"
         mount_dir.mkdir()
 
         with patch.object(Path, "is_mount", lambda self: self == mount_dir):
-            RegistryArtifactCache(temp_cache_dir)
+            cache = RegistryArtifactCache(temp_cache_dir)
+            await cache.ensure_swept()
 
         assert mount_dir.is_dir()
 
-    def test_auto_pool_sweep_protects_tarballs_and_trims_other_entries(
+    @pytest.mark.anyio
+    async def test_auto_pool_sweep_protects_tarballs_and_trims_other_entries(
         self, temp_cache_dir
     ):
         """Startup trimming preserves paths inherited by auto-resolved workers."""
@@ -1740,12 +1752,76 @@ class TestRegistryArtifactCacheStartupSweep:
             patch(MAX_BYTES_CONFIG, 0),
         ):
             cache = RegistryArtifactCache(temp_cache_dir)
+            await cache.ensure_swept()
 
         assert oldest.exists()
         assert oldest_tarball.is_dir()
         assert not older.exists()
         assert newest.exists()
         assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
+    async def test_ensure_swept_runs_once(self, temp_cache_dir):
+        """Repeated startup-sweep requests invoke the sweep once."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with patch.object(
+            cache,
+            "_sweep_startup_state",
+            wraps=cache._sweep_startup_state,
+        ) as sweep:
+            await cache.ensure_swept()
+            await cache.ensure_swept()
+
+        assert sweep.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_concurrent_ensure_swept_runs_once(self, temp_cache_dir):
+        """Concurrent startup-sweep requests invoke the sweep once."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with patch.object(
+            cache,
+            "_sweep_startup_state",
+            wraps=cache._sweep_startup_state,
+        ) as sweep:
+            await asyncio.gather(*(cache.ensure_swept() for _ in range(4)))
+
+        assert sweep.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_lease_triggers_startup_sweep(self, temp_cache_dir):
+        """Lease admission reclaims startup scratch before yielding paths."""
+        orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
+        orphaned_dir.mkdir()
+        assert TEMP_ARTIFACT_PATTERN.match(orphaned_dir.name) is not None
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        async with cache.lease(None):
+            assert not orphaned_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_failed_ensure_swept_retries(self, temp_cache_dir):
+        """A failed startup sweep is retried by the next caller."""
+        orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
+        orphaned_dir.mkdir()
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch.object(
+                cache,
+                "_sweep_startup_state",
+                side_effect=OSError("simulated sweep failure"),
+            ),
+            pytest.raises(OSError),
+        ):
+            await cache.ensure_swept()
+
+        assert orphaned_dir.is_dir()
+
+        await cache.ensure_swept()
+
+        assert not orphaned_dir.exists()
 
 
 class TestSquashfsMountCapability:

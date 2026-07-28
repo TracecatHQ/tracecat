@@ -137,9 +137,9 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         # socket path is available in their immutable process environment.
         await action_gateway.start()
 
-        # Construct the registry artifact cache and run its synchronous startup
-        # sweep in a thread before the backend spawns workers or activities run.
-        await asyncio.to_thread(get_action_runner)
+        # Warm the registry artifact cache sweep before the backend spawns
+        # workers or activities run; cache construction itself is cheap.
+        await get_action_runner().registry_artifacts.ensure_swept()
 
         # Initialize the executor backend before accepting tasks
         await initialize_executor_backend()
