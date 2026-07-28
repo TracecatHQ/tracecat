@@ -410,6 +410,7 @@ services:
         TRACECAT__AGENT_SANDBOX_MEMORY_MB: ${TRACECAT__AGENT_SANDBOX_MEMORY_MB:-4096}
         TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED: ${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}
         TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB: ${TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB:-4096}
+        TRACECAT__AGENT_EXECUTOR_READY_FILE: ${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}
         TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-600}
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS: ${TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS:-60}
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS: ${TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-30}
@@ -437,7 +438,7 @@ services:
         - sandbox-cache:/var/lib/tracecat/sandbox-cache
       command: ["python", "-m", "tracecat.agent.executor_worker"]
       healthcheck:
-        test: ["CMD", "test", "-f", "/var/run/tracecat/agent-executor-ready"]
+        test: ["CMD", "test", "-f", "${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}"]
         interval: 30s
         retries: 3
         start_period: 120s
