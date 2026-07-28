@@ -51,8 +51,8 @@ from tracecat.authz.scopes import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    get_async_auth_engine,
     get_async_engine,
-    get_async_internal_engine,
     get_async_session_context_manager,
     reset_async_engine,
 )
@@ -318,11 +318,11 @@ async def test_db_engine():
     and don't hold references to closed event loops when using pytest-xdist.
     """
     engine = get_async_engine()
-    internal_engine = get_async_internal_engine()
+    auth_engine = get_async_auth_engine()
     try:
         yield engine
     finally:
-        for eng in (engine, internal_engine):
+        for eng in (engine, auth_engine):
             try:
                 await eng.dispose()
             except Exception as e:

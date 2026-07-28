@@ -2,11 +2,14 @@ import base64
 import contextlib
 import json
 from collections.abc import AsyncGenerator
+from contextvars import ContextVar
 from typing import Literal
 
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
+from sqlalchemy import event
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
@@ -15,6 +18,10 @@ from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
     soft_delete,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
+from tracecat.db.exceptions import (
+    AuthPoolExhaustedError,
+    DatabasePoolAcquisitionOrderError,
+)
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
@@ -22,16 +29,41 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 # connections and not create a new pool on every request
 _async_engine: AsyncEngine | None = None
 
-# Dedicated engine for internal RLS-bypass lookups (auth, effective scopes,
-# workspace membership). These run *inside* a request that is already holding a
-# connection from the main pool, so sharing that pool creates a hold-and-wait
-# cycle: every in-flight request parks its own connection on an open transaction
-# while waiting for one more, and the pool deadlocks until pool_timeout fires.
+# Dedicated operational bulkhead for short authentication/bootstrap lookups.
+# It uses the same database URI, role, and RLS mechanism as the main engine; a
+# separate database role is a distinct follow-up and is required for a true
+# privilege boundary.
 #
 # INVARIANT: the dependency between pools is one-directional. Main-pool code may
-# acquire an internal-pool connection, but internal-pool code must NEVER wait on
-# the main pool. Without a cycle there is no deadlock.
-_async_internal_engine: AsyncEngine | None = None
+# acquire an auth-pool connection, but auth-pool code must never wait on the main
+# pool or acquire a second auth connection. Without a cycle there is no
+# hold-and-wait deadlock.
+_async_auth_engine: AsyncEngine | None = None
+_ctx_auth_pool_session: ContextVar[AsyncSession | None] = ContextVar(
+    "auth_pool_session",
+    default=None,
+)
+
+
+def _assert_main_pool_checkout_allowed() -> None:
+    """Reject a main-pool checkout while the current task holds the auth pool.
+
+    This raises in every environment because logging and continuing would allow
+    the exact cross-pool cycle that the auth bulkhead exists to prevent.
+    """
+    if _ctx_auth_pool_session.get() is not None:
+        raise DatabasePoolAcquisitionOrderError(
+            "Cannot acquire a main-pool connection while an auth-pool session is held"
+        )
+
+
+def _guard_main_pool_checkout(
+    _dbapi_connection: object,
+    _connection_record: object,
+    _connection_proxy: object,
+) -> None:
+    """SQLAlchemy checkout listener enforcing auth-to-main acquisition order."""
+    _assert_main_pool_checkout_allowed()
 
 
 async def _initialize_session_rls_context(session: AsyncSession) -> None:
@@ -203,7 +235,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     uri = _get_db_uri(driver="asyncpg")
-    return create_async_engine(
+    engine = create_async_engine(
         uri,
         max_overflow=config.TRACECAT__DB_MAX_OVERFLOW,
         pool_recycle=config.TRACECAT__DB_POOL_RECYCLE,
@@ -217,27 +249,30 @@ def _create_async_db_engine() -> AsyncEngine:
             "server_settings": {"application_name": config.TRACECAT__SERVICE_NAME}
         },
     )
+    event.listen(engine.sync_engine, "checkout", _guard_main_pool_checkout)
+    return engine
 
 
-def _create_async_internal_db_engine() -> AsyncEngine:
-    """Create the dedicated engine for internal RLS-bypass lookups.
+def _create_async_auth_db_engine() -> AsyncEngine:
+    """Create the operational bulkhead for short authentication lookups.
 
     Same connection settings as the main engine, but a separate (small) pool and
-    a distinct `application_name` so `pg_stat_activity` attributes internal
-    lookups separately from request-scoped work.
+    a distinct `application_name` so `pg_stat_activity` attributes authentication
+    lookups separately from request-scoped work. This is not a privilege
+    boundary: both engines use the same database role and RLS session settings.
     """
     uri = _get_db_uri(driver="asyncpg")
     return create_async_engine(
         uri,
-        max_overflow=config.TRACECAT__DB_INTERNAL_MAX_OVERFLOW,
+        max_overflow=config.TRACECAT__DB_AUTH_MAX_OVERFLOW,
         pool_recycle=config.TRACECAT__DB_POOL_RECYCLE,
-        pool_size=config.TRACECAT__DB_INTERNAL_POOL_SIZE,
+        pool_size=config.TRACECAT__DB_AUTH_POOL_SIZE,
         pool_timeout=config.TRACECAT__DB_POOL_TIMEOUT,
         pool_pre_ping=True,
         pool_use_lifo=True,  # Better for burst workloads
         connect_args={
             "server_settings": {
-                "application_name": f"{config.TRACECAT__SERVICE_NAME}-internal"
+                "application_name": f"{config.TRACECAT__SERVICE_NAME}-auth"
             }
         },
     )
@@ -251,17 +286,16 @@ def get_async_engine() -> AsyncEngine:
     return _async_engine
 
 
-def get_async_internal_engine() -> AsyncEngine:
-    """Get the db async connection pool for internal RLS-bypass lookups.
+def get_async_auth_engine() -> AsyncEngine:
+    """Get the async connection pool for short authentication lookups.
 
-    Kept separate from `get_async_engine()` so nested acquisition (a request
-    session opening a bypass session) crosses pools one-directionally instead of
-    competing for the same connections. See `_async_internal_engine`.
+    This operational bulkhead isolates auth admission capacity from the main
+    request pool. It does not provide additional database privileges.
     """
-    global _async_internal_engine
-    if _async_internal_engine is None:
-        _async_internal_engine = _create_async_internal_db_engine()
-    return _async_internal_engine
+    global _async_auth_engine
+    if _async_auth_engine is None:
+        _async_auth_engine = _create_async_auth_db_engine()
+    return _async_auth_engine
 
 
 def reset_async_engine() -> None:
@@ -269,9 +303,9 @@ def reset_async_engine() -> None:
 
     This should only be used in tests to ensure clean state between tests.
     """
-    global _async_engine, _async_internal_engine
+    global _async_engine, _async_auth_engine
     _async_engine = None
-    _async_internal_engine = None
+    _async_auth_engine = None
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -282,6 +316,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     - shadow: bypass context + rollout telemetry
     - enforce: role-derived context with deny-default fallback
     """
+    _assert_main_pool_checkout_allowed()
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
         await _initialize_session_rls_context(session)
         yield session
@@ -297,14 +332,9 @@ async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
 
     WARNING: Use sparingly and only when necessary. Prefer get_async_session()
     with proper role context for most operations.
-
-    Binds to the dedicated internal pool, never the main request pool, so a
-    caller already holding a request-scoped connection cannot deadlock waiting
-    on itself.
     """
-    async with AsyncSession(
-        get_async_internal_engine(), expire_on_commit=False
-    ) as session:
+    _assert_main_pool_checkout_allowed()
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
         await set_rls_context(
             session,
             org_id=None,
@@ -313,6 +343,37 @@ async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
             bypass=True,
         )
         yield session
+
+
+async def get_async_session_auth() -> AsyncGenerator[AsyncSession, None]:
+    """Get an RLS-bypass session from the authentication bulkhead.
+
+    Only short authentication/bootstrap lookups may use this accessor. It is an
+    operational isolation measure, not a database privilege boundary.
+    """
+    if _ctx_auth_pool_session.get() is not None:
+        raise DatabasePoolAcquisitionOrderError(
+            "Cannot acquire a nested auth-pool session"
+        )
+
+    async with AsyncSession(get_async_auth_engine(), expire_on_commit=False) as session:
+        token = _ctx_auth_pool_session.set(session)
+        try:
+            try:
+                await set_rls_context(
+                    session,
+                    org_id=None,
+                    workspace_id=None,
+                    user_id=None,
+                    bypass=True,
+                )
+            except SQLAlchemyTimeoutError as exc:
+                raise AuthPoolExhaustedError(
+                    "Authentication database pool checkout timed out"
+                ) from exc
+            yield session
+        finally:
+            _ctx_auth_pool_session.reset(token)
 
 
 def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
@@ -330,3 +391,10 @@ def get_async_session_bypass_rls_context_manager() -> (
     Use this for system operations that need unrestricted database access.
     """
     return contextlib.asynccontextmanager(get_async_session_bypass_rls)()
+
+
+def get_async_session_auth_context_manager() -> contextlib.AbstractAsyncContextManager[
+    AsyncSession
+]:
+    """Get a context manager for a short authentication bulkhead session."""
+    return contextlib.asynccontextmanager(get_async_session_auth)()

@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
 
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
@@ -19,10 +20,15 @@ from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
-from tracecat.auth.users import UserManager
+from tracecat.auth.users import UserManager, optional_current_active_user
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
+from tracecat.db.engine import (
+    get_async_session,
+    get_async_session_auth,
+    get_async_session_bypass_rls,
+)
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
@@ -253,6 +259,64 @@ def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
 def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(get_invitation_by_token)
     assert "session: AsyncDBSessionBypass" in source
+
+
+def test_get_invitation_by_token_resolves_user_before_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The optional-user main lookup must complete before the route session."""
+    main_bind = object()
+    auth_bind = object()
+    binds: list[object] = []
+
+    route_session = AsyncMock()
+    missing_invitation = MagicMock()
+    missing_invitation.first.return_value = None
+    route_session.execute.return_value = missing_invitation
+
+    def _session_factory(bind: object, **_kwargs: object) -> AsyncMock:
+        binds.append(bind)
+        session_cm = AsyncMock()
+        session_cm.__aenter__.return_value = route_session
+        session_cm.__aexit__.return_value = None
+        return session_cm
+
+    monkeypatch.setattr("tracecat.db.engine.AsyncSession", _session_factory)
+    monkeypatch.setattr(
+        "tracecat.db.engine.get_async_engine",
+        lambda: main_bind,
+    )
+    monkeypatch.setattr(
+        "tracecat.db.engine.get_async_auth_engine",
+        lambda: auth_bind,
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", AsyncMock())
+
+    async def _optional_user_after_main_lookup() -> None:
+        generator = get_async_session()
+        await anext(generator)
+        await generator.aclose()
+        return None
+
+    app = FastAPI()
+    app.add_api_route(
+        "/organization/invitations/token/{token}",
+        get_invitation_by_token,
+        methods=["GET"],
+    )
+    app.dependency_overrides[optional_current_active_user] = (
+        _optional_user_after_main_lookup
+    )
+    # Model the old dedicated-bypass behavior. If FastAPI resolves the route
+    # session first, the contextvar guard rejects the later main-pool lookup.
+    app.dependency_overrides[get_async_session_bypass_rls] = get_async_session_auth
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/organization/invitations/token/missing")
+
+    assert response.status_code == 404
+    assert binds == [main_bind, auth_bind]
 
 
 def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
