@@ -1117,6 +1117,39 @@ class TestRegistryArtifactCacheEviction:
         assert cache._budget_dirty is True
 
     @pytest.mark.anyio
+    async def test_materialization_rearms_budget_dirty_consumed_mid_flight(
+        self, temp_cache_dir
+    ):
+        """A convergence pass consuming the signal mid-download cannot unarm it."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        assert cache._budget_dirty is False
+
+        artifact_uri = "s3://bucket/path/site-packages.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = SquashfsArtifact(uri=artifact_uri, cache_key=cache_key)
+
+        async def mock_materialize(self, ctx):
+            # A concurrent lease release consumes the dirty signal and finishes
+            # its scan before this attempt lands its canonical bytes.
+            cache._budget_dirty = False
+            ctx.paths.squashfs_image_path.write_bytes(b"late image")
+            return [ctx.paths.squashfs_mount_dir]
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[artifact],
+            ),
+            patch.object(SquashfsArtifact, "materialize", mock_materialize),
+        ):
+            await cache.materialize(cache_key, artifact_uri)
+
+        assert cache._budget_dirty is True
+
+    @pytest.mark.anyio
     async def test_release_keeps_retrying_while_the_cache_stays_over_budget(
         self, temp_cache_dir
     ):

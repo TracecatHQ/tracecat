@@ -977,12 +977,16 @@ class RegistryArtifactCache:
                         candidate=index + 1,
                         candidates=len(candidates),
                     )
-                    if _is_cache_entry_uri(artifact.uri):
-                        # Any attempt may deposit the canonical image before
-                        # failing or being cancelled, so the budget must be
-                        # re-checked once the entry goes idle.
-                        self._budget_dirty = True
-                    registry_paths = await artifact.materialize(ctx)
+                    try:
+                        registry_paths = await artifact.materialize(ctx)
+                    finally:
+                        if _is_cache_entry_uri(artifact.uri):
+                            # Arm after the attempt completes, whether it
+                            # succeeded, failed, or was cancelled: any attempt
+                            # may deposit canonical bytes, and a concurrent
+                            # convergence pass may have consumed an earlier
+                            # signal before those bytes landed.
+                            self._budget_dirty = True
                     return registry_paths
                 except Exception as e:
                     if index == len(candidates) - 1:
