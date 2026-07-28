@@ -5274,56 +5274,139 @@ async def test_workspace_sync_workflow_catalog_rejects_non_candidate_selection(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("action_type", ["ai.agent", "ai.action"])
-async def test_workspace_sync_rejects_malformed_workflow_catalog_id(
+async def test_workspace_sync_preserves_templated_workflow_catalog_id(
     session: AsyncSession,
     svc_role: Role,
-    action_type: str,
 ) -> None:
+    """A templated catalog_id is a runtime value: never blocked, never rewritten."""
     model_provider = "custom-model-provider"
-    model_name = "qa-workflow-malformed-catalog-model"
+    model_name = "qa-workflow-templated-catalog-model"
     await _enable_duplicate_catalog_candidates(
         session,
         org_id=svc_role.organization_id,
         model_provider=model_provider,
         model_name=model_name,
     )
-    workflow_alias = f"qa-{action_type.replace('.', '-')}-malformed-catalog"
+    model_args = {
+        "model_provider": model_provider,
+        "model_name": model_name,
+        "catalog_id": "${{ VARS.catalog_id }}",
+    }
+    workflow_alias = "qa-workflow-templated-catalog"
     files = _workflow_agent_git_tree(
         source_id=workflow_alias,
         alias=workflow_alias,
-        title="QA workflow malformed catalog ID",
-        action_ref="run_malformed_catalog_agent",
-        action_type=action_type,
+        title="QA workflow templated catalog ID",
+        action_ref="run_templated_agent",
         action_args={
             "user_prompt": "Investigate the event.",
-            "model": {
-                "model_provider": model_provider,
-                "model_name": model_name,
-                "catalog_id": "not-a-uuid",
-            },
+            "model": dict(model_args),
         },
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="x" * 40)
+    assert diagnostics == []
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    assert result.diagnostics == []
+    workflow = await session.scalar(
+        select(Workflow).where(
+            Workflow.workspace_id == svc_role.workspace_id,
+            Workflow.alias == workflow_alias,
+        )
+    )
+    assert workflow is not None
+    action = next(a for a in workflow.actions if a.ref == "run_templated_agent")
+    assert yaml.safe_load(action.inputs)["model"] == model_args
+
+
+def _untyped_catalog_preset_git_tree(
+    *, source_id: str, catalog_id: str
+) -> dict[str, str]:
+    """Preset tree whose version has a catalog_id but no model tuple."""
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA untyped catalog"
+    )
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    version_spec = yaml.safe_load(files[version_path])
+    version_spec["catalog_id"] = catalog_id
+    files[version_path] = _yaml(version_spec)
+    return files
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_preserves_enabled_catalog_id_without_model_tuple(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """model_provider/model_name inherit defaults; an enabled UUID needs no tuple."""
+    catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider="custom-model-provider",
+        model_name="qa-untyped-catalog-model",
+    )
+    source_id = "qa-untyped-catalog-enabled"
+    files = _untyped_catalog_preset_git_tree(
+        source_id=source_id, catalog_id=str(catalog.id)
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="y" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    assert result.diagnostics == []
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == source_id,
+        )
+    )
+    assert preset is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(AgentPresetVersion.preset_id == preset.id)
+    )
+    assert version is not None
+    assert version.catalog_id == catalog.id
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_rejects_non_local_catalog_id_without_model_tuple(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    source_catalog_id = uuid.uuid4()
+    source_id = "qa-untyped-catalog-foreign"
+    files = _untyped_catalog_preset_git_tree(
+        source_id=source_id, catalog_id=str(source_catalog_id)
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
     assert diagnostics == []
 
     result = await service._import_snapshot(snapshot, sync_schedules=False)
 
     assert result.success is False
-    assert result.catalog_mapping_requirements == []
     assert len(result.diagnostics) == 1
+    assert "non-local" in result.diagnostics[0].message
     assert result.diagnostics[0].details == {
-        "code": "catalog_id_invalid",
-        "workflow_source_id": workflow_alias,
-        "action_ref": "run_malformed_catalog_agent",
-        "catalog_id": "not-a-uuid",
+        "preset_slug": source_id,
+        "preset_version": 1,
+        "catalog_id": str(source_catalog_id),
     }
     assert (
         await session.scalar(
-            select(Workflow).where(
-                Workflow.workspace_id == svc_role.workspace_id,
-                Workflow.alias == workflow_alias,
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == source_id,
             )
         )
         is None

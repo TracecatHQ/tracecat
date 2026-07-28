@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -73,14 +73,6 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
-
-
-class _AgentModelSelection(BaseModel):
-    """Model selection fields shared by AI agent and AI action arguments."""
-
-    catalog_id: uuid.UUID | None = None
-    model_provider: str = Field(min_length=1)
-    model_name: str = Field(min_length=1)
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -417,6 +409,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         present_catalog_ids: set[uuid.UUID] = set()
         diagnostics: list[PullDiagnostic] = []
         invalid_catalog_ids: set[uuid.UUID] = set()
+        missing_tuple_diagnostics: list[tuple[uuid.UUID, PullDiagnostic]] = []
 
         for source_id, preset in sorted(presets.items()):
             for version_number, version in sorted(preset.versions.items()):
@@ -425,27 +418,32 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     continue
                 present_catalog_ids.add(catalog_id)
                 if not version.model_provider or not version.model_name:
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=self._version_source_path(
-                                source_id, version_number
+                    # The tuple is only needed to correlate a non-local UUID.
+                    # Defer the diagnostic until local enablement is known.
+                    missing_tuple_diagnostics.append(
+                        (
+                            catalog_id,
+                            PullDiagnostic(
+                                workflow_path=self._version_source_path(
+                                    source_id, version_number
+                                ),
+                                workflow_title=preset.name,
+                                error_type="validation",
+                                message=(
+                                    f"Agent preset {preset.slug!r} version "
+                                    f"{version_number} references a non-local "
+                                    "model catalog entry but does not include "
+                                    "model_provider and model_name for "
+                                    "correlation."
+                                ),
+                                details={
+                                    "preset_slug": preset.slug,
+                                    "preset_version": version_number,
+                                    "catalog_id": str(catalog_id),
+                                },
                             ),
-                            workflow_title=preset.name,
-                            error_type="validation",
-                            message=(
-                                f"Agent preset {preset.slug!r} version "
-                                f"{version_number} references a model catalog "
-                                "entry but does not include model_provider and "
-                                "model_name for correlation."
-                            ),
-                            details={
-                                "preset_slug": preset.slug,
-                                "preset_version": version_number,
-                                "catalog_id": str(catalog_id),
-                            },
                         )
                     )
-                    invalid_catalog_ids.add(catalog_id)
                     continue
                 references_by_catalog_id.setdefault(catalog_id, []).append(
                     AgentPresetCatalogReference(
@@ -465,68 +463,34 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             for action in workflow.definition.actions:
                 if action.action not in workflow_action_types:
                     continue
-                raw_model = action.args.get("model")
-                nested_model = (
-                    cast(Mapping[str, Any], raw_model)
-                    if isinstance(raw_model, dict)
-                    else None
-                )
+                nested_model = action.args.get("model")
+                nested_model = nested_model if isinstance(nested_model, dict) else None
                 merged_args = (
                     {**action.args, **nested_model}
                     if nested_model is not None
                     else action.args
                 )
+                raw_catalog_id = merged_args.get("catalog_id")
+                model_provider = merged_args.get("model_provider")
+                model_name = merged_args.get("model_name")
+                if raw_catalog_id is None or not model_provider or not model_name:
+                    continue
                 try:
-                    selection = _AgentModelSelection.model_validate(merged_args)
-                except ValidationError as error:
-                    validation_errors = error.errors()
-                    if any(
-                        detail["loc"] in {("model_provider",), ("model_name",)}
-                        for detail in validation_errors
-                    ):
-                        continue
-                    catalog_error = next(
-                        (
-                            detail
-                            for detail in validation_errors
-                            if detail["loc"] == ("catalog_id",)
-                        ),
-                        None,
-                    )
-                    if catalog_error is None:
-                        continue
-                    raw_catalog_id = catalog_error["input"]
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=workflow_source_path(source_id),
-                            workflow_title=workflow.definition.title,
-                            error_type="validation",
-                            message=(
-                                f"Workflow action {action.ref!r} has an invalid "
-                                f"catalog_id {raw_catalog_id!r}; catalog_id must "
-                                "be a UUID."
-                            ),
-                            details={
-                                "code": "catalog_id_invalid",
-                                "workflow_source_id": source_id,
-                                "action_ref": action.ref,
-                                "catalog_id": str(raw_catalog_id),
-                            },
-                        )
-                    )
+                    catalog_id = uuid.UUID(str(raw_catalog_id))
+                except (TypeError, ValueError):
+                    # Not a literal UUID (e.g. a template expression evaluated
+                    # at runtime): leave the action untouched.
                     continue
-                if selection.catalog_id is None:
-                    continue
-                present_catalog_ids.add(selection.catalog_id)
-                references_by_catalog_id.setdefault(selection.catalog_id, []).append(
+                present_catalog_ids.add(catalog_id)
+                references_by_catalog_id.setdefault(catalog_id, []).append(
                     WorkflowCatalogReference(
                         path=workflow_source_path(source_id),
                         workflow_source_id=source_id,
                         workflow_title=workflow.definition.title,
                         action_ref=action.ref,
                         model_key=ModelKey(
-                            selection.model_provider,
-                            selection.model_name,
+                            str(model_provider),
+                            str(model_name),
                         ),
                     )
                 )
@@ -536,6 +500,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_id=workspace_service.workspace_id,
             catalog_ids=present_catalog_ids,
         )
+
+        for catalog_id, diagnostic in missing_tuple_diagnostics:
+            if catalog_id in enabled_catalog_models:
+                continue
+            diagnostics.append(diagnostic)
+            invalid_catalog_ids.add(catalog_id)
 
         sorted_references_by_catalog_id = sorted(references_by_catalog_id.items())
         for catalog_id, references in sorted_references_by_catalog_id:
@@ -725,24 +695,25 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     PlatformAction.AI_ACTION,
                 ):
                     continue
-                raw_model = action.args.get("model")
-                nested_model = (
-                    cast(Mapping[str, Any], raw_model)
-                    if isinstance(raw_model, dict)
-                    else None
-                )
+                nested_model = action.args.get("model")
+                nested_model = nested_model if isinstance(nested_model, dict) else None
                 merged_args = (
                     {**action.args, **nested_model}
                     if nested_model is not None
                     else action.args
                 )
+                raw_catalog_id = merged_args.get("catalog_id")
+                if (
+                    not raw_catalog_id
+                    or not merged_args.get("model_provider")
+                    or not merged_args.get("model_name")
+                ):
+                    continue
                 try:
-                    selection = _AgentModelSelection.model_validate(merged_args)
-                except ValidationError:
+                    catalog_id = uuid.UUID(str(raw_catalog_id))
+                except (TypeError, ValueError):
                     continue
-                if selection.catalog_id is None:
-                    continue
-                local_catalog_id = resolved_catalog_ids.get(selection.catalog_id)
+                local_catalog_id = resolved_catalog_ids.get(catalog_id)
                 if local_catalog_id is None:
                     continue
 

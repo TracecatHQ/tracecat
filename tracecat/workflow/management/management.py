@@ -1343,7 +1343,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 try:
                     parsed_id = uuid.UUID(catalog_id_str)
                 except (ValueError, TypeError):
-                    already_local[catalog_id_str] = False
+                    # Not a literal UUID (e.g. a template expression evaluated
+                    # at runtime): leave the selection untouched.
+                    already_local[catalog_id_str] = True
                 else:
                     already_local[
                         catalog_id_str
