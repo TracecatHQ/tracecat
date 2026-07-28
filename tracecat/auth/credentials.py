@@ -48,7 +48,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_auth_context_manager
+from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -104,7 +104,7 @@ async def _get_workspace_org_id_cached(
 async def _get_workspace_org_id(
     workspace_id: uuid.UUID,
     *,
-    session: AsyncSession | None = None,
+    session: AuthSession | None = None,
 ) -> uuid.UUID | None:
     """Resolve a workspace's organization without caching a session object.
 
@@ -118,7 +118,7 @@ async def _get_workspace_org_id(
 
 
 async def _query_workspace_org_id(
-    session: AsyncSession,
+    session: AuthSession,
     workspace_id: uuid.UUID,
 ) -> uuid.UUID | None:
     """Resolve a workspace's organization using an already-held session."""

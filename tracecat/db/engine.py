@@ -3,12 +3,13 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
-from typing import Literal
+from typing import Any, Literal, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy import event
+from sqlalchemy import Executable, event
+from sqlalchemy.engine import Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
@@ -43,6 +44,51 @@ _ctx_auth_pool_session: ContextVar[AsyncSession | None] = ContextVar(
     "auth_pool_session",
     default=None,
 )
+
+
+class SupportsExecute(Protocol):
+    """Read surface shared by request sessions and auth handles.
+
+    Helpers that legitimately serve both pools (e.g. entitlement lookups) take
+    this instead of a concrete session type, so neither caller has to widen.
+    """
+
+    async def execute(self, statement: Executable) -> Result[Any]: ...
+
+
+class AuthSession:
+    """Capability-narrowed handle over an authentication-bulkhead session.
+
+    Deliberately does NOT subclass `AsyncSession`: any subclass or `NewType`
+    stays assignable to `AsyncSession`, so a future caller could take an
+    auth-pool handle and use it for general or background work — the exact
+    misuse the bulkhead exists to prevent. Composition makes that a type error.
+
+    The surface below is the union of what today's authentication callsites
+    need, and nothing more. Notably absent: `begin`, `flush`, `delete`,
+    `merge`, `refresh`, `get`, and access to the wrapped session — long-lived
+    or transactional work does not belong on this pool. `add`/`commit` exist
+    only for the API-key `last_used_at` write.
+
+    The `_ctx_auth_pool_session` guard remains the runtime backstop for
+    checkouts that static analysis cannot see.
+    """
+
+    __slots__ = ("_session",)
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def execute(self, statement: Executable) -> Result[Any]:
+        # Result is generic over the statement's column types, which vary per
+        # callsite; SQLAlchemy itself returns Result[Any] for untyped executes.
+        return await self._session.execute(statement)
+
+    def add(self, instance: object) -> None:
+        self._session.add(instance)
+
+    async def commit(self) -> None:
+        await self._session.commit()
 
 
 def _assert_main_pool_checkout_allowed() -> None:
@@ -345,7 +391,7 @@ async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def get_async_session_auth() -> AsyncGenerator[AsyncSession, None]:
+async def get_async_session_auth() -> AsyncGenerator[AuthSession, None]:
     """Get an RLS-bypass session from the authentication bulkhead.
 
     Only short authentication/bootstrap lookups may use this accessor. It is an
@@ -371,7 +417,7 @@ async def get_async_session_auth() -> AsyncGenerator[AsyncSession, None]:
                 raise AuthPoolExhaustedError(
                     "Authentication database pool checkout timed out"
                 ) from exc
-            yield session
+            yield AuthSession(session)
         finally:
             _ctx_auth_pool_session.reset(token)
 
@@ -394,7 +440,7 @@ def get_async_session_bypass_rls_context_manager() -> (
 
 
 def get_async_session_auth_context_manager() -> contextlib.AbstractAsyncContextManager[
-    AsyncSession
+    AuthSession
 ]:
     """Get a context manager for a short authentication bulkhead session."""
     return contextlib.asynccontextmanager(get_async_session_auth)()

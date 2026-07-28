@@ -6,19 +6,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.pool import QueuePool
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    AuthSession,
     _get_db_uri,
     get_async_auth_engine,
     get_async_engine,
     get_async_session,
     get_async_session_auth,
+    get_async_session_auth_context_manager,
     get_async_session_bypass_rls,
     reset_async_engine,
 )
@@ -336,3 +339,57 @@ async def test_auth_pool_timeout_raises_typed_exhaustion_error(
     generator = get_async_session_auth()
     with pytest.raises(AuthPoolExhaustedError):
         await anext(generator)
+
+
+@pytest.mark.anyio
+async def test_auth_accessor_yields_capability_narrowed_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The auth accessor hands out AuthSession, never a raw AsyncSession."""
+    underlying = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = underlying
+    session_cm.__aexit__.return_value = None
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.get_async_auth_engine", lambda: object())
+
+    async with get_async_session_auth_context_manager() as session:
+        assert isinstance(session, AuthSession)
+        assert not isinstance(session, AsyncSession)
+
+
+def test_auth_session_withholds_transactional_surface() -> None:
+    """Misuse of the auth pool for long-lived work is unexpressible."""
+    handle = AuthSession(AsyncMock())
+
+    for attr in ("begin", "flush", "delete", "merge", "refresh", "get"):
+        assert not hasattr(handle, attr), f"AuthSession must not expose {attr}"
+
+    # Only the surface today's auth callsites need.
+    assert hasattr(handle, "execute")
+    assert hasattr(handle, "add")
+    assert hasattr(handle, "commit")
+
+
+@pytest.mark.anyio
+async def test_auth_session_delegates_to_wrapped_session() -> None:
+    """The handle forwards its narrow surface to the underlying session."""
+    underlying = AsyncMock()
+    sentinel = object()
+    underlying.execute.return_value = sentinel
+    handle = AuthSession(underlying)
+
+    statement = select(1)
+    assert await handle.execute(statement) is sentinel
+    underlying.execute.assert_awaited_once_with(statement)
+
+    record = object()
+    handle.add(record)
+    underlying.add.assert_called_once_with(record)
+
+    await handle.commit()
+    underlying.commit.assert_awaited_once()
