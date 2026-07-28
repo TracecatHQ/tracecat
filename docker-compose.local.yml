@@ -341,6 +341,7 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SERVICE_NAME: litellm
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
       PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee

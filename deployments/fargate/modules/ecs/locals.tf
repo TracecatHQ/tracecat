@@ -223,6 +223,7 @@ locals {
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT         = local.core_db_hostname
+        TRACECAT__SERVICE_NAME        = "litellm"
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
       }
