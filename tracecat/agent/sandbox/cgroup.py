@@ -80,10 +80,7 @@ def detect_cgroup_root(
         if hierarchy_id != "0" or controllers:
             continue
 
-        root = cgroupfs if cgroup_path == "/" else cgroupfs / cgroup_path.lstrip("/")
-        if root.name == "main":
-            return root.parent
-        return root
+        return cgroupfs if cgroup_path == "/" else cgroupfs / cgroup_path.lstrip("/")
     return None
 
 

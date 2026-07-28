@@ -119,9 +119,12 @@ def test_detect_cgroup_root_unreadable_file_returns_none(
     assert detect_cgroup_root(proc_cgroup_path, tmp_path / "cgroupfs") is None
 
 
-def test_detect_cgroup_root_uses_parent_when_process_is_in_main(
+def test_detect_cgroup_root_keeps_cgroup_legitimately_named_main(
     tmp_path: Path,
 ) -> None:
+    # A runtime-assigned cgroup that happens to be named "main" is the
+    # container's real boundary; escaping to its parent would prepare cgroups
+    # beside the container's memory limit instead of beneath it.
     proc_cgroup_path = _write_proc_cgroup(
         tmp_path,
         "0::/kubepods.slice/pod.scope/main\n",
@@ -130,7 +133,7 @@ def test_detect_cgroup_root_uses_parent_when_process_is_in_main(
 
     result = detect_cgroup_root(proc_cgroup_path, cgroupfs)
 
-    assert result == cgroupfs / "kubepods.slice/pod.scope"
+    assert result == cgroupfs / "kubepods.slice/pod.scope/main"
 
 
 def test_get_agent_sandbox_cgroup_returns_unprepared_default(
@@ -385,7 +388,10 @@ def test_prepare_move_does_not_change_cached_root_used_for_budget(
     )
     (cgroup_root / "main" / "memory.max").write_text("max\n")
 
-    assert detect_cgroup_root(proc_cgroup_path, cgroupfs) == cgroup_root
+    # A fresh detection after the move resolves to the main leaf (whose
+    # memory.max is unlimited) — which is exactly why budget validation must
+    # consume the root captured by prepare before any PID moves.
+    assert detect_cgroup_root(proc_cgroup_path, cgroupfs) == cgroup_root / "main"
     assert prepared_cgroup.root == cgroup_root
     assert (
         clamp_agent_executor_concurrency(
