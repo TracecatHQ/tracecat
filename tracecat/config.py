@@ -744,9 +744,9 @@ TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB = int(
 )
 """Memory reserved for the agent executor worker and shared services."""
 
-TRACECAT__AGENT_EXECUTOR_READY_FILE = os.environ.get(
-    "TRACECAT__AGENT_EXECUTOR_READY_FILE",
-    "/var/run/tracecat/agent-executor-ready",
+TRACECAT__AGENT_EXECUTOR_READY_FILE = (
+    os.environ.get("TRACECAT__AGENT_EXECUTOR_READY_FILE")
+    or "/var/run/tracecat/agent-executor-ready"
 )
 """Best-effort readiness sentinel written after the agent executor starts."""
 
