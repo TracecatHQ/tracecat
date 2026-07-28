@@ -799,16 +799,43 @@ def _directory_footprint(directory: Path) -> tuple[int, float]:
     return total_bytes, created_at
 
 
-def _delete_entry_paths(paths: RegistryArtifactPaths) -> None:
-    """Delete every on-disk path owned by a registry artifact cache key.
+def _delete_cache_path(path: Path) -> bool:
+    """Best-effort delete one cache path while reporting filesystem failures."""
+    try:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(
+            "Failed to delete registry artifact cache path",
+            path=str(path),
+            error=str(e),
+        )
+        return False
+    return True
+
+
+def _delete_entry_paths(paths: RegistryArtifactPaths) -> bool:
+    """Best-effort delete every path owned by a registry artifact cache key.
 
     The caller must unmount ``squashfs_mount_dir`` first: unlinking the image
     file behind a live mount leaves an open-file zombie pinning a loop device.
+
+    Returns:
+        Whether every path was deleted. Failures are logged and returned instead
+        of raised so cache cleanup never rejects executor work.
     """
-    shutil.rmtree(paths.squashfs_extract_dir, ignore_errors=True)
-    shutil.rmtree(paths.tarball_target_dir, ignore_errors=True)
-    paths.squashfs_image_path.unlink(missing_ok=True)
-    shutil.rmtree(paths.squashfs_mount_dir, ignore_errors=True)
+    deleted = True
+    for path in (
+        paths.squashfs_extract_dir,
+        paths.tarball_target_dir,
+        paths.squashfs_image_path,
+        paths.squashfs_mount_dir,
+    ):
+        if not _delete_cache_path(path):
+            deleted = False
+    return deleted
 
 
 def _rename_entry_paths(
@@ -870,6 +897,11 @@ class RegistryArtifactCache:
         self._sweep_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
         self._leases: dict[str, RegistryArtifactLease] = {}
+        # Eviction renames live paths before deleting them so a cancelled or
+        # failed cleanup can never expose a partial cache hit. Failed physical
+        # deletions stay here until a later budget pass retries them.
+        self._pending_deletions: set[RegistryArtifactPaths] = set()
+        self._deletion_tasks: dict[RegistryArtifactPaths, asyncio.Task[bool]] = {}
         # Whether the on-disk cache may exceed its budget. Set when a new entry
         # is materialized and cleared once enforcement measures a cache that
         # fits, so steady-state cache hits never pay for a disk scan.
@@ -1294,10 +1326,11 @@ class RegistryArtifactCache:
             Whether the cache is within budget once eviction has finished.
         """
         async with self._budget_lock:
+            self._retry_pending_deletions()
             max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
             max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
             if max_entries <= 0 and max_bytes <= 0:
-                return True
+                return not self._pending_deletions
 
             entries = await asyncio.to_thread(self._scan_cache_entries)
             # The protected key is not on disk yet when it is a fresh entry.
@@ -1332,7 +1365,7 @@ class RegistryArtifactCache:
                 else:
                     skipped.add(candidate.cache_key)
 
-            return True
+            return not self._pending_deletions
 
     async def _release_mounted_slot(self, protected_key: str) -> bool:
         """Unmount one idle artifact so its loop device can be reused.
@@ -1406,6 +1439,62 @@ class RegistryArtifactCache:
         if lease is None:
             return entry.last_used
         return max(entry.last_used, lease.last_used)
+
+    def _start_pending_deletion(
+        self, paths: RegistryArtifactPaths
+    ) -> asyncio.Task[bool]:
+        """Start or return the background deletion task for renamed cache paths."""
+        if task := self._deletion_tasks.get(paths):
+            return task
+
+        self._pending_deletions.add(paths)
+        task = asyncio.create_task(asyncio.to_thread(_delete_entry_paths, paths))
+        self._deletion_tasks[paths] = task
+
+        def record_result(completed: asyncio.Task[bool]) -> None:
+            self._record_pending_deletion_result(paths, completed)
+
+        task.add_done_callback(record_result)
+        return task
+
+    def _record_pending_deletion_result(
+        self,
+        paths: RegistryArtifactPaths,
+        task: asyncio.Task[bool],
+    ) -> None:
+        """Update retry bookkeeping after one physical deletion attempt."""
+        if self._deletion_tasks.get(paths) is not task:
+            return
+        self._deletion_tasks.pop(paths, None)
+        try:
+            deleted = task.result()
+        except asyncio.CancelledError:
+            self._budget_dirty = True
+            return
+        except Exception as e:
+            logger.error(
+                "Registry artifact cache deletion task failed",
+                paths=[
+                    str(paths.squashfs_extract_dir),
+                    str(paths.tarball_target_dir),
+                    str(paths.squashfs_image_path),
+                    str(paths.squashfs_mount_dir),
+                ],
+                error=str(e),
+            )
+            self._budget_dirty = True
+            return
+
+        if deleted:
+            self._pending_deletions.discard(paths)
+        else:
+            self._budget_dirty = True
+
+    def _retry_pending_deletions(self) -> None:
+        """Retry failed physical deletions without blocking cache admission."""
+        for paths in tuple(self._pending_deletions):
+            if paths not in self._deletion_tasks:
+                self._start_pending_deletion(paths)
 
     async def _unmount_entry(self, cache_key: str) -> bool:
         """Unmount one idle cache entry while retaining its reusable image.
@@ -1501,9 +1590,22 @@ class RegistryArtifactCache:
                 cache_key=cache_key,
             )
             self._leases.pop(cache_key, None)
-            logger.info("Evicted registry artifact from cache", cache_key=cache_key)
 
-        await asyncio.to_thread(_delete_entry_paths, doomed_paths)
+        deletion_task = self._start_pending_deletion(doomed_paths)
+        try:
+            deleted = await asyncio.shield(deletion_task)
+        except asyncio.CancelledError:
+            self._budget_dirty = True
+            raise
+        if not deleted:
+            self._budget_dirty = True
+            logger.warning(
+                "Registry artifact eviction remains pending physical deletion",
+                cache_key=cache_key,
+            )
+            return False
+
+        logger.info("Evicted registry artifact from cache", cache_key=cache_key)
         return True
 
     async def _unmount(self, mount_dir: Path) -> bool:
@@ -1623,9 +1725,11 @@ class RegistryArtifactCache:
             return
 
         try:
-            self._remove_orphaned_temp_paths()
+            orphan_cleanup_succeeded = self._remove_orphaned_temp_paths()
             self._remove_stale_mount_dirs()
             self._trim_startup_cache()
+            if not orphan_cleanup_succeeded:
+                self._budget_dirty = True
         except OSError as e:
             logger.warning(
                 "Failed to sweep registry artifact cache",
@@ -1634,23 +1738,29 @@ class RegistryArtifactCache:
             )
             raise
 
-    def _remove_orphaned_temp_paths(self) -> None:
+    def _remove_orphaned_temp_paths(self) -> bool:
         """Delete every materialization scratch path during startup.
 
         The sweep runs before the first lease or materialization in this process.
         Every matching path is therefore interrupted scratch from an earlier
         process and is safe to remove even when the operating system reused that
         process's PID.
+
+        Returns:
+            Whether every orphaned path was removed.
         """
+        deleted = True
         for name in os.listdir(self.cache_dir):
             if TEMP_ARTIFACT_PATTERN.match(name) is None:
                 continue
             path = self.cache_dir / name
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
+            if _delete_cache_path(path):
+                logger.info(
+                    "Removed orphaned registry artifact scratch path", path=name
+                )
             else:
-                path.unlink(missing_ok=True)
-            logger.info("Removed orphaned registry artifact scratch path", path=name)
+                deleted = False
+        return deleted
 
     def _remove_stale_mount_dirs(self) -> None:
         """Remove empty mount directories left over from a previous process."""
@@ -1694,6 +1804,7 @@ class RegistryArtifactCache:
             ),
             key=lambda entry: entry.last_used,
         )
+        deletion_failed = False
 
         def within_budget() -> bool:
             return (max_entries <= 0 or len(entries) <= max_entries) and (
@@ -1703,7 +1814,9 @@ class RegistryArtifactCache:
         for entry in candidates:
             if within_budget():
                 break
-            _delete_entry_paths(self._paths_for(entry.cache_key))
+            if not _delete_entry_paths(self._paths_for(entry.cache_key)):
+                deletion_failed = True
+                continue
             del entries[entry.cache_key]
             total_bytes -= entry.size_bytes
             logger.info(
@@ -1712,4 +1825,4 @@ class RegistryArtifactCache:
                 size_bytes=entry.size_bytes,
             )
 
-        self._budget_dirty = not within_budget()
+        self._budget_dirty = deletion_failed or not within_budget()
