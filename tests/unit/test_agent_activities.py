@@ -1215,16 +1215,54 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.get_pod_deletion_cost_publisher"
+            ) as get_deletion_cost_publisher,
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
             mock_executor.run = AsyncMock(return_value=expected_result)
             mock_executor_cls.return_value = mock_executor
+            deletion_cost_publisher = MagicMock()
+            deletion_cost_publisher.increment = AsyncMock()
+            deletion_cost_publisher.decrement = AsyncMock()
+            get_deletion_cost_publisher.return_value = deletion_cost_publisher
 
             result = await run_agent_activity(mock_executor_input)
 
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            deletion_cost_publisher.increment.assert_awaited_once()
+            deletion_cost_publisher.decrement.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_decrements_deletion_cost_when_execution_raises(
+        self,
+        mock_executor_input: AgentExecutorInput,
+    ) -> None:
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.get_pod_deletion_cost_publisher"
+            ) as get_deletion_cost_publisher,
+        ):
+            mock_activity.heartbeat = MagicMock()
+            mock_executor = MagicMock()
+            mock_executor.run = AsyncMock(side_effect=RuntimeError("runtime failed"))
+            mock_executor_cls.return_value = mock_executor
+            deletion_cost_publisher = MagicMock()
+            deletion_cost_publisher.increment = AsyncMock()
+            deletion_cost_publisher.decrement = AsyncMock()
+            get_deletion_cost_publisher.return_value = deletion_cost_publisher
+
+            with pytest.raises(RuntimeError, match="runtime failed"):
+                await run_agent_activity(mock_executor_input)
+
+            deletion_cost_publisher.increment.assert_awaited_once()
+            deletion_cost_publisher.decrement.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(

@@ -42,6 +42,9 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
+from tracecat.agent.executor.deletion_cost import (
+    get_pod_deletion_cost_publisher,
+)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -1176,34 +1179,41 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
-    sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
-    activity.heartbeat(
-        f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
-    )
-
-    input = await _hydrate_sdk_session_history(input)
-
-    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
-    # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` and each subagent's
-    # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
-    # from the DB here so the spawned processes get their credentials.
-    config = cast(Any, input.config)
-    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
-    for subagent in input.subagents:
-        subagent.config.mcp_servers = await _hydrate_stdio_env(
-            subagent.config.mcp_servers, role=input.role
+    deletion_cost_publisher = get_pod_deletion_cost_publisher()
+    try:
+        await deletion_cost_publisher.increment()
+        sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
+        activity.heartbeat(
+            f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
         )
 
-    executor = SandboxedAgentExecutor(input=input)
-    result = await executor.run()
+        input = await _hydrate_sdk_session_history(input)
 
-    if result.success:
-        activity.heartbeat(f"Agent execution completed: {input.session_id}")
-    else:
-        activity.heartbeat(f"Agent execution failed: {result.error}")
+        # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+        # servers they have no per-call secret resolution hook downstream. The
+        # configs in ``input.config.mcp_servers`` and each subagent's
+        # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+        # from the DB here so the spawned processes get their credentials.
+        config = cast(Any, input.config)
+        config.mcp_servers = await _hydrate_stdio_env(
+            config.mcp_servers, role=input.role
+        )
+        for subagent in input.subagents:
+            subagent.config.mcp_servers = await _hydrate_stdio_env(
+                subagent.config.mcp_servers, role=input.role
+            )
 
-    return result
+        executor = SandboxedAgentExecutor(input=input)
+        result = await executor.run()
+
+        if result.success:
+            activity.heartbeat(f"Agent execution completed: {input.session_id}")
+        else:
+            activity.heartbeat(f"Agent execution failed: {result.error}")
+
+        return result
+    finally:
+        await deletion_cost_publisher.decrement()
 
 
 async def _hydrate_sdk_session_history(input: AgentExecutorInput) -> AgentExecutorInput:
