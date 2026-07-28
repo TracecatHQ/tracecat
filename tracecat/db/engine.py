@@ -8,10 +8,11 @@ from typing import Any, Literal, Protocol
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy import Executable, event
+from sqlalchemy import event
 from sqlalchemy.engine import Result
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.sql.selectable import TypedReturnsRows
 
 from tracecat import config
 from tracecat.contexts import ctx_role
@@ -53,7 +54,9 @@ class SupportsExecute(Protocol):
     this instead of a concrete session type, so neither caller has to widen.
     """
 
-    async def execute(self, statement: Executable) -> Result[Any]: ...
+    async def execute[T: tuple[Any, ...]](
+        self, statement: TypedReturnsRows[T]
+    ) -> Result[T]: ...
 
 
 class AuthSession:
@@ -79,9 +82,9 @@ class AuthSession:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def execute(self, statement: Executable) -> Result[Any]:
-        # Result is generic over the statement's column types, which vary per
-        # callsite; SQLAlchemy itself returns Result[Any] for untyped executes.
+    async def execute[T: tuple[Any, ...]](
+        self, statement: TypedReturnsRows[T]
+    ) -> Result[T]:
         return await self._session.execute(statement)
 
     def add(self, instance: object) -> None:
