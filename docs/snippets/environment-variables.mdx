@@ -69,7 +69,7 @@
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution strategy for actions. `direct` runs a subprocess per action, `ephemeral` spawns a cold nsjail subprocess per action for full isolation, `auto` selects `ephemeral` if nsjail is available and falls back to `direct`, `test` runs in-process for tests only. |
+| `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution strategy for actions. `direct` runs a subprocess per action, `ephemeral` spawns a cold nsjail subprocess per action for full isolation, `auto` selects `ephemeral` if nsjail is available and falls back to `direct`. |
 | `TRACECAT__DISABLE_NSJAIL` | `true` | Disable nsjail sandboxing. Set to `false` only if nsjail is installed. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__COLLECTION_MANIFESTS_ENABLED` | `true` | Store large collections as chunked manifests in blob storage. |
