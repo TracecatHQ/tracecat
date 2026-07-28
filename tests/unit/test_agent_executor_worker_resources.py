@@ -225,6 +225,48 @@ async def test_agent_executor_memory_budget_error_propagates_from_main(
 
 
 @pytest.mark.anyio
+async def test_agent_executor_clears_stale_sentinel_before_budget_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    ready_file = tmp_path / "run" / "agent-executor-ready"
+    ready_file.parent.mkdir(parents=True)
+    ready_file.write_text("stale\n")
+
+    cgroup_root = tmp_path / "cgroup"
+    cgroup_root.mkdir()
+    (cgroup_root / "memory.max").write_text(f"{4096 * 1024 * 1024}\n")
+    monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",
+        4096,
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        4096,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        lambda: PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root),
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_READY_FILE",
+        str(ready_file),
+    )
+
+    with pytest.raises(AgentExecutorMemoryBudgetError):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    assert not ready_file.exists()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("max_concurrent", ["0", "-1"])
 async def test_agent_executor_rejects_nonpositive_concurrency(
     monkeypatch: pytest.MonkeyPatch,

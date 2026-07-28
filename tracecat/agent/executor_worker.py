@@ -114,6 +114,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
     runtime_failure_reason = None
+    readiness_file = Path(config.TRACECAT__AGENT_EXECUTOR_READY_FILE)
+    # A SIGKILLed predecessor cannot run its cleanup, and the sentinel may live
+    # on a filesystem that survives container restarts; clear it before any
+    # startup work — including validation that can raise — so a readiness
+    # probe never sees a stale file.
+    _remove_readiness_file(readiness_file)
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
     )
@@ -132,11 +138,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         reserve_mb=config.TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB,
         sandbox_memory_mb=config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     )
-    readiness_file = Path(config.TRACECAT__AGENT_EXECUTOR_READY_FILE)
-    # A SIGKILLed predecessor cannot run its cleanup, and the sentinel may live
-    # on a filesystem that survives container restarts; clear it before any
-    # startup work so a readiness probe never sees a stale file.
-    _remove_readiness_file(readiness_file)
 
     logger.info(
         "Starting AgentExecutorWorker",
