@@ -788,6 +788,17 @@ class TestRegistryArtifactCache:
 class TestRegistryArtifactCacheLease:
     """Tests for lease-based pinning of registry artifact cache entries."""
 
+    def test_touch_entry_refreshes_tarball_root_mtime(self, temp_cache_dir):
+        """Touching a tarball-only entry persists its restart-safe recency."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = "tarball-only"
+        target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
+        os.utime(target_dir, (100.0, 100.0))
+
+        cache._touch_entry(cache_key)
+
+        assert target_dir.stat().st_mtime > 100.0
+
     @pytest.mark.anyio
     async def test_lease_refcounts_and_touches_image_mtime(self, temp_cache_dir):
         """A lease pins its entry and refreshes the restart-safe LRU timestamp."""
@@ -1222,7 +1233,8 @@ class TestRegistryArtifactCacheEviction:
         cache = RegistryArtifactCache(temp_cache_dir)
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=4096, mtime=100.0)
         if oldest_has_tarball:
-            _write_tarball_entry(temp_cache_dir, "oldest")
+            oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
+            os.utime(oldest_tarball, (100.0, 100.0))
         older = _write_image_entry(temp_cache_dir, "older", size=4096, mtime=200.0)
         newest = _write_image_entry(temp_cache_dir, "newest", size=4096, mtime=300.0)
 
@@ -1274,6 +1286,7 @@ class TestRegistryArtifactCacheEviction:
             temp_cache_dir, "oldest", size=16, mtime=100.0
         )
         oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
+        os.utime(oldest_tarball, (100.0, 100.0))
         newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=200.0)
 
         with (
@@ -1717,6 +1730,31 @@ class TestRegistryArtifactCacheEviction:
 
 class TestRegistryArtifactCacheStartupSweep:
     """Tests for the startup sweep that reclaims state from a dead process."""
+
+    @pytest.mark.anyio
+    async def test_sweep_uses_tarball_root_mtime_for_restart_safe_lru(
+        self, temp_cache_dir
+    ):
+        """Startup trimming preserves a touched older tarball-only entry."""
+        previous_cache = RegistryArtifactCache(temp_cache_dir)
+        old = _write_tarball_entry(temp_cache_dir, "old")
+        os.utime(old, (100.0, 100.0))
+        previous_cache._touch_entry("old")
+
+        await asyncio.sleep(0.01)
+        new = _write_tarball_entry(temp_cache_dir, "new")
+        os.utime(new, (200.0, 200.0))
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            cache = RegistryArtifactCache(temp_cache_dir)
+            await cache.ensure_swept()
+
+        assert old.is_dir()
+        assert not new.exists()
 
     @pytest.mark.anyio
     async def test_sweep_tolerates_missing_cache_dir(self, temp_cache_dir):

@@ -1029,7 +1029,7 @@ class RegistryArtifactCache:
         lease = self._leases.setdefault(cache_key, RegistryArtifactLease())
         lease.refcount += 1
         lease.last_used = time.time()
-        self._touch_image(cache_key)
+        self._touch_entry(cache_key)
 
     def _release_lease(self, cache_key: str) -> None:
         """Release one pin on a cache entry."""
@@ -1044,18 +1044,31 @@ class RegistryArtifactCache:
         lease = self._leases.get(cache_key)
         return 0 if lease is None else lease.refcount
 
-    def _touch_image(self, cache_key: str) -> None:
-        """Best-effort refresh of an artifact image mtime for restart-safe LRU.
+    def _touch_entry(self, cache_key: str) -> None:
+        """Best-effort refresh of artifact entry mtimes for restart-safe LRU.
 
-        Only the downloaded image file has a locally meaningful mtime; mount and
-        extraction directory timestamps come from the artifact build.
+        Both the image mtime and tarball root mtime are restart-safe recency
+        signals.
         """
-        image_path = self._paths_for(cache_key).squashfs_image_path
+        paths = self._paths_for(cache_key)
+        touched = False
         try:
-            os.utime(image_path)
+            os.utime(paths.squashfs_image_path)
         except OSError:
+            pass
+        else:
+            touched = True
+
+        try:
+            os.utime(paths.tarball_target_dir)
+        except OSError:
+            pass
+        else:
+            touched = True
+
+        if not touched:
             logger.debug(
-                "Could not refresh registry artifact image mtime",
+                "Could not refresh registry artifact entry mtimes",
                 cache_key=cache_key,
             )
 
@@ -1461,6 +1474,7 @@ class RegistryArtifactCache:
         paths = self._paths_for(cache_key)
         size_bytes = 0
         image_mtime = 0.0
+        tarball_root_mtime = 0.0
         created_at = 0.0
 
         try:
@@ -1471,14 +1485,19 @@ class RegistryArtifactCache:
             size_bytes += image_stat.st_size
             image_mtime = image_stat.st_mtime
 
+        try:
+            tarball_root_mtime = paths.tarball_target_dir.stat().st_mtime
+        except OSError:
+            pass
+
         for directory in (paths.squashfs_extract_dir, paths.tarball_target_dir):
             directory_bytes, directory_created_at = _directory_footprint(directory)
             size_bytes += directory_bytes
             created_at = max(created_at, directory_created_at)
 
-        # Image mtimes are refreshed on lease; directory ctimes are only a
-        # fallback for entries that have no locally downloaded image.
-        last_used = image_mtime or created_at
+        # Image and tarball-root mtimes are refreshed on lease; directory ctimes
+        # remain the fallback for entries that have neither.
+        last_used = max(image_mtime, tarball_root_mtime) or created_at
 
         return RegistryArtifactCacheEntry(
             cache_key=cache_key,
