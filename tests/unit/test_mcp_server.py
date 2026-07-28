@@ -7070,10 +7070,12 @@ async def test_sync_custom_registry_requires_organization_context(monkeypatch):
 
 
 def test_sync_custom_registry_public_signature_drops_repo_selectors() -> None:
+    """Force-sync deletes the current registry version and is not MCP-reachable."""
     signature = inspect.signature(_tool(mcp_server.sync_custom_registry))
     assert "repository_id" not in signature.parameters
     assert "origin" not in signature.parameters
     assert "workspace_id" not in signature.parameters
+    assert "force" not in signature.parameters
     assert "org_id" in signature.parameters
 
 

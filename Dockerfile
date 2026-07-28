@@ -227,13 +227,12 @@ ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
-COPY docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY docker/scripts/agent-executor-entrypoint.sh /usr/local/bin/agent-executor-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-executor-entrypoint.sh
 
 # Switch to non-root user (matches production, required for pasta userspace networking)
 USER apiuser
 
-ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
@@ -282,6 +281,9 @@ ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home
 
 RUN mkdir -p /app/.scripts && chown -R apiuser:apiuser /app
 
+COPY docker/scripts/agent-executor-entrypoint.sh /usr/local/bin/agent-executor-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-executor-entrypoint.sh
+
 # Switch to non-root user
 USER apiuser
 
@@ -296,8 +298,6 @@ COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
-COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
 
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     uv sync --locked --no-dev --no-editable
@@ -326,5 +326,4 @@ COPY --from=registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /
 RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available"
 
 EXPOSE $PORT
-ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]

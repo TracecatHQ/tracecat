@@ -328,6 +328,10 @@ async def pull_workflows(
         pull_options = PullOptions(
             commit_sha=params.commit_sha,
             dry_run=params.dry_run,
+            catalog_mappings={
+                mapping.source_catalog_id: mapping.target_catalog_id
+                for mapping in params.catalog_mappings
+            },
         )
         sync_service = await WorkspaceSyncService.for_workspace(
             session=session, role=role

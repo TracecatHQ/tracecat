@@ -191,15 +191,21 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
 
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
-    engine_kwargs = {
-        "max_overflow": config.TRACECAT__DB_MAX_OVERFLOW,
-        "pool_recycle": config.TRACECAT__DB_POOL_RECYCLE,
-        "pool_size": config.TRACECAT__DB_POOL_SIZE,
-        "pool_pre_ping": True,
-        "pool_use_lifo": True,  # Better for burst workloads
-    }
     uri = _get_db_uri(driver="asyncpg")
-    return create_async_engine(uri, **engine_kwargs)
+    return create_async_engine(
+        uri,
+        max_overflow=config.TRACECAT__DB_MAX_OVERFLOW,
+        pool_recycle=config.TRACECAT__DB_POOL_RECYCLE,
+        pool_size=config.TRACECAT__DB_POOL_SIZE,
+        pool_timeout=config.TRACECAT__DB_POOL_TIMEOUT,
+        pool_pre_ping=True,
+        pool_use_lifo=True,  # Better for burst workloads
+        # Attribute pooled connections to the originating service in
+        # pg_stat_activity.
+        connect_args={
+            "server_settings": {"application_name": config.TRACECAT__SERVICE_NAME}
+        },
+    )
 
 
 def get_async_engine() -> AsyncEngine:

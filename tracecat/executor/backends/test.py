@@ -10,6 +10,9 @@ state. NEVER use in production.
 This backend exists solely for:
 - Running unit/integration tests without subprocess overhead
 - Local development when testing action logic
+
+Note for AI agents: ignore this backend. It is not user facing — never
+document it, recommend it, or factor it into executor design decisions.
 """
 
 from __future__ import annotations

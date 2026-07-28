@@ -8,14 +8,28 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
-import type { GitCommitInfo, PullResult, VcsProvider } from "@/client"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import type {
+  CatalogMappingCandidate,
+  CatalogMappingRequirement,
+  CatalogMappingSelection,
+  GitCommitInfo,
+  PullResult,
+  VcsProvider,
+} from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { PullResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
 import { ResourceDiffSection } from "@/components/workspace-sync/resource-diff-review"
@@ -53,22 +67,46 @@ export function WorkspaceSyncPullTab({
     null
   )
   const [syncSchedules, setSyncSchedules] = useState(false)
+  const [catalogMappings, setCatalogMappings] = useState<
+    Record<string, string>
+  >({})
+  const [catalogMappingRequirements, setCatalogMappingRequirements] = useState<
+    CatalogMappingRequirement[]
+  >([])
   const [pullPreview, setPullPreview] = useState<PullResult | null>(null)
   const [pullPreviewOptions, setPullPreviewOptions] = useState<{
     commitSha: string
     syncSchedules: boolean
+    catalogMappingsKey: string | null
   } | null>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
   const [pullAction, setPullAction] = useState<"preview" | "apply" | null>(null)
 
   const effectivePullSha = selectedCommitSha ?? commits?.[0]?.sha
-  const pullPreviewMatchesSelection =
+  const selectedCatalogMappings = useMemo(
+    () => catalogMappingSelections(catalogMappings),
+    [catalogMappings]
+  )
+  const catalogMappingsKey = useMemo(
+    () => JSON.stringify(selectedCatalogMappings),
+    [selectedCatalogMappings]
+  )
+  const pullPreviewMatchesSource =
     Boolean(effectivePullSha) &&
     pullPreviewOptions !== null &&
     pullPreviewOptions.commitSha === effectivePullSha &&
     pullPreviewOptions.syncSchedules === syncSchedules
+  const pullPreviewMatchesSelection =
+    pullPreviewMatchesSource &&
+    pullPreviewOptions?.catalogMappingsKey === catalogMappingsKey
   const canApplyPull =
     pullPreviewMatchesSelection && pullPreview?.success === true
+
+  const resetPullPreview = useCallback(() => {
+    setPullPreview(null)
+    setPullPreviewOptions(null)
+    setPullResult(null)
+  }, [])
 
   // Default the pull source to HEAD once commits load.
   useEffect(() => {
@@ -78,10 +116,14 @@ export function WorkspaceSyncPullTab({
   }, [commits, selectedCommitSha])
 
   useEffect(() => {
-    setPullPreview(null)
-    setPullPreviewOptions(null)
-    setPullResult(null)
-  }, [effectivePullSha, provider, syncSchedules])
+    resetPullPreview()
+    setCatalogMappings({})
+    setCatalogMappingRequirements([])
+  }, [effectivePullSha, provider, resetPullPreview])
+
+  useEffect(() => {
+    resetPullPreview()
+  }, [syncSchedules, resetPullPreview])
 
   async function handlePreviewPull() {
     if (!effectivePullSha) {
@@ -96,11 +138,14 @@ export function WorkspaceSyncPullTab({
         commit_sha: effectivePullSha,
         dry_run: true,
         sync_schedules: syncSchedules,
+        catalog_mappings: selectedCatalogMappings,
       })
       setPullPreview(result)
+      setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
       setPullPreviewOptions({
         commitSha: effectivePullSha,
         syncSchedules,
+        catalogMappingsKey,
       })
       toast({
         title: result.success ? "Pull preview ready" : "Pull preview failed",
@@ -129,11 +174,24 @@ export function WorkspaceSyncPullTab({
       const result = await pullWorkflows({
         commit_sha: effectivePullSha,
         sync_schedules: syncSchedules,
+        catalog_mappings: selectedCatalogMappings,
       })
-      setPullResult(result)
       if (result.success) {
+        setPullResult(result)
         setPullPreview(null)
         setPullPreviewOptions(null)
+        setCatalogMappings({})
+        setCatalogMappingRequirements([])
+      } else {
+        setPullPreview(result)
+        setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
+        setPullPreviewOptions({
+          commitSha: effectivePullSha,
+          syncSchedules,
+          // Apply revalidates catalog access. A failure invalidates the prior
+          // preview even when the selected UUIDs themselves did not change.
+          catalogMappingsKey: null,
+        })
       }
       toast({
         title: result.success
@@ -151,6 +209,17 @@ export function WorkspaceSyncPullTab({
     } finally {
       setPullAction(null)
     }
+  }
+
+  function handleCatalogMappingChange(
+    sourceCatalogId: string,
+    targetCatalogId: string
+  ) {
+    setCatalogMappings((current) => ({
+      ...current,
+      [sourceCatalogId]: targetCatalogId,
+    }))
+    setPullResult(null)
   }
 
   return (
@@ -188,11 +257,18 @@ export function WorkspaceSyncPullTab({
         checked above.
       </SyncWarning>
 
-      {pullPreview && pullPreviewMatchesSelection && (
-        <PullPreviewSummary result={pullPreview} />
+      {pullPreview && pullPreviewMatchesSource && (
+        <PullPreviewSummary
+          result={pullPreview}
+          catalogMappingRequirements={catalogMappingRequirements}
+          catalogMappings={catalogMappings}
+          onCatalogMappingChange={handleCatalogMappingChange}
+          mappingsMatchPreview={pullPreviewMatchesSelection}
+          disabled={pullWorkflowsIsPending}
+        />
       )}
       {pullResult && <PullResultSummary result={pullResult} />}
-      {!(pullPreview && pullPreviewMatchesSelection) && !pullResult && (
+      {!(pullPreview && pullPreviewMatchesSource) && !pullResult && (
         <PullEmptyState />
       )}
 
@@ -286,7 +362,24 @@ function PullEmptyState() {
  * Dry-run pull preview: a compact summary line plus a reviewable list of
  * per-resource file diffs.
  */
-function PullPreviewSummary({ result }: { result: PullResult }) {
+function PullPreviewSummary({
+  result,
+  catalogMappingRequirements,
+  catalogMappings,
+  onCatalogMappingChange,
+  mappingsMatchPreview,
+  disabled,
+}: {
+  result: PullResult
+  catalogMappingRequirements: CatalogMappingRequirement[]
+  catalogMappings: Record<string, string>
+  onCatalogMappingChange: (
+    sourceCatalogId: string,
+    targetCatalogId: string
+  ) => void
+  mappingsMatchPreview: boolean
+  disabled: boolean
+}) {
   const { found: totalFound } = getPullResultTotals(result)
   const resourceDiffs = result.resource_diffs ?? []
   const addedCount = resourceDiffs.filter(
@@ -333,6 +426,16 @@ function PullPreviewSummary({ result }: { result: PullResult }) {
         <p className="text-sm text-muted-foreground">{result.message}</p>
       )}
 
+      {catalogMappingRequirements.length > 0 && (
+        <CatalogMappingRequirements
+          requirements={catalogMappingRequirements}
+          selections={catalogMappings}
+          onChange={onCatalogMappingChange}
+          mappingsMatchPreview={mappingsMatchPreview}
+          disabled={disabled}
+        />
+      )}
+
       <PullResourceManifest result={result} />
 
       <ResourceDiffSection diffs={resourceDiffs} />
@@ -342,6 +445,157 @@ function PullPreviewSummary({ result }: { result: PullResult }) {
       )}
     </div>
   )
+}
+
+/**
+ * Inline resolution UI for source models with more than one safe target match.
+ */
+function CatalogMappingRequirements({
+  requirements,
+  selections,
+  onChange,
+  mappingsMatchPreview,
+  disabled,
+}: {
+  requirements: CatalogMappingRequirement[]
+  selections: Record<string, string>
+  onChange: (sourceCatalogId: string, targetCatalogId: string) => void
+  mappingsMatchPreview: boolean
+  disabled: boolean
+}) {
+  const allSelected = requirements.every(
+    (requirement) => selections[requirement.source_catalog_id]
+  )
+  const labelledRequirements = useMemo(
+    () =>
+      requirements.map((requirement) => {
+        const baseLabels = requirement.candidates.map(
+          catalogMappingCandidateBaseLabel
+        )
+        const baseLabelCounts = new Map<string, number>()
+        for (const baseLabel of baseLabels) {
+          baseLabelCounts.set(
+            baseLabel,
+            (baseLabelCounts.get(baseLabel) ?? 0) + 1
+          )
+        }
+        // Only disambiguate with a catalog id fragment when two candidates
+        // would otherwise render the same label.
+        const candidates = requirement.candidates.map((candidate, index) => {
+          const baseLabel = baseLabels[index]
+          const isDuplicate = (baseLabelCounts.get(baseLabel) ?? 0) > 1
+          return {
+            candidate,
+            label: isDuplicate
+              ? `${baseLabel} · ${candidate.catalog_id.slice(0, 8)}`
+              : baseLabel,
+          }
+        })
+        return { requirement, candidates }
+      }),
+    [requirements]
+  )
+
+  return (
+    <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/40 p-3">
+      <div className="space-y-1">
+        <h6 className="text-sm font-medium">Choose target models</h6>
+        <p className="text-xs text-muted-foreground">
+          These source models match multiple or changed target providers. Your
+          choices apply to every listed preset version and workflow action in
+          this pull.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {labelledRequirements.map(({ requirement, candidates }) => (
+          <div
+            key={requirement.source_catalog_id}
+            className="space-y-2 border-t border-amber-200 pt-3 first:border-0 first:pt-0"
+          >
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">
+                {requirement.model_name}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {requirement.model_provider}
+              </div>
+            </div>
+
+            <Select
+              value={selections[requirement.source_catalog_id] ?? ""}
+              onValueChange={(targetCatalogId) =>
+                onChange(requirement.source_catalog_id, targetCatalogId)
+              }
+              disabled={disabled}
+            >
+              <SelectTrigger
+                aria-label={`Target model for ${requirement.model_name}`}
+              >
+                <SelectValue placeholder="Choose target model" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map(({ candidate, label }) => (
+                  <SelectItem
+                    key={candidate.catalog_id}
+                    value={candidate.catalog_id}
+                  >
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <p className="text-[11px] text-muted-foreground">
+              Affects{" "}
+              {[
+                ...requirement.affected_presets.map(
+                  (preset) => `${preset.preset_name} version ${preset.version}`
+                ),
+                ...requirement.affected_workflows.map(
+                  (workflow) =>
+                    `${workflow.workflow_title} action ${workflow.action_ref}`
+                ),
+              ].join(", ")}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {allSelected && !mappingsMatchPreview && (
+        <p className="text-xs font-medium text-amber-700">
+          Preview changes again to validate these choices before applying.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function catalogMappingCandidateBaseLabel(
+  candidate: CatalogMappingCandidate
+): string {
+  const details = [candidate.provider_name]
+  if (
+    candidate.model_display_name &&
+    candidate.model_display_name !== candidate.model_name
+  ) {
+    details.push(candidate.model_display_name)
+  }
+  if (candidate.endpoint_hostname) {
+    details.push(candidate.endpoint_hostname)
+  }
+  return details.join(" · ")
+}
+
+function catalogMappingSelections(
+  mappings: Record<string, string>
+): CatalogMappingSelection[] {
+  return Object.entries(mappings)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([sourceCatalogId, targetCatalogId]) => ({
+      source_catalog_id: sourceCatalogId,
+      target_catalog_id: targetCatalogId,
+    }))
 }
 
 /**
