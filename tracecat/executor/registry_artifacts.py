@@ -1166,7 +1166,8 @@ class RegistryArtifactCache:
         A follow-up pass therefore occurs only when a concurrent materialization
         sets the flag again. Without new materializations the loop terminates,
         while an over-budget or failed scan restores the flag and breaks so it
-        cannot spin while entries remain leased.
+        cannot spin while entries remain leased. Cancellation also restores the
+        consumed flag before propagating.
         """
         while self._budget_dirty:
             self._budget_dirty = False
@@ -1180,6 +1181,10 @@ class RegistryArtifactCache:
                 )
                 self._budget_dirty = True
                 break
+            except BaseException:
+                # Cancellation must re-arm the consumed dirty signal before propagating.
+                self._budget_dirty = True
+                raise
 
             if not within_budget:
                 self._budget_dirty = True

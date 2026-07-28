@@ -1145,6 +1145,38 @@ class TestRegistryArtifactCacheEviction:
         assert convergence_scans == 2
         assert cache._budget_dirty is False
 
+    @pytest.mark.anyio
+    async def test_cancelled_convergence_rearms_budget_dirty(
+        self, temp_cache_dir
+    ) -> None:
+        """Cancellation must preserve the need for a later budget pass."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        enforcement_started = asyncio.Event()
+        finish_enforcement = asyncio.Event()
+
+        async def mock_enforce_cache_budget(
+            *, protected_key: str | None = None
+        ) -> bool:
+            del protected_key
+            enforcement_started.set()
+            await finish_enforcement.wait()
+            return True
+
+        cache._budget_dirty = True
+        with patch.object(
+            cache,
+            "_enforce_cache_budget",
+            side_effect=mock_enforce_cache_budget,
+        ):
+            convergence = asyncio.create_task(cache._converge_cache_budget())
+            await enforcement_started.wait()
+            convergence.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await convergence
+
+        assert cache._budget_dirty is True
+
     @pytest.mark.parametrize(
         "oldest_has_tarball",
         [False, True],
