@@ -47,6 +47,7 @@ from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.types import SandboxConfig
 
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
@@ -670,6 +671,56 @@ _CURRENT_BUILTIN_CASES = {
     SmokeCase.DIRECT_CURRENT_BUILTIN,
     SmokeCase.NSJAIL_CURRENT_BUILTIN,
 }
+
+
+@pytest.mark.anyio
+async def test_cancelled_nsjail_execute_kills_and_reaps_subprocess(
+    tmp_path: Path,
+) -> None:
+    """Cancellation propagates only after the nsjail child is reaped."""
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    rootfs_dir = tmp_path / "rootfs"
+    rootfs_dir.mkdir()
+    runner = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(rootfs_dir),
+        cache_dir=str(tmp_path / "cache"),
+    )
+    real_create_subprocess_exec = asyncio.create_subprocess_exec
+    process_started = asyncio.Event()
+    process: asyncio.subprocess.Process | None = None
+
+    async def capture_subprocess(*args, **kwargs):
+        nonlocal process
+        process = await real_create_subprocess_exec(
+            "/bin/sleep",
+            "30",
+            **kwargs,
+        )
+        process_started.set()
+        return process
+
+    with patch(
+        "tracecat.sandbox.executor.asyncio.create_subprocess_exec",
+        side_effect=capture_subprocess,
+    ):
+        execution = asyncio.create_task(runner.execute(job_dir, SandboxConfig()))
+        try:
+            await process_started.wait()
+            await asyncio.sleep(0)
+            execution.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await execution
+
+            assert process is not None
+            assert process.returncode is not None
+            assert not (job_dir / "nsjail.cfg").exists()
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
 
 
 @pytest.mark.anyio

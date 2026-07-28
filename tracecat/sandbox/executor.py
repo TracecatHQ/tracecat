@@ -477,6 +477,14 @@ class NsjailExecutor:
                 timeout=timeout,
             )
 
+        except asyncio.CancelledError:
+            # The registry-path lease is released as cancellation unwinds, so
+            # the importing child must be dead and reaped before propagation.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
+
         except TimeoutError as e:
             # Kill the process if it times out
             process.kill()
@@ -621,6 +629,12 @@ class NsjailExecutor:
                 process.communicate(),
                 timeout=timeout,
             )
+
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
 
         except TimeoutError as e:
             process.kill()

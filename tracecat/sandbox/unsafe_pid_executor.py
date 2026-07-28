@@ -6,6 +6,7 @@ cannot run (for example, without SYS_ADMIN).
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -333,6 +334,11 @@ class UnsafePidExecutor:
         )
         try:
             _, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
         except TimeoutError as e:
             process.kill()
             await process.wait()
@@ -378,6 +384,11 @@ class UnsafePidExecutor:
                 process.communicate(),
                 timeout=timeout_seconds,
             )
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
         except TimeoutError as e:
             process.kill()
             await process.wait()
