@@ -1471,8 +1471,8 @@ class RegistryArtifactCache:
         after warm workers have already inherited those paths. A missing or
         empty cache directory is a no-op.
 
-        The sweep is deliberately synchronous: it runs once during construction,
-        before the process serves any action.
+        Construction runs eagerly in a worker-startup thread before activities
+        can run; lazy in-activity construction remains a fallback.
         """
         if not self.cache_dir.is_dir():
             self._budget_dirty = False

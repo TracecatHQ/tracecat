@@ -56,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
     from tracecat.executor.action_gateway.server import ActionGateway
+    from tracecat.executor.action_runner import get_action_runner
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.executor.backends import (
         initialize_executor_backend,
@@ -135,6 +136,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         # Start the local action gateway before sandbox workers are spawned so its
         # socket path is available in their immutable process environment.
         await action_gateway.start()
+
+        # Construct the registry artifact cache and run its synchronous startup
+        # sweep in a thread before the backend spawns workers or activities run.
+        await asyncio.to_thread(get_action_runner)
 
         # Initialize the executor backend before accepting tasks
         await initialize_executor_backend()
