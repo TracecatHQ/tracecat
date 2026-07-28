@@ -45,6 +45,7 @@ SQUASHFS_ENABLED_CONFIG = (
 BACKEND_CONFIG = (
     "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_BACKEND"
 )
+RESOLVE_BACKEND = "tracecat.executor.registry_artifacts.resolve_backend_type"
 
 
 def _write_tarball_entry(cache_dir: Path, cache_key: str) -> Path:
@@ -764,6 +765,40 @@ class TestRegistryArtifactCacheLease:
         assert cache._refcount(cache_key) == 0
 
     @pytest.mark.anyio
+    async def test_cancelled_lease_admission_releases_refcount(self, temp_cache_dir):
+        """Cancellation during candidate lookup must not leak a permanent pin."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
+        lookup_started = asyncio.Event()
+        finish_lookup = asyncio.Event()
+
+        async def blocked_sidecar_lookup(**kwargs):
+            lookup_started.set()
+            await finish_lookup.wait()
+            return False
+
+        async def take_lease() -> None:
+            async with cache.lease([artifact_uri]):
+                pass
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch.object(cache, "_sidecar_exists", blocked_sidecar_lookup),
+        ):
+            acquisition = asyncio.create_task(take_lease())
+            await lookup_started.wait()
+            assert cache._refcount(cache_key) == 1
+            acquisition.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await acquisition
+
+        assert cache._refcount(cache_key) == 0
+        assert await cache._evict_entry(cache_key) is True
+        assert not target_dir.exists()
+
+    @pytest.mark.anyio
     async def test_lease_without_uris_returns_base_pythonpath_dir(self, temp_cache_dir):
         """No artifact URIs still yields the base PYTHONPATH directory."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -1082,10 +1117,10 @@ class TestRegistryArtifactCacheEviction:
         assert newest.exists()
 
     @pytest.mark.anyio
-    async def test_pool_backend_skips_tarball_lru_and_evicts_next_entry(
+    async def test_auto_pool_backend_skips_tarball_lru_and_evicts_next_entry(
         self, temp_cache_dir
     ):
-        """Warm-worker tarball paths are ineligible runtime victims."""
+        """Auto-resolved pool workers protect tarballs from runtime eviction."""
         cache = RegistryArtifactCache(temp_cache_dir)
         pool_visible_image = _write_image_entry(
             temp_cache_dir, "pool-visible", size=16, mtime=100.0
@@ -1095,7 +1130,8 @@ class TestRegistryArtifactCacheEviction:
         newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=300.0)
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
+            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
+            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.POOL),
             patch(MAX_ENTRIES_CONFIG, 2),
             patch(MAX_BYTES_CONFIG, 0),
         ):
@@ -1105,6 +1141,29 @@ class TestRegistryArtifactCacheEviction:
         assert pool_visible_image.exists()
         assert pool_visible_tarball.is_dir()
         assert not next_lru.exists()
+        assert newest.exists()
+
+    @pytest.mark.anyio
+    async def test_auto_non_pool_backend_evicts_tarball_lru(self, temp_cache_dir):
+        """Auto-resolved non-pool backends may evict tarball entries normally."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        oldest_image = _write_image_entry(
+            temp_cache_dir, "oldest", size=16, mtime=100.0
+        )
+        oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
+        newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=200.0)
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
+            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.DIRECT),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            within_budget = await cache._enforce_cache_budget()
+
+        assert within_budget is True
+        assert not oldest_image.exists()
+        assert not oldest_tarball.exists()
         assert newest.exists()
 
     @pytest.mark.anyio
@@ -1531,24 +1590,28 @@ class TestRegistryArtifactCacheStartupSweep:
 
         assert mount_dir.is_dir()
 
-    def test_sweep_trims_to_budget_using_image_mtimes(self, temp_cache_dir):
-        """Pool startup still trims tarballs using persistent image mtimes."""
+    def test_auto_pool_sweep_protects_tarballs_and_trims_other_entries(
+        self, temp_cache_dir
+    ):
+        """Startup trimming preserves paths inherited by auto-resolved workers."""
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=64, mtime=100.0)
         oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
         older = _write_image_entry(temp_cache_dir, "older", size=64, mtime=200.0)
         newest = _write_image_entry(temp_cache_dir, "newest", size=64, mtime=300.0)
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
-            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
+            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.POOL),
+            patch(MAX_ENTRIES_CONFIG, 2),
             patch(MAX_BYTES_CONFIG, 0),
         ):
-            RegistryArtifactCache(temp_cache_dir)
+            cache = RegistryArtifactCache(temp_cache_dir)
 
-        assert not oldest.exists()
-        assert not oldest_tarball.exists()
+        assert oldest.exists()
+        assert oldest_tarball.is_dir()
         assert not older.exists()
         assert newest.exists()
+        assert cache._budget_dirty is False
 
 
 class TestSquashfsMountCapability:
