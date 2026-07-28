@@ -93,13 +93,20 @@ class TestActionRunner:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> AsyncMock:
         """Keep subprocess unit tests focused on ActionRunner behavior."""
+        real_communication = action_runner.communicate_process_group
 
         async def communicate(
-            process: asyncio.subprocess.Process,
+            process: asyncio.subprocess.Process | AsyncMock,
             *,
             input: bytes | None = None,  # noqa: A002
             timeout: float | None = None,
         ) -> tuple[bytes, bytes]:
+            if isinstance(process, asyncio.subprocess.Process):
+                return await real_communication(
+                    process,
+                    input=input,
+                    timeout=timeout,
+                )
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=input),
                 timeout=timeout,
@@ -174,6 +181,59 @@ class TestActionRunner:
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "TimeoutError"
             mock_process_group_communication.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_cancelled_direct_action_kills_and_reaps_subprocess(
+        self, temp_cache_dir, mock_run_action_input, mock_role
+    ) -> None:
+        """Cancellation propagates only after the direct child is reaped."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        process_started = asyncio.Event()
+        process: asyncio.subprocess.Process | None = None
+
+        async def capture_subprocess(*args, **kwargs):
+            nonlocal process
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            process_started.set()
+            return process
+
+        with (
+            patch.object(
+                action_runner,
+                "_direct_subprocess_command",
+                return_value=["/bin/sleep", "30"],
+            ),
+            patch(
+                "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
+                side_effect=capture_subprocess,
+            ),
+        ):
+            execution = asyncio.create_task(
+                runner._execute_direct(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    registry_paths=[base_dir],
+                    secret_projection=_empty_secret_projection(),
+                    timeout=60.0,
+                )
+            )
+            try:
+                await process_started.wait()
+                await asyncio.sleep(0)
+                execution.cancel()
+
+                with pytest.raises(asyncio.CancelledError):
+                    await execution
+
+                assert process is not None
+                assert process.returncode is not None
+            finally:
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
 
     @pytest.mark.anyio
     async def test_execute_action_subprocess_crash(

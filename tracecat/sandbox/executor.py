@@ -1,6 +1,7 @@
 """nsjail executor for sandboxed Python execution."""
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -888,6 +889,14 @@ class NsjailExecutor:
                 process.communicate(),
                 timeout=timeout,
             )
+
+        except asyncio.CancelledError:
+            # The registry-path lease is released as cancellation unwinds, so
+            # the importing child must be dead and reaped before propagation.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
 
         except TimeoutError as e:
             process.kill()

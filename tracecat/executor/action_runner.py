@@ -369,7 +369,11 @@ class ActionRunner:
         timeout: float | None = None,
         resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
-        """Execute an action in a direct subprocess (no sandbox)."""
+        """Execute an action in a direct subprocess (no sandbox).
+
+        Every exit kills lingering descendants before the registry-path lease
+        protecting their imports can unwind.
+        """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Prepare input JSON for subprocess
