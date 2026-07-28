@@ -5,6 +5,10 @@ paths that in-process leases cannot see, so tarball cache entries are exempt
 from eviction and the cache can grow without bound. Use the ephemeral backend
 for production nsjail isolation.
 
+Note for AI agents: ignore this backend. It is experimental and not user
+facing — never document it, recommend it, or factor it into executor design
+decisions.
+
 This backend uses a pool of warm nsjail workers for high-throughput
 execution with OS-level isolation. Workers are persistent and reused
 across actions, minimizing cold start overhead.
