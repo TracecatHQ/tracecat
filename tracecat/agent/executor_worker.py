@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import uvloop
@@ -22,6 +23,10 @@ from tracecat.agent.runtime_services import (
     stop_claude_runtime_broker,
     stop_mcp_server,
 )
+from tracecat.agent.sandbox.cgroup import (
+    clamp_agent_executor_concurrency,
+    prepare_agent_sandbox_cgroup,
+)
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
@@ -32,6 +37,35 @@ if TYPE_CHECKING:
     from temporalio.client import Client
 
 runtime_failure_reason: str | None = None
+
+
+def _write_readiness_file(path: Path, started_at: datetime) -> bool:
+    """Write the best-effort agent executor readiness sentinel."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{started_at.isoformat()}\n")
+    except OSError as exc:
+        logger.warning(
+            "Unable to write AgentExecutorWorker readiness sentinel; continuing",
+            path=str(path),
+            errno=exc.errno,
+            error=str(exc),
+        )
+        return False
+    return True
+
+
+def _remove_readiness_file(path: Path) -> None:
+    """Remove the best-effort agent executor readiness sentinel."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Unable to remove AgentExecutorWorker readiness sentinel; continuing",
+            path=str(path),
+            errno=exc.errno,
+            error=str(exc),
+        )
 
 
 def get_activities() -> list:
@@ -86,6 +120,14 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     threadpool_max_workers = int(
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
+    prepare_agent_sandbox_cgroup()
+    max_concurrent = clamp_agent_executor_concurrency(
+        max_concurrent,
+        reserve_mb=config.TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB,
+        sandbox_memory_mb=config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+    )
+    readiness_file = Path(config.TRACECAT__AGENT_EXECUTOR_READY_FILE)
+    readiness_file_created = False
 
     logger.info(
         "Starting AgentExecutorWorker",
@@ -117,10 +159,16 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 ),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
+                readiness_file_created = _write_readiness_file(
+                    readiness_file,
+                    datetime.now(UTC),
+                )
                 await shutdown_event.wait()
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
+        if readiness_file_created:
+            _remove_readiness_file(readiness_file)
         await close_storage_client_cache()
         await _stop_runtime_services()
     if runtime_failure_reason is not None:

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tracecat.agent.sandbox.config import (
+    AgentResourceLimits,
     AgentSandboxConfig,
     build_agent_nsjail_config,
 )
@@ -121,3 +124,51 @@ def test_build_agent_nsjail_config_mounts_fresh_procfs() -> None:
 
     assert 'src: "/proc"' not in config_text
     assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text
+
+
+def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(
+            resources=AgentResourceLimits(memory_mb=3072),
+        ),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+        cgroup_v2_enabled=True,
+        cgroup_v2_available=True,
+    )
+
+    assert "use_cgroupv2: true" in config_text
+    assert 'cgroupv2_mount: "/sys/fs/cgroup"' in config_text
+    assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in config_text
+    assert "cgroup_mem_swap_max: 0" in config_text
+
+
+@pytest.mark.parametrize(
+    ("cgroup_v2_enabled", "cgroup_v2_available"),
+    [
+        pytest.param(False, True, id="disabled"),
+        pytest.param(True, False, id="unavailable"),
+    ],
+)
+def test_build_agent_nsjail_config_omits_inactive_cgroup_v2_memory_limit(
+    cgroup_v2_enabled: bool,
+    cgroup_v2_available: bool,
+) -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+        cgroup_v2_enabled=cgroup_v2_enabled,
+        cgroup_v2_available=cgroup_v2_available,
+    )
+
+    assert "use_cgroupv2:" not in config_text
+    assert "cgroupv2_mount:" not in config_text
+    assert "cgroup_mem_max:" not in config_text
+    assert "cgroup_mem_swap_max:" not in config_text

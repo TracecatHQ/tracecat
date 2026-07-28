@@ -734,6 +734,22 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED = env_bool(
+    "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED", default=True
+)
+"""Enable cgroup v2 memory limits for agent sandboxes when available."""
+
+TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB = int(
+    os.environ.get("TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB") or 4096
+)
+"""Memory reserved for the agent executor worker and shared services."""
+
+TRACECAT__AGENT_EXECUTOR_READY_FILE = os.environ.get(
+    "TRACECAT__AGENT_EXECUTOR_READY_FILE",
+    "/var/run/tracecat/agent-executor-ready",
+)
+"""Best-effort readiness sentinel written after the agent executor starts."""
+
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
 

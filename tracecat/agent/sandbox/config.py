@@ -222,6 +222,8 @@ def build_agent_nsjail_config(
     session_work_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
+    cgroup_v2_enabled: bool = False,
+    cgroup_v2_available: bool = False,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -245,6 +247,8 @@ def build_agent_nsjail_config(
             outbound internet access. Default is False (network isolated with
             private loopback only).
         skills_dir: Optional host path containing staged workspace skills.
+        cgroup_v2_enabled: Whether agent sandbox cgroup limits are configured.
+        cgroup_v2_available: Whether the process-wide startup probe succeeded.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -472,6 +476,15 @@ def build_agent_nsjail_config(
             f"time_limit: {config.resources.timeout_seconds}",
         ]
     )
+    if cgroup_v2_enabled and cgroup_v2_available:
+        lines.extend(
+            [
+                "use_cgroupv2: true",
+                'cgroupv2_mount: "/sys/fs/cgroup"',
+                f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                "cgroup_mem_swap_max: 0",
+            ]
+        )
 
     # Execution settings.
     lines.extend(
