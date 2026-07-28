@@ -1587,6 +1587,7 @@ class RegistryArtifactCache:
                 cache_dir=str(self.cache_dir),
                 error=str(e),
             )
+            raise
 
     def _remove_orphaned_temp_paths(self) -> None:
         """Delete every materialization scratch path during startup.

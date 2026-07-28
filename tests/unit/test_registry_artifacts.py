@@ -1034,6 +1034,7 @@ class TestRegistryArtifactCacheLease:
     ):
         """A lease must not return a mount an in-flight eviction is deleting."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
         artifact_uri = "s3://bucket/path/site-packages.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         paths = cache._paths_for(cache_key)
@@ -2079,7 +2080,7 @@ class TestRegistryArtifactCacheStartupSweep:
         with (
             patch.object(
                 cache,
-                "_sweep_startup_state",
+                "_remove_orphaned_temp_paths",
                 side_effect=OSError("simulated sweep failure"),
             ),
             pytest.raises(OSError),
