@@ -14,7 +14,7 @@ def _stateless_replica_app():
     server = FastMCP("replica-test")
 
     @server.tool()
-    def ping() -> str:
+    def ping() -> str:  # pyright: ignore[reportUnusedFunction]
         return "pong"
 
     return server.http_app(
