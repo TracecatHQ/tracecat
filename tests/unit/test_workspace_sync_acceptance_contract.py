@@ -4467,6 +4467,382 @@ async def test_agent_preset_sync_preserves_subagent_options(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_exact_version_replay_is_no_op(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    catalog = await _enable_org_catalog(
+        session,
+        org_id=svc_role.organization_id,
+        model_provider="custom-model-provider",
+        model_name="qa-immutable-model",
+    )
+    files = _combined_git_tree(
+        _skill_git_tree(
+            source_id="qa-immutable-skill",
+            slug="qa-immutable-skill",
+            name="QA immutable skill",
+        ),
+        _agent_preset_git_tree(
+            source_id="qa-immutable-replay",
+            slug="qa-immutable-replay",
+            name="QA immutable replay",
+            instructions="Original immutable instructions",
+        ),
+    )
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-immutable-replay/versions/1.yml"
+    base_url = "https://local-model-gateway.example.com/v1"
+    _patch_yaml_file(
+        files,
+        preset_path,
+        {
+            "catalog_id": str(catalog.id),
+            "model_provider": catalog.model_provider,
+            "model_name": catalog.model_name,
+            "base_url": base_url,
+            "skills": [{"slug": "qa-immutable-skill", "version": 1}],
+        },
+    )
+    transport = AsyncMock(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha="r" * 40,
+                tree_sha="immutable-replay-tree",
+                files=files,
+            )
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-immutable-replay-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="r" * 40))
+        assert first_result.success is True
+        preset = await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == "qa-immutable-replay",
+            )
+        )
+        assert preset is not None
+        preset_id = preset.id
+        first_version = await session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+                AgentPresetVersion.version == 1,
+            )
+        )
+        assert first_version is not None
+        first_version_state = (
+            first_version.id,
+            first_version.catalog_id,
+            first_version.base_url,
+        )
+        first_bindings = set(
+            (
+                await session.execute(
+                    select(
+                        AgentPresetVersionSkill.id,
+                        AgentPresetVersionSkill.skill_id,
+                        AgentPresetVersionSkill.skill_version_id,
+                    ).where(
+                        AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+                        AgentPresetVersionSkill.preset_version_id == first_version.id,
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+
+        second_result = await service.pull(options=PullOptions(commit_sha="r" * 40))
+
+    assert second_result.success is True
+    assert second_result.diagnostics == []
+    replayed_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == preset_id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert replayed_version is not None
+    assert (
+        replayed_version.id,
+        replayed_version.catalog_id,
+        replayed_version.base_url,
+    ) == first_version_state
+    assert replayed_version.catalog_id == catalog.id
+    assert replayed_version.base_url == base_url
+    replayed_bindings = set(
+        (
+            await session.execute(
+                select(
+                    AgentPresetVersionSkill.id,
+                    AgentPresetVersionSkill.skill_id,
+                    AgentPresetVersionSkill.skill_version_id,
+                ).where(
+                    AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+                    AgentPresetVersionSkill.preset_version_id == replayed_version.id,
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    assert replayed_bindings == first_bindings
+    assert len(replayed_bindings) == 1
+
+
+@pytest.mark.anyio
+async def test_agent_preset_conflicting_exact_version_replay_rolls_back(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    original_files = _agent_preset_git_tree(
+        source_id="qa-immutable-conflict",
+        slug="qa-immutable-conflict",
+        name="QA immutable conflict",
+        instructions="Original immutable instructions",
+    )
+    conflicting_files = _agent_preset_git_tree(
+        source_id="qa-immutable-conflict",
+        slug="qa-immutable-conflict",
+        name="QA immutable conflict",
+        instructions="Conflicting replacement instructions",
+    )
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="s" * 40,
+            tree_sha="immutable-original-tree",
+            files=original_files,
+        ),
+        VcsTreeSnapshot(
+            commit_sha="t" * 40,
+            tree_sha="immutable-conflict-tree",
+            files=conflicting_files,
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-immutable-conflict-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="s" * 40))
+        assert first_result.success is True
+        preset = await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == "qa-immutable-conflict",
+            )
+        )
+        assert preset is not None
+        preset_id = preset.id
+        original_version = await session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+                AgentPresetVersion.version == 1,
+            )
+        )
+        assert original_version is not None
+        original_version_id = original_version.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
+
+    await _refresh_workspace_for_fixture_cleanup(session, role=svc_role)
+    assert second_result.success is False
+    assert len(second_result.diagnostics) == 1
+    diagnostic = second_result.diagnostics[0]
+    assert diagnostic.error_type == "transaction"
+    assert diagnostic.details["code"] == "immutable_agent_preset_version_conflict"
+    assert diagnostic.details["preset_slug"] == "qa-immutable-conflict"
+    assert diagnostic.details["version"] == 1
+    assert diagnostic.details["changed_fields"] == ["instructions"]
+
+    stored_versions = list(
+        (
+            await session.scalars(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                    AgentPresetVersion.preset_id == preset_id,
+                )
+            )
+        ).all()
+    )
+    assert len(stored_versions) == 1
+    assert stored_versions[0].id == original_version_id
+    assert stored_versions[0].instructions == "Original immutable instructions"
+
+
+@pytest.mark.anyio
+async def test_agent_preset_higher_version_replay_preserves_existing_version(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="v" * 40,
+            tree_sha="immutable-version-one-tree",
+            files=_agent_preset_git_tree(
+                source_id="qa-immutable-higher-version",
+                slug="qa-immutable-higher-version",
+                name="QA immutable higher version",
+                instructions="Immutable version one",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="w" * 40,
+            tree_sha="immutable-version-two-tree",
+            files=_agent_preset_git_tree(
+                source_id="qa-immutable-higher-version",
+                slug="qa-immutable-higher-version",
+                name="QA immutable higher version",
+                instructions="New version two",
+                version_number=2,
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-immutable-higher-version-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="v" * 40))
+        assert first_result.success is True
+        preset = await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == "qa-immutable-higher-version",
+            )
+        )
+        assert preset is not None
+        preset_id = preset.id
+        original_version = await session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+                AgentPresetVersion.version == 1,
+            )
+        )
+        assert original_version is not None
+        original_version_state = (
+            original_version.id,
+            original_version.instructions,
+        )
+
+        second_result = await service.pull(options=PullOptions(commit_sha="w" * 40))
+
+    assert second_result.success is True
+    assert second_result.diagnostics == []
+    versions = list(
+        (
+            await session.scalars(
+                select(AgentPresetVersion)
+                .where(
+                    AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                    AgentPresetVersion.preset_id == preset_id,
+                )
+                .order_by(AgentPresetVersion.version.asc())
+            )
+        ).all()
+    )
+    assert [version.version for version in versions] == [1, 2]
+    assert (versions[0].id, versions[0].instructions) == original_version_state
+    assert versions[1].instructions == "New version two"
+    assert preset.current_version_id == versions[1].id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_defaulted_exact_version_replay_is_no_op(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = _agent_preset_git_tree(
+        source_id="qa-defaulted-replay",
+        slug="qa-defaulted-replay",
+        name="QA defaulted replay",
+    )
+    transport = AsyncMock(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha="u" * 40,
+                tree_sha="defaulted-replay-tree",
+                files=files,
+            )
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(
+            host="github.com",
+            org="TracecatHQ",
+            repo="git-sync-defaulted-replay-qa",
+        )
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="u" * 40))
+        second_result = await service.pull(options=PullOptions(commit_sha="u" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    assert second_result.diagnostics == []
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-defaulted-replay",
+        )
+    )
+    assert preset is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version is not None
+    assert version.model_name == "gpt-5.5"
+    assert version.model_provider == "openai"
+    assert version.actions is None
+    assert version.namespaces is None
+    assert version.tool_approvals is None
+    assert version.mcp_integrations is None
+
+
+@pytest.mark.anyio
 async def test_agent_preset_import_creates_new_version_without_mutating_history(
     session: AsyncSession,
     svc_role: Role,
