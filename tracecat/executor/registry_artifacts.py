@@ -14,7 +14,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -88,6 +88,7 @@ class SquashfsMountState:
 
     disabled: bool = False
     mounted_once: bool = False
+    probe_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 @dataclass(slots=True)
@@ -125,6 +126,7 @@ class RegistryArtifactMaterializationContext:
         )
 
     def disable_squashfs_mount(self) -> None:
+        """Disable mounting after the serialized first capability probe fails."""
         self.squashfs_mount_state.disabled = True
 
     def record_squashfs_mount(self) -> None:
@@ -251,6 +253,10 @@ class SquashfsArtifact(RegistryArtifact):
         mounted artifact is evicted and the mount is retried once, so a single
         failure never downgrades the whole process to extraction.
 
+        The probe lock deliberately covers the first mount's download and mount
+        command. It nests inside a per-key materialization lock and acquires no
+        other lock; reclaim and retry remain outside it.
+
         Only ``SquashfsMountCommandError`` drives this policy. Download and
         preparation errors propagate to the caller so a transient S3 failure
         never disables mounting or evicts an unrelated idle mount.
@@ -265,21 +271,31 @@ class SquashfsArtifact(RegistryArtifact):
         Raises:
             Exception: Any non-mount failure raised while preparing the image.
         """
+        if not ctx.has_mounted_squashfs():
+            async with ctx.squashfs_mount_state.probe_lock:
+                if ctx.squashfs_mount_state.disabled:
+                    return None
+                if not ctx.has_mounted_squashfs():
+                    try:
+                        return await self.mount(ctx, image_path)
+                    except SquashfsMountCommandError as e:
+                        # This is the only disable path: the probe lock is held
+                        # and no mount has succeeded, so disabled and mounted_once
+                        # cannot both become true.
+                        ctx.disable_squashfs_mount()
+                        logger.warning(
+                            "Failed to mount SquashFS registry artifact, trying extraction",
+                            cache_key=ctx.cache_key,
+                            artifact_uri=self.uri,
+                            artifact_format=self.format.value,
+                            error=str(e),
+                        )
+                        return None
+
         try:
             return await self.mount(ctx, image_path)
         except SquashfsMountCommandError as e:
             mount_error = e
-
-        if not ctx.has_mounted_squashfs():
-            ctx.disable_squashfs_mount()
-            logger.warning(
-                "Failed to mount SquashFS registry artifact, trying extraction",
-                cache_key=ctx.cache_key,
-                artifact_uri=self.uri,
-                artifact_format=self.format.value,
-                error=str(mount_error),
-            )
-            return None
 
         logger.warning(
             "Failed to mount SquashFS registry artifact, reclaiming an idle mount",

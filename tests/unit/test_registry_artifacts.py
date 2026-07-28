@@ -1720,6 +1720,135 @@ class TestSquashfsMountCapability:
     """Tests for process-wide SquashFS mount capability tracking."""
 
     @pytest.mark.anyio
+    async def test_concurrent_first_mount_failure_serializes_capability_probe(
+        self, temp_cache_dir
+    ) -> None:
+        """A failed first probe disables a waiter without racing its mount."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        first_ctx = cache._context_for("first-probe")
+        second_ctx = cache._context_for("second-probe")
+        assert first_ctx.squashfs_mount_state is second_ctx.squashfs_mount_state
+        first_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
+        second_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
+        first_artifact = SquashfsArtifact(
+            uri="s3://bucket/path/first.squashfs",
+            cache_key=first_ctx.cache_key,
+        )
+        second_artifact = SquashfsArtifact(
+            uri="s3://bucket/path/second.squashfs",
+            cache_key=second_ctx.cache_key,
+        )
+        first_mount_started = asyncio.Event()
+        release_first_mount = asyncio.Event()
+        mount_attempts: list[Path] = []
+
+        async def mock_mount_image(self, image_path, target_dir):
+            mount_attempts.append(target_dir)
+            if target_dir == first_ctx.paths.squashfs_mount_dir:
+                first_mount_started.set()
+                await release_first_mount.wait()
+                raise SquashfsMountCommandError("operation not permitted")
+
+        with patch.object(SquashfsArtifact, "_mount_image", mock_mount_image):
+            first_mount = asyncio.create_task(
+                first_artifact._try_mount(
+                    first_ctx,
+                    first_ctx.paths.squashfs_image_path,
+                )
+            )
+            await first_mount_started.wait()
+            second_mount = asyncio.create_task(
+                second_artifact._try_mount(
+                    second_ctx,
+                    second_ctx.paths.squashfs_image_path,
+                )
+            )
+            await asyncio.sleep(0)
+
+            assert first_ctx.squashfs_mount_state.probe_lock.locked()
+            assert not second_mount.done()
+            assert mount_attempts == [first_ctx.paths.squashfs_mount_dir]
+
+            release_first_mount.set()
+            first_result, second_result = await asyncio.gather(
+                first_mount,
+                second_mount,
+            )
+
+        state = first_ctx.squashfs_mount_state
+        assert first_result is None
+        assert second_result is None
+        assert state.disabled is True
+        assert state.mounted_once is False
+        assert not (state.disabled and state.mounted_once)
+        assert mount_attempts == [first_ctx.paths.squashfs_mount_dir]
+
+    @pytest.mark.anyio
+    async def test_concurrent_probe_waiter_mounts_after_first_success(
+        self, temp_cache_dir
+    ) -> None:
+        """A waiter mounts after the successful probe releases serialization."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        first_ctx = cache._context_for("first-success")
+        second_ctx = cache._context_for("second-success")
+        assert first_ctx.squashfs_mount_state is second_ctx.squashfs_mount_state
+        first_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
+        second_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
+        first_artifact = SquashfsArtifact(
+            uri="s3://bucket/path/first.squashfs",
+            cache_key=first_ctx.cache_key,
+        )
+        second_artifact = SquashfsArtifact(
+            uri="s3://bucket/path/second.squashfs",
+            cache_key=second_ctx.cache_key,
+        )
+        first_mount_started = asyncio.Event()
+        release_first_mount = asyncio.Event()
+        mount_attempts: list[Path] = []
+
+        async def mock_mount_image(self, image_path, target_dir):
+            mount_attempts.append(target_dir)
+            if target_dir == first_ctx.paths.squashfs_mount_dir:
+                first_mount_started.set()
+                await release_first_mount.wait()
+
+        with patch.object(SquashfsArtifact, "_mount_image", mock_mount_image):
+            first_mount = asyncio.create_task(
+                first_artifact._try_mount(
+                    first_ctx,
+                    first_ctx.paths.squashfs_image_path,
+                )
+            )
+            await first_mount_started.wait()
+            second_mount = asyncio.create_task(
+                second_artifact._try_mount(
+                    second_ctx,
+                    second_ctx.paths.squashfs_image_path,
+                )
+            )
+            await asyncio.sleep(0)
+
+            assert first_ctx.squashfs_mount_state.probe_lock.locked()
+            assert not second_mount.done()
+            assert mount_attempts == [first_ctx.paths.squashfs_mount_dir]
+
+            release_first_mount.set()
+            first_result, second_result = await asyncio.gather(
+                first_mount,
+                second_mount,
+            )
+
+        state = first_ctx.squashfs_mount_state
+        assert first_result == first_ctx.paths.squashfs_mount_dir
+        assert second_result == second_ctx.paths.squashfs_mount_dir
+        assert state.disabled is False
+        assert state.mounted_once is True
+        assert mount_attempts == [
+            first_ctx.paths.squashfs_mount_dir,
+            second_ctx.paths.squashfs_mount_dir,
+        ]
+
+    @pytest.mark.anyio
     async def test_first_mount_failure_disables_squashfs_process_wide(
         self, temp_cache_dir
     ):
