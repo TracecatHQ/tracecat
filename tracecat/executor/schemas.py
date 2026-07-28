@@ -96,12 +96,6 @@ def resolve_backend_type() -> ExecutorBackendType:
                 "Auto-selecting 'direct' backend (nsjail not available)",
             )
             backend_type = ExecutorBackendType.DIRECT
-    elif backend_type == ExecutorBackendType.POOL:
-        logger.warning(
-            "The 'pool' executor backend is experimental and not production "
-            "ready: its registry cache is exempt from eviction and can grow "
-            "without bound. Use 'ephemeral' for production nsjail isolation.",
-        )
 
     return backend_type
 

@@ -46,6 +46,13 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
         case ExecutorBackendType.POOL:
             from tracecat.executor.backends.pool import PoolBackend
 
+            # Warn here rather than in resolve_backend_type(), which is also
+            # called on hot paths such as cache eviction passes.
+            logger.warning(
+                "The 'pool' executor backend is experimental and not production "
+                "ready: its registry cache is exempt from eviction and can grow "
+                "without bound. Use 'ephemeral' for production nsjail isolation.",
+            )
             return PoolBackend()
         case ExecutorBackendType.EPHEMERAL:
             from tracecat.executor.backends.ephemeral import EphemeralBackend
