@@ -498,7 +498,12 @@ class SquashfsArtifact(RegistryArtifact):
         raise SquashfsMountCommandError(output or "mount command failed")
 
     async def _extract_image(self, image_path: Path, target_dir: Path) -> None:
-        """Extract a SquashFS image to target_dir using unsquashfs."""
+        """Extract a SquashFS image to target_dir using unsquashfs.
+
+        Cancellation kills and reaps the extractor before the caller removes
+        its scratch directory. Otherwise a live extractor could recreate
+        scratch after cleanup, outside startup-sweep discovery.
+        """
         unsquashfs = shutil.which("unsquashfs")
         if unsquashfs is None:
             raise RuntimeError("unsquashfs command is not installed")
@@ -512,7 +517,14 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
+
         if proc.returncode == 0:
             return
 
@@ -604,7 +616,12 @@ class TarballArtifact(RegistryArtifact):
         await _download_s3_artifact(self.uri, output_path)
 
     async def extract(self, tarball_path: Path, target_dir: Path) -> None:
-        """Extract a supported registry tarball to target directory."""
+        """Extract a supported registry tarball to target directory.
+
+        A cancelled caller rejoins the non-interruptible extraction thread
+        before propagating cancellation so scratch cleanup cannot race a live
+        writer and leave undiscoverable ephemeral storage behind.
+        """
 
         def _do_extract() -> None:
             if tarball_path.name.endswith(".tar.gz"):
@@ -614,7 +631,17 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        await asyncio.to_thread(_do_extract)
+        extraction = asyncio.ensure_future(asyncio.to_thread(_do_extract))
+        try:
+            await asyncio.shield(extraction)
+        except asyncio.CancelledError:
+            # A thread cannot be killed. Rejoin it before materialize removes
+            # scratch; a second cancellation may interrupt this best-effort join.
+            if not extraction.cancelled():
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(extraction)
+            raise
+
         logger.debug(
             "Tarball extracted",
             target=str(target_dir),

@@ -91,6 +91,35 @@ class _BlockingSubprocess:
         return -9
 
 
+class _CapturedSubprocess:
+    """Capture cleanup of a real subprocess used by cancellation tests."""
+
+    def __init__(self, process: asyncio.subprocess.Process) -> None:
+        self.process = process
+        self.killed = False
+        self.reaped = False
+
+    @property
+    def returncode(self) -> int | None:
+        """Return the wrapped subprocess exit status."""
+        return self.process.returncode
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        """Wait for the wrapped subprocess and collect its output."""
+        return await self.process.communicate()
+
+    def kill(self) -> None:
+        """Kill the wrapped subprocess and record the signal."""
+        self.killed = True
+        self.process.kill()
+
+    async def wait(self) -> int:
+        """Reap the wrapped subprocess and record completion."""
+        returncode = await self.process.wait()
+        self.reaped = True
+        return returncode
+
+
 @pytest.fixture
 def temp_cache_dir():
     """Create a temporary cache directory."""
@@ -570,6 +599,111 @@ class TestRegistryArtifactCache:
         assert process.cleanup_calls == ["kill", "wait"]
         assert target_dir.is_dir()
         assert not target_dir.is_mount()
+
+    @pytest.mark.anyio
+    async def test_cancelled_squashfs_extract_kills_and_reaps_subprocess(
+        self, temp_cache_dir
+    ):
+        """Cancellation cannot leave unsquashfs writing into scratch."""
+        cache_key = "cancelled-extract"
+        cache = RegistryArtifactCache(temp_cache_dir)
+        ctx = cache._context_for(cache_key)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=cache_key,
+        )
+        image_path = ctx.paths.squashfs_image_path
+        target_dir = ctx.paths.squashfs_extract_dir
+        image_path.write_bytes(b"squashfs")
+        target_dir.mkdir()
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        process_started = asyncio.Event()
+        captured_processes: list[_CapturedSubprocess] = []
+
+        async def create_sleep_subprocess(
+            *args: object, **kwargs: object
+        ) -> _CapturedSubprocess:
+            del args, kwargs
+            process = await real_create_subprocess_exec(
+                "/bin/sleep",
+                "30",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            captured = _CapturedSubprocess(process)
+            captured_processes.append(captured)
+            process_started.set()
+            return captured
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/usr/bin/unsquashfs",
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                side_effect=create_sleep_subprocess,
+            ),
+        ):
+            extracting = asyncio.create_task(
+                artifact._extract_image(image_path, target_dir)
+            )
+            await process_started.wait()
+            captured = captured_processes[0]
+            extracting.cancel()
+
+            try:
+                with pytest.raises(asyncio.CancelledError):
+                    await extracting
+            finally:
+                if captured.returncode is None:
+                    captured.kill()
+                    await captured.wait()
+
+        assert captured.killed is True
+        assert captured.reaped is True
+        assert captured.returncode is not None
+
+    @pytest.mark.anyio
+    async def test_cancelled_tarball_extract_rejoins_thread(self, temp_cache_dir):
+        """Cancellation waits until the tar extractor stops writing."""
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="cancelled-tarball-extract",
+        )
+        tarball_path = temp_cache_dir / "artifact.tar.gz"
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        with tarfile.open(tarball_path, "w:gz"):
+            pass
+
+        extraction_started = threading.Event()
+        extraction_release = threading.Event()
+        extraction_finished = threading.Event()
+
+        def blocking_extractall(*args: object, **kwargs: object) -> None:
+            del args, kwargs
+            extraction_started.set()
+            extraction_release.wait()
+            extraction_finished.set()
+
+        with patch.object(
+            tarfile.TarFile,
+            "extractall",
+            new=blocking_extractall,
+        ):
+            extracting = asyncio.create_task(artifact.extract(tarball_path, target_dir))
+            assert await asyncio.to_thread(extraction_started.wait, 1)
+            extracting.cancel()
+            done, _ = await asyncio.wait({extracting}, timeout=0.05)
+            cancellation_propagated_early = bool(done)
+            extraction_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await extracting
+
+        assert extraction_finished.is_set()
+        assert cancellation_propagated_early is False
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
