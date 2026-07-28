@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import ast
 import importlib
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 
@@ -13,14 +17,30 @@ from tracecat.config import bound_env, env_bool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
-COMPOSE_ENV_FILES = (
+SANDBOX_COMPOSE_PATH = REPO_ROOT / "docker-compose.sandbox.yml"
+AGENT_EXECUTOR_BASE_COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
-    REPO_ROOT / "docker-compose.sandbox.yml",
+)
+COMPOSE_ENV_FILES = (
+    *AGENT_EXECUTOR_BASE_COMPOSE_FILES,
+    SANDBOX_COMPOSE_PATH,
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+
+
+class _AgentExecutorComposeService(TypedDict):
+    user: str
+    entrypoint: list[str]
+    environment: list[str]
+    cap_add: list[str]
+    security_opt: list[str]
+
+
+class _ComposeConfig(TypedDict):
+    services: dict[str, _AgentExecutorComposeService]
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -201,6 +221,62 @@ def test_boolean_env_values_preserve_defaults_and_compose_overrides() -> None:
         "`${VAR:-default}` instead of hardcoded literals so .env overrides still "
         "work: " + ", ".join(violations)
     )
+
+
+@pytest.mark.parametrize(
+    "base_compose_path",
+    AGENT_EXECUTOR_BASE_COMPOSE_FILES,
+    ids=lambda path: path.name,
+)
+def test_agent_executor_sandbox_overlay_delegates_cgroups(
+    base_compose_path: Path,
+) -> None:
+    docker_path = shutil.which("docker")
+    if docker_path is None:
+        pytest.skip("Docker CLI unavailable for Compose configuration test")
+
+    compose_version = subprocess.run(
+        [docker_path, "compose", "version"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin unavailable")
+
+    result = subprocess.run(
+        [
+            docker_path,
+            "compose",
+            "-f",
+            str(base_compose_path),
+            "-f",
+            str(SANDBOX_COMPOSE_PATH),
+            "config",
+            "--no-interpolate",
+            "--format",
+            "json",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = cast(_ComposeConfig, json.loads(result.stdout))
+    service = config["services"]["agent-executor"]
+
+    assert service["user"] == "0:0"
+    assert service["entrypoint"] == ["/usr/local/bin/agent-executor-entrypoint.sh"]
+    assert "SYS_ADMIN" in service["cap_add"]
+    assert "systempaths=unconfined" in service["security_opt"]
+    assert (
+        "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED="
+        "${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}"
+    ) in service["environment"]
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -362,14 +362,9 @@ services:
         - core
         - core-db
         - temporal
-      # Required for nsjail sandbox (uncomment if using nsjail)
-      # cap_add:
-      #   - SYS_ADMIN
-      # security_opt:
-      #   - seccomp:unconfined
-      # # Required for pasta userspace networking (creates TAP device in sandbox netns)
-      # devices:
-      #   - /dev/net/tun:/dev/net/tun
+      # To enable nsjail, set TRACECAT__DISABLE_NSJAIL=false and layer
+      # docker-compose.sandbox.yml; it configures the required privileges and
+      # cgroup delegation together.
       environment:
         # Common
         LOG_LEVEL: ${LOG_LEVEL}
