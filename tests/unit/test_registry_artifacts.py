@@ -27,6 +27,7 @@ from tracecat.executor.registry_artifacts import (
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
+from tracecat.executor.schemas import ExecutorBackendType
 from tracecat.registry.artifact_keys import parse_s3_uri
 
 MAX_ENTRIES_CONFIG = (
@@ -40,6 +41,9 @@ MAX_BYTES_CONFIG = (
 SQUASHFS_ENABLED_CONFIG = (
     "tracecat.executor.registry_artifacts.config"
     ".TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"
+)
+BACKEND_CONFIG = (
+    "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_BACKEND"
 )
 
 
@@ -1047,22 +1051,132 @@ class TestRegistryArtifactCacheEviction:
         assert convergence_scans == 2
         assert cache._budget_dirty is False
 
+    @pytest.mark.parametrize(
+        "oldest_has_tarball",
+        [False, True],
+        ids=["squashfs-only", "tarball-bearing"],
+    )
     @pytest.mark.anyio
     async def test_enforce_budget_evicts_least_recently_used_until_under_max_bytes(
-        self, temp_cache_dir
+        self, temp_cache_dir, oldest_has_tarball: bool
     ):
-        """Size eviction stops as soon as the cache is back within budget."""
+        """Direct-backend size eviction stops once the cache is within budget."""
         cache = RegistryArtifactCache(temp_cache_dir)
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=4096, mtime=100.0)
+        if oldest_has_tarball:
+            _write_tarball_entry(temp_cache_dir, "oldest")
         older = _write_image_entry(temp_cache_dir, "older", size=4096, mtime=200.0)
         newest = _write_image_entry(temp_cache_dir, "newest", size=4096, mtime=300.0)
 
-        with patch(MAX_ENTRIES_CONFIG, 0), patch(MAX_BYTES_CONFIG, 9000):
-            await cache._enforce_cache_budget(protected_key="pending")
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, 9000),
+        ):
+            within_budget = await cache._enforce_cache_budget(protected_key="pending")
 
+        assert within_budget is True
         assert not oldest.exists()
+        assert not cache._paths_for("oldest").tarball_target_dir.exists()
         assert older.exists()
         assert newest.exists()
+
+    @pytest.mark.anyio
+    async def test_pool_backend_skips_tarball_lru_and_evicts_next_entry(
+        self, temp_cache_dir
+    ):
+        """Warm-worker tarball paths are ineligible runtime victims."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        pool_visible_image = _write_image_entry(
+            temp_cache_dir, "pool-visible", size=16, mtime=100.0
+        )
+        pool_visible_tarball = _write_tarball_entry(temp_cache_dir, "pool-visible")
+        next_lru = _write_image_entry(temp_cache_dir, "next-lru", size=16, mtime=200.0)
+        newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=300.0)
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
+            patch(MAX_ENTRIES_CONFIG, 2),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            within_budget = await cache._enforce_cache_budget()
+
+        assert within_budget is True
+        assert pool_visible_image.exists()
+        assert pool_visible_tarball.is_dir()
+        assert not next_lru.exists()
+        assert newest.exists()
+
+    @pytest.mark.anyio
+    async def test_pool_backend_all_tarballs_remain_dirty_when_over_budget(
+        self, temp_cache_dir
+    ):
+        """An all-tarball pool cache warns and retries convergence later."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        first_image = _write_image_entry(temp_cache_dir, "first", size=16, mtime=100.0)
+        first_tarball = _write_tarball_entry(temp_cache_dir, "first")
+        second_image = _write_image_entry(
+            temp_cache_dir, "second", size=16, mtime=200.0
+        )
+        second_tarball = _write_tarball_entry(temp_cache_dir, "second")
+        cache._budget_dirty = True
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+        ):
+            await cache._converge_cache_budget()
+
+        assert first_image.exists()
+        assert first_tarball.is_dir()
+        assert second_image.exists()
+        assert second_tarball.is_dir()
+        assert cache._budget_dirty is True
+        warning.assert_called_once_with(
+            "Registry artifact cache is over budget but every entry is in use",
+            cache_dir=str(temp_cache_dir),
+            entries=2,
+            max_entries=1,
+            total_bytes=50,
+            max_bytes=0,
+        )
+
+    @pytest.mark.anyio
+    async def test_pool_backend_release_mounted_slot_skips_tarball_entry(
+        self, temp_cache_dir
+    ):
+        """Loop-device recovery must preserve paths visible to warm workers."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        pool_visible = cache._paths_for("pool-visible")
+        pool_visible.squashfs_image_path.write_bytes(b"squashfs")
+        os.utime(pool_visible.squashfs_image_path, (100.0, 100.0))
+        pool_visible.squashfs_mount_dir.mkdir()
+        _write_tarball_entry(temp_cache_dir, "pool-visible")
+        eligible = cache._paths_for("eligible")
+        eligible.squashfs_image_path.write_bytes(b"squashfs")
+        os.utime(eligible.squashfs_image_path, (200.0, 200.0))
+        eligible.squashfs_mount_dir.mkdir()
+        mounted = {
+            pool_visible.squashfs_mount_dir,
+            eligible.squashfs_mount_dir,
+        }
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
+            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch.object(
+                cache,
+                "_evict_entry",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as evict_entry,
+        ):
+            released = await cache._release_mounted_slot("protected")
+
+        assert released is True
+        evict_entry.assert_awaited_once_with("eligible")
 
     @pytest.mark.anyio
     async def test_concurrent_budget_passes_only_evict_once(self, temp_cache_dir):
@@ -1418,15 +1532,21 @@ class TestRegistryArtifactCacheStartupSweep:
         assert mount_dir.is_dir()
 
     def test_sweep_trims_to_budget_using_image_mtimes(self, temp_cache_dir):
-        """Startup LRU order comes from image mtimes, which survive a restart."""
+        """Pool startup still trims tarballs using persistent image mtimes."""
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=64, mtime=100.0)
+        oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
         older = _write_image_entry(temp_cache_dir, "older", size=64, mtime=200.0)
         newest = _write_image_entry(temp_cache_dir, "newest", size=64, mtime=300.0)
 
-        with patch(MAX_ENTRIES_CONFIG, 1), patch(MAX_BYTES_CONFIG, 0):
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
             RegistryArtifactCache(temp_cache_dir)
 
         assert not oldest.exists()
+        assert not oldest_tarball.exists()
         assert not older.exists()
         assert newest.exists()
 

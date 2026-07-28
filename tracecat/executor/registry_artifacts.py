@@ -21,6 +21,7 @@ import httpx
 import tracecat_registry
 
 from tracecat import config
+from tracecat.executor.schemas import ExecutorBackendType
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -1241,6 +1242,18 @@ class RegistryArtifactCache:
             skipped.add(candidate.cache_key)
         return False
 
+    def _is_pool_worker_visible(self, cache_key: str) -> bool:
+        """Return whether a warm pool worker may retain this tarball path.
+
+        This runtime guard intentionally does not apply to the startup sweep,
+        which runs before this process spawns pool workers and may trim tarball
+        entries left behind by dead processes.
+        """
+        return (
+            config.TRACECAT__EXECUTOR_BACKEND == ExecutorBackendType.POOL
+            and self._paths_for(cache_key).tarball_target_dir.exists()
+        )
+
     def _least_recently_used(
         self,
         entries: Iterable[RegistryArtifactCacheEntry],
@@ -1251,7 +1264,9 @@ class RegistryArtifactCache:
         eligible = [
             entry
             for entry in entries
-            if entry.cache_key not in excluded and self._refcount(entry.cache_key) == 0
+            if entry.cache_key not in excluded
+            and self._refcount(entry.cache_key) == 0
+            and not self._is_pool_worker_visible(entry.cache_key)
         ]
         if not eligible:
             return None
