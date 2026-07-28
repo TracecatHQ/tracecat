@@ -124,3 +124,53 @@ def test_agent_executor_readiness_sentinel_is_best_effort_on_read_only_fs(
     assert created is False
     mock_logger.warning.assert_called_once()
     assert mock_logger.warning.call_args.kwargs["errno"] == errno.EROFS
+
+
+@pytest.mark.anyio
+async def test_agent_executor_removes_stale_readiness_sentinel_on_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    ready_file = tmp_path / "run" / "agent-executor-ready"
+    ready_file.parent.mkdir(parents=True)
+    ready_file.write_text("stale\n")
+
+    def keep_concurrency(
+        max_concurrent: int,
+        *,
+        reserve_mb: int,
+        sandbox_memory_mb: int,
+    ) -> int:
+        del reserve_mb, sandbox_memory_mb
+        return max_concurrent
+
+    monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        lambda: CgroupAvailability.DISABLED,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "clamp_agent_executor_concurrency",
+        keep_concurrency,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "_start_runtime_services",
+        AsyncMock(side_effect=RuntimeError("startup failed")),
+    )
+    monkeypatch.setattr(executor_worker, "_stop_runtime_services", AsyncMock())
+    monkeypatch.setattr(executor_worker, "close_storage_client_cache", AsyncMock())
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_READY_FILE",
+        str(ready_file),
+    )
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    assert not ready_file.exists()

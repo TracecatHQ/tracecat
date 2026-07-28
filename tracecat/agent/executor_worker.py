@@ -127,7 +127,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         sandbox_memory_mb=config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     )
     readiness_file = Path(config.TRACECAT__AGENT_EXECUTOR_READY_FILE)
-    readiness_file_created = False
+    # A SIGKILLed predecessor cannot run its cleanup, and the sentinel may live
+    # on a filesystem that survives container restarts; clear it before any
+    # startup work so a readiness probe never sees a stale file.
+    _remove_readiness_file(readiness_file)
 
     logger.info(
         "Starting AgentExecutorWorker",
@@ -159,16 +162,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 ),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
-                readiness_file_created = _write_readiness_file(
-                    readiness_file,
-                    datetime.now(UTC),
-                )
+                _write_readiness_file(readiness_file, datetime.now(UTC))
                 await shutdown_event.wait()
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
-        if readiness_file_created:
-            _remove_readiness_file(readiness_file)
+        _remove_readiness_file(readiness_file)
         await close_storage_client_cache()
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
