@@ -14,6 +14,9 @@ if [[ "$(id -u)" == "0" && "${TRACECAT__ENTRYPOINT_CGROUP_DELEGATE:-false}" == "
         echo "Unable to delegate /sys/fs/cgroup to apiuser; agent sandbox" \
             "cgroup limits will be unavailable." >&2
     fi
+    # setpriv changes only IDs; fix the identity env vars ourselves instead of
+    # --reset-env, which would clear the service configuration environment.
+    export HOME=/home/apiuser USER=apiuser LOGNAME=apiuser
     exec setpriv --reuid=apiuser --regid=apiuser --init-groups /app/entrypoint.sh "$@"
 fi
 
