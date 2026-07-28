@@ -1227,28 +1227,15 @@ class TestRegistryArtifactCacheEviction:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
-    async def test_deletion_failure_retries_without_blocking_materialization(
+    async def test_deletion_failure_does_not_block_materialization(
         self, temp_cache_dir
     ):
-        """Failed cleanup stays retryable while cache admission remains fail-open."""
+        """Failed cleanup is reported while cache admission remains fail-open."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         _write_image_entry(temp_cache_dir, "idle", size=4096, mtime=100.0)
         artifact_uri = "s3://bucket/new.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        delete_attempts = 0
-        retry_started = threading.Event()
-        finish_retry = threading.Event()
-        real_delete_entry_paths = _delete_entry_paths
-
-        def fail_once_then_delete(paths: RegistryArtifactPaths) -> bool:
-            nonlocal delete_attempts
-            delete_attempts += 1
-            if delete_attempts == 1:
-                return False
-            retry_started.set()
-            finish_retry.wait(timeout=5)
-            return real_delete_entry_paths(paths)
 
         async def mock_download(self, ctx, path):
             path.write_bytes(b"fake tarball")
@@ -1261,28 +1248,21 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_BYTES_CONFIG, 0),
             patch(
                 "tracecat.executor.registry_artifacts._delete_entry_paths",
-                side_effect=fail_once_then_delete,
+                return_value=False,
             ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
         ):
             registry_paths = await cache.materialize(cache_key, artifact_uri)
 
-            assert registry_paths == [temp_cache_dir / f"tarball-{cache_key}"]
-            assert registry_paths[0].is_dir()
-            assert cache._pending_deletions
-            assert cache._budget_dirty is True
-
-            within_budget = await cache._enforce_cache_budget()
-            assert within_budget is False
-            assert await asyncio.to_thread(retry_started.wait, 1)
-            retry_tasks = tuple(cache._deletion_tasks.values())
-            finish_retry.set()
-            await asyncio.gather(*retry_tasks)
-            await asyncio.sleep(0)
-
-            assert not cache._pending_deletions
-            assert await cache._enforce_cache_budget() is True
+        assert registry_paths == [temp_cache_dir / f"tarball-{cache_key}"]
+        assert registry_paths[0].is_dir()
+        assert cache._budget_dirty is True
+        warning.assert_any_call(
+            "Registry artifact eviction remains pending physical deletion",
+            cache_key="idle",
+        )
 
     @pytest.mark.anyio
     async def test_releasing_a_lease_skips_the_scan_for_a_cache_hit(
