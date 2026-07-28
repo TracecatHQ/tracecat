@@ -24,6 +24,11 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   useBuilderRegistryActions,
@@ -54,6 +59,10 @@ const SEARCH_KEY_INDEX: Record<(typeof SEARCH_KEYS)[number], number> =
 
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
   return action.availability?.locked ?? false
+}
+
+function isDeprecatedAction(action: RegistryActionReadMinimal): boolean {
+  return !!action.deprecated
 }
 
 type ActionFilterResult = {
@@ -343,6 +352,9 @@ function ActionCommandGroup({
         setLockedFeatureOpen(true)
         return
       }
+      if (isDeprecatedAction(registryAction)) {
+        return
+      }
       if (!workflowId) {
         return
       }
@@ -505,44 +517,38 @@ function ActionCommandGroup({
         {filterResults.map((result) => {
           const { action, actionResult, titleResult } = result
           const isLocked = isLockedAction(action)
+          const isDeprecated = isDeprecatedAction(action)
 
-          if (highlight) {
-            return (
-              <CommandItem
-                key={action.action}
-                className={cn(
-                  "flex w-full items-center gap-3 py-2 text-xs",
-                  isLocked && "text-muted-foreground"
-                )}
-                onSelect={async () => await handleSelect(action)}
-              >
-                {getIcon(action.action, {
-                  className: "size-8 rounded-md border p-1.5",
-                })}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-xs font-medium">
-                    <HighlightedText
-                      result={titleResult}
-                      text={action.default_title ?? action.action}
-                    />
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    <HighlightedText
-                      result={actionResult}
-                      text={action.action}
-                    />
-                  </span>
-                </div>
-              </CommandItem>
-            )
-          }
-
-          return (
+          const item = highlight ? (
             <CommandItem
               key={action.action}
               className={cn(
                 "flex w-full items-center gap-3 py-2 text-xs",
-                isLocked && "text-muted-foreground"
+                (isLocked || isDeprecated) && "cursor-not-allowed opacity-50"
+              )}
+              onSelect={async () => await handleSelect(action)}
+            >
+              {getIcon(action.action, {
+                className: "size-8 rounded-md border p-1.5",
+              })}
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-xs font-medium">
+                  <HighlightedText
+                    result={titleResult}
+                    text={action.default_title ?? action.action}
+                  />
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  <HighlightedText result={actionResult} text={action.action} />
+                </span>
+              </div>
+            </CommandItem>
+          ) : (
+            <CommandItem
+              key={action.action}
+              className={cn(
+                "flex w-full items-center gap-3 py-2 text-xs",
+                (isLocked || isDeprecated) && "cursor-not-allowed opacity-50"
               )}
               onSelect={async () => await handleSelect(action)}
             >
@@ -559,6 +565,18 @@ function ActionCommandGroup({
               </div>
             </CommandItem>
           )
+
+          if (isDeprecated) {
+            return (
+              <Tooltip key={action.action}>
+                <TooltipTrigger asChild>{item}</TooltipTrigger>
+                <TooltipContent side="right" className="max-w-48 text-xs">
+                  {action.deprecated}
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          return item
         })}
       </CommandGroup>
     </>

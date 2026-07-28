@@ -49,6 +49,7 @@ async def test_list_registry_actions_include_locked_returns_availability_metadat
                     default_title="Create task",
                     display_group="Cases",
                     options={"required_entitlements": ["case_addons"]},
+                    deprecated="Use core.cases.create_task_v2 instead.",
                     missing_entitlements=("case_addons",),
                 ),
                 "tracecat_registry",
@@ -64,4 +65,5 @@ async def test_list_registry_actions_include_locked_returns_availability_metadat
         "locked": True,
         "missing_entitlements": ["case_addons"],
     }
+    assert payload[0]["deprecated"] == "Use core.cases.create_task_v2 instead."
     mock_service.list_actions_from_index.assert_awaited_once_with(include_locked=True)

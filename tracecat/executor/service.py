@@ -37,6 +37,7 @@ from tracecat.dsl.schemas import (
     TemplateExecutionContext,
 )
 from tracecat.exceptions import (
+    DeprecatedActionError,
     ExecutionError,
     LoopExecutionError,
     RegistryValidationError,
@@ -421,6 +422,8 @@ async def _prepare_step_context(
     action_impl = await registry_resolver.resolve_action(
         step_action, input.registry_lock, role.organization_id
     )
+    if action_impl.deprecated:
+        raise DeprecatedActionError(step_action, action_impl.deprecated)
 
     # Mint a fresh step token while retaining the root action's provenance.
     executor_token = _mint_action_executor_token(input, role)
@@ -675,6 +678,8 @@ async def prepare_resolved_context(
     action_impl = await registry_resolver.resolve_action(
         action_name, input.registry_lock, role.organization_id
     )
+    if action_impl.deprecated:
+        raise DeprecatedActionError(action_name, action_impl.deprecated)
     action_secrets = await registry_resolver.collect_action_secrets_from_manifest(
         action_name, input.registry_lock, role.organization_id
     )

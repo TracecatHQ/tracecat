@@ -299,13 +299,6 @@ class AgentConfigSchema(BaseModel):
     enable_thinking: bool = Field(default=True)
 
 
-class RankableItemSchema(TypedDict):
-    """Item that can be ranked."""
-
-    id: str | int
-    text: str
-
-
 class InternalRunAgentRequest(BaseModel):
     """Request body for /internal/agent/run endpoint."""
 
@@ -324,39 +317,3 @@ class InternalRunAgentRequest(BaseModel):
         if self.preset_version is not None and self.preset_slug is None:
             raise ValueError("'preset_version' requires 'preset_slug'")
         return self
-
-
-class InternalRankItemsRequest(BaseModel):
-    """Request body for /internal/agent/rank endpoint."""
-
-    items: list[RankableItemSchema]
-    criteria_prompt: str
-    model_name: str
-    model_provider: str
-    catalog_id: uuid.UUID | None = None
-    model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
-    retries: int = 3
-    base_url: str | None = None
-    min_items: int | None = None
-    max_items: int | None = None
-
-
-class InternalRankItemsPairwiseRequest(BaseModel):
-    """Request body for /internal/agent/rank-pairwise endpoint."""
-
-    items: list[RankableItemSchema]
-    criteria_prompt: str
-    model_name: str
-    model_provider: str
-    catalog_id: uuid.UUID | None = None
-    id_field: str = "id"
-    batch_size: int = 10
-    num_passes: int = 10
-    refinement_ratio: float = 0.5
-    model_settings: dict[str, Any] | None = None
-    max_requests: int = 5
-    retries: int = 3
-    base_url: str | None = None
-    min_items: int | None = None
-    max_items: int | None = None

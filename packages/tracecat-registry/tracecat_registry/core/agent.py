@@ -235,7 +235,6 @@ LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
     display_group="AI",
     doc_url="https://docs.tracecat.com/agents/ai-agent",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
 async def agent(
@@ -317,7 +316,6 @@ async def agent(
     default_title="Run agent preset",
     description="Run an AI agent using a saved agent preset.",
     display_group="AI",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
     required_entitlements=["agent_addons"],
 )
@@ -370,7 +368,6 @@ async def preset_agent(
     display_group="AI",
     doc_url="https://docs.tracecat.com/agents/ai-action",
     namespace="ai",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
 )
 async def action(
     user_prompt: Annotated[

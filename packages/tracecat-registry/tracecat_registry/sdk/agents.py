@@ -74,11 +74,6 @@ def _skill_identifier(skill_id: str, skill_uuid: str | uuid.UUID | None = None) 
     return str(skill_uuid) if skill_uuid is not None else skill_id
 
 
-class RankableItem(TypedDict):
-    id: str | int
-    text: str
-
-
 @dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
@@ -202,118 +197,6 @@ async def run_agent(
     )
 
 
-async def rank_items(
-    items: list[RankableItem],
-    criteria_prompt: str,
-    model_name: str,
-    model_provider: str,
-    catalog_id: uuid.UUID | None = None,
-    model_settings: dict[str, object] | None = None,
-    max_requests: int = 5,
-    retries: int = 3,
-    base_url: str | None = None,
-    *,
-    min_items: int | None = None,
-    max_items: int | None = None,
-) -> list[str | int]:
-    """Rank items using an LLM based on natural language criteria.
-
-    This function delegates to AgentsClient.rank_items() via HTTP.
-
-    Args:
-        items: List of items to rank (each with 'id' and 'text').
-        criteria_prompt: Natural language criteria for ranking.
-        model_name: LLM model to use.
-        model_provider: LLM provider.
-        model_settings: Optional model settings.
-        max_requests: Maximum number of LLM requests.
-        retries: Number of retries on failure.
-        base_url: Optional base URL for custom providers.
-        min_items: Minimum number of items to return (optional).
-        max_items: Maximum number of items to return (optional).
-
-    Returns:
-        List of item IDs in ranked order (most to least relevant).
-    """
-    from tracecat_registry import ctx
-
-    return await ctx.agents.aio.rank_items(
-        items=items,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        catalog_id=catalog_id,
-        model_settings=model_settings,
-        max_requests=max_requests,
-        retries=retries,
-        base_url=base_url,
-        min_items=min_items,
-        max_items=max_items,
-    )
-
-
-async def rank_items_pairwise(
-    items: list[RankableItem],
-    criteria_prompt: str,
-    model_name: str,
-    model_provider: str,
-    catalog_id: uuid.UUID | None = None,
-    id_field: str = "id",
-    batch_size: int = 10,
-    num_passes: int = 10,
-    refinement_ratio: float = 0.5,
-    model_settings: dict[str, object] | None = None,
-    max_requests: int = 5,
-    retries: int = 3,
-    base_url: str | None = None,
-    *,
-    min_items: int | None = None,
-    max_items: int | None = None,
-) -> list[str | int]:
-    """Rank items using multi-pass pairwise ranking with progressive refinement.
-
-    This function delegates to AgentsClient.rank_items_pairwise() via HTTP.
-
-    Args:
-        items: List of items to rank (each with 'id' and 'text').
-        criteria_prompt: Natural language criteria for ranking.
-        model_name: LLM model to use.
-        model_provider: LLM provider.
-        id_field: Field name containing the item ID (default: "id").
-        batch_size: Number of items per batch (default: 10).
-        num_passes: Number of shuffle-batch-rank iterations (default: 10).
-        refinement_ratio: Portion of top items to recursively refine (default: 0.5).
-        model_settings: Optional model settings dict.
-        max_requests: Maximum number of LLM requests per batch (default: 5).
-        retries: Number of retries on failure (default: 3).
-        base_url: Optional base URL for custom providers.
-        min_items: Minimum number of items to return (optional).
-        max_items: Maximum number of items to return (optional).
-
-    Returns:
-        List of item IDs in ranked order (most to least relevant).
-    """
-    from tracecat_registry import ctx
-
-    return await ctx.agents.aio.rank_items_pairwise(
-        items=items,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        catalog_id=catalog_id,
-        id_field=id_field,
-        batch_size=batch_size,
-        num_passes=num_passes,
-        refinement_ratio=refinement_ratio,
-        model_settings=model_settings,
-        max_requests=max_requests,
-        retries=retries,
-        base_url=base_url,
-        min_items=min_items,
-        max_items=max_items,
-    )
-
-
 class AgentsClient:
     """Client for Agent API operations including presets and execution."""
 
@@ -366,124 +249,6 @@ class AgentsClient:
             data["max_tool_calls"] = max_tool_calls
 
         return await self._client.post("/agent/run", json=data)
-
-    async def rank_items(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = None,
-        model_settings: dict[str, object] | None = None,
-        max_requests: int = 5,
-        retries: int = 3,
-        base_url: str | None = None,
-        min_items: int | None = None,
-        max_items: int | None = None,
-    ) -> list[str | int]:
-        """Rank items using an LLM based on natural language criteria.
-
-        Args:
-            items: List of items to rank (each with 'id' and 'text').
-            criteria_prompt: Natural language criteria for ranking.
-            model_name: LLM model name.
-            model_provider: LLM provider.
-            model_settings: Optional model settings.
-            max_requests: Maximum LLM requests.
-            retries: Number of retries on failure.
-            base_url: Optional custom base URL.
-            min_items: Minimum items to return (optional).
-            max_items: Maximum items to return (optional).
-
-        Returns:
-            List of item IDs in ranked order.
-        """
-        data: dict[str, Any] = {
-            "items": items,
-            "criteria_prompt": criteria_prompt,
-            "model_name": model_name,
-            "model_provider": model_provider,
-            "max_requests": max_requests,
-            "retries": retries,
-        }
-        if catalog_id is not None:
-            data["catalog_id"] = str(catalog_id)
-        if model_settings is not None:
-            data["model_settings"] = model_settings
-        if base_url is not None:
-            data["base_url"] = base_url
-        if min_items is not None:
-            data["min_items"] = min_items
-        if max_items is not None:
-            data["max_items"] = max_items
-
-        return await self._client.post("/agent/rank", json=data)
-
-    async def rank_items_pairwise(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = None,
-        id_field: str = "id",
-        batch_size: int = 10,
-        num_passes: int = 10,
-        refinement_ratio: float = 0.5,
-        model_settings: dict[str, object] | None = None,
-        max_requests: int = 5,
-        retries: int = 3,
-        base_url: str | None = None,
-        min_items: int | None = None,
-        max_items: int | None = None,
-    ) -> list[str | int]:
-        """Rank items using pairwise LLM comparisons.
-
-        Args:
-            items: List of items to rank.
-            criteria_prompt: Natural language criteria.
-            model_name: LLM model name.
-            model_provider: LLM provider.
-            id_field: Field name for item ID (default: "id").
-            batch_size: Items per batch (default: 10).
-            num_passes: Number of shuffle-rank passes (default: 10).
-            refinement_ratio: Top portion to refine (default: 0.5).
-            model_settings: Optional model settings.
-            max_requests: Maximum LLM requests per batch.
-            retries: Number of retries on failure.
-            base_url: Optional custom base URL.
-            min_items: Minimum items to return (optional).
-            max_items: Maximum items to return (optional).
-
-        Returns:
-            List of item IDs in ranked order.
-        """
-        data: dict[str, Any] = {
-            "items": items,
-            "criteria_prompt": criteria_prompt,
-            "model_name": model_name,
-            "model_provider": model_provider,
-            "id_field": id_field,
-            "batch_size": batch_size,
-            "num_passes": num_passes,
-            "refinement_ratio": refinement_ratio,
-            "max_requests": max_requests,
-            "retries": retries,
-        }
-        if catalog_id is not None:
-            data["catalog_id"] = str(catalog_id)
-        if model_settings is not None:
-            data["model_settings"] = model_settings
-        if base_url is not None:
-            data["base_url"] = base_url
-        if min_items is not None:
-            data["min_items"] = min_items
-        if max_items is not None:
-            data["max_items"] = max_items
-
-        return await self._client.post("/agent/rank-pairwise", json=data)
 
     # --- Skill methods ---
 
@@ -788,8 +553,5 @@ __all__ = [
     "AgentPresetSkillBinding",
     "CursorPage",
     "OutputType",
-    "RankableItem",
-    "rank_items",
-    "rank_items_pairwise",
     "run_agent",
 ]

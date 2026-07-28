@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Select one field
+  description: Use AI to select one field from a JSON object.
+  display_group: AI
+  namespace: ai
+  name: select_field
+  expects:
+    json:
+      type: dict[str, Any]
+      description: JSON object to select the field from.
+    criteria_prompt:
+      type: str
+      description: Criteria to determine which field to select. For example, "the name of the alert."
+    model:
+      type: dict[str, Any]
+      description: Model to use. Provide `model_name`, `model_provider`, and optionally `catalog_id`.
+    flatten:
+      type: bool
+      description: Extract from and return a flattened single level object with JSONPath notation as keys.
+      default: false
+    instructions:
+      type: str | None
+      description: Additional instructions for the agent.
+      default: null
+  steps:
+    - ref: flat_json
+      action: core.transform.flatten_json
+      args:
+        json: ${{ inputs.json }}
+    - ref: run_agent
+      action: ai.agent
+      args:
+        model: ${{ inputs.model }}
+        user_prompt: >-
+          Given this JSON object, select the single most relevant field according to this criteria: ${{ inputs.criteria_prompt }}
+
+          JSON:
+          ${{ inputs.flatten -> steps.flat_json.result : inputs.json }}
+
+          Return a JSON object with exactly two keys: "key" (the field name) and "value" (the field value).
+        instructions: ${{ inputs.instructions }}
+        output_type:
+          type: object
+          properties:
+            key:
+              type: string
+            value: {}
+          required: ["key", "value"]
+  returns: ${{ steps.run_agent.result.output }}

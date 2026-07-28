@@ -22,7 +22,11 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
 )
-from tracecat.exceptions import EntitlementRequired, RegistryError
+from tracecat.exceptions import (
+    DeprecatedActionError,
+    EntitlementRequired,
+    RegistryError,
+)
 from tracecat.executor.schemas import ActionImplementation
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
@@ -56,6 +60,7 @@ def _build_impl_index(
                 module=impl.module,
                 name=impl.name,
                 origin=origin,
+                deprecated=manifest_action.deprecated,
             )
         elif impl.type == "template":
             index[action_name] = ActionImplementation(
@@ -65,6 +70,7 @@ def _build_impl_index(
                     mode="json"
                 ),
                 origin=origin,
+                deprecated=manifest_action.deprecated,
             )
         else:
             raise ValueError(f"Unknown implementation type: {impl}")
@@ -392,6 +398,10 @@ async def _collect_secrets_recursive(
             step_manifest_action = step_manifest.actions.get(step_action_name)
             if step_manifest_action is None:
                 continue
+            if step_manifest_action.deprecated:
+                raise DeprecatedActionError(
+                    step_action_name, step_manifest_action.deprecated
+                )
 
             await _collect_secrets_recursive(
                 step_manifest_action, lock, secrets, organization_id
