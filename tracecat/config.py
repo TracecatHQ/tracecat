@@ -643,11 +643,13 @@ TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direc
 """Executor backend for running actions.
 
 Supported values:
-- 'pool': Warm nsjail workers (single-tenant, high throughput, ~100-200ms)
+- 'pool': Warm nsjail workers (single-tenant, high throughput, ~100-200ms).
+  EXPERIMENTAL: not production ready. The registry cache is exempt from
+  eviction under this backend and can grow without bound.
 - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
 - 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
 - 'test': In-process execution for tests only (no isolation, no subprocess overhead)
-- 'auto': Auto-select based on environment (pool if nsjail available, else direct)
+- 'auto': Auto-select based on environment (ephemeral if nsjail available, else direct)
 
 Trust mode is derived from the backend type:
 - pool: untrusted (secrets pre-resolved, no DB creds)
