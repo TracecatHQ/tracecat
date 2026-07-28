@@ -21,7 +21,13 @@ services:
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
+    # Start the entrypoint as root so it can delegate the container's cgroup
+    # v2 subtree to apiuser for per-sandbox memory limits; it drops privileges
+    # before the worker starts. The flag is coupled to user "0:0" — override
+    # neither independently.
+    user: "0:0"
     environment:
+      TRACECAT__ENTRYPOINT_CGROUP_DELEGATE: "true"
       TRACECAT__AGENT_SANDBOX_MEMORY_MB: ${TRACECAT__AGENT_SANDBOX_MEMORY_MB:-4096}
       TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED: ${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}
       TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB: ${TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB:-4096}
