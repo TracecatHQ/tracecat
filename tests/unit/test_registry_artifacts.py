@@ -6,6 +6,7 @@ import asyncio
 import os
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -15,11 +16,14 @@ import tracecat_registry
 
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
+    TEMP_ARTIFACT_PATTERN,
     RegistryArtifactCache,
     RegistryArtifactFormat,
+    RegistryArtifactPaths,
     SquashfsArtifact,
     SquashfsMountCommandError,
     TarballArtifact,
+    _delete_entry_paths,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
@@ -1061,6 +1065,81 @@ class TestRegistryArtifactCacheEviction:
         assert newest.exists()
 
     @pytest.mark.anyio
+    async def test_concurrent_budget_passes_only_evict_once(self, temp_cache_dir):
+        """A waiting budget pass must re-scan after the active pass evicts."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        oldest = _write_image_entry(temp_cache_dir, "oldest", size=16, mtime=100.0)
+        retained = _write_image_entry(temp_cache_dir, "retained", size=16, mtime=200.0)
+        original_scan = cache._scan_cache_entries
+        first_scan_started = threading.Event()
+        second_scan_started = threading.Event()
+        release_first_scan = threading.Event()
+        release_second_scan = threading.Event()
+        scan_count_lock = threading.Lock()
+        scan_count = 0
+
+        def controlled_scan():
+            nonlocal scan_count
+            entries = original_scan()
+            with scan_count_lock:
+                scan_index = scan_count
+                scan_count += 1
+            if scan_index == 0:
+                first_scan_started.set()
+                release_first_scan.wait(timeout=5)
+            elif scan_index == 1:
+                second_scan_started.set()
+                release_second_scan.wait(timeout=5)
+            return entries
+
+        eviction_started = asyncio.Event()
+        finish_eviction = asyncio.Event()
+        extra_eviction_finished = asyncio.Event()
+        evicted_keys: list[str] = []
+
+        async def controlled_evict(cache_key: str) -> bool:
+            if cache_key == "oldest":
+                if eviction_started.is_set():
+                    return False
+                eviction_started.set()
+                await finish_eviction.wait()
+                oldest.unlink(missing_ok=True)
+            else:
+                retained.unlink(missing_ok=True)
+                extra_eviction_finished.set()
+            evicted_keys.append(cache_key)
+            return True
+
+        with (
+            patch.object(cache, "_scan_cache_entries", side_effect=controlled_scan),
+            patch.object(cache, "_evict_entry", side_effect=controlled_evict),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            first_pass = asyncio.create_task(cache._enforce_cache_budget())
+            assert await asyncio.to_thread(first_scan_started.wait, 1)
+            second_pass = asyncio.create_task(cache._enforce_cache_budget())
+            second_scan_overlapped = await asyncio.to_thread(
+                second_scan_started.wait, 0.5
+            )
+
+            release_first_scan.set()
+            await asyncio.wait_for(eviction_started.wait(), timeout=1)
+            release_second_scan.set()
+            try:
+                await asyncio.wait_for(extra_eviction_finished.wait(), timeout=0.2)
+            except TimeoutError:
+                pass
+            finish_eviction.set()
+            await asyncio.gather(first_pass, second_pass)
+
+        assert second_scan_overlapped is False
+        assert scan_count == 2
+        assert evicted_keys == ["oldest"]
+        assert not oldest.exists()
+        assert retained.exists()
+
+    @pytest.mark.anyio
     async def test_enforce_budget_counts_the_pending_entry(self, temp_cache_dir):
         """The entry about to be materialized counts against the entry budget."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -1141,6 +1220,97 @@ class TestRegistryArtifactCacheEviction:
             "/sbin/umount",
             str(paths.squashfs_mount_dir),
         )
+
+    @pytest.mark.anyio
+    async def test_cancelled_background_deletion_leaves_a_clean_miss(
+        self, temp_cache_dir
+    ):
+        """Cancellation cannot expose live paths that deletion still owns."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cancelled-eviction.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        original_target = _write_tarball_entry(temp_cache_dir, cache_key)
+        delete_started = threading.Event()
+        finish_delete = threading.Event()
+        delete_finished = threading.Event()
+        doomed: list[RegistryArtifactPaths] = []
+
+        def blocked_delete(paths: RegistryArtifactPaths) -> None:
+            doomed.append(paths)
+            delete_started.set()
+            finish_delete.wait(timeout=5)
+            _delete_entry_paths(paths)
+            delete_finished.set()
+
+        async def mock_download(self, ctx, path):
+            path.write_bytes(b"fake tarball")
+
+        async def mock_extract(self, tarball_path, target_dir):
+            (target_dir / "module.py").write_text("VALUE = 2")
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts._delete_entry_paths",
+                side_effect=blocked_delete,
+            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            eviction = asyncio.create_task(cache._evict_entry(cache_key))
+            assert await asyncio.to_thread(delete_started.wait, 1)
+            eviction.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await eviction
+
+            try:
+                assert not original_target.exists()
+                assert doomed[0].tarball_target_dir.is_dir()
+                assert cache._discover_cache_keys() == set()
+
+                async with cache.lease([artifact_uri]) as registry_paths:
+                    assert registry_paths == [original_target]
+                    assert original_target.is_dir()
+                    assert doomed[0].tarball_target_dir.is_dir()
+                    assert (original_target / "module.py").read_text() == "VALUE = 2"
+            finally:
+                finish_delete.set()
+
+        assert await asyncio.to_thread(delete_finished.wait, 1)
+        assert original_target.is_dir()
+        assert not doomed[0].tarball_target_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_doomed_eviction_names_are_startup_scratch(self, temp_cache_dir):
+        """Every renamed entry root is invisible and reclaimed on startup."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        # This key makes doomed names look like live image paths unless cache
+        # discovery rejects the shared scratch pattern first.
+        cache_key = "squashfs-doomed"
+        paths = cache._paths_for(cache_key)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        paths.squashfs_extract_dir.mkdir()
+        paths.tarball_target_dir.mkdir()
+
+        with patch(
+            "tracecat.executor.registry_artifacts._delete_entry_paths"
+        ) as delete_entry_paths:
+            assert await cache._evict_entry(cache_key) is True
+
+        doomed_paths = delete_entry_paths.call_args.args[0]
+        renamed = (
+            doomed_paths.squashfs_image_path,
+            doomed_paths.squashfs_mount_dir,
+            doomed_paths.squashfs_extract_dir,
+            doomed_paths.tarball_target_dir,
+        )
+        assert all(path.exists() for path in renamed)
+        assert all(TEMP_ARTIFACT_PATTERN.fullmatch(path.name) for path in renamed)
+        assert cache._discover_cache_keys() == set()
+
+        cache._sweep_startup_state()
+
+        assert not any(path.exists() for path in renamed)
 
     @pytest.mark.anyio
     async def test_eviction_skips_entry_when_unmount_fails(self, temp_cache_dir):

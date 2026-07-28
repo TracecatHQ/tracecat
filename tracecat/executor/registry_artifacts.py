@@ -55,7 +55,7 @@ CACHE_ENTRY_PREFIXES = ("squashfs-", "unsquashfs-", "tarball-")
 TEMP_ARTIFACT_PATTERN = re.compile(
     r"^[^.]+\.\d+\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)$"
 )
-"""Matches in-flight materialization scratch names produced by ``_temp_path``."""
+"""Matches materialization scratch and doomed eviction paths."""
 
 type MountSlotReleaser = Callable[[str], Awaitable[bool]]
 """Evicts one idle mounted artifact, excluding the given cache key."""
@@ -702,6 +702,8 @@ def _is_cache_entry_uri(artifact_uri: str) -> bool:
 
 def _cache_key_from_entry_name(name: str) -> str | None:
     """Return the cache key owning a cache directory entry name, if any."""
+    if TEMP_ARTIFACT_PATTERN.fullmatch(name) is not None:
+        return None
     for prefix in CACHE_ENTRY_PREFIXES:
         if name.startswith(prefix):
             cache_key = name.removeprefix(prefix).removesuffix(".squashfs")
@@ -753,6 +755,48 @@ def _delete_entry_paths(paths: RegistryArtifactPaths) -> None:
     shutil.rmtree(paths.squashfs_mount_dir, ignore_errors=True)
 
 
+def _rename_entry_paths(
+    paths: RegistryArtifactPaths,
+    *,
+    cache_dir: Path,
+    cache_key: str,
+) -> RegistryArtifactPaths:
+    """Synchronously rename live entry paths to unique startup-sweep scratch."""
+    unique_id = time.time_ns()
+    while True:
+        doomed_paths = RegistryArtifactPaths(
+            squashfs_image_path=cache_dir
+            / f"{cache_key}.{os.getpid()}.{unique_id}.squashfs",
+            squashfs_mount_dir=cache_dir / f"{cache_key}.{os.getpid()}.{unique_id}.tmp",
+            squashfs_extract_dir=cache_dir
+            / f"{cache_key}.{os.getpid()}.{unique_id}.unsquashfs",
+            tarball_target_dir=cache_dir
+            / f"{cache_key}.{os.getpid()}.{unique_id}.tar.gz",
+        )
+        if not any(
+            path.exists()
+            for path in (
+                doomed_paths.squashfs_image_path,
+                doomed_paths.squashfs_mount_dir,
+                doomed_paths.squashfs_extract_dir,
+                doomed_paths.tarball_target_dir,
+            )
+        ):
+            break
+        unique_id += 1
+
+    for source, target in (
+        (paths.squashfs_extract_dir, doomed_paths.squashfs_extract_dir),
+        (paths.tarball_target_dir, doomed_paths.tarball_target_dir),
+        (paths.squashfs_image_path, doomed_paths.squashfs_image_path),
+        (paths.squashfs_mount_dir, doomed_paths.squashfs_mount_dir),
+    ):
+        if source.exists():
+            source.rename(target)
+
+    return doomed_paths
+
+
 class RegistryArtifactCache:
     """Materializes registry artifacts into executor-local Python paths."""
 
@@ -763,6 +807,7 @@ class RegistryArtifactCache:
         # lock is never dropped and re-created underneath a waiter.
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
+        self._budget_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
         self._leases: dict[str, RegistryArtifactLease] = {}
         # Whether the on-disk cache may exceed its budget. Set when a new entry
@@ -1113,6 +1158,10 @@ class RegistryArtifactCache:
     async def _enforce_cache_budget(self, *, protected_key: str | None = None) -> bool:
         """Evict least-recently-used idle entries until the cache fits its budget.
 
+        The budget lock serializes the complete scan/select/evict pass. It is
+        always acquired before any candidate's per-key lock, and callers must
+        invoke enforcement without holding a per-key lock.
+
         Args:
             protected_key: Cache key about to be materialized. It is counted
                 against the budget but never evicted. None when enforcing
@@ -1121,48 +1170,54 @@ class RegistryArtifactCache:
         Returns:
             Whether the cache is within budget once eviction has finished.
         """
-        max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
-        max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
-        if max_entries <= 0 and max_bytes <= 0:
-            return True
+        async with self._budget_lock:
+            max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
+            max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+            if max_entries <= 0 and max_bytes <= 0:
+                return True
 
-        entries = await asyncio.to_thread(self._scan_cache_entries)
-        # The protected key is not on disk yet when it is a fresh entry.
-        pending_entries = (
-            1 if protected_key is not None and protected_key not in entries else 0
-        )
-        total_bytes = sum(entry.size_bytes for entry in entries.values())
-        protected = set() if protected_key is None else {protected_key}
-        skipped: set[str] = set()
-
-        while (max_entries > 0 and len(entries) + pending_entries > max_entries) or (
-            max_bytes > 0 and total_bytes > max_bytes
-        ):
-            candidate = self._least_recently_used(
-                entries.values(),
-                excluded=skipped | protected,
+            entries = await asyncio.to_thread(self._scan_cache_entries)
+            # The protected key is not on disk yet when it is a fresh entry.
+            pending_entries = (
+                1 if protected_key is not None and protected_key not in entries else 0
             )
-            if candidate is None:
-                logger.warning(
-                    "Registry artifact cache is over budget but every entry is in use",
-                    cache_dir=str(self.cache_dir),
-                    entries=len(entries) + pending_entries,
-                    max_entries=max_entries,
-                    total_bytes=total_bytes,
-                    max_bytes=max_bytes,
+            total_bytes = sum(entry.size_bytes for entry in entries.values())
+            protected = set() if protected_key is None else {protected_key}
+            skipped: set[str] = set()
+
+            while (
+                max_entries > 0 and len(entries) + pending_entries > max_entries
+            ) or (max_bytes > 0 and total_bytes > max_bytes):
+                candidate = self._least_recently_used(
+                    entries.values(),
+                    excluded=skipped | protected,
                 )
-                return False
+                if candidate is None:
+                    logger.warning(
+                        "Registry artifact cache is over budget but every entry is in use",
+                        cache_dir=str(self.cache_dir),
+                        entries=len(entries) + pending_entries,
+                        max_entries=max_entries,
+                        total_bytes=total_bytes,
+                        max_bytes=max_bytes,
+                    )
+                    return False
 
-            if await self._evict_entry(candidate.cache_key):
-                del entries[candidate.cache_key]
-                total_bytes -= candidate.size_bytes
-            else:
-                skipped.add(candidate.cache_key)
+                if await self._evict_entry(candidate.cache_key):
+                    del entries[candidate.cache_key]
+                    total_bytes -= candidate.size_bytes
+                else:
+                    skipped.add(candidate.cache_key)
 
-        return True
+            return True
 
     async def _release_mounted_slot(self, protected_key: str) -> bool:
         """Evict one idle mounted artifact so its loop device can be reused.
+
+        This path deliberately does not take the budget lock: ``_try_mount`` may
+        call it while holding ``protected_key``'s per-key lock. It excludes that
+        key and only tries candidate per-key locks, so it cannot invert the
+        budget-lock-to-per-key-lock ordering used by budget enforcement.
 
         Args:
             protected_key: Cache key that must not be evicted.
@@ -1216,9 +1271,12 @@ class RegistryArtifactCache:
         cannot be unmounted: deleting the image file behind a live mount would
         leave an open-file zombie holding the loop device.
 
-        The whole sequence - refcount check, unmount, delete, and dropping the
-        lease record - happens under the per-key lock that lease admission also
-        takes, so no lease can be admitted across the unmount await point.
+        After unmounting, live paths are synchronously renamed under the per-key
+        lock to scratch names ignored by cache discovery and budget accounting.
+        The lease record is then dropped and the lock released before physical
+        deletion runs in a worker thread. If that await is cancelled, the live
+        key remains a clean cache miss and the next startup sweep removes any
+        doomed scratch left behind.
 
         Args:
             cache_key: Cache key to evict.
@@ -1249,10 +1307,15 @@ class RegistryArtifactCache:
                 )
                 return False
 
-            await asyncio.to_thread(_delete_entry_paths, paths)
+            doomed_paths = _rename_entry_paths(
+                paths,
+                cache_dir=self.cache_dir,
+                cache_key=cache_key,
+            )
             self._leases.pop(cache_key, None)
             logger.info("Evicted registry artifact from cache", cache_key=cache_key)
 
+        await asyncio.to_thread(_delete_entry_paths, doomed_paths)
         return True
 
     async def _unmount(self, mount_dir: Path) -> bool:
