@@ -866,6 +866,7 @@ class RegistryArtifactCache:
         self._budget_lock = asyncio.Lock()
         # Guard the off-loop startup sweep independently from cache operations.
         self._swept: bool = False
+        self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
         self._leases: dict[str, RegistryArtifactLease] = {}
@@ -875,19 +876,40 @@ class RegistryArtifactCache:
         self._budget_dirty = True
 
     async def ensure_swept(self) -> None:
-        """Run the startup sweep exactly once, off the event loop.
+        """Run the startup sweep exactly once successfully, off the event loop.
 
-        Idempotent and safe under concurrency: the first caller performs the
-        sweep in a thread; concurrent callers wait; later callers return
-        immediately. Runs before the first lease or materialization so the
-        sweep never observes in-flight cache entries.
+        Idempotent and cancellation-safe under concurrency: every caller joins
+        one stored sweep task, and cancelling a waiter never abandons or
+        restarts its live sweep. The lock is deliberately held while awaiting
+        that shared task so queued callers observe its result before proceeding.
+        Failures clear the task so the next caller retries. The sweep runs
+        before the first lease or materialization, so it never observes
+        in-flight cache entries.
         """
         if self._swept:
             return
         async with self._sweep_lock:
             if self._swept:
                 return
-            await asyncio.to_thread(self._sweep_startup_state)
+            sweep_task = self._sweep_task
+            if sweep_task is None or (
+                sweep_task.done()
+                and (sweep_task.cancelled() or sweep_task.exception() is not None)
+            ):
+                sweep_task = asyncio.ensure_future(
+                    asyncio.to_thread(self._sweep_startup_state)
+                )
+                self._sweep_task = sweep_task
+            try:
+                await asyncio.shield(sweep_task)
+            except asyncio.CancelledError:
+                if sweep_task.cancelled() and self._sweep_task is sweep_task:
+                    self._sweep_task = None
+                raise
+            except Exception:
+                if self._sweep_task is sweep_task:
+                    self._sweep_task = None
+                raise
             self._swept = True
 
     @asynccontextmanager

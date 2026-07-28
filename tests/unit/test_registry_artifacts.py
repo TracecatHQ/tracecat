@@ -2025,6 +2025,40 @@ class TestRegistryArtifactCacheStartupSweep:
         assert sweep.call_count == 1
 
     @pytest.mark.anyio
+    async def test_cancelled_waiter_joins_same_startup_sweep(self, temp_cache_dir):
+        """A cancelled waiter cannot start a second concurrent startup sweep."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        sweep_started = threading.Event()
+        sweep_release = threading.Event()
+        invocation_count = 0
+
+        def blocking_sweep() -> None:
+            nonlocal invocation_count
+            invocation_count += 1
+            sweep_started.set()
+            sweep_release.wait()
+
+        with patch.object(
+            cache,
+            "_sweep_startup_state",
+            side_effect=blocking_sweep,
+        ):
+            first_waiter = asyncio.create_task(cache.ensure_swept())
+            assert await asyncio.to_thread(sweep_started.wait, 1)
+            first_waiter.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await first_waiter
+
+            second_waiter = asyncio.create_task(cache.ensure_swept())
+            await asyncio.sleep(0)
+            sweep_release.set()
+            await second_waiter
+
+        assert invocation_count == 1
+        assert cache._swept is True
+
+    @pytest.mark.anyio
     async def test_lease_triggers_startup_sweep(self, temp_cache_dir):
         """Lease admission reclaims startup scratch before yielding paths."""
         orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
