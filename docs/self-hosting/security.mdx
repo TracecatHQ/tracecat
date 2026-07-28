@@ -77,14 +77,6 @@ nsjail requires:
 | :------ | :-------- | :------ | :------- |
 | `direct` | PID namespace only | ~50ms | Development, trusted environments |
 | `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Production, maximum isolation |
-| `pool` | nsjail sandbox (warm workers) | ~100-200ms | Experimental — not production ready |
-
-<Warning>
-  The `pool` backend is experimental and not production ready. Its warm workers
-  import from registry cache paths that eviction cannot reclaim, so the
-  executor's registry cache can grow without bound. Use `ephemeral` for
-  production deployments.
-</Warning>
 
 ## Authentication
 
