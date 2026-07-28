@@ -1680,8 +1680,10 @@ async def _require_template_file_artifact(
         raise ToolError("Template file artifact is not valid for this organization")
     if artifact.client_id != _current_mcp_client_id():
         raise ToolError("Template file artifact is not valid for this MCP client")
-    if artifact.session_id != _get_context_session_id(ctx):
-        raise ToolError("Template file artifact is not valid for this MCP session")
+    # Streamable HTTP runs statelessly so subsequent tool calls can land on a
+    # different replica and receive a different request-local session ID. The
+    # artifact is still bound to its organization, workspace, authenticated
+    # MCP client, unguessable ID, and short expiry.
     return artifact
 
 

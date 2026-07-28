@@ -371,7 +371,9 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validate_template_action_remote_uses_artifact(monkeypatch):
+async def test_validate_template_action_remote_uses_artifact_across_sessions(
+    monkeypatch,
+):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
@@ -416,7 +418,7 @@ async def test_validate_template_action_remote_uses_artifact(monkeypatch):
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(workspace_id),
             artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="template-session"),
+            ctx=_fake_ctx(session_id="different-replica-session"),
         )
     )
     assert payload["valid"] is True
