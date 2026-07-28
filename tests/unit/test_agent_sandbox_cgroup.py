@@ -189,7 +189,11 @@ def test_prepare_agent_sandbox_cgroup_beneath_detected_root(
         enabled=True,
     )
 
-    assert result == PreparedCgroup(CgroupAvailability.AVAILABLE, cgroup_root)
+    assert result == PreparedCgroup(
+        CgroupAvailability.AVAILABLE,
+        cgroup_root,
+        cgroupfs,
+    )
     assert result.sandbox_mount == cgroup_root
     assert (cgroup_root / "main" / "cgroup.procs").read_text() == "202\n"
     assert (cgroup_root / "cgroup.subtree_control").read_text() == "+memory\n"
@@ -209,7 +213,11 @@ def test_prepare_agent_sandbox_cgroup_detection_failure_warns_once(
         enabled=True,
     )
 
-    assert result == PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
+    assert result == PreparedCgroup(
+        CgroupAvailability.UNAVAILABLE,
+        None,
+        tmp_path / "cgroupfs",
+    )
     mock_logger.warning.assert_called_once()
     assert mock_logger.warning.call_args.kwargs["step"] == "detect cgroup v2 root"
 
@@ -232,7 +240,11 @@ def test_prepare_agent_sandbox_cgroup_requires_memory_controller(
         enabled=True,
     )
 
-    assert result == PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root)
+    assert result == PreparedCgroup(
+        CgroupAvailability.UNAVAILABLE,
+        cgroup_root,
+        cgroupfs,
+    )
     mock_logger.warning.assert_called_once()
     assert mock_logger.warning.call_args.kwargs["step"] == "verify memory controller"
 
@@ -264,7 +276,11 @@ def test_prepare_agent_sandbox_cgroup_retains_root_on_permission_error(
         enabled=True,
     )
 
-    assert result == PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root)
+    assert result == PreparedCgroup(
+        CgroupAvailability.UNAVAILABLE,
+        cgroup_root,
+        cgroupfs,
+    )
     assert result.sandbox_mount is None
     assert read_cgroup_memory_limit(result.root).kind is CgroupMemoryLimitKind.LIMITED
     mock_logger.warning.assert_called_once()
@@ -330,6 +346,38 @@ def test_read_cgroup_memory_limit_from_detected_root(
     assert detected_root == cgroup_root
     assert result.kind is expected_kind
     assert result.limit_bytes == expected_bytes
+
+
+def test_read_cgroup_memory_limit_honors_ancestor_limit(tmp_path: Path) -> None:
+    # Task-scoped hierarchies (e.g. ECS) can enforce the budget on an ancestor
+    # while the container leaf reads "max"; the effective limit is the minimum
+    # finite value across the visible hierarchy.
+    cgroupfs = tmp_path / "cgroupfs"
+    leaf = cgroupfs / "ecs-task" / "container"
+    leaf.mkdir(parents=True)
+    (cgroupfs / "memory.max").write_text("max\n")
+    (cgroupfs / "ecs-task" / "memory.max").write_text(f"{8 * 1024**3}\n")
+    (leaf / "memory.max").write_text("max\n")
+
+    result = read_cgroup_memory_limit(leaf, cgroupfs)
+
+    assert result.kind is CgroupMemoryLimitKind.LIMITED
+    assert result.limit_bytes == 8 * 1024**3
+
+
+def test_read_cgroup_memory_limit_takes_minimum_across_levels(
+    tmp_path: Path,
+) -> None:
+    cgroupfs = tmp_path / "cgroupfs"
+    leaf = cgroupfs / "task" / "container"
+    leaf.mkdir(parents=True)
+    (cgroupfs / "task" / "memory.max").write_text(f"{16 * 1024**3}\n")
+    (leaf / "memory.max").write_text(f"{4 * 1024**3}\n")
+
+    result = read_cgroup_memory_limit(leaf, cgroupfs)
+
+    assert result.kind is CgroupMemoryLimitKind.LIMITED
+    assert result.limit_bytes == 4 * 1024**3
 
 
 def test_read_cgroup_memory_limit_without_root_is_unavailable() -> None:

@@ -42,6 +42,7 @@ class PreparedCgroup:
 
     availability: CgroupAvailability
     root: Path | None
+    cgroupfs: Path = CGROUPFS
 
     @property
     def sandbox_mount(self) -> Path | None:
@@ -152,7 +153,11 @@ def prepare_agent_sandbox_cgroup(
             step="detect cgroup v2 root",
             error=ValueError(f"no cgroup v2 entry found in {proc_cgroup_path}"),
         )
-        _prepared_cgroup = PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
+        _prepared_cgroup = PreparedCgroup(
+            CgroupAvailability.UNAVAILABLE,
+            None,
+            cgroupfs,
+        )
         return _prepared_cgroup
 
     probe_cgroup: Path | None = None
@@ -204,10 +209,15 @@ def prepare_agent_sandbox_cgroup(
         _prepared_cgroup = PreparedCgroup(
             CgroupAvailability.UNAVAILABLE,
             cgroup_root,
+            cgroupfs,
         )
         return _prepared_cgroup
 
-    _prepared_cgroup = PreparedCgroup(CgroupAvailability.AVAILABLE, cgroup_root)
+    _prepared_cgroup = PreparedCgroup(
+        CgroupAvailability.AVAILABLE,
+        cgroup_root,
+        cgroupfs,
+    )
     return _prepared_cgroup
 
 
@@ -222,46 +232,74 @@ def get_agent_sandbox_cgroup() -> PreparedCgroup:
 
 def read_cgroup_memory_limit(
     cgroup_root: Path | None,
+    cgroupfs: Path = CGROUPFS,
 ) -> CgroupMemoryLimit:
-    """Read and parse the cgroup v2 container memory limit."""
+    """Read the effective cgroup v2 memory limit for the executor's cgroup."""
     if cgroup_root is None:
         return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
 
-    memory_max_path = cgroup_root / "memory.max"
-    try:
-        raw_limit = memory_max_path.read_text().strip()
-    except FileNotFoundError:
-        return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
-    except OSError as exc:
-        logger.warning(
-            "Unable to read cgroup memory limit; skipping worker memory-budget "
-            "validation",
-            path=str(memory_max_path),
-            errno=exc.errno,
-            error=str(exc),
-        )
-        return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
+    # The effective limit can live on an ancestor while the leaf reads "max"
+    # (e.g. an ECS task-level limit with no container-level limit), so take
+    # the minimum finite memory.max across every hierarchy level visible
+    # between the leaf and the cgroupfs mount.
+    directories = [cgroup_root]
+    if cgroup_root != cgroupfs and cgroupfs in cgroup_root.parents:
+        for parent in cgroup_root.parents:
+            directories.append(parent)
+            if parent == cgroupfs:
+                break
 
-    if raw_limit == "max":
+    finite_limits: list[int] = []
+    unreadable = False
+    unlimited_seen = False
+    for directory in directories:
+        memory_max_path = directory / "memory.max"
+        try:
+            raw_limit = memory_max_path.read_text().strip()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning(
+                "Unable to read cgroup memory limit; skipping worker "
+                "memory-budget validation for this level",
+                path=str(memory_max_path),
+                errno=exc.errno,
+                error=str(exc),
+            )
+            unreadable = True
+            continue
+
+        if raw_limit == "max":
+            unlimited_seen = True
+            continue
+
+        try:
+            limit_bytes = int(raw_limit)
+            if limit_bytes < 0:
+                raise ValueError("memory limit cannot be negative")
+        except ValueError as exc:
+            logger.warning(
+                "Invalid cgroup memory limit; skipping worker memory-budget "
+                "validation for this level",
+                path=str(memory_max_path),
+                value=raw_limit,
+                error=str(exc),
+            )
+            unreadable = True
+            continue
+
+        finite_limits.append(limit_bytes)
+
+    if finite_limits:
+        return CgroupMemoryLimit(
+            CgroupMemoryLimitKind.LIMITED,
+            limit_bytes=min(finite_limits),
+        )
+    if unreadable:
+        return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
+    if unlimited_seen:
         return CgroupMemoryLimit(CgroupMemoryLimitKind.UNLIMITED)
-
-    try:
-        limit_bytes = int(raw_limit)
-        if limit_bytes < 0:
-            raise ValueError("memory limit cannot be negative")
-    except ValueError as exc:
-        logger.warning(
-            "Invalid cgroup memory limit; skipping worker memory-budget validation",
-            path=str(memory_max_path),
-            value=raw_limit,
-            error=str(exc),
-        )
-        return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
-
-    return CgroupMemoryLimit(
-        CgroupMemoryLimitKind.LIMITED,
-        limit_bytes=limit_bytes,
-    )
+    return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
 
 
 def clamp_agent_executor_concurrency(
@@ -272,7 +310,10 @@ def clamp_agent_executor_concurrency(
     sandbox_memory_mb: int,
 ) -> int:
     """Clamp agent executor concurrency to the container memory budget."""
-    memory_limit = read_cgroup_memory_limit(prepared_cgroup.root)
+    memory_limit = read_cgroup_memory_limit(
+        prepared_cgroup.root,
+        prepared_cgroup.cgroupfs,
+    )
     if memory_limit.kind is CgroupMemoryLimitKind.UNLIMITED:
         logger.debug(
             "Container memory is unlimited; skipping worker memory-budget validation"
