@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tracecat.agent.sandbox.cgroup import CgroupAvailability
+from tracecat.agent.sandbox.cgroup import (
+    AgentExecutorMemoryBudgetError,
+    CgroupAvailability,
+    PreparedCgroup,
+)
 
 
 @pytest.mark.anyio
@@ -39,11 +43,12 @@ async def test_agent_executor_readiness_sentinel_exists_only_while_running(
 
     def keep_concurrency(
         max_concurrent: int,
+        prepared_cgroup: PreparedCgroup,
         *,
         reserve_mb: int,
         sandbox_memory_mb: int,
     ) -> int:
-        del reserve_mb, sandbox_memory_mb
+        del prepared_cgroup, reserve_mb, sandbox_memory_mb
         return max_concurrent
 
     async def observe_readiness() -> None:
@@ -61,7 +66,7 @@ async def test_agent_executor_readiness_sentinel_exists_only_while_running(
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: CgroupAvailability.DISABLED,
+        lambda: PreparedCgroup(CgroupAvailability.DISABLED, None),
     )
     monkeypatch.setattr(
         executor_worker,
@@ -139,18 +144,19 @@ async def test_agent_executor_removes_stale_readiness_sentinel_on_startup(
 
     def keep_concurrency(
         max_concurrent: int,
+        prepared_cgroup: PreparedCgroup,
         *,
         reserve_mb: int,
         sandbox_memory_mb: int,
     ) -> int:
-        del reserve_mb, sandbox_memory_mb
+        del prepared_cgroup, reserve_mb, sandbox_memory_mb
         return max_concurrent
 
     monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: CgroupAvailability.DISABLED,
+        lambda: PreparedCgroup(CgroupAvailability.DISABLED, None),
     )
     monkeypatch.setattr(
         executor_worker,
@@ -174,3 +180,73 @@ async def test_agent_executor_removes_stale_readiness_sentinel_on_startup(
         await executor_worker.main(shutdown_event=asyncio.Event())
 
     assert not ready_file.exists()
+
+
+@pytest.mark.anyio
+async def test_agent_executor_memory_budget_error_propagates_from_main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    cgroup_root = tmp_path / "cgroup"
+    cgroup_root.mkdir()
+    (cgroup_root / "memory.max").write_text(f"{4096 * 1024 * 1024}\n")
+    start_runtime_services = AsyncMock()
+    monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",
+        4096,
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        4096,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        lambda: PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root),
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "_start_runtime_services",
+        start_runtime_services,
+    )
+
+    with pytest.raises(
+        AgentExecutorMemoryBudgetError,
+        match="container_limit_mb=4096",
+    ):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    start_runtime_services.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("max_concurrent", ["0", "-1"])
+async def test_agent_executor_rejects_nonpositive_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+    max_concurrent: str,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    prepare_cgroup = Mock()
+    monkeypatch.setenv(
+        "TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES",
+        max_concurrent,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        prepare_cgroup,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES",
+    ):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    prepare_cgroup.assert_not_called()

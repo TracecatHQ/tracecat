@@ -179,10 +179,12 @@ class NsjailExecutor:
         nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
         rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
+        cgroup_mount: Path | None = None,
     ):
         self.nsjail_path = Path(nsjail_path)
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
+        self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
 
@@ -212,6 +214,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        if self.cgroup_mount is not None:
+            _validate_path(self.cgroup_mount, "cgroup_mount")
         for i, python_path_dir in enumerate(config.python_path_dirs):
             _validate_path(python_path_dir, f"python_path_dir_{i}")
         if cache_key:
@@ -356,6 +360,15 @@ class NsjailExecutor:
                 f"time_limit: {config.resources.timeout_seconds}",
             ]
         )
+        if self.cgroup_mount is not None:
+            lines.extend(
+                [
+                    "use_cgroupv2: true",
+                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                    "cgroup_mem_swap_max: 0",
+                ]
+            )
 
         # Execution settings - script path must be in exec_bin for config file mode
         script_path = f"/work/{script_name}"

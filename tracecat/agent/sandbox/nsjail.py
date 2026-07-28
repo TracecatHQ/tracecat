@@ -46,18 +46,14 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_WORK_DIR,
 )
-from tracecat.agent.sandbox.cgroup import agent_sandbox_cgroup_is_available
+from tracecat.agent.sandbox.cgroup import get_agent_sandbox_cgroup
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
     AgentSandboxConfig,
     build_agent_env_map,
     build_agent_nsjail_config,
 )
-from tracecat.config import (
-    TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED,
-    TRACECAT__SANDBOX_NSJAIL_PATH,
-    TRACECAT__SANDBOX_ROOTFS_PATH,
-)
+from tracecat.config import TRACECAT__SANDBOX_NSJAIL_PATH, TRACECAT__SANDBOX_ROOTFS_PATH
 from tracecat.logger import logger
 
 BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
@@ -441,8 +437,7 @@ async def _spawn_nsjail_runtime(
             session_work_dir=session_work_dir,
             enable_internet_access=enable_internet_access,
             skills_dir=skills_dir,
-            cgroup_v2_enabled=TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED,
-            cgroup_v2_available=agent_sandbox_cgroup_is_available(),
+            cgroup_mount=get_agent_sandbox_cgroup().sandbox_mount,
         )
 
         # Write config to job directory

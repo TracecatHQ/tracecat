@@ -117,12 +117,18 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
     )
+    if max_concurrent < 1:
+        raise ValueError(
+            "TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES must be at "
+            f"least 1 (got {max_concurrent})"
+        )
     threadpool_max_workers = int(
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
-    prepare_agent_sandbox_cgroup()
+    prepared_cgroup = prepare_agent_sandbox_cgroup()
     max_concurrent = clamp_agent_executor_concurrency(
         max_concurrent,
+        prepared_cgroup,
         reserve_mb=config.TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB,
         sandbox_memory_mb=config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     )

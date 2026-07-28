@@ -11,8 +11,8 @@ from pathlib import Path
 from tracecat import config
 from tracecat.logger import logger
 
-CGROUP_ROOT = Path("/sys/fs/cgroup")
-CGROUP_MEMORY_MAX_PATH = CGROUP_ROOT / "memory.max"
+PROC_SELF_CGROUP = Path("/proc/self/cgroup")
+CGROUPFS = Path("/sys/fs/cgroup")
 BYTES_PER_MEBIBYTE = 1024 * 1024
 
 
@@ -32,6 +32,25 @@ class CgroupMemoryLimitKind(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class AgentExecutorMemoryBudgetError(RuntimeError):
+    """Raised when the container memory budget cannot fit one sandbox."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedCgroup:
+    """Process-wide agent sandbox cgroup preparation result."""
+
+    availability: CgroupAvailability
+    root: Path | None
+
+    @property
+    def sandbox_mount(self) -> Path | None:
+        """Return the nsjail cgroup mount when preparation succeeded."""
+        if self.availability is CgroupAvailability.AVAILABLE:
+            return self.root
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class CgroupMemoryLimit:
     """Parsed cgroup v2 container memory limit."""
@@ -40,7 +59,32 @@ class CgroupMemoryLimit:
     limit_bytes: int | None = None
 
 
-_cgroup_availability: CgroupAvailability | None = None
+_prepared_cgroup: PreparedCgroup | None = None
+
+
+def detect_cgroup_root(
+    proc_cgroup_path: Path = PROC_SELF_CGROUP,
+    cgroupfs: Path = CGROUPFS,
+) -> Path | None:
+    """Detect the executor's cgroup v2 directory from /proc/self/cgroup."""
+    try:
+        lines = proc_cgroup_path.read_text().splitlines()
+    except OSError:
+        return None
+
+    for line in lines:
+        fields = line.split(":", maxsplit=2)
+        if len(fields) != 3:
+            continue
+        hierarchy_id, controllers, cgroup_path = fields
+        if hierarchy_id != "0" or controllers:
+            continue
+
+        root = cgroupfs if cgroup_path == "/" else cgroupfs / cgroup_path.lstrip("/")
+        if root.name == "main":
+            return root.parent
+        return root
+    return None
 
 
 def _write_cgroup_file(path: Path, value: str) -> None:
@@ -84,27 +128,43 @@ def _warn_cgroup_unavailable(
 
 def prepare_agent_sandbox_cgroup(
     *,
-    cgroup_root: Path = CGROUP_ROOT,
+    proc_cgroup_path: Path = PROC_SELF_CGROUP,
+    cgroupfs: Path = CGROUPFS,
     enabled: bool = config.TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED,
-) -> CgroupAvailability:
+) -> PreparedCgroup:
     """Prepare the cgroup v2 root for nsjail child memory cgroups.
 
     The result is cached process-wide. Setup failures are reduced to one warning
     and an unavailable result so agent sandbox launches can continue without
     cgroup limits.
     """
-    global _cgroup_availability
+    global _prepared_cgroup
 
-    if _cgroup_availability is not None:
-        return _cgroup_availability
+    if _prepared_cgroup is not None:
+        return _prepared_cgroup
     if not enabled:
-        _cgroup_availability = CgroupAvailability.DISABLED
-        return _cgroup_availability
+        _prepared_cgroup = PreparedCgroup(CgroupAvailability.DISABLED, None)
+        return _prepared_cgroup
+
+    cgroup_root = detect_cgroup_root(
+        proc_cgroup_path=proc_cgroup_path,
+        cgroupfs=cgroupfs,
+    )
+    if cgroup_root is None:
+        _warn_cgroup_unavailable(
+            step="detect cgroup v2 root",
+            error=ValueError(f"no cgroup v2 entry found in {proc_cgroup_path}"),
+        )
+        _prepared_cgroup = PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
+        return _prepared_cgroup
 
     probe_cgroup: Path | None = None
     step = "read cgroup v2 controllers"
     try:
-        (cgroup_root / "cgroup.controllers").read_text()
+        controllers = (cgroup_root / "cgroup.controllers").read_text().split()
+        step = "verify memory controller"
+        if "memory" not in controllers:
+            raise ValueError("memory controller is not available")
 
         step = "create main cgroup"
         main_cgroup = cgroup_root / "main"
@@ -144,22 +204,33 @@ def prepare_agent_sandbox_cgroup(
             except OSError:
                 pass
         _warn_cgroup_unavailable(step=step, error=exc)
-        _cgroup_availability = CgroupAvailability.UNAVAILABLE
-        return _cgroup_availability
+        _prepared_cgroup = PreparedCgroup(
+            CgroupAvailability.UNAVAILABLE,
+            cgroup_root,
+        )
+        return _prepared_cgroup
 
-    _cgroup_availability = CgroupAvailability.AVAILABLE
-    return _cgroup_availability
+    _prepared_cgroup = PreparedCgroup(CgroupAvailability.AVAILABLE, cgroup_root)
+    return _prepared_cgroup
 
 
-def agent_sandbox_cgroup_is_available() -> bool:
-    """Return whether the startup probe enabled agent sandbox cgroups."""
-    return _cgroup_availability is CgroupAvailability.AVAILABLE
+def get_agent_sandbox_cgroup() -> PreparedCgroup:
+    """Return the cached process-wide cgroup preparation result."""
+    if _prepared_cgroup is not None:
+        return _prepared_cgroup
+    if config.TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:
+        return PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
+    return PreparedCgroup(CgroupAvailability.DISABLED, None)
 
 
 def read_cgroup_memory_limit(
-    memory_max_path: Path = CGROUP_MEMORY_MAX_PATH,
+    cgroup_root: Path | None,
 ) -> CgroupMemoryLimit:
     """Read and parse the cgroup v2 container memory limit."""
+    if cgroup_root is None:
+        return CgroupMemoryLimit(CgroupMemoryLimitKind.UNAVAILABLE)
+
+    memory_max_path = cgroup_root / "memory.max"
     try:
         raw_limit = memory_max_path.read_text().strip()
     except FileNotFoundError:
@@ -198,13 +269,13 @@ def read_cgroup_memory_limit(
 
 def clamp_agent_executor_concurrency(
     max_concurrent: int,
+    prepared_cgroup: PreparedCgroup,
     *,
     reserve_mb: int,
     sandbox_memory_mb: int,
-    memory_max_path: Path = CGROUP_MEMORY_MAX_PATH,
 ) -> int:
     """Clamp agent executor concurrency to the container memory budget."""
-    memory_limit = read_cgroup_memory_limit(memory_max_path)
+    memory_limit = read_cgroup_memory_limit(prepared_cgroup.root)
     if memory_limit.kind is CgroupMemoryLimitKind.UNLIMITED:
         logger.debug(
             "Container memory is unlimited; skipping worker memory-budget validation"
@@ -219,16 +290,24 @@ def clamp_agent_executor_concurrency(
 
     limit_mb = limit_bytes // BYTES_PER_MEBIBYTE
     allowed = (limit_mb - reserve_mb) // sandbox_memory_mb
+    if allowed < 1:
+        raise AgentExecutorMemoryBudgetError(
+            "Agent executor memory budget cannot fit one sandbox: "
+            f"container_limit_mb={limit_mb}, reserve_mb={reserve_mb}, "
+            f"sandbox_memory_mb={sandbox_memory_mb}. Increase the container "
+            "memory limit or reduce "
+            "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB or "
+            "TRACECAT__AGENT_SANDBOX_MEMORY_MB."
+        )
     if max_concurrent <= allowed:
         return max_concurrent
 
-    clamped = max(allowed, 1)
     logger.error(
         "Agent executor concurrency exceeds the container memory budget; clamping",
         container_limit_mb=limit_mb,
         reserve_mb=reserve_mb,
         sandbox_memory_mb=sandbox_memory_mb,
         configured_max_concurrent_activities=max_concurrent,
-        clamped_max_concurrent_activities=clamped,
+        clamped_max_concurrent_activities=allowed,
     )
-    return clamped
+    return allowed

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tracecat.agent.sandbox.config import (
     AgentResourceLimits,
     AgentSandboxConfig,
@@ -136,27 +134,16 @@ def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> No
         ),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
-        cgroup_v2_enabled=True,
-        cgroup_v2_available=True,
+        cgroup_mount=Path("/sys/fs/cgroup/kubepods.slice/pod.scope"),
     )
 
     assert "use_cgroupv2: true" in config_text
-    assert 'cgroupv2_mount: "/sys/fs/cgroup"' in config_text
+    assert 'cgroupv2_mount: "/sys/fs/cgroup/kubepods.slice/pod.scope"' in config_text
     assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in config_text
     assert "cgroup_mem_swap_max: 0" in config_text
 
 
-@pytest.mark.parametrize(
-    ("cgroup_v2_enabled", "cgroup_v2_available"),
-    [
-        pytest.param(False, True, id="disabled"),
-        pytest.param(True, False, id="unavailable"),
-    ],
-)
-def test_build_agent_nsjail_config_omits_inactive_cgroup_v2_memory_limit(
-    cgroup_v2_enabled: bool,
-    cgroup_v2_available: bool,
-) -> None:
+def test_build_agent_nsjail_config_omits_cgroup_v2_memory_limit_by_default() -> None:
     config_text = build_agent_nsjail_config(
         rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
         job_dir=Path("/tmp/agent-job"),
@@ -164,8 +151,6 @@ def test_build_agent_nsjail_config_omits_inactive_cgroup_v2_memory_limit(
         config=AgentSandboxConfig(),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
-        cgroup_v2_enabled=cgroup_v2_enabled,
-        cgroup_v2_available=cgroup_v2_available,
     )
 
     assert "use_cgroupv2:" not in config_text

@@ -222,8 +222,7 @@ def build_agent_nsjail_config(
     session_work_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
-    cgroup_v2_enabled: bool = False,
-    cgroup_v2_available: bool = False,
+    cgroup_mount: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -247,8 +246,7 @@ def build_agent_nsjail_config(
             outbound internet access. Default is False (network isolated with
             private loopback only).
         skills_dir: Optional host path containing staged workspace skills.
-        cgroup_v2_enabled: Whether agent sandbox cgroup limits are configured.
-        cgroup_v2_available: Whether the process-wide startup probe succeeded.
+        cgroup_mount: Optional cgroup v2 directory for nsjail child cgroups.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -276,6 +274,8 @@ def build_agent_nsjail_config(
         _validate_path(mcp_socket_path, "mcp_socket_path")
     if skills_dir is not None:
         _validate_path(skills_dir, "skills_dir")
+    if cgroup_mount is not None:
+        _validate_path(cgroup_mount, "cgroup_mount")
 
     # Derive control socket path from socket_dir using well-known name when enabled.
     resolved_control_socket_path: Path | None
@@ -476,11 +476,11 @@ def build_agent_nsjail_config(
             f"time_limit: {config.resources.timeout_seconds}",
         ]
     )
-    if cgroup_v2_enabled and cgroup_v2_available:
+    if cgroup_mount is not None:
         lines.extend(
             [
                 "use_cgroupv2: true",
-                'cgroupv2_mount: "/sys/fs/cgroup"',
+                f'cgroupv2_mount: "{cgroup_mount}"',
                 f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
                 "cgroup_mem_swap_max: 0",
             ]

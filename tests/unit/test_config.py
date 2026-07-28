@@ -16,6 +16,7 @@ COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
+    REPO_ROOT / "docker-compose.sandbox.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
@@ -216,6 +217,44 @@ def test_action_gateway_socket_uses_default_for_empty_string(
                 reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
                 == "/var/run/tracecat/action-gateway.sock"
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    ("env_var", "offending_value", "minimum"),
+    [
+        pytest.param(
+            "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+            "0",
+            1,
+            id="sandbox-memory",
+        ),
+        pytest.param(
+            "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",
+            "-1",
+            0,
+            id="executor-reserve",
+        ),
+    ],
+)
+def test_agent_memory_config_rejects_values_below_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    offending_value: str,
+    minimum: int,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv(env_var, offending_value)
+
+            with pytest.raises(ValueError) as exc_info:
+                importlib.reload(tracecat_config)
+
+            message = str(exc_info.value)
+            assert env_var in message
+            assert f"at least {minimum}" in message
+            assert f"got {offending_value}" in message
     finally:
         importlib.reload(tracecat_config)
 

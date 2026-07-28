@@ -14,6 +14,7 @@ from tracecat.agent.mcp.stdio_probe import (
     probe_stdio_mcp_tools_in_sandbox,
     sanitize_stdio_probe_error,
 )
+from tracecat.agent.sandbox.cgroup import CgroupAvailability, PreparedCgroup
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
@@ -171,7 +172,9 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
 
 
 @pytest.mark.anyio
-async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
+async def test_probe_runs_in_sandbox_with_cgroup_slot_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """With nsjail available, the probe executes inside the sandbox."""
     sandbox_result = MagicMock(
         success=True,
@@ -184,6 +187,11 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
         stderr="",
     )
     executor = MagicMock(execute=AsyncMock(return_value=sandbox_result))
+    cgroup_mount = Path("/sys/fs/cgroup/kubepods.slice/pod.scope")
+    monkeypatch.setattr(
+        "tracecat.agent.mcp.stdio_probe.config.TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        512,
+    )
 
     with (
         patch(
@@ -193,6 +201,13 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
+        ) as executor_cls,
+        patch(
+            "tracecat.agent.mcp.stdio_probe.get_agent_sandbox_cgroup",
+            return_value=PreparedCgroup(
+                CgroupAvailability.AVAILABLE,
+                cgroup_mount,
+            ),
         ),
     ):
         result = await probe_stdio_mcp_tools_in_sandbox(
@@ -204,7 +219,10 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
     assert result.success is True
     assert [tool.name for tool in result.tools] == ["list_alerts"]
+    executor_cls.assert_called_once_with(cgroup_mount=cgroup_mount)
     executor.execute.assert_awaited_once()
+    sandbox_config = executor.execute.await_args.args[1]
+    assert sandbox_config.resources.memory_mb == 512
 
 
 @pytest.mark.anyio
