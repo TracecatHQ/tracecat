@@ -38,7 +38,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
@@ -63,7 +62,7 @@ from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import ensure_single_tenant_user_defaults
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting_from_bypass_session
 
 
 class InvalidEmailException(FastAPIUsersException):
@@ -230,22 +229,25 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
 
-        saml_enabled = bool(
-            await get_setting(
-                "saml_enabled",
-                role=bootstrap_role(org_id),
-                default=True,
+        async with get_async_session_auth_context_manager() as session:
+            saml_enabled = bool(
+                await get_setting_from_bypass_session(
+                    "saml_enabled",
+                    organization_id=org_id,
+                    session=session,
+                    default=True,
+                )
             )
-        )
-        if not saml_enabled:
-            return False
+            if not saml_enabled:
+                return False
 
-        saml_enforced = await get_setting(
-            "saml_enforced",
-            role=bootstrap_role(org_id),
-            default=False,
-        )
-        return bool(saml_enforced)
+            saml_enforced = await get_setting_from_bypass_session(
+                "saml_enforced",
+                organization_id=org_id,
+                session=session,
+                default=False,
+            )
+            return bool(saml_enforced)
 
     async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
         for org_id in org_ids:

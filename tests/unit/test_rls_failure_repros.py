@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +16,7 @@ from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
+from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
@@ -408,6 +410,59 @@ async def test_user_manager_list_user_org_ids_allows_held_main_pool_session(
     auth_session.execute.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_user_manager_saml_policy_uses_auth_pool_with_held_main_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SAML policy reads must stay on auth while the login session holds main."""
+    (
+        main_bind,
+        auth_bind,
+        main_session,
+        auth_session,
+        binds,
+        open_binds,
+    ) = _patch_user_manager_pool_sessions(monkeypatch)
+    enabled_result = MagicMock()
+    enabled_result.scalar_one_or_none.return_value = SimpleNamespace(
+        value=b"true",
+        is_encrypted=False,
+    )
+    enforced_result = MagicMock()
+    enforced_result.scalar_one_or_none.return_value = SimpleNamespace(
+        value=b"true",
+        is_encrypted=False,
+    )
+    setting_results = iter((enabled_result, enforced_result))
+    main_held_during_lookups: list[bool] = []
+
+    async def _execute_on_auth(_statement: object) -> MagicMock:
+        main_held_during_lookups.append(main_bind in open_binds)
+        return next(setting_results)
+
+    auth_session.execute.side_effect = _execute_on_auth
+    monkeypatch.setattr(
+        "tracecat.auth.users.config.TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+    manager = UserManager.__new__(UserManager)
+    main_session_generator = get_async_session()
+    held_session = await anext(main_session_generator)
+
+    try:
+        assert held_session is main_session
+        assert main_bind in open_binds
+        saml_enforced = await manager._is_org_saml_enforced(uuid.uuid4())
+    finally:
+        await main_session_generator.aclose()
+
+    assert saml_enforced is True
+    assert main_held_during_lookups == [True, True]
+    assert binds == [main_bind, auth_bind]
+    main_session.execute.assert_not_awaited()
+    assert auth_session.execute.await_count == 2
+
+
 def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
     source = inspect.getsource(resolve_auth_organization_id)
     assert "get_async_session_bypass_rls_context_manager" in source
@@ -549,6 +604,7 @@ def test_get_setting_primes_rls_context_when_session_is_provided() -> None:
 def test_user_manager_saml_check_does_not_reuse_unscoped_request_session() -> None:
     source = inspect.getsource(UserManager._is_org_saml_enforced)
     assert "session=self._user_db.session" not in source
+    assert "get_async_session_auth_context_manager" in source
 
 
 def test_user_manager_oauth_saml_domain_check_uses_auth_session_manager() -> None:

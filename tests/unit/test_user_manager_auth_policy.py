@@ -6,6 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
@@ -39,6 +40,12 @@ def user_manager(session: AsyncSession) -> UserManager:
 def patch_auth_session_context_manager(
     monkeypatch: pytest.MonkeyPatch, session: AsyncSession
 ) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+
     @asynccontextmanager
     async def _session_cm():
         yield session
@@ -46,17 +53,6 @@ def patch_auth_session_context_manager(
     monkeypatch.setattr(
         "tracecat.auth.users.get_async_session_auth_context_manager",
         _session_cm,
-    )
-
-    async def _get_setting_with_test_session(*args, **kwargs):  # noqa: ANN002, ANN003
-        from tracecat.settings.service import get_setting as get_setting_impl
-
-        kwargs.setdefault("session", session)
-        return await get_setting_impl(*args, **kwargs)
-
-    monkeypatch.setattr(
-        "tracecat.auth.users.get_setting",
-        _get_setting_with_test_session,
     )
 
 
