@@ -22,6 +22,7 @@ from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -7930,7 +7931,7 @@ async def test_list_workflow_executions_forwards_prev_cursor(
                     SimpleNamespace(
                         id="wf_example/exec_123",
                         run_id="run-123",
-                        status=1,
+                        status=WorkflowExecutionStatus.RUNNING,
                         start_time=start_time,
                         close_time=None,
                         typed_search_attributes=None,

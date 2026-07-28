@@ -252,6 +252,238 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
     assert "Activity task failed" not in payload["error"]
 
 
+@pytest.mark.anyio
+async def test_internal_get_execution_status_leaves_event_fields_null_by_default(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Without include_events the event fields are null (unset, not empty)."""
+    wf_exec_id = "wf_abc/exec_def"
+
+    mock_execution = Mock()
+    mock_execution.status = WorkflowExecutionStatus.RUNNING
+    mock_execution.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_execution.close_time = None
+
+    mock_svc = AsyncMock()
+    mock_svc.get_execution.return_value = mock_execution
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}"
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["events"] is None
+    assert payload["history_length"] is None
+    mock_svc.list_workflow_execution_events_compact.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_internal_get_execution_status_includes_events_when_requested(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """include_events populates the shared status envelope's event fields."""
+    wf_exec_id = "wf_abc/exec_def"
+
+    mock_execution = Mock()
+    mock_execution.id = wf_exec_id
+    mock_execution.status = WorkflowExecutionStatus.RUNNING
+    mock_execution.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_execution.close_time = None
+    mock_execution.history_length = 7
+    mock_execution.typed_search_attributes = {}
+
+    mock_event = Mock()
+    mock_event.action_ref = "start"
+    mock_event.action_name = "core.noop"
+    mock_event.status = "COMPLETED"
+    mock_event.schedule_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_event.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_event.close_time = None
+    mock_event.action_error = None
+    mock_event.action_result = {"ok": True}
+
+    mock_svc = AsyncMock()
+    mock_svc.get_execution.return_value = mock_execution
+    mock_svc.list_workflow_execution_events_compact.return_value = [mock_event]
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}",
+            params={"include_events": "true"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["status"] == "RUNNING"
+    assert payload["history_length"] == 7
+    assert payload["events"] == [
+        {
+            "action_ref": "start",
+            "action_name": "core.noop",
+            "status": "COMPLETED",
+            "schedule_time": "2024-01-01 00:00:00+00:00",
+            "start_time": "2024-01-01 00:00:00+00:00",
+            "close_time": None,
+            "error": None,
+            "result": {"ok": True},
+            "result_truncated": None,
+        }
+    ]
+    mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(wf_exec_id)
+
+
+@pytest.mark.anyio
+async def test_internal_get_execution_status_truncates_large_event_result(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Oversized action results are truncated to 2000 chars plus an ellipsis."""
+    wf_exec_id = "wf_abc/exec_big"
+
+    mock_execution = Mock()
+    mock_execution.id = wf_exec_id
+    mock_execution.status = WorkflowExecutionStatus.RUNNING
+    mock_execution.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_execution.close_time = None
+    mock_execution.history_length = 3
+    mock_execution.typed_search_attributes = {}
+
+    mock_event = Mock()
+    mock_event.action_ref = "big"
+    mock_event.action_name = "core.noop"
+    mock_event.status = "COMPLETED"
+    mock_event.schedule_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_event.start_time = None
+    mock_event.close_time = None
+    mock_event.action_error = None
+    mock_event.action_result = "x" * 5000
+
+    mock_svc = AsyncMock()
+    mock_svc.get_execution.return_value = mock_execution
+    mock_svc.list_workflow_execution_events_compact.return_value = [mock_event]
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = action_gateway_client.get(
+            f"/internal/workflows/executions/{wf_exec_id}",
+            params={"include_events": "true"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    event = response.json()["events"][0]
+    assert event["result"] is None
+    assert event["result_truncated"] is not None
+    assert len(event["result_truncated"]) == 2003
+    assert event["result_truncated"].endswith("...")
+
+
+# --- Internal Router: GET /{workflow_id}/executions ---
+
+
+@pytest.mark.anyio
+async def test_internal_list_workflow_executions_returns_summaries(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """The list route returns cursor-paginated execution summaries."""
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_execution = Mock()
+    mock_execution.id = f"{workflow_id}/exec_abc"
+    mock_execution.run_id = "run_123"
+    mock_execution.status = WorkflowExecutionStatus.COMPLETED
+    mock_execution.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_execution.close_time = datetime(2024, 1, 1, 0, 5, tzinfo=UTC)
+    mock_execution.typed_search_attributes = {}
+
+    mock_page = Mock()
+    mock_page.items = [mock_execution]
+    mock_page.next_cursor = "next"
+    mock_page.prev_cursor = None
+    mock_page.has_more = True
+    mock_page.has_previous = False
+
+    mock_svc = AsyncMock()
+    mock_svc.list_executions_paginated.return_value = mock_page
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = action_gateway_client.get(
+            f"/internal/workflows/{workflow_id}/executions"
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["next_cursor"] == "next"
+    assert payload["has_more"] is True
+    assert payload["items"] == [
+        {
+            "id": f"{workflow_id}/exec_abc",
+            "run_id": "run_123",
+            "status": "COMPLETED",
+            "start_time": "2024-01-01 00:00:00+00:00",
+            "close_time": "2024-01-01 00:05:00+00:00",
+            "trigger_type": "manual",
+            "execution_type": "published",
+        }
+    ]
+    pagination = mock_svc.list_executions_paginated.await_args.kwargs["pagination"]
+    assert pagination.limit == 20
+    assert pagination.cursor is None
+
+
+@pytest.mark.anyio
+async def test_internal_list_workflow_executions_clamps_limit(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Requested limits are clamped into the 1-100 range."""
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_page = Mock()
+    mock_page.items = []
+    mock_page.next_cursor = None
+    mock_page.prev_cursor = None
+    mock_page.has_more = False
+    mock_page.has_previous = False
+
+    mock_svc = AsyncMock()
+    mock_svc.list_executions_paginated.return_value = mock_page
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = action_gateway_client.get(
+            f"/internal/workflows/{workflow_id}/executions",
+            params={"limit": 5000, "cursor": "opaque"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    pagination = mock_svc.list_executions_paginated.await_args.kwargs["pagination"]
+    assert pagination.limit == 100
+    assert pagination.cursor == "opaque"
+
+
 # --- Internal Router: POST /executions ---
 
 

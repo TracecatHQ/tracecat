@@ -10,7 +10,8 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import ActionIsInterfaceError, ctx, registry
+from tracecat_registry import ActionIsInterfaceError, ctx, registry, types
+from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.workflows import (
     JsonPatchOperation,
@@ -472,28 +473,75 @@ async def run(
 
 @registry.register(
     namespace="core.workflow",
-    description="Get the status of a workflow execution.",
+    description=(
+        "Get the status of a workflow execution. With `include_events=true`, "
+        "also returns a per-action event timeline (status, timing, results, "
+        "and errors) for debugging a run. Find execution IDs with "
+        "`list_executions`."
+    ),
     default_title="Get workflow status",
     display_group="Workflows",
 )
 async def get_status(
     *,
     wf_exec_id: Annotated[
-        str,
-        Doc("The workflow execution ID to check."),
+        WorkflowExecutionID,
+        Doc(
+            "The workflow execution ID to check (`wf_.../exec_...`), as "
+            "returned by `run` or `list_executions`."
+        ),
     ],
-) -> dict[str, Any]:
+    include_events: Annotated[
+        bool,
+        Doc("When true, also return the per-action event timeline."),
+    ] = False,
+) -> types.WorkflowExecutionStatusRead:
     """Get the status of a workflow execution.
 
     Returns:
         dict containing:
-            - wf_exec_id: Execution ID
+            - workflow_execution_id: Execution ID
             - status: RUNNING, COMPLETED, FAILED, CANCELED, TERMINATED, TIMED_OUT
             - start_time: When execution started (ISO format or None)
             - close_time: When execution completed (ISO format or None)
             - result: Workflow result (if completed successfully)
+            - with ``include_events=true``: ``trigger_type``, ``execution_type``,
+              ``history_length``, and ``events``
 
     Raises:
         RuntimeError: If no context is available.
     """
-    return await ctx.workflows.aio.get_status(wf_exec_id)
+    return await ctx.workflows.aio.get_status(wf_exec_id, include_events=include_events)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "List a workflow's recent executions (run history), newest first. Use "
+        "this to see which runs succeeded or failed and to find execution IDs "
+        "for `get_execution`."
+    ),
+    default_title="List workflow executions",
+    display_group="Workflows",
+)
+async def list_executions(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to list executions for (short `wf_...` or full)."),
+    ],
+    limit: Annotated[
+        int,
+        Doc("Maximum number of executions to return (clamped to 1-100)."),
+    ] = 20,
+    cursor: Annotated[
+        str | None,
+        Doc("The `next_cursor` from a previous page. Omit for the first page."),
+    ] = None,
+) -> types.WorkflowExecutionPageRead:
+    """List recent executions for a workflow with cursor pagination."""
+    return await ctx.workflows.aio.list_executions(
+        workflow_id=workflow_id,
+        limit=limit,
+        cursor=cursor,
+    )
