@@ -4986,6 +4986,9 @@ export type MCPIntegrationRead = {
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
+  stdio_env?: {
+    [key: string]: string
+  } | null
   timeout: number | null
   tools?: Array<MCPToolSummary> | null
   created_at: string
