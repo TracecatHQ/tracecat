@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 import re
@@ -440,6 +441,11 @@ class SquashfsArtifact(RegistryArtifact):
     async def _mount_image(self, image_path: Path, target_dir: Path) -> None:
         """Mount a SquashFS image read-only at target_dir.
 
+        Cancellation kills and reaps the mount subprocess before propagating,
+        so the caller's per-key lock covers the complete mount lifecycle. The
+        target therefore remains an unmounted cache miss if mount never took
+        effect, or is already mounted and reusable by the next admission.
+
         Args:
             image_path: Local path of the SquashFS image.
             target_dir: Existing directory to mount the image at.
@@ -461,7 +467,13 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
 
         if proc.returncode == 0 or target_dir.is_mount():
             return
@@ -1341,7 +1353,14 @@ class RegistryArtifactCache:
         return True
 
     async def _unmount(self, mount_dir: Path) -> bool:
-        """Unmount a SquashFS artifact directory, releasing its loop device."""
+        """Unmount a SquashFS artifact directory, releasing its loop device.
+
+        Cancellation kills and reaps the umount subprocess before propagating,
+        so the caller's per-key lock covers the complete unmount lifecycle. If
+        umount never took effect, the mounted entry stays consistent and can be
+        reused; if it already took effect, the missing extraction directory
+        makes the entry a plain cache miss on the next admission.
+        """
         umount = shutil.which("umount")
         if umount is None:
             return False
@@ -1352,7 +1371,13 @@ class RegistryArtifactCache:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
         if proc.returncode == 0 or not mount_dir.is_mount():
             return True
 

@@ -66,6 +66,31 @@ def _write_image_entry(
     return image_path
 
 
+class _BlockingSubprocess:
+    """Fake subprocess that blocks in communicate until it is cancelled."""
+
+    def __init__(self) -> None:
+        self.communicate_started = asyncio.Event()
+        self.cleanup_calls: list[str] = []
+        self.returncode: int | None = None
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        """Block until the task awaiting subprocess completion is cancelled."""
+        self.communicate_started.set()
+        await asyncio.Event().wait()
+        return b"", b""
+
+    def kill(self) -> None:
+        """Record that the subprocess was killed."""
+        self.cleanup_calls.append("kill")
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        """Record that the killed subprocess was reaped."""
+        self.cleanup_calls.append("wait")
+        return -9
+
+
 @pytest.fixture
 def temp_cache_dir():
     """Create a temporary cache directory."""
@@ -511,6 +536,40 @@ class TestRegistryArtifactCache:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+
+    @pytest.mark.anyio
+    async def test_cancelled_mount_kills_and_reaps_subprocess(self, temp_cache_dir):
+        """Cancellation cannot leave an orphan mount process after lock release."""
+        cache_key = "cancelled-mount"
+        cache = RegistryArtifactCache(temp_cache_dir)
+        ctx = cache._context_for(cache_key)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=cache_key,
+        )
+        image_path = ctx.paths.squashfs_image_path
+        target_dir = ctx.paths.squashfs_mount_dir
+        image_path.write_bytes(b"squashfs")
+        target_dir.mkdir()
+        process = _BlockingSubprocess()
+
+        with patch(
+            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=process,
+        ):
+            mounting = asyncio.create_task(
+                artifact._mount_image(image_path, target_dir)
+            )
+            await process.communicate_started.wait()
+            mounting.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await mounting
+
+        assert process.cleanup_calls == ["kill", "wait"]
+        assert target_dir.is_dir()
+        assert not target_dir.is_mount()
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
@@ -1393,6 +1452,49 @@ class TestRegistryArtifactCacheEviction:
             "/sbin/umount",
             str(paths.squashfs_mount_dir),
         )
+
+    @pytest.mark.anyio
+    async def test_cancelled_unmount_kills_and_reaps_before_releasing_key_lock(
+        self, temp_cache_dir
+    ):
+        """Cancellation leaves a consistent entry for the next admission."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/cancelled-unmount.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        paths = cache._paths_for(cache_key)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
+        mounted = {paths.squashfs_mount_dir}
+        process = _BlockingSubprocess()
+
+        with (
+            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/umount",
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ),
+        ):
+            eviction = asyncio.create_task(cache._evict_entry(cache_key))
+            await process.communicate_started.wait()
+            eviction.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await eviction
+
+            assert process.cleanup_calls == ["kill", "wait"]
+            async with cache.lease([artifact_uri]) as registry_paths:
+                assert registry_paths == [paths.squashfs_mount_dir]
+                assert registry_paths[0].is_dir()
+                assert (registry_paths[0] / "module.py").read_text() == "VALUE = 1"
+
+        assert paths.squashfs_image_path.is_file()
+        assert paths.squashfs_mount_dir.is_dir()
 
     @pytest.mark.anyio
     async def test_cancelled_background_deletion_leaves_a_clean_miss(
