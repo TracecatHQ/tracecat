@@ -36,7 +36,7 @@ def user_manager(session: AsyncSession) -> UserManager:
 
 
 @pytest.fixture(autouse=True)
-def patch_bypass_session_context_manager(
+def patch_auth_session_context_manager(
     monkeypatch: pytest.MonkeyPatch, session: AsyncSession
 ) -> None:
     @asynccontextmanager
@@ -44,7 +44,7 @@ def patch_bypass_session_context_manager(
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.users.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.users.get_async_session_auth_context_manager",
         _session_cm,
     )
 

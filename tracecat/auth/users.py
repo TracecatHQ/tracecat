@@ -46,7 +46,9 @@ from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    SupportsExecute,
     get_async_session,
+    get_async_session_auth_context_manager,
     get_async_session_bypass_rls_context_manager,
 )
 from tracecat.db.models import (
@@ -129,7 +131,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, email: str, *, organization_id: uuid.UUID | None = None
     ) -> None:
         # Check if this is attempting to be the first user (superadmin)
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_auth_context_manager() as session:
             users = await list_users(session=session)
             if len(users) == 0:  # This would be the first user
                 # Only allow registration if this is the designated superadmin email
@@ -194,7 +196,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         statement = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user_id
         )
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
             return set(result.scalars().all())
 
@@ -220,7 +222,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             OrganizationDomain.normalized_domain == normalized_domain,
             OrganizationDomain.is_active.is_(True),
         )
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
             return result.scalar_one_or_none()
 
@@ -776,7 +778,7 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
                     return await user_manager.get_by_email(params.email)
 
 
-async def list_users(*, session: AsyncSession) -> Sequence[User]:
+async def list_users(*, session: SupportsExecute) -> Sequence[User]:
     statement = select(User)
     result = await session.execute(statement)
     return result.scalars().all()
