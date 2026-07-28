@@ -191,12 +191,11 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
-    os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 8
+    os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
 )
 """Maximum number of registry artifacts kept in the executor-local cache.
 
-Each mounted SquashFS artifact pins one loop device, so this also bounds loop
-device usage. Set to 0 to disable entry-count eviction."""
+Set to 0 to disable entry-count eviction."""
 
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES") or 10 * 1024**3

@@ -1531,15 +1531,15 @@ class TestRegistryArtifactCacheEviction:
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch.object(
                 cache,
-                "_evict_entry",
+                "_unmount_entry",
                 new_callable=AsyncMock,
                 return_value=True,
-            ) as evict_entry,
+            ) as unmount_entry,
         ):
             released = await cache._release_mounted_slot("protected")
 
         assert released is True
-        evict_entry.assert_awaited_once_with("eligible")
+        unmount_entry.assert_awaited_once_with("eligible")
 
     @pytest.mark.anyio
     async def test_concurrent_budget_passes_only_evict_once(self, temp_cache_dir):
@@ -2267,7 +2267,7 @@ class TestSquashfsMountCapability:
     async def test_mount_failure_after_success_reclaims_loop_device_and_retries(
         self, temp_cache_dir
     ):
-        """Loop-device exhaustion evicts an idle mount instead of going sticky."""
+        """Loop-device exhaustion unmounts an idle artifact without deleting it."""
         cache = RegistryArtifactCache(temp_cache_dir)
         cache._squashfs_mount_state.mounted_once = True
         idle = cache._paths_for("idle")
@@ -2315,8 +2315,9 @@ class TestSquashfsMountCapability:
         assert (result[0] / "module.py").read_text() == "VALUE = 1"
         assert attempts == ["new", "new"]
         assert cache._squashfs_mount_state.disabled is False
-        assert not idle.squashfs_image_path.exists()
-        assert not idle.squashfs_mount_dir.exists()
+        assert idle.squashfs_image_path.read_bytes() == b"squashfs"
+        assert idle.squashfs_mount_dir.is_dir()
+        assert idle.squashfs_mount_dir not in mounted
 
     @pytest.mark.anyio
     async def test_download_failure_does_not_disable_squashfs_process_wide(

@@ -60,7 +60,7 @@ TEMP_ARTIFACT_PATTERN = re.compile(
 """Matches materialization scratch and doomed eviction paths."""
 
 type MountSlotReleaser = Callable[[str], Awaitable[bool]]
-"""Evicts one idle mounted artifact, excluding the given cache key."""
+"""Unmounts one idle artifact, excluding the given cache key."""
 
 
 class SquashfsMountCommandError(RuntimeError):
@@ -138,7 +138,7 @@ class RegistryArtifactMaterializationContext:
         return self.squashfs_mount_state.mounted_once
 
     async def release_mounted_slot(self) -> bool:
-        """Evict one idle mounted artifact to free a loop device."""
+        """Unmount one idle artifact to free a loop device."""
         if self.mount_slot_releaser is None:
             return False
         return await self.mount_slot_releaser(self.cache_key)
@@ -250,7 +250,7 @@ class SquashfsArtifact(RegistryArtifact):
         The first mount-command failure in a process is treated as a capability
         probe and disables mounting process-wide. Once any mount has succeeded,
         later failures are attributed to exhausted loop devices instead: one idle
-        mounted artifact is evicted and the mount is retried once, so a single
+        artifact is unmounted and the mount is retried once, so a single
         failure never downgrades the whole process to extraction.
 
         The probe lock deliberately covers the first mount's download and mount
@@ -259,7 +259,7 @@ class SquashfsArtifact(RegistryArtifact):
 
         Only ``SquashfsMountCommandError`` drives this policy. Download and
         preparation errors propagate to the caller so a transient S3 failure
-        never disables mounting or evicts an unrelated idle mount.
+        never disables mounting or unmounts an unrelated idle artifact.
 
         Args:
             ctx: Materialization context for the artifact being mounted.
@@ -1335,7 +1335,7 @@ class RegistryArtifactCache:
             return True
 
     async def _release_mounted_slot(self, protected_key: str) -> bool:
-        """Evict one idle mounted artifact so its loop device can be reused.
+        """Unmount one idle artifact so its loop device can be reused.
 
         This path deliberately does not take the budget lock: ``_try_mount`` may
         call it while holding ``protected_key``'s per-key lock. It excludes that
@@ -1346,7 +1346,7 @@ class RegistryArtifactCache:
             protected_key: Cache key that must not be evicted.
 
         Returns:
-            Whether a mounted artifact was unmounted and removed.
+            Whether a mounted artifact was unmounted.
         """
         entries = await asyncio.to_thread(self._scan_cache_entries)
         mounted = [
@@ -1359,7 +1359,7 @@ class RegistryArtifactCache:
         while (
             candidate := self._least_recently_used(mounted, excluded=skipped)
         ) is not None:
-            if await self._evict_entry(candidate.cache_key):
+            if await self._unmount_entry(candidate.cache_key):
                 return True
             skipped.add(candidate.cache_key)
         return False
@@ -1406,6 +1406,51 @@ class RegistryArtifactCache:
         if lease is None:
             return entry.last_used
         return max(entry.last_used, lease.last_used)
+
+    async def _unmount_entry(self, cache_key: str) -> bool:
+        """Unmount one idle cache entry while retaining its reusable image.
+
+        Loop-device reclamation is independent from disk-budget eviction. The
+        per-key lock and lease recheck prevent an entry from being unmounted
+        while an action is importing from it. The image and empty mount
+        directory remain cached so a later admission can remount without
+        downloading the artifact again.
+
+        Args:
+            cache_key: Cache key whose mounted artifact should be released.
+
+        Returns:
+            Whether a mounted entry was unmounted.
+        """
+        lock = await self._lock_for(cache_key)
+        if lock.locked():
+            logger.debug(
+                "Skipping unmount of busy registry artifact",
+                cache_key=cache_key,
+            )
+            return False
+
+        async with lock:
+            if self._refcount(cache_key) > 0:
+                return False
+
+            mount_dir = self._paths_for(cache_key).squashfs_mount_dir
+            if not mount_dir.is_mount():
+                return False
+            if not await self._unmount(mount_dir):
+                logger.warning(
+                    "Failed to unmount registry artifact for loop-device reclamation",
+                    cache_key=cache_key,
+                    mount_dir=str(mount_dir),
+                )
+                return False
+
+            logger.info(
+                "Unmounted idle registry artifact",
+                cache_key=cache_key,
+                mount_dir=str(mount_dir),
+            )
+            return True
 
     async def _evict_entry(self, cache_key: str) -> bool:
         """Remove one cache entry from disk, unmounting it first.

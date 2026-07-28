@@ -169,7 +169,14 @@ def test_registry_artifact_cache_mount_lifecycle() -> None:
     assert payload["remounted"] is True
     assert payload["squashfs_disabled_after_eviction"] is False
 
-    # Releasing a lease converges an over-budget cache, unmounting as it goes.
+    # Loop-device reclamation unmounts an idle entry but retains its cached image.
+    assert payload["mount_slot_released"] is True
+    assert payload["released_target_unmounted"] is True
+    assert payload["released_loop_device_released"] is True
+    assert payload["released_image_retained"] is True
+    assert payload["remounted_from_retained_image"] is True
+
+    # Releasing a lease converges an over-budget cache, destructively evicting it.
     assert payload["converged_entry_unmounted"] is True
     assert payload["converged_loop_device_released"] is True
     assert payload["converged_entries_remaining"] == 3
@@ -307,9 +314,28 @@ async def _run_mount_lifecycle_child() -> None:
             cache._squashfs_mount_state.disabled
         )
 
-        # (d) A released lease converges an over-budget cache, unmounting as it
-        # goes. The fourth entry is materialized under the old budget, so only
-        # the release-time check can bring the cache back within the new one.
+        # (d) Loop-device reclamation unmounts the LRU idle artifact while
+        # retaining its image, and a later lease remounts that image directly.
+        retained_paths = cache._paths_for(keys[1])
+        mounts_before_release = _squashfs_mounts(cache_dir)
+        retained_device = mounts_before_release[str(retained_paths.squashfs_mount_dir)]
+        payload["mount_slot_released"] = await cache._release_mounted_slot(keys[0])
+        mounts_after_release = _squashfs_mounts(cache_dir)
+        payload["released_target_unmounted"] = (
+            str(retained_paths.squashfs_mount_dir) not in mounts_after_release
+        )
+        payload["released_loop_device_released"] = (
+            retained_device not in mounts_after_release.values()
+        )
+        payload["released_image_retained"] = retained_paths.squashfs_image_path.exists()
+        async with cache.lease([uris[1]]) as registry_paths:
+            payload["remounted_from_retained_image"] = registry_paths == [
+                retained_paths.squashfs_mount_dir
+            ]
+
+        # (e) A released lease converges an over-budget cache, destructively
+        # evicting it. The fourth entry is materialized under the old budget, so
+        # only the release-time check can bring the cache back within the new one.
         fourth_uri = "s3://bucket/lifecycle/3/site-packages.squashfs"
         fourth_key = compute_registry_artifact_cache_key(fourth_uri)
         _build_squashfs_image(
@@ -337,7 +363,7 @@ async def _run_mount_lifecycle_child() -> None:
             )
             payload["converged_entries_remaining"] = len(cache._discover_cache_keys())
 
-        # (e) The startup sweep trims to budget and drops stale mount directories.
+        # (f) The startup sweep trims to budget and drops stale mount directories.
         sweep_dir = root / "sweep-cache"
         sweep_dir.mkdir()
         sweep_keys = ["aaaa1111", "bbbb2222"]
