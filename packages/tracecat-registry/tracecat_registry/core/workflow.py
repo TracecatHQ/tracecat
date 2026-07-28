@@ -519,7 +519,7 @@ async def get_status(
     description=(
         "List a workflow's recent executions (run history), newest first. Use "
         "this to see which runs succeeded or failed and to find execution IDs "
-        "for `get_execution`."
+        "for `get_status`."
     ),
     default_title="List workflow executions",
     display_group="Workflows",
