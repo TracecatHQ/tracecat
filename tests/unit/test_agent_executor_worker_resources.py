@@ -10,6 +10,7 @@ import pytest
 
 from tracecat.agent.sandbox.cgroup import (
     AgentExecutorMemoryBudgetError,
+    AgentSandboxCgroupUnavailableError,
     CgroupAvailability,
     PreparedCgroup,
 )
@@ -66,7 +67,7 @@ async def test_agent_executor_readiness_sentinel_exists_only_while_running(
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: PreparedCgroup(CgroupAvailability.DISABLED, None),
+        lambda *, enabled: PreparedCgroup(CgroupAvailability.DISABLED, None),
     )
     monkeypatch.setattr(
         executor_worker,
@@ -156,7 +157,7 @@ async def test_agent_executor_removes_stale_readiness_sentinel_on_startup(
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: PreparedCgroup(CgroupAvailability.DISABLED, None),
+        lambda *, enabled: PreparedCgroup(CgroupAvailability.DISABLED, None),
     )
     monkeypatch.setattr(
         executor_worker,
@@ -207,7 +208,10 @@ async def test_agent_executor_memory_budget_error_propagates_from_main(
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root),
+        lambda *, enabled: PreparedCgroup(
+            CgroupAvailability.UNAVAILABLE,
+            cgroup_root,
+        ),
     )
     monkeypatch.setattr(
         executor_worker,
@@ -252,7 +256,10 @@ async def test_agent_executor_clears_stale_sentinel_before_budget_validation(
     monkeypatch.setattr(
         executor_worker,
         "prepare_agent_sandbox_cgroup",
-        lambda: PreparedCgroup(CgroupAvailability.UNAVAILABLE, cgroup_root),
+        lambda *, enabled: PreparedCgroup(
+            CgroupAvailability.UNAVAILABLE,
+            cgroup_root,
+        ),
     )
     monkeypatch.setattr(
         executor_worker.config,
@@ -264,6 +271,93 @@ async def test_agent_executor_clears_stale_sentinel_before_budget_validation(
         await executor_worker.main(shutdown_event=asyncio.Event())
 
     assert not ready_file.exists()
+
+
+@pytest.mark.anyio
+async def test_agent_executor_fails_closed_when_required_cgroup_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    ready_file = tmp_path / "run" / "agent-executor-ready"
+    prepare_cgroup = Mock(
+        return_value=PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
+    )
+    start_runtime_services = AsyncMock()
+    monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__DISABLE_NSJAIL",
+        False,
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_READY_FILE",
+        str(ready_file),
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        prepare_cgroup,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "_start_runtime_services",
+        start_runtime_services,
+    )
+
+    with pytest.raises(AgentSandboxCgroupUnavailableError):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    prepare_cgroup.assert_called_once_with(enabled=True)
+    start_runtime_services.assert_not_awaited()
+    assert not ready_file.exists()
+
+
+@pytest.mark.anyio
+async def test_agent_executor_disables_cgroups_when_nsjail_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    prepare_cgroup = Mock(
+        return_value=PreparedCgroup(CgroupAvailability.DISABLED, None)
+    )
+    start_runtime_services = AsyncMock(side_effect=RuntimeError("stop after setup"))
+    monkeypatch.setenv("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__DISABLE_NSJAIL",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "prepare_agent_sandbox_cgroup",
+        prepare_cgroup,
+    )
+    monkeypatch.setattr(
+        executor_worker,
+        "_start_runtime_services",
+        start_runtime_services,
+    )
+    monkeypatch.setattr(executor_worker, "_stop_runtime_services", AsyncMock())
+    monkeypatch.setattr(executor_worker, "close_storage_client_cache", AsyncMock())
+
+    with pytest.raises(RuntimeError, match="stop after setup"):
+        await executor_worker.main(shutdown_event=asyncio.Event())
+
+    prepare_cgroup.assert_called_once_with(enabled=False)
 
 
 @pytest.mark.anyio

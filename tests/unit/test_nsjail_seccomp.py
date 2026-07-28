@@ -76,6 +76,8 @@ def test_stdio_probe_sandbox_config_includes_cgroup_memory_limit(
 
     assert "use_cgroupv2: true" in config_text
     assert f'cgroupv2_mount: "{cgroup_mount}"' in config_text
+    assert "rlimit_as: 512" in config_text
+    assert "rlimit_fsize: 256" in config_text
     assert f"cgroup_mem_max: {512 * 1024 * 1024}" in config_text
     assert "cgroup_mem_swap_max: 0" in config_text
 
@@ -89,10 +91,16 @@ def test_action_sandbox_config_includes_seccomp_policy(tmp_path: Path):
         config=ActionSandboxConfig(
             registry_paths=[tmp_path / "registry"],
             tracecat_app_dir=tmp_path / "app",
+            resources=ResourceLimits(
+                memory_mb=768,
+                max_file_size_mb=64,
+            ),
         ),
     )
 
     _assert_seccomp_config(config_text)
+    assert "rlimit_as: 768" in config_text
+    assert "rlimit_fsize: 64" in config_text
 
 
 def test_action_sandbox_config_ignores_general_executor_cgroup_mount(

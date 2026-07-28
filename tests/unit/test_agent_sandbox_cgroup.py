@@ -11,6 +11,7 @@ import tracecat.agent.sandbox.cgroup as cgroup_module
 from tracecat.agent.sandbox.cgroup import (
     BYTES_PER_MEBIBYTE,
     AgentExecutorMemoryBudgetError,
+    AgentSandboxCgroupUnavailableError,
     CgroupAvailability,
     CgroupMemoryLimitKind,
     PreparedCgroup,
@@ -148,7 +149,8 @@ def test_get_agent_sandbox_cgroup_returns_unprepared_default(
     result = get_agent_sandbox_cgroup()
 
     assert result == PreparedCgroup(CgroupAvailability.UNAVAILABLE, None)
-    assert result.sandbox_mount is None
+    with pytest.raises(AgentSandboxCgroupUnavailableError):
+        _ = result.sandbox_mount
 
 
 def test_prepare_agent_sandbox_cgroup_returns_cached_disabled_state(
@@ -169,6 +171,9 @@ def test_prepare_agent_sandbox_cgroup_returns_cached_disabled_state(
     )
 
     assert first == PreparedCgroup(CgroupAvailability.DISABLED, None)
+    assert first.sandbox_mount is None
+    with pytest.raises(AgentSandboxCgroupUnavailableError):
+        first.require_sandbox_mount()
     assert second is first
     assert get_agent_sandbox_cgroup() is first
 
@@ -281,7 +286,8 @@ def test_prepare_agent_sandbox_cgroup_retains_root_on_permission_error(
         cgroup_root,
         cgroupfs,
     )
-    assert result.sandbox_mount is None
+    with pytest.raises(AgentSandboxCgroupUnavailableError):
+        _ = result.sandbox_mount
     assert read_cgroup_memory_limit(result.root).kind is CgroupMemoryLimitKind.LIMITED
     mock_logger.warning.assert_called_once()
     assert mock_logger.warning.call_args.kwargs["step"] == "enable memory controller"

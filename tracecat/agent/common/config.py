@@ -10,6 +10,22 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+
+def _env_bool(var: str, *, default: bool) -> bool:
+    """Read a boolean env var without importing the full application config."""
+    raw_value = os.environ.get(var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(f"{var} must be a boolean value (got {raw_value!r})")
+
+
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
@@ -22,9 +38,7 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
-TRACECAT__DISABLE_NSJAIL = os.environ.get(
-    "TRACECAT__DISABLE_NSJAIL", "true"
-).lower() in ("true", "1")
+TRACECAT__DISABLE_NSJAIL = _env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
 # === Well-known runtime paths (internal to agent worker) === #

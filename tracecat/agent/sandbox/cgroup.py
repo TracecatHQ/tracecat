@@ -36,6 +36,10 @@ class AgentExecutorMemoryBudgetError(RuntimeError):
     """Raised when the container memory budget cannot fit one sandbox."""
 
 
+class AgentSandboxCgroupUnavailableError(RuntimeError):
+    """Raised when enabled agent sandbox cgroup enforcement is unavailable."""
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedCgroup:
     """Process-wide agent sandbox cgroup preparation result."""
@@ -46,10 +50,30 @@ class PreparedCgroup:
 
     @property
     def sandbox_mount(self) -> Path | None:
-        """Return the nsjail cgroup mount when preparation succeeded."""
+        """Return the nsjail cgroup mount unless cgroups were disabled.
+
+        Raises:
+            AgentSandboxCgroupUnavailableError: If cgroups were enabled but
+                preparation failed.
+        """
         if self.availability is CgroupAvailability.AVAILABLE:
             return self.root
+        if self.availability is CgroupAvailability.UNAVAILABLE:
+            raise AgentSandboxCgroupUnavailableError(
+                "Agent sandbox cgroup limits are enabled but unavailable. "
+                "Ensure the agent-executor entrypoint delegates its cgroup v2 "
+                "subtree before dropping privileges, or explicitly set "
+                "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED=false."
+            )
         return None
+
+    def require_sandbox_mount(self) -> Path:
+        """Return the prepared cgroup mount required by an enabled sandbox."""
+        if (mount := self.sandbox_mount) is not None:
+            return mount
+        raise AgentSandboxCgroupUnavailableError(
+            "Agent sandbox cgroup limits are required but were disabled."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,16 +133,14 @@ def _warn_cgroup_unavailable(
     """Log the single startup warning for a failed cgroup preparation."""
     if isinstance(error, OSError):
         logger.warning(
-            "Agent sandbox cgroup memory limits unavailable; "
-            "continuing without per-sandbox cgroup limits",
+            "Agent sandbox cgroup memory limits unavailable",
             step=step,
             errno=error.errno,
             error=str(error),
         )
         return
     logger.warning(
-        "Agent sandbox cgroup memory limits unavailable; "
-        "continuing without per-sandbox cgroup limits",
+        "Agent sandbox cgroup memory limits unavailable",
         step=step,
         error=str(error),
     )
@@ -133,8 +155,8 @@ def prepare_agent_sandbox_cgroup(
     """Prepare the cgroup v2 root for nsjail child memory cgroups.
 
     The result is cached process-wide. Setup failures are reduced to one warning
-    and an unavailable result so agent sandbox launches can continue without
-    cgroup limits.
+    and an unavailable result. Callers that enabled cgroup enforcement must
+    reject that state before accepting sandbox work.
     """
     global _prepared_cgroup
 

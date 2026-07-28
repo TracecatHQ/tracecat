@@ -245,6 +245,10 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.get_agent_sandbox_cgroup",
+            return_value=PreparedCgroup(CgroupAvailability.DISABLED, None),
+        ),
     ):
         await probe_stdio_mcp_tools_in_sandbox(
             command="python",
@@ -285,6 +289,10 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.get_agent_sandbox_cgroup",
+            return_value=PreparedCgroup(CgroupAvailability.DISABLED, None),
+        ),
     ):
         result = await probe_stdio_mcp_tools_in_sandbox(
             command="python",
@@ -313,6 +321,10 @@ async def test_probe_returns_friendly_sandbox_timeout() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.get_agent_sandbox_cgroup",
+            return_value=PreparedCgroup(CgroupAvailability.DISABLED, None),
         ),
     ):
         result = await probe_stdio_mcp_tools_in_sandbox(

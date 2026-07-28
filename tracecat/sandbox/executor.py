@@ -352,9 +352,9 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+                f"rlimit_as: {config.resources.memory_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
-                f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+                f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
                 f"rlimit_nproc: {config.resources.max_processes}",
                 f"time_limit: {config.resources.timeout_seconds}",
@@ -794,14 +794,18 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+                f"rlimit_as: {config.resources.memory_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
-                f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+                f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
                 f"rlimit_nproc: {config.resources.max_processes}",
                 f"time_limit: {int(config.timeout_seconds)}",
             ]
         )
+
+        # Regular action executors do not yet own a delegated cgroup subtree.
+        # Their aggregate process-tree limit remains a separate deployment
+        # project; retain the now-correct per-process MiB rlimits here.
 
         # Execution settings - always use minimal_runner.py (untrusted mode)
         # minimal_runner.py is copied to /work and doesn't need tracecat imports

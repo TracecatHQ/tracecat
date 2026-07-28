@@ -5,15 +5,26 @@ set -euo pipefail
 # memory limits. Start the container as root with this entrypoint (compose:
 # user "0:0"; Kubernetes: runAsUser 0) and it hands the container's own
 # cgroup v2 directory to apiuser so the worker can prepare nsjail child
-# cgroups without root, then drops privileges before starting it. Where the
-# needed privileges are absent the worker starts unchanged and falls back to
-# rlimit-only sandbox limits. Non-root invocations pass straight through.
+# cgroups without root, then drops privileges before starting it. The worker
+# rejects startup if cgroup enforcement is enabled but delegation failed.
+# Non-root invocations pass straight through to that same fail-closed check.
 if [[ "$(id -u)" == "0" ]]; then
     # Mirror config.env_bool falsy values so disabling the feature also skips
     # the root-side delegation, not just the Python-side preparation. The
     # privilege drop below is unconditional: root never reaches the worker.
-    cgroup_enabled="$(printf '%s' "${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')"
-    case "$cgroup_enabled" in 0 | false | no | off) cgroup_enabled=false ;; *) cgroup_enabled=true ;; esac
+    cgroup_enabled="$(
+        printf '%s' "${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}" |
+            tr '[:upper:]' '[:lower:]' |
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    )"
+    case "$cgroup_enabled" in
+        1 | true | yes | on) cgroup_enabled=true ;;
+        0 | false | no | off) cgroup_enabled=false ;;
+        *)
+            echo "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED must be a boolean value" >&2
+            exit 64
+            ;;
+    esac
 
     if [[ "$cgroup_enabled" == "true" ]]; then
         # Resolve this container's cgroup v2 directory: the mount root under a
@@ -25,7 +36,7 @@ if [[ "$(id -u)" == "0" ]]; then
         cgroup_path="$(sed -n 's/^0:://p' /proc/self/cgroup | head -n 1)"
         if [[ -z "$cgroup_path" ]]; then
             echo "No cgroup v2 entry in /proc/self/cgroup; agent sandbox" \
-                "cgroup limits will be unavailable." >&2
+                "cgroup limits cannot be enforced." >&2
         else
             cgroup_rel="${cgroup_path#/}"
             cgroup_dir="/sys/fs/cgroup${cgroup_rel:+/$cgroup_rel}"
@@ -36,7 +47,7 @@ if [[ "$(id -u)" == "0" ]]; then
                 echo "Delegated $cgroup_dir to apiuser."
             else
                 echo "Unable to delegate $cgroup_dir to apiuser; agent sandbox" \
-                    "cgroup limits will be unavailable." >&2
+                    "cgroup limits cannot be enforced." >&2
             fi
         fi
     fi

@@ -131,7 +131,17 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     threadpool_max_workers = int(
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
-    prepared_cgroup = prepare_agent_sandbox_cgroup()
+    cgroup_required = (
+        config.TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED
+        and not config.TRACECAT__DISABLE_NSJAIL
+    )
+    prepared_cgroup = prepare_agent_sandbox_cgroup(enabled=cgroup_required)
+    if cgroup_required:
+        cgroup_mount = prepared_cgroup.require_sandbox_mount()
+        logger.info(
+            "Agent sandbox cgroup memory limits ready",
+            cgroup_mount=str(cgroup_mount),
+        )
     max_concurrent = clamp_agent_executor_concurrency(
         max_concurrent,
         prepared_cgroup,

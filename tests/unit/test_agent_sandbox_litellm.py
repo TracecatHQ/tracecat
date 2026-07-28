@@ -55,6 +55,16 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.sandbox.cgroup import (
+    CgroupAvailability,
+    prepare_agent_sandbox_cgroup,
+)
+from tracecat.agent.sandbox.config import (
+    JAILED_SHIM_ENTRYPOINT_PATH,
+    AgentResourceLimits,
+    AgentSandboxConfig,
+    build_agent_nsjail_config,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMRoute,
@@ -93,6 +103,13 @@ class _SkillVisibilityMessage(TypedDict):
 class _DuckDBSmokeMessage(TypedDict):
     duckdb_extension_count: int
     duckdb_path: str
+
+
+_CGROUP_SMOKE_SENTINEL = "TRACE_CAT_AGENT_CGROUP_SMOKE uid=1001 availability=available"
+_CGROUP_OOM_SENTINEL = (
+    "TRACE_CAT_AGENT_CGROUP_OOM sandbox_killed=true parent_survived=true"
+)
+_CGROUP_RECOVERY_SENTINEL = "TRACE_CAT_AGENT_CGROUP_RECOVERY sandbox_succeeded=true"
 
 
 @dataclass(slots=True)
@@ -1125,6 +1142,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     cli_flag: str = "--run-nsjail-harness-smoke",
     failure_label: str = "Dockerized nsjail harness fallback failed.",
     requires_tun: bool = False,
+    enable_cgroups: bool = False,
 ) -> None:
     if os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
         pytest.skip("nsjail unavailable inside Docker fallback child")
@@ -1155,6 +1173,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    compose_project_name = f"tracecat-agent-nsjail-{uuid.uuid4().hex[:12]}"
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -1164,6 +1183,20 @@ def _run_nsjail_harness_in_docker_or_skip(
         if requires_tun
         else []
     )
+    cgroup_service_lines = (
+        [
+            "    cgroup: private",
+            "    privileged: true",
+            '    user: "0:0"',
+        ]
+        if enable_cgroups
+        else []
+    )
+    cgroup_enabled = "true" if enable_cgroups else "false"
+    entrypoint = (
+        "/usr/local/bin/agent-executor-entrypoint.sh" if enable_cgroups else "sh"
+    )
+    entrypoint_args = ["sh"] if enable_cgroups else []
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-agent-nsjail-test-", suffix=".yml")[1]
     )
@@ -1174,6 +1207,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 "    build:",
                 "      target: test",
+                *cgroup_service_lines,
                 "    cap_add:",
                 "      - SYS_ADMIN",
                 "    security_opt:",
@@ -1185,6 +1219,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "    environment:",
                 '      TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
                 '      TRACECAT__DISABLE_NSJAIL: "false"',
+                f'      TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED: "{cgroup_enabled}"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
                 '      PYTHONDONTWRITEBYTECODE: "1"',
@@ -1192,23 +1227,29 @@ def _run_nsjail_harness_in_docker_or_skip(
             ]
         )
     )
+    compose_command = [
+        "docker",
+        "compose",
+        "--project-name",
+        compose_project_name,
+        "-f",
+        str(repo_root / "docker-compose.dev.yml"),
+        "-f",
+        str(override_path),
+    ]
     try:
         result = subprocess.run(
             [
-                "docker",
-                "compose",
-                "-f",
-                str(repo_root / "docker-compose.dev.yml"),
-                "-f",
-                str(override_path),
+                *compose_command,
                 "run",
                 "--rm",
                 "--no-deps",
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                entrypoint,
                 "api",
+                *entrypoint_args,
                 "-lc",
                 f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
@@ -1220,12 +1261,32 @@ def _run_nsjail_harness_in_docker_or_skip(
             check=False,
         )
     finally:
+        cleanup_result = subprocess.run(
+            [*compose_command, "down", "--remove-orphans", "--rmi", "local"],
+            cwd=repo_root,
+            env=compose_env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
         override_path.unlink(missing_ok=True)
 
+    if cleanup_result.returncode != 0:
+        pytest.fail(
+            "Dockerized nsjail harness cleanup failed."
+            f"\n\nstdout:\n{cleanup_result.stdout}"
+            f"\n\nstderr:\n{cleanup_result.stderr}"
+        )
     if result.returncode != 0:
         pytest.fail(
             f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+    if enable_cgroups:
+        assert "Delegated " in result.stdout
+        assert _CGROUP_SMOKE_SENTINEL in result.stdout
+        assert _CGROUP_OOM_SENTINEL in result.stdout
+        assert _CGROUP_RECOVERY_SENTINEL in result.stdout
 
 
 def _run_nsjail_harness_smoke_from_cli() -> None:
@@ -1297,16 +1358,140 @@ def _run_nsjail_mcp_compression_smoke_from_cli() -> None:
     asyncio.run(run())
 
 
-def _run_nsjail_duckdb_smoke_from_cli() -> None:
+def _read_cgroup_memory_event(cgroup_root: Path, event: str) -> int:
+    for line in (cgroup_root / "memory.events").read_text().splitlines():
+        key, raw_value = line.split()
+        if key == event:
+            return int(raw_value)
+    raise AssertionError(f"Missing {event!r} in {cgroup_root / 'memory.events'}")
+
+
+async def _run_agent_cgroup_oom_isolation_case(
+    *,
+    cgroup_root: Path,
+    tmp_path: Path,
+) -> None:
+    """Trigger a cgroup OOM kill below the sandbox's per-process RLIMIT_AS."""
+    tmp_path.mkdir(parents=True)
+    workload_path = tmp_path / Path(JAILED_SHIM_ENTRYPOINT_PATH).name
+    workload_path.write_text(
+        "\n".join(
+            [
+                "allocations = []",
+                "",
+                "while True:",
+                "    allocation = bytearray(16 * 1024 * 1024)",
+                "    for offset in range(0, len(allocation), 4096):",
+                "        allocation[offset] = 1",
+                "    allocations.append(allocation)",
+            ]
+        )
+    )
+
+    site_packages_dir = next(
+        (
+            Path(path)
+            for path in sys.path
+            if "site-packages" in path and Path(path).is_dir()
+        ),
+        None,
+    )
+    assert site_packages_dir is not None
+    limits = AgentResourceLimits(
+        memory_mb=512,
+        cpu_seconds=30,
+        timeout_seconds=15,
+    )
+    nsjail_config = build_agent_nsjail_config(
+        rootfs=Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH),
+        job_dir=tmp_path,
+        socket_dir=tmp_path,
+        config=AgentSandboxConfig(resources=limits),
+        site_packages_dir=site_packages_dir,
+        llm_socket_path=None,
+        mount_control_socket=False,
+        cgroup_mount=cgroup_root,
+    )
+    configured_cgroup_limit = f"cgroup_mem_max: {limits.memory_mb * 1024 * 1024}"
+    test_cgroup_limit = f"cgroup_mem_max: {128 * 1024 * 1024}"
+    assert nsjail_config.count(f"rlimit_as: {limits.memory_mb}") == 1
+    assert nsjail_config.count(configured_cgroup_limit) == 1
+    # Keep the normal 512 MiB per-process RLIMIT_AS while lowering only the
+    # child cgroup to 128 MiB. A resulting oom_kill therefore proves that the
+    # kernel cgroup limit, rather than RLIMIT_AS, terminated the sandbox.
+    nsjail_config = nsjail_config.replace(
+        configured_cgroup_limit,
+        test_cgroup_limit,
+        1,
+    )
+    config_path = tmp_path / "nsjail.cfg"
+    config_path.write_text(nsjail_config)
+    config_path.chmod(0o600)
+
+    parent_pid = os.getpid()
+    parent_cgroup = Path("/proc/self/cgroup").read_text()
+    oom_kills_before = _read_cgroup_memory_event(cgroup_root, "oom_kill")
+    process = await asyncio.create_subprocess_exec(
+        app_config.TRACECAT__SANDBOX_NSJAIL_PATH,
+        "--config",
+        str(config_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=tmp_path,
+    )
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=30,
+        )
+    except TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise AssertionError(
+            "Cgroup OOM sandbox did not terminate within 30 seconds"
+        ) from exc
+
+    stdout = stdout_bytes.decode(errors="replace")
+    stderr = stderr_bytes.decode(errors="replace")
+    oom_kills_after = _read_cgroup_memory_event(cgroup_root, "oom_kill")
+    if process.returncode != 137:
+        raise AssertionError(
+            f"Cgroup OOM sandbox exited with {process.returncode}, expected 137"
+            f"\n\nstdout:\n{stdout}\n\nstderr:\n{stderr}"
+        )
+    if oom_kills_after <= oom_kills_before:
+        raise AssertionError(
+            "Sandbox failed without a kernel cgroup OOM kill"
+            f"\n\nstdout:\n{stdout}\n\nstderr:\n{stderr}"
+        )
+    assert os.getpid() == parent_pid
+    assert Path("/proc/self/cgroup").read_text() == parent_cgroup
+    print(
+        f"{_CGROUP_OOM_SENTINEL} oom_kill_delta={oom_kills_after - oom_kills_before}",
+        flush=True,
+    )
+
+
+def _run_nsjail_cgroup_smoke_from_cli() -> None:
     async def run() -> None:
         monkeypatch = pytest.MonkeyPatch()
-        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-duckdb-"))
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-cgroup-"))
         try:
+            prepared_cgroup = prepare_agent_sandbox_cgroup()
+            assert os.getuid() == 1001
+            assert prepared_cgroup.availability is CgroupAvailability.AVAILABLE
+            cgroup_root = prepared_cgroup.require_sandbox_mount()
+            print(_CGROUP_SMOKE_SENTINEL, flush=True)
+            await _run_agent_cgroup_oom_isolation_case(
+                cgroup_root=cgroup_root,
+                tmp_path=tmp_path / "oom",
+            )
             _set_disable_nsjail_mode(monkeypatch, False)
             await _run_duckdb_cli_available_case(
                 monkeypatch=monkeypatch,
-                tmp_path=tmp_path,
+                tmp_path=tmp_path / "recovery",
             )
+            print(_CGROUP_RECOVERY_SENTINEL, flush=True)
         finally:
             monkeypatch.undo()
             shutil.rmtree(tmp_path, ignore_errors=True)
@@ -2137,22 +2322,11 @@ async def test_run_agent_activity_makes_attached_skills_visible_in_each_sandbox_
     )
 
 
-@pytest.mark.anyio
-async def test_agent_nsjail_runtime_has_duckdb_cli(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    if not _agent_nsjail_available():
-        _run_nsjail_harness_in_docker_or_skip(
-            cli_flag="--run-nsjail-duckdb-smoke",
-            failure_label="Dockerized nsjail DuckDB smoke fallback failed.",
-        )
-        return
-
-    _set_disable_nsjail_mode(monkeypatch, False)
-    await _run_duckdb_cli_available_case(
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
+def test_agent_nsjail_cgroup_oom_isolated_and_runtime_recovers() -> None:
+    _run_nsjail_harness_in_docker_or_skip(
+        cli_flag="--run-nsjail-cgroup-smoke",
+        failure_label="Dockerized nsjail cgroup OOM containment smoke failed.",
+        enable_cgroups=True,
     )
 
 
@@ -2563,12 +2737,12 @@ if __name__ == "__main__":
         _run_nsjail_skills_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-mcp-compression-smoke"]:
         _run_nsjail_mcp_compression_smoke_from_cli()
-    elif sys.argv[1:] == ["--run-nsjail-duckdb-smoke"]:
-        _run_nsjail_duckdb_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-cgroup-smoke"]:
+        _run_nsjail_cgroup_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
             "[--run-nsjail-harness-smoke|--run-nsjail-pasta-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
-            "--run-nsjail-duckdb-smoke]"
+            "--run-nsjail-cgroup-smoke]"
         )

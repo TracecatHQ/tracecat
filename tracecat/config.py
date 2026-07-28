@@ -764,7 +764,7 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = _env_int(
 TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED = env_bool(
     "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED", default=True
 )
-"""Enable cgroup v2 memory limits for agent sandboxes when available."""
+"""Require cgroup v2 memory limits for agent sandboxes when nsjail is enabled."""
 
 TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB = _env_int(
     "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",

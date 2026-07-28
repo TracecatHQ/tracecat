@@ -139,6 +139,8 @@ def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> No
 
     assert "use_cgroupv2: true" in config_text
     assert 'cgroupv2_mount: "/sys/fs/cgroup/kubepods.slice/pod.scope"' in config_text
+    assert "rlimit_as: 3072" in config_text
+    assert "rlimit_fsize: 256" in config_text
     assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in config_text
     assert "cgroup_mem_swap_max: 0" in config_text
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import tracecat.config as tracecat_config
+from tracecat.agent.common.config import _env_bool as agent_env_bool
 from tracecat.config import bound_env, env_bool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +97,38 @@ def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ValueError, match="TEST_BOOL_ENV must be a boolean"):
         env_bool("TEST_BOOL_ENV", default=True)
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("1", True),
+        ("true", True),
+        (" YES ", True),
+        ("on", True),
+        ("0", False),
+        ("false", False),
+        (" NO ", False),
+        ("off", False),
+    ],
+)
+def test_agent_env_bool_matches_application_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+    expected: bool,
+) -> None:
+    monkeypatch.setenv("TEST_AGENT_BOOL_ENV", raw_value)
+
+    assert agent_env_bool("TEST_AGENT_BOOL_ENV", default=not expected) is expected
+
+
+def test_agent_env_bool_rejects_invalid_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_AGENT_BOOL_ENV", "not-a-bool")
+
+    with pytest.raises(ValueError, match="TEST_AGENT_BOOL_ENV must be a boolean"):
+        agent_env_bool("TEST_AGENT_BOOL_ENV", default=True)
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:
