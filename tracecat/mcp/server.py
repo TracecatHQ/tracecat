@@ -81,6 +81,7 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
+    SkillDraftSnapshotRead,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
@@ -8349,6 +8350,40 @@ async def list_skills(
     except Exception as e:
         logger.error("Failed to list skills", error=str(e))
         raise ToolError(f"Failed to list skills: {e}") from None
+
+
+@mcp.tool()
+async def get_skill(
+    workspace_id: uuid.UUID,
+    skill_id: str,
+) -> SkillDraftSnapshotRead:
+    """Read an existing skill's current editable draft and complete file contents.
+
+    `skill_id` accepts either the UUID or slug returned by `list_skills`.
+    Text files include readable `text_content`; every file also includes
+    `content_base64` so callers can safely preserve unchanged files when using
+    `update_skill`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            skill = await svc.get_skill_by_identifier(skill_id)
+            if skill is None:
+                raise ToolError(f"Skill '{skill_id}' not found")
+            snapshot = await svc.get_draft_snapshot_read(skill.id)
+            if snapshot is None:
+                raise ToolError(f"Skill '{skill_id}' not found")
+            return snapshot
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get skill", error=str(e), skill_id=skill_id)
+        raise ToolError(f"Failed to get skill: {e}") from None
 
 
 @mcp.tool()

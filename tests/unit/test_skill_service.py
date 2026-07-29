@@ -213,6 +213,35 @@ class TestSkillService:
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
 
+    async def test_get_draft_snapshot_includes_complete_file_contents(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Draft snapshots are readable and safe to round-trip through updates."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(
+                name="snapshot-readable",
+                description="Readable skill draft",
+            )
+        )
+
+        snapshot = await skill_service.get_draft_snapshot_read(created.id)
+
+        assert snapshot is not None
+        assert snapshot.skill_id == created.id
+        assert snapshot.slug == created.slug
+        assert snapshot.name == "snapshot-readable"
+        assert snapshot.is_publishable is True
+        assert len(snapshot.files) == 1
+        root_file = snapshot.files[0]
+        assert root_file.path == "SKILL.md"
+        assert root_file.text_content is not None
+        assert "name: snapshot-readable" in root_file.text_content
+        assert base64.b64decode(root_file.content_base64).decode() == (
+            root_file.text_content
+        )
+
     async def test_create_skill_suffixes_live_duplicate_slug(
         self,
         skill_service: SkillService,

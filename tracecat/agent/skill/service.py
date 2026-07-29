@@ -30,10 +30,12 @@ from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
+    SkillDraftFileContent,
     SkillDraftFileRead,
     SkillDraftMoveFileOp,
     SkillDraftPatch,
     SkillDraftRead,
+    SkillDraftSnapshotRead,
     SkillDraftUpsertTextFileOp,
     SkillFileEntry,
     SkillName,
@@ -1672,6 +1674,51 @@ class SkillService(BaseWorkspaceService):
         if (skill := await self.get_skill(skill_id)) is None:
             return None
         return await self._build_draft_read(skill)
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_draft_snapshot_read(
+        self, skill_id: uuid.UUID
+    ) -> SkillDraftSnapshotRead | None:
+        """Return the current mutable draft with complete file contents."""
+
+        if (skill := await self.get_skill(skill_id)) is None:
+            return None
+
+        rows = await self._list_draft_rows(skill.id)
+        validation = await self._validate_manifest_rows(
+            [(draft_file.path, blob_row) for draft_file, blob_row in rows]
+        )
+        files: list[SkillDraftFileContent] = []
+        for draft_file, blob_row in rows:
+            content = await blob.download_file(key=blob_row.key, bucket=blob_row.bucket)
+            try:
+                text_content = content.decode("utf-8")
+            except UnicodeDecodeError:
+                text_content = None
+            files.append(
+                SkillDraftFileContent(
+                    path=draft_file.path,
+                    content_base64=base64.b64encode(content).decode("ascii"),
+                    content_type=draft_file.content_type,
+                    sha256=blob_row.sha256,
+                    size_bytes=blob_row.size_bytes,
+                    blob_id=blob_row.id,
+                    text_content=text_content,
+                )
+            )
+
+        return SkillDraftSnapshotRead(
+            skill_id=skill.id,
+            workspace_id=skill.workspace_id,
+            skill_name=skill.name,
+            slug=skill.slug or skill.name,
+            draft_revision=skill.draft_revision,
+            name=validation.name,
+            description=validation.description,
+            files=files,
+            is_publishable=not validation.errors,
+            validation_errors=validation.errors,
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_file(

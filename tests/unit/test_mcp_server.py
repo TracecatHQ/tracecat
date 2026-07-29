@@ -33,6 +33,8 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import (
+    SkillDraftFileContent,
+    SkillDraftSnapshotRead,
     SkillRead,
     SkillReadMinimal,
     SkillUploadFile,
@@ -9604,6 +9606,70 @@ async def test_list_skills_uses_workspace_skill_service(
     assert payload["items"][0]["id"] == str(skill_id)
     assert payload["items"][0]["name"] == "botsv3-ir"
     assert payload["items"][0]["slug"] == "botsv3-ir"
+
+
+@pytest.mark.anyio
+async def test_get_skill_returns_editable_draft_contents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    skill_id = uuid.uuid4()
+    blob_id = uuid.uuid4()
+    skill_text = "---\nname: botsv3-ir\n---\n# BOTSv3 IR\n"
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_skill_by_identifier(self, identifier: str):
+            assert identifier == "botsv3-ir"
+            return SimpleNamespace(id=skill_id)
+
+        async def get_draft_snapshot_read(self, resolved_skill_id: uuid.UUID):
+            assert resolved_skill_id == skill_id
+            return SkillDraftSnapshotRead(
+                skill_id=skill_id,
+                workspace_id=workspace_id,
+                skill_name="botsv3-ir",
+                slug="botsv3-ir",
+                draft_revision=2,
+                name="botsv3-ir",
+                description="BOTSv3 IR skill",
+                files=[
+                    SkillDraftFileContent(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(skill_text.encode()).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                        sha256="0" * 64,
+                        size_bytes=len(skill_text.encode()),
+                        blob_id=blob_id,
+                        text_content=skill_text,
+                    )
+                ],
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.get_skill)(
+        workspace_id=str(workspace_id),
+        skill_id="botsv3-ir",
+    )
+
+    payload = _payload(result)
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["files"][0]["path"] == "SKILL.md"
+    assert payload["files"][0]["text_content"] == skill_text
+    assert base64.b64decode(payload["files"][0]["content_base64"]) == (
+        skill_text.encode()
+    )
 
 
 @pytest.mark.anyio

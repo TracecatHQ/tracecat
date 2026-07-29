@@ -148,6 +148,7 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
+- `get_skill(workspace_id, skill_id)`
 - `upload_skill(workspace_id, name, files, description=None)`
 - `update_skill(workspace_id, skill_id, name, files, description=None)`
 - `publish_skill(workspace_id, skill_id)`

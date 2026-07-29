@@ -184,6 +184,33 @@ class SkillDraftFileRead(Schema):
     download_url: str | None = Field(default=None)
 
 
+class SkillDraftFileContent(Schema):
+    """Draft skill file content in an update-compatible shape."""
+
+    path: str
+    content_base64: str
+    content_type: str
+    sha256: str
+    size_bytes: int
+    blob_id: uuid.UUID
+    text_content: str | None = Field(default=None)
+
+
+class SkillDraftSnapshotRead(Schema):
+    """Current mutable draft including complete file contents."""
+
+    skill_id: uuid.UUID
+    workspace_id: WorkspaceID
+    skill_name: str
+    slug: str
+    draft_revision: int
+    name: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    files: list[SkillDraftFileContent] = Field(default_factory=list)
+    is_publishable: bool
+    validation_errors: list[SkillValidationErrorDetail] = Field(default_factory=list)
+
+
 class SkillUploadSessionCreate(Schema):
     """Request body for creating a staged draft upload."""
 
