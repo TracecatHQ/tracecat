@@ -4,7 +4,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -781,9 +781,8 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
 
 async def users_exist(*, session: SupportsExecute) -> bool:
     """Return whether at least one user exists without materializing user rows."""
-    statement = select(cast(Any, User.id)).limit(1)
-    result = await session.execute(statement)
-    return result.scalar_one_or_none() is not None
+    result = await session.execute(select(select(User).exists()))
+    return bool(result.scalar_one())
 
 
 async def search_users(

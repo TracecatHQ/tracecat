@@ -352,7 +352,7 @@ async def test_user_manager_validate_email_first_user_lookup_uses_auth_pool(
         _open_binds,
     ) = _patch_user_manager_pool_sessions(monkeypatch)
     result = MagicMock()
-    result.scalar_one_or_none.return_value = None
+    result.scalar_one.return_value = False
     auth_session.execute.return_value = result
     email = "admin@example.com"
     monkeypatch.setattr(
@@ -369,7 +369,9 @@ async def test_user_manager_validate_email_first_user_lookup_uses_auth_pool(
     auth_session.execute.assert_awaited_once()
     statement = auth_session.execute.await_args.args[0]
     compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "LIMIT 1" in compiled
+    # EXISTS short-circuits at the first row, keeping the lookup bounded
+    # without materializing user rows.
+    assert compiled.startswith("SELECT EXISTS")
     result.scalars.assert_not_called()
 
 
