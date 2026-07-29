@@ -61,7 +61,7 @@ def auth_pool_exhausted_exception_handler(
     request: Request,
     exc: Exception,
 ) -> Response:
-    """Return a bounded, retryable response when auth DB capacity is exhausted."""
+    """Return a machine-readable 503 for caller-controlled retry handling."""
     auth_exc = (
         exc
         if isinstance(exc, AuthPoolExhaustedError)
