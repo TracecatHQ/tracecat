@@ -618,9 +618,10 @@ def test_user_manager_oauth_saml_domain_check_uses_auth_session_manager() -> Non
     assert "get_async_session_auth_context_manager" in source
 
 
-def test_auth_discovery_saml_check_does_not_reuse_unscoped_request_session() -> None:
+def test_auth_discovery_saml_check_reuses_authorized_bypass_session() -> None:
     source = inspect.getsource(AuthDiscoveryService._org_saml_enabled)
-    assert "session=self.session" not in source
+    assert "get_setting_from_bypass_session" in source
+    assert "session=self.session" in source
 
 
 def test_registry_artifact_lookup_uses_bypass_session_manager() -> None:
