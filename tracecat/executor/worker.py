@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -115,12 +114,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     # Get configuration
     task_queue = config.TRACECAT__EXECUTOR_QUEUE
-    max_concurrent = int(
-        os.environ.get("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 100)
-    )
-    threadpool_max_workers = int(
-        os.environ.get("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS", 100)
-    )
+    max_concurrent = config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+    threadpool_max_workers = config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS
 
     logger.info(
         "Starting ExecutorWorker",

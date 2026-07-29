@@ -167,11 +167,15 @@ locals {
         TRACECAT__EXECUTOR_BACKEND          = "direct"
         TRACECAT__EXECUTOR_QUEUE            = var.executor_queue
         TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.executor_worker_pool_size
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
-        TRACECAT__DISABLE_NSJAIL            = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+        # Executor concurrency tuning (see tracecat/executor/worker.py and tracecat/executor/service.py)
+        TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.executor_max_concurrent_activities
+        TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
+        TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY  = var.executor_for_each_max_concurrency
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING          = "false"
+        TRACECAT__DISABLE_NSJAIL                     = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

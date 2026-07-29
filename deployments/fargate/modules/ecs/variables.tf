@@ -605,6 +605,39 @@ variable "executor_worker_pool_size" {
   default     = null
 }
 
+variable "executor_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities
+    error_message = "executor_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "executor_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per executor task (TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 100
+
+  validation {
+    condition     = var.executor_threadpool_max_workers > 0 && floor(var.executor_threadpool_max_workers) == var.executor_threadpool_max_workers
+    error_message = "executor_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "executor_for_each_max_concurrency" {
+  type        = number
+  description = "Max concurrent iterations within a single action's for_each loop (TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)."
+  default     = 4
+
+  validation {
+    condition     = var.executor_for_each_max_concurrency > 0 && floor(var.executor_for_each_max_concurrency) == var.executor_for_each_max_concurrency
+    error_message = "executor_for_each_max_concurrency must be a positive integer."
+  }
+}
+
 variable "agent_executor_cpu" {
   type    = string
   default = "4096"
