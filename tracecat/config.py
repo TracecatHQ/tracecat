@@ -779,6 +779,17 @@ TRACECAT__AGENT_EXECUTOR_READY_FILE = (
 )
 """Best-effort readiness sentinel written after the agent executor starts."""
 
+TRACECAT__AGENT_EXECUTOR_POD_DELETION_COST_ENABLED = env_bool(
+    "TRACECAT__AGENT_EXECUTOR_POD_DELETION_COST_ENABLED", default=True
+)
+"""Enable best-effort Kubernetes pod deletion cost publishing."""
+
+TRACECAT__K8S_POD_NAME = os.environ.get("TRACECAT__K8S_POD_NAME") or None
+"""Kubernetes pod name supplied through the downward API."""
+
+TRACECAT__K8S_POD_NAMESPACE = os.environ.get("TRACECAT__K8S_POD_NAMESPACE") or None
+"""Kubernetes pod namespace supplied through the downward API."""
+
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
 
