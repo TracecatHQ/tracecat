@@ -45,6 +45,7 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
+from tracecat.sandbox.utils import terminate_process_group
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -464,35 +465,37 @@ class ActionRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            start_new_session=True,
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=input_json),
-                timeout=timeout,
-            )
-            elapsed_ms = (time.monotonic() - start_time) * 1000
-            logger.info(
-                "Subprocess execution completed",
-                action=input.task.action,
-                elapsed_ms=f"{elapsed_ms:.1f}",
-                returncode=proc.returncode,
-            )
-        except TimeoutError:
-            logger.error(
-                "Action execution timed out, killing subprocess",
-                action=input.task.action,
-                timeout=timeout,
-            )
-            proc.kill()
-            await proc.wait()
-            return ExecutorActionErrorInfo(
-                type="TimeoutError",
-                message=f"Action execution timed out after {timeout}s",
-                action_name=input.task.action,
-                filename="<subprocess>",
-                function="execute_action",
-            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(input=input_json),
+                    timeout=timeout,
+                )
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+                logger.info(
+                    "Subprocess execution completed",
+                    action=input.task.action,
+                    elapsed_ms=f"{elapsed_ms:.1f}",
+                    returncode=proc.returncode,
+                )
+            except TimeoutError:
+                logger.error(
+                    "Action execution timed out, killing subprocess",
+                    action=input.task.action,
+                    timeout=timeout,
+                )
+                return ExecutorActionErrorInfo(
+                    type="TimeoutError",
+                    message=f"Action execution timed out after {timeout}s",
+                    action_name=input.task.action,
+                    filename="<subprocess>",
+                    function="execute_action",
+                )
+        finally:
+            await terminate_process_group(proc)
 
         # Check for subprocess crash
         if proc.returncode != 0:

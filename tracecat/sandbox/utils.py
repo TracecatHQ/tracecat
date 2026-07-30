@@ -7,7 +7,9 @@ and agent runtime sandbox (tracecat/agent/sandbox/).
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
+import signal
 import subprocess
 from contextlib import suppress
 from pathlib import Path
@@ -20,6 +22,22 @@ from tracecat.config import (
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
 _PID_NAMESPACE_PROBE_ERROR: str | None = None
+
+
+async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    """Kill and reap a subprocess session, including any surviving descendants.
+
+    The subprocess must have been started with ``start_new_session=True``, which
+    makes its PID the process-group ID. Calling this after normal completion is
+    intentional: a subprocess can exit while leaving background descendants
+    alive.
+    """
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            process.kill()
+    await process.wait()
 
 
 def is_nsjail_available() -> bool:
