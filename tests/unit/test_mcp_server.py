@@ -322,7 +322,12 @@ async def test_validate_template_action_requires_artifact_id():
 async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
+    user_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
     fake_redis = _FakeRedis()
 
     async def _resolve(_workspace_id):
@@ -364,6 +369,7 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
     assert stored.relative_path == "templates/example.yaml"
     assert stored.session_id == "template-session"
     assert stored.client_id == "client-a"
+    assert stored.user_id == user_id
     assert (
         upload_args["expiry"]
         == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
@@ -371,15 +377,23 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validate_template_action_remote_uses_artifact(monkeypatch):
+async def test_validate_template_action_remote_uses_artifact_across_sessions(
+    monkeypatch,
+):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
+    user_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
     fake_redis = _FakeRedis()
     artifact = mcp_server.TemplateFileArtifact(
         artifact_id=uuid.uuid4(),
         organization_id=organization_id,
         workspace_id=workspace_id,
+        user_id=user_id,
         client_id="client-a",
         session_id="template-session",
         relative_path="templates/example.yaml",
@@ -416,7 +430,7 @@ async def test_validate_template_action_remote_uses_artifact(monkeypatch):
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(workspace_id),
             artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="template-session"),
+            ctx=_fake_ctx(session_id="different-replica-session"),
         )
     )
     assert payload["valid"] is True
@@ -446,12 +460,18 @@ async def test_validate_template_action_rejects_stdio_transport(monkeypatch):
 async def test_validate_template_action_remote_rejects_expired_artifact(monkeypatch):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
+    user_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
     fake_redis = _FakeRedis()
     artifact = mcp_server.TemplateFileArtifact(
         artifact_id=uuid.uuid4(),
         organization_id=organization_id,
         workspace_id=workspace_id,
+        user_id=user_id,
         client_id="client-a",
         session_id="template-session",
         relative_path="templates/example.yaml",
@@ -479,12 +499,18 @@ async def test_validate_template_action_remote_rejects_expired_artifact(monkeypa
 async def test_validate_template_action_remote_rejects_client_mismatch(monkeypatch):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
+    user_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
     fake_redis = _FakeRedis()
     artifact = mcp_server.TemplateFileArtifact(
         artifact_id=uuid.uuid4(),
         organization_id=organization_id,
         workspace_id=workspace_id,
+        user_id=user_id,
         client_id="client-a",
         session_id="template-session",
         relative_path="templates/example.yaml",
@@ -505,6 +531,44 @@ async def test_validate_template_action_remote_rejects_client_mismatch(monkeypat
             workspace_id=str(workspace_id),
             artifact_id=str(artifact.artifact_id),
             ctx=_fake_ctx(session_id="template-session"),
+        )
+
+
+@pytest.mark.anyio
+async def test_validate_template_action_remote_rejects_user_mismatch(monkeypatch):
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=uuid.uuid4(),
+    )
+    fake_redis = _FakeRedis()
+    artifact = mcp_server.TemplateFileArtifact(
+        artifact_id=uuid.uuid4(),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        user_id=uuid.uuid4(),
+        client_id="client-a",
+        session_id="template-session",
+        relative_path="templates/example.yaml",
+        blob_key="template-key",
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+
+    async def _resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
+    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
+    await mcp_server._store_template_file_artifact(artifact)
+
+    with pytest.raises(ToolError, match="not valid for this user"):
+        await _tool(mcp_server.validate_template_action)(
+            workspace_id=str(workspace_id),
+            artifact_id=str(artifact.artifact_id),
+            ctx=_fake_ctx(session_id="different-replica-session"),
         )
 
 
