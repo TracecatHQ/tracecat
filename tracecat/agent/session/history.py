@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
 import orjson
 
@@ -19,7 +19,8 @@ class PreparedSessionHistory:
     raw_session_line: bytes | None
 
 
-class SessionHistoryContent(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class SessionHistoryContent:
     """Decoded session history content and its exact raw JSONL line, if stored."""
 
     content: dict[str, Any]
