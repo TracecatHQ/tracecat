@@ -51,6 +51,7 @@ from tracecat.authz.scopes import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    get_async_auth_engine,
     get_async_engine,
     get_async_session_context_manager,
     reset_async_engine,
@@ -317,16 +318,17 @@ async def test_db_engine():
     and don't hold references to closed event loops when using pytest-xdist.
     """
     engine = get_async_engine()
+    auth_engine = get_async_auth_engine()
     try:
         yield engine
     finally:
-        try:
-            await engine.dispose()
-        except Exception as e:
-            logger.warning(f"Error disposing engine: {e}")
-        finally:
-            # Reset the global so next test gets a fresh engine
-            reset_async_engine()
+        for eng in (engine, auth_engine):
+            try:
+                await eng.dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {e}")
+        # Reset the globals so next test gets fresh engines
+        reset_async_engine()
 
 
 @pytest.fixture(scope="session")

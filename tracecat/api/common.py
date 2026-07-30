@@ -19,6 +19,7 @@ from tenacity import (
 from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
@@ -54,6 +55,37 @@ async def http_exception_handler(request: Request, exc: Exception) -> Response:
         role=role,
     )
     return await default_http_handler(request, http_exc)
+
+
+def auth_pool_exhausted_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> Response:
+    """Return a machine-readable 503 for caller-controlled retry handling."""
+    auth_exc = (
+        exc
+        if isinstance(exc, AuthPoolExhaustedError)
+        else AuthPoolExhaustedError(str(exc))
+    )
+    logger.error(
+        "Authentication database pool exhausted",
+        exc=auth_exc,
+        path=request.url.path,
+        method=request.method,
+        role=ctx_role.get(),
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": {
+                "code": "auth_database_unavailable",
+                "message": (
+                    "Authentication database capacity is temporarily unavailable. "
+                    "Please retry."
+                ),
+            }
+        },
+    )
 
 
 def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:

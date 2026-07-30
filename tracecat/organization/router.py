@@ -687,9 +687,9 @@ async def list_my_pending_invitations(
 @router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
+    user: OptionalUserDep = None,
     session: AsyncDBSessionBypass,
     token: str,
-    user: OptionalUserDep = None,
 ) -> OrgInvitationReadMinimal:
     """Get minimal invitation details by token (public endpoint for UI).
 

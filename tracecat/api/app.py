@@ -46,6 +46,7 @@ from tracecat.agent.tags.definitions_router import (
 from tracecat.agent.tags.router import router as agent_preset_tags_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
+    auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
@@ -95,6 +96,7 @@ from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
@@ -643,6 +645,10 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(
+        AuthPoolExhaustedError,
+        auth_pool_exhausted_exception_handler,
+    )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(

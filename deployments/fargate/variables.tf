@@ -293,6 +293,18 @@ variable "db_pool_recycle" {
   default     = "300"
 }
 
+variable "db_auth_max_overflow" {
+  type        = string
+  description = "The maximum number of connections to allow in the auth DB pool"
+  default     = "5"
+}
+
+variable "db_auth_pool_size" {
+  type        = string
+  description = "The size of the auth database connection pool"
+  default     = "5"
+}
+
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"

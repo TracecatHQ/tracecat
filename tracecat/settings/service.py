@@ -17,7 +17,10 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    SupportsExecute,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
@@ -40,6 +43,19 @@ from tracecat.settings.schemas import (
 VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
+
+
+def _deserialize_setting_value(
+    setting: OrganizationSetting, *, encryption_key: SecretStr | None = None
+) -> Any:
+    value_bytes = setting.value
+    if setting.is_encrypted:
+        encryption_key = encryption_key or SecretStr(get_db_encryption_key())
+        value_bytes = decrypt_value(
+            value_bytes,
+            key=encryption_key.get_secret_value(),
+        )
+    return orjson.loads(value_bytes)
 
 
 class SettingsService(BaseOrgService):
@@ -67,9 +83,6 @@ class SettingsService(BaseOrgService):
             value, default=to_jsonable_python, option=orjson.OPT_SORT_KEYS
         )
 
-    def _deserialize_value_bytes(self, value: bytes) -> Any:
-        return orjson.loads(value)
-
     def _system_keys(self) -> set[str]:
         """The set of keys that are reserved for system settings."""
         return {key for cls in self.groups for key in cls.keys()}
@@ -91,12 +104,10 @@ class SettingsService(BaseOrgService):
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:
-        value_bytes = setting.value
-        if setting.is_encrypted:
-            value_bytes = decrypt_value(
-                value_bytes, key=self._encryption_key.get_secret_value()
-            )
-        return self._deserialize_value_bytes(value_bytes)
+        return _deserialize_setting_value(
+            setting,
+            encryption_key=self._encryption_key,
+        )
 
     def get_values_with_decryption_fallback(
         self,
@@ -319,21 +330,7 @@ class SettingsService(BaseOrgService):
         await self._update_grouped_settings(agent_settings, params)
 
 
-async def get_setting(
-    key: str,
-    *,
-    role: Role | None = None,
-    session: AsyncSession | None = None,
-    default: Any = UNSET,
-) -> Any | None:
-    """Shorthand to get a setting value from the database."""
-    role = role or ctx_role.get()
-
-    # If no role is available, return default or None
-    if role is None:
-        return default if default is not UNSET else None
-
-    # If we have an environment override, use it
+def _resolve_setting_override(key: str) -> Any:
     if override_val := get_setting_override(key):
         logger.warning(
             "Using environment override for setting. "
@@ -348,6 +345,57 @@ async def get_setting(
                 return False
             case _:
                 return override_val
+    return UNSET
+
+
+async def get_setting_from_bypass_session(
+    key: str,
+    *,
+    organization_id: OrganizationID,
+    session: SupportsExecute,
+    default: Any = UNSET,
+) -> Any | None:
+    """Read an org setting through a caller-owned RLS-bypass session.
+
+    This helper neither changes RLS context nor acquires a database connection.
+    Callers must supply an already-authorized bypass session and an explicit
+    organization ID.
+    """
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
+
+    statement = select(OrganizationSetting).where(
+        OrganizationSetting.organization_id == organization_id,
+        OrganizationSetting.key == key,
+    )
+    result = await session.execute(statement)
+    setting = result.scalar_one_or_none()
+    no_default_val = _deserialize_setting_value(setting) if setting else None
+
+    if no_default_val is None and default is not UNSET:
+        logger.debug("Setting not found, using default value", key=key)
+        return default
+    return no_default_val
+
+
+async def get_setting(
+    key: str,
+    *,
+    role: Role | None = None,
+    session: AsyncSession | None = None,
+    default: Any = UNSET,
+) -> Any | None:
+    """Shorthand to get a setting value from the database."""
+    role = role or ctx_role.get()
+
+    # If no role is available, return default or None
+    if role is None:
+        return default if default is not UNSET else None
+
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
 
     # If role has no organization_id, fetch the default org
     if role is not None and role.organization_id is None:

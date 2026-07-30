@@ -11,7 +11,7 @@ from pydantic import EmailStr
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role, get_default_organization_id
+from tracecat.api.common import get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
@@ -20,7 +20,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting_from_bypass_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -139,9 +139,10 @@ class AuthDiscoveryService(BaseService):
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
-        value = await get_setting(
+        value = await get_setting_from_bypass_session(
             _SAML_SETTING_KEY,
-            role=bootstrap_role(org_id),
+            organization_id=org_id,
+            session=self.session,
             default=True,
         )
         return bool(value)
