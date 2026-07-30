@@ -1,0 +1,50 @@
+tracecat/audit/types.py
+  s_bc0370f494ffd8::t_2a640d6f839d68 5,27,59,85-94
+  s_bc0370f494ffd8::t_74675d083c7b1e 95-96
+tracecat/audit/sanitization.py
+  s_bc0370f494ffd8::t_2a640d6f839d68 15-17,19-20,88
+  s_bc0370f494ffd8::t_6725242e6d55ad 89
+tracecat/agent/session/service.py
+  s_bc0370f494ffd8::t_5edbc5b2f9b240 99,122,161-162,164-231
+  s_bc0370f494ffd8::t_4edac31aacf937 100,2326-2335,2337-2358,2360-2386,2464,2469,2576-2598
+  s_bc0370f494ffd8::t_de351ccfb5c2e5 431-438,1424-1428,1434-1438
+  s_bc0370f494ffd8::t_a56f17043b74f5 234-238,2336,2359,2575
+  s_bc0370f494ffd8::t_2aa6109d274fbb 232-233
+  s_bc0370f494ffd8::t_6da66ae7eeb600 2599
+tests/unit/test_agent_approval_audit.py
+  s_bc0370f494ffd8::t_c529fd1f02590d 7,166,169
+  s_bc0370f494ffd8::t_7622c162d798fe 56,200,215
+  s_bc0370f494ffd8::t_dd00e7f554a3e2 130-146
+  s_bc0370f494ffd8::t_24d9a0482670d8 1-6,8-55,57-129,147-165,167-168,170-199,201-214,216-288
+tests/unit/test_audit_service.py
+  s_bc0370f494ffd8::t_24aa129fecd161 1178
+  s_bc0370f494ffd8::t_6bc449c70eb89c 1141-1177,1179-1198,1200-1228,1232-1249,1254-1260,1271,1273-1276,1278-1279,1281-1283
+  s_bc0370f494ffd8::t_c529fd1f02590d 1250-1253
+  s_bc0370f494ffd8::t_ef7cc297e3aae5 22,1261
+  s_bc0370f494ffd8::t_e199584e31349c 24-28,1199,1229-1231,1262-1270,1272,1277,1280
+  s_bc0370f494ffd8::t_7622c162d798fe 11
+  s_bc0370f494ffd8::t_24d9a0482670d8 40
+tracecat/audit/batch.py
+  s_bc0370f494ffd8::t_17ff33b9cb915d 1-99
+tracecat/audit/service.py
+  s_bc0370f494ffd8::t_dd00e7f554a3e2 3-7,572
+  s_bc0370f494ffd8::t_2a640d6f839d68 39,434-442,444-452,455-465,468,470-474,523,550,553-571,573-592,668
+  s_bc0370f494ffd8::t_17ff33b9cb915d 33,443,453-454,466-467,469
+  s_bc0370f494ffd8::t_a885f054e29168 14,17,47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "23f928137a5518ceffb1c112aac0506bdf7d1fef",
+  "prompts": {},
+  "sessions": {
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
