@@ -77,6 +77,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.history import (
+    SessionHistoryContent,
     decode_raw_session_line,
     prepare_session_history,
 )
@@ -218,7 +219,7 @@ class SessionHistoryData:
 
 def _session_history_content(
     entry: AgentSessionHistory,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> SessionHistoryContent | None:
     """Load exact raw content when available, else clone the JSONB projection."""
     raw_session_line = entry.raw_session_line
     if isinstance(raw_session_line, (bytes, bytearray, memoryview)):
@@ -239,8 +240,11 @@ def _session_history_content(
 
     content = orjson.loads(orjson.dumps(entry.content))
     if not isinstance(content, dict):
-        return None, None
-    return cast(dict[str, Any], content), None
+        return None
+    return SessionHistoryContent(
+        content=cast(dict[str, Any], content),
+        raw_line=None,
+    )
 
 
 class _ApprovalDecisionFields(NamedTuple):
@@ -1266,9 +1270,11 @@ class AgentSessionService(BaseWorkspaceService):
         internal_uuids: set[str] = set()
         last_visible_uuid: str | None = None
         for entry in history_entries:
-            content, raw_line = _session_history_content(entry)
-            if content is None:
+            history_content = _session_history_content(entry)
+            if history_content is None:
                 continue
+            content = history_content.content
+            raw_line = history_content.raw_line
 
             line_uuid = session_line_uuid(content)
             if entry.kind == MessageKind.INTERNAL.value:

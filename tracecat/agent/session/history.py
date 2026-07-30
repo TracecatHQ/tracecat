@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import orjson
 
@@ -17,6 +17,13 @@ class PreparedSessionHistory:
 
     content: dict[str, Any]
     raw_session_line: bytes | None
+
+
+class SessionHistoryContent(NamedTuple):
+    """Decoded session history content and its exact raw JSONL line, if stored."""
+
+    content: dict[str, Any]
+    raw_line: str | None
 
 
 def _jsonb_safe_key(key: object) -> tuple[object, bool]:
@@ -87,10 +94,13 @@ def prepare_session_history(
 
 def decode_raw_session_line(
     raw_session_line: bytes | bytearray | memoryview,
-) -> tuple[dict[str, Any], str]:
+) -> SessionHistoryContent:
     """Decode an exact JSONL row stored alongside its JSONB projection."""
     raw_line = bytes(raw_session_line).decode("utf-8")
     decoded = orjson.loads(raw_line)
     if not isinstance(decoded, dict):
         raise ValueError("Raw agent session line must be a JSON object")
-    return cast(dict[str, Any], decoded), raw_line
+    return SessionHistoryContent(
+        content=cast(dict[str, Any], decoded),
+        raw_line=raw_line,
+    )

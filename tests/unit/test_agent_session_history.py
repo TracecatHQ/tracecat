@@ -40,11 +40,11 @@ def test_prepare_session_history_preserves_exact_raw_nul_content() -> None:
     assert _contains_nul(payload.content) is False
     assert len(payload.content) == 2
 
-    decoded, decoded_line = decode_raw_session_line(payload.raw_session_line)
-    assert decoded_line == raw_line
-    assert decoded == content
-    assert decoded["actual\x00key"] == "left\x00right"
-    assert decoded[r"actual\u0000key"] == r"literal\u0000text"
+    decoded = decode_raw_session_line(payload.raw_session_line)
+    assert decoded.raw_line == raw_line
+    assert decoded.content == content
+    assert decoded.content["actual\x00key"] == "left\x00right"
+    assert decoded.content[r"actual\u0000key"] == r"literal\u0000text"
 
 
 def test_prepare_session_history_builds_raw_line_for_synthetic_content() -> None:
