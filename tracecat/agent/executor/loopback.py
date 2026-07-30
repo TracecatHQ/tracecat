@@ -37,6 +37,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -256,11 +257,6 @@ def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
     if not isinstance(decoded, dict):
         raise ValueError("Claude session line must be a JSON object")
     return cast(ClaudeSessionLine, decoded)
-
-
-def _session_line_db_content(line: ClaudeSessionLine) -> dict[str, Any]:
-    """Return a SQLAlchemy JSONB payload for an already validated session line."""
-    return cast(dict[str, Any], line)
 
 
 class LoopbackHandler:
@@ -1034,7 +1030,7 @@ class LoopbackHandler:
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
     ) -> None:
-        """Persist sanitized JSONL line from SDK session file.
+        """Persist an SDK JSONL line with a JSONB-safe projection.
 
         Writes to AgentSessionHistory only. The session_id in self.input
         is the AgentSession.id for new chats, so all writes go to the
@@ -1049,8 +1045,12 @@ class LoopbackHandler:
             session_line: Raw JSONL line from the SDK session file.
             internal: If True, this is internal state not shown in UI timeline.
         """
-        # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
+        # Parse once, preserving exact resume bytes if JSONB needs a safe projection.
         line_data = _session_line_from_json(session_line)
+        history_payload = prepare_session_history(
+            cast(dict[str, Any], line_data),
+            raw_session_line=session_line,
+        )
         if not internal and line_data.get("type") == "assistant":
             self._received_assistant_content = True
 
@@ -1104,7 +1104,8 @@ class LoopbackHandler:
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                content=_session_line_db_content(line_data),
+                content=history_payload.content,
+                raw_session_line=history_payload.raw_session_line,
                 kind=kind,
                 curr_run_id=self.input.curr_run_id,
             )

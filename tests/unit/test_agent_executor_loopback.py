@@ -30,6 +30,7 @@ from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
+from tracecat.db.models import AgentSessionHistory
 
 
 class _FakeStream:
@@ -65,6 +66,16 @@ class _FakeSessionContext:
 class _FakeArtifactPersistenceSession:
     def __init__(self, organization_id: UUID | None) -> None:
         self.scalar = AsyncMock(return_value=organization_id)
+
+
+class _FakeHistoryPersistenceSession:
+    def __init__(self) -> None:
+        self.entries: list[AgentSessionHistory] = []
+        self.commit = AsyncMock()
+
+    def add(self, entry: object) -> None:
+        assert isinstance(entry, AgentSessionHistory)
+        self.entries.append(entry)
 
 
 def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
@@ -222,6 +233,36 @@ def _make_handler() -> LoopbackHandler:
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
         )
     )
+
+
+@pytest.mark.anyio
+async def test_persist_session_line_preserves_raw_nul_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = _make_handler()
+    handler._sdk_session_id = "sdk-session"
+    session = _FakeHistoryPersistenceSession()
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
+        lambda: _FakeSessionContext(session),
+    )
+    raw_line = (
+        r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
+        r'"content":"left\u0000right"}}'
+    )
+
+    await handler._persist_session_line("sdk-session", raw_line)
+
+    assert len(session.entries) == 1
+    [entry] = session.entries
+    assert entry.content["message"]["content"] == r"left\u0000right"
+    assert entry.raw_session_line == raw_line.encode()
+    assert entry.raw_session_line is not None
+    assert orjson.loads(entry.raw_session_line)["message"]["content"] == (
+        "left\x00right"
+    )
+    assert handler._persisted_line_uuids == {"line-uuid"}
+    session.commit.assert_awaited_once()
 
 
 def test_should_suppress_pending_approval_tool_result() -> None:
