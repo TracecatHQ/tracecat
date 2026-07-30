@@ -359,20 +359,7 @@ Once deployed, access your instance at:
 - API docs: `https://<your-domain>/api/docs`
 - MCP: `https://<your-domain>/mcp`
 
-## Upgrading
-
-The chart version and Tracecat application version are separate. Use either of the following methods to update the application.
-
-### Use the chart `appVersion`
-
-Each chart version has an `appVersion`. By default, the chart uses this version for both the backend and UI image tags.
-
-```bash
-helm show chart oci://<ecr-registry-url>/tracecat \
-  --version <chart-version>
-```
-
-Choose a chart whose `appVersion` matches the Tracecat version you want, then upgrade the release:
+## Upgrade the Helm chart
 
 ```bash
 helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
@@ -382,9 +369,31 @@ helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
   --wait --timeout 10m
 ```
 
-### Override image tags in values
+`--version` selects the chart version. If you set image tags in `values.yaml`, a chart upgrade keeps using those tags. Otherwise, it uses the new chart's `appVersion` and may also update Tracecat.
 
-To update Tracecat without changing the chart version, set both image tags in `values.yaml`:
+<Warning>
+  Do not change or lose your `dbEncryptionKey`, `serviceKey`, `signingSecret`, or `userAuthSecret` values between upgrades.
+  Losing these secrets makes encrypted credentials unrecoverable and invalidates existing webhook URLs.
+</Warning>
+
+## Update Tracecat
+
+The chart version and Tracecat version are independent. You can use the chart's `appVersion` or set image tags explicitly.
+
+### Use the chart `appVersion`
+
+Each chart version includes an `appVersion`. When image tags are unset, the chart uses `appVersion` for both the backend and UI images.
+
+```bash
+helm show chart oci://<ecr-registry-url>/tracecat \
+  --version <chart-version>
+```
+
+Choose a chart with the required `appVersion`, then run the chart upgrade command above. This updates the chart and Tracecat together.
+
+### Set image tags
+
+To update Tracecat without changing the chart version, keep `--version` unchanged and set both image tags in `values.yaml`:
 
 ```yaml
 image:
@@ -396,12 +405,7 @@ uiImage:
 
 `image.tag` sets the backend image and the default migrations image. `uiImage.tag` sets the UI image. Both override the chart's `appVersion`; keep them on the same compatible release.
 
-Run the same `helm upgrade` command after updating `values.yaml`. If you set `migrations.image.tag` separately, it continues to override `image.tag` for migrations.
-
-<Warning>
-  Do not change or lose your `dbEncryptionKey`, `serviceKey`, `signingSecret`, or `userAuthSecret` values between upgrades.
-  Losing these secrets makes encrypted credentials unrecoverable and invalidates existing webhook URLs.
-</Warning>
+Run the chart upgrade command after updating `values.yaml`. If you set `migrations.image.tag` separately, it continues to override `image.tag` for migrations.
 
 ## Security
 
