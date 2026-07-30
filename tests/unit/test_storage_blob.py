@@ -804,6 +804,46 @@ class TestEdgeCases:
         assert not (tmp_path / "out.bin.part").exists()
 
     @pytest.mark.anyio
+    async def test_download_file_to_path_cancellation_cleans_partial(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Cancellation removes the downloader-owned partial file."""
+        download_blocked = asyncio.Event()
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"partial"
+                download_blocked.set()
+                await asyncio.Event().wait()
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), None
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        download = asyncio.create_task(
+            download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+            )
+        )
+        await download_blocked.wait()
+        assert (tmp_path / "out.bin.part").exists()
+
+        download.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await download
+
+        assert not out.exists()
+        assert not (tmp_path / "out.bin.part").exists()
+
+    @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
     async def test_ensure_bucket_exists_create_error_propagates(self, mock_get_client):
         """Create-bucket failure after 404 bubbles up."""

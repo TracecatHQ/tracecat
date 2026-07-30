@@ -912,13 +912,17 @@ class RegistryArtifactCache:
                     candidate=index + 1,
                     candidates=len(candidates),
                 )
+                materialized = False
                 try:
                     registry_paths = await artifact.materialize(ctx)
+                    materialized = True
                 finally:
                     if _is_cache_entry_uri(artifact.uri):
                         # Any attempt may deposit canonical bytes, even when it
                         # fails or is cancelled.
                         self._budget_dirty = True
+                        if not materialized:
+                            self._remove_unpublished_entry(ctx)
                 return registry_paths
             except Exception as e:
                 if index == len(candidates) - 1:
@@ -1023,6 +1027,26 @@ class RegistryArtifactCache:
             if cached_paths := artifact.cached_path(ctx):
                 return cached_paths
         return None
+
+    def _remove_unpublished_entry(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+    ) -> None:
+        """Remove an entry shell when an attempt published no reusable artifact.
+
+        Callers hold the cache key lock. ``rmdir`` only removes empty
+        directories, so canonical artifacts and unknown contents are preserved.
+        """
+        paths = ctx.paths
+        try:
+            if paths.squashfs_mount_dir.is_mount():
+                return
+        except OSError:
+            return
+
+        for directory in (paths.squashfs_mount_dir, paths.entry_dir):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
 
     async def _artifact_candidates(
         self,

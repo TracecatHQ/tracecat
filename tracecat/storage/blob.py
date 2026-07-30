@@ -819,7 +819,7 @@ async def download_file_to_path(
                 )
 
         os.replace(temp_path, output_path)
-    except Exception:
+    except BaseException:
         try:
             temp_path.unlink(missing_ok=True)
         except Exception:

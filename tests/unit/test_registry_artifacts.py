@@ -997,7 +997,7 @@ class TestRegistryArtifactCacheLease:
     async def test_lease_releases_refcount_when_materialization_fails(
         self, temp_cache_dir
     ):
-        """A failed materialization must not leak a permanent pin."""
+        """A failed materialization must not leak a pin or empty cache entry."""
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uri = "s3://bucket/broken.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
@@ -1011,6 +1011,8 @@ class TestRegistryArtifactCacheLease:
                     pass
 
         assert cache._refcount(cache_key) == 0
+        assert not cache._paths_for(cache_key).entry_dir.exists()
+        assert cache_key not in cache._discover_cache_keys()
 
     @pytest.mark.anyio
     async def test_cancelled_lease_admission_releases_refcount(self, temp_cache_dir):
