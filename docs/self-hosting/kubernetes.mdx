@@ -361,6 +361,19 @@ Once deployed, access your instance at:
 
 ## Upgrading
 
+The chart version and Tracecat application version are separate. Use either of the following methods to update the application.
+
+### Use the chart `appVersion`
+
+Each chart version has an `appVersion`. By default, the chart uses this version for both the backend and UI image tags.
+
+```bash
+helm show chart oci://<ecr-registry-url>/tracecat \
+  --version <chart-version>
+```
+
+Choose a chart whose `appVersion` matches the Tracecat version you want, then upgrade the release:
+
 ```bash
 helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
   --version <chart-version> \
@@ -368,6 +381,22 @@ helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
   -f values.yaml \
   --wait --timeout 10m
 ```
+
+### Override image tags in values
+
+To update Tracecat without changing the chart version, set both image tags in `values.yaml`:
+
+```yaml
+image:
+  tag: "<app-version>"
+
+uiImage:
+  tag: "<app-version>"
+```
+
+`image.tag` sets the backend image and the default migrations image. `uiImage.tag` sets the UI image. Both override the chart's `appVersion`; keep them on the same compatible release.
+
+Run the same `helm upgrade` command after updating `values.yaml`. If you set `migrations.image.tag` separately, it continues to override `image.tag` for migrations.
 
 <Warning>
   Do not change or lose your `dbEncryptionKey`, `serviceKey`, `signingSecret`, or `userAuthSecret` values between upgrades.
