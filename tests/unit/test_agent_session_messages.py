@@ -121,7 +121,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
     )
     entries = [
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": "prompt-uuid",
@@ -129,7 +131,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CANCELLED.value,
+            raw_session_line=None,
             content={
                 "type": "cancelled",
                 "reason": "user_cancel",
@@ -137,7 +141,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
             content={
                 "type": "assistant",
                 "uuid": "answer-uuid",
@@ -223,7 +229,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     )
     entries = [
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": tool_result_uuid,
@@ -234,7 +242,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": "meta-uuid",
@@ -252,7 +262,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "assistant",
                 "uuid": "synthetic-uuid",
@@ -261,7 +273,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": "prompt-uuid",
@@ -270,7 +284,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "assistant",
                 "uuid": thinking_uuid,
@@ -286,6 +302,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
             content=answer_payload.content,
             raw_session_line=answer_payload.raw_session_line,

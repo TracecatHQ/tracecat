@@ -27,4 +27,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("agent_session_history", "raw_session_line")
+    raise NotImplementedError(
+        "Downgrading would discard lossless agent session history. "
+        "Restore the database from a backup or snapshot before rolling back "
+        "the application."
+    )

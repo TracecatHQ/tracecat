@@ -220,20 +220,20 @@ def _session_history_content(
     entry: AgentSessionHistory,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Load exact raw content when available, else clone the JSONB projection."""
-    raw_session_line = getattr(entry, "raw_session_line", None)
+    raw_session_line = entry.raw_session_line
     if isinstance(raw_session_line, (bytes, bytearray, memoryview)):
         try:
             return decode_raw_session_line(raw_session_line)
         except (UnicodeDecodeError, ValueError) as exc:
             logger.warning(
                 "Ignoring invalid raw agent session line",
-                session_history_id=getattr(entry, "id", None),
+                session_history_id=entry.id,
                 error=str(exc),
             )
     elif raw_session_line is not None:
         logger.warning(
             "Ignoring raw agent session line with invalid type",
-            session_history_id=getattr(entry, "id", None),
+            session_history_id=entry.id,
             raw_type=type(raw_session_line).__name__,
         )
 
