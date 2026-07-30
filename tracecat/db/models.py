@@ -3015,6 +3015,11 @@ class AgentSessionHistory(WorkspaceModel):
         nullable=False,
         doc="Harness-specific message content",
     )
+    raw_session_line: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Exact JSONL bytes retained when content requires a JSONB-safe projection",
+    )
     kind: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

@@ -76,6 +76,10 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 )
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.session.history import (
+    decode_raw_session_line,
+    prepare_session_history,
+)
 from tracecat.agent.session.schemas import (
     AgentSessionCancelResponse,
     AgentSessionCreate,
@@ -210,6 +214,33 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+def _session_history_content(
+    entry: AgentSessionHistory,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Load exact raw content when available, else clone the JSONB projection."""
+    raw_session_line = getattr(entry, "raw_session_line", None)
+    if isinstance(raw_session_line, (bytes, bytearray, memoryview)):
+        try:
+            return decode_raw_session_line(raw_session_line)
+        except (UnicodeDecodeError, ValueError) as exc:
+            logger.warning(
+                "Ignoring invalid raw agent session line",
+                session_history_id=getattr(entry, "id", None),
+                error=str(exc),
+            )
+    elif raw_session_line is not None:
+        logger.warning(
+            "Ignoring raw agent session line with invalid type",
+            session_history_id=getattr(entry, "id", None),
+            raw_type=type(raw_session_line).__name__,
+        )
+
+    content = orjson.loads(orjson.dumps(entry.content))
+    if not isinstance(content, dict):
+        return None, None
+    return cast(dict[str, Any], content), None
 
 
 class _ApprovalDecisionFields(NamedTuple):
@@ -1101,6 +1132,7 @@ class AgentSessionService(BaseWorkspaceService):
         }
         if interrupted_tool_call_ids:
             content["tool_call_ids"] = list(interrupted_tool_call_ids)
+        history_payload = prepare_session_history(content)
         # Tag with the active run id like other mid-turn rows so the marker
         # stays hidden from DB reloads until terminal cleanup reveals it
         # together with the rest of the turn.
@@ -1108,7 +1140,8 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionHistory(
                 session_id=session_id,
                 workspace_id=self.workspace_id,
-                content=content,
+                content=history_payload.content,
+                raw_session_line=history_payload.raw_session_line,
                 kind=MessageKind.CANCELLED.value,
                 curr_run_id=curr_run_id
                 if curr_run_id is not None
@@ -1160,8 +1193,8 @@ class AgentSessionService(BaseWorkspaceService):
         For forked sessions (with parent_session_id), loads the parent's history
         and sets is_fork=True so the runtime uses fork_session=True with the SDK.
 
-        The sdk_session_id is stored on the AgentSession model (not in the
-        JSONL content) to keep the history entries pristine for SDK resume.
+        The sdk_session_id is stored on the AgentSession model. Rows that need
+        a JSONB-safe projection retain exact JSONL bytes for SDK resume.
 
         Args:
             session_id: The session UUID.
@@ -1233,8 +1266,8 @@ class AgentSessionService(BaseWorkspaceService):
         internal_uuids: set[str] = set()
         last_visible_uuid: str | None = None
         for entry in history_entries:
-            content = orjson.loads(orjson.dumps(entry.content))
-            if not isinstance(content, dict):
+            content, raw_line = _session_history_content(entry)
+            if content is None:
                 continue
 
             line_uuid = session_line_uuid(content)
@@ -1260,12 +1293,17 @@ class AgentSessionService(BaseWorkspaceService):
                 and last_visible_uuid is not None
             ):
                 content["parentUuid"] = last_visible_uuid
+                raw_line = None
 
             if line_uuid is not None:
                 included_uuids.add(line_uuid)
                 last_visible_uuid = line_uuid
 
-            line = orjson.dumps(content).decode("utf-8")
+            line = (
+                raw_line
+                if raw_line is not None
+                else orjson.dumps(content).decode("utf-8")
+            )
             lines.append(line)
 
         if not lines:
@@ -3174,6 +3212,7 @@ class AgentSessionService(BaseWorkspaceService):
                 ],
             },
         }
+        history_payload = prepare_session_history(entry_content)
 
         # Tag the inserted tool_result with the active run id so the mid-turn
         # filter hides it alongside its (also active-run-tagged) assistant
@@ -3185,7 +3224,8 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionHistory(
                 session_id=session_id,
                 workspace_id=self.workspace_id,
-                content=entry_content,
+                content=history_payload.content,
+                raw_session_line=history_payload.raw_session_line,
                 kind=MessageKind.CHAT_MESSAGE.value,
                 curr_run_id=session.curr_run_id,
             )

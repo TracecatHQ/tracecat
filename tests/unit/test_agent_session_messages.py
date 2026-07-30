@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import orjson
 import pytest
 
+from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
@@ -158,6 +159,45 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
 
 
 @pytest.mark.anyio
+async def test_load_session_history_prefers_exact_raw_nul_content() -> None:
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    sdk_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        sdk_session_id="sdk-session-123",
+        curr_run_id=None,
+    )
+    raw_line = (
+        r'{"type":"user","uuid":"raw-uuid","message":{"role":"user",'
+        r'"content":["left\u0000right","literal\\u0000text"]}}'
+    )
+    payload = prepare_session_history(
+        orjson.loads(raw_line),
+        raw_session_line=raw_line,
+    )
+    entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind=MessageKind.CHAT_MESSAGE.value,
+        content=payload.content,
+        raw_session_line=payload.raw_session_line,
+    )
+
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result([entry]))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    assert history.sdk_session_data == raw_line
+    [actual_nul, literal_escape] = orjson.loads(history.sdk_session_data)["message"][
+        "content"
+    ]
+    assert actual_nul == "left\x00right"
+    assert literal_escape == r"literal\u0000text"
+
+
+@pytest.mark.anyio
 async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain() -> (
     None
 ):
@@ -172,6 +212,15 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     tool_result_uuid = "tool-result-uuid"
     thinking_uuid = "thinking-uuid"
     answer_uuid = "answer-uuid"
+    answer_raw_line = (
+        r'{"type":"assistant","uuid":"answer-uuid",'
+        r'"parentUuid":"thinking-uuid","message":{"content":['
+        r'{"type":"text","text":"There are\u0000no cases."}]}}'
+    )
+    answer_payload = prepare_session_history(
+        orjson.loads(answer_raw_line),
+        raw_session_line=answer_raw_line,
+    )
     entries = [
         SimpleNamespace(
             kind=MessageKind.CHAT_MESSAGE.value,
@@ -238,14 +287,8 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         ),
         SimpleNamespace(
             kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "type": "assistant",
-                "uuid": answer_uuid,
-                "parentUuid": thinking_uuid,
-                "message": {
-                    "content": [{"type": "text", "text": "There are no cases."}]
-                },
-            },
+            content=answer_payload.content,
+            raw_session_line=answer_payload.raw_session_line,
         ),
     ]
 
@@ -259,6 +302,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
     assert [line["uuid"] for line in lines] == [tool_result_uuid, answer_uuid]
     assert lines[1]["parentUuid"] == tool_result_uuid
+    assert lines[1]["message"]["content"][0]["text"] == "There are\x00no cases."
     assert "Continue" not in history.sdk_session_data
 
 
