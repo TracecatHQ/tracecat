@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
+    TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
@@ -28,6 +29,7 @@ from tracecat.sandbox.exceptions import (
     SandboxExecutionError,
     SandboxTimeoutError,
 )
+from tracecat.sandbox.result_envelope import decode_result_envelope
 from tracecat.sandbox.types import SandboxResult
 from tracecat.sandbox.utils import pid_namespace_available, pid_namespace_probe_error
 
@@ -486,21 +488,21 @@ class UnsafePidExecutor:
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-            result_path = work_dir / "result.json"
-            if result_path.exists():
-                try:
-                    result_data = json.loads(result_path.read_text())
-                    return SandboxResult(
-                        success=result_data.get("success", False),
-                        output=result_data.get("output"),
-                        stdout=result_data.get("stdout", stdout),
-                        stderr=result_data.get("stderr", stderr),
-                        error=result_data.get("error"),
-                        exit_code=process.returncode,
-                        execution_time_ms=execution_time_ms,
-                    )
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse result.json")
+            outcome = decode_result_envelope(
+                work_dir,
+                output_key="output",
+                stdout=stdout,
+                stderr=stderr,
+                stderr_limit=500,
+                invalid_result_error="Execution produced an invalid result file",
+                log_label="PID executor",
+                exit_code=process.returncode,
+                execution_time_ms=execution_time_ms,
+                max_bytes=TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+                stream_source="envelope",
+            )
+            if outcome is not None:
+                return outcome.result
 
             return SandboxResult(
                 success=False,

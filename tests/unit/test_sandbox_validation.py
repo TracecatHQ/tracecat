@@ -233,7 +233,7 @@ class TestEnvMap:
         env_map = executor._build_env_map(config, "install")
 
         assert "UV_CACHE_DIR" in env_map
-        assert env_map["UV_CACHE_DIR"] == "/uv-cache"
+        assert env_map["UV_CACHE_DIR"] == "/cache/uv-cache"
 
     def test_no_sensitive_host_vars_leak(self, monkeypatch: pytest.MonkeyPatch):
         """Comprehensive test that common sensitive env vars don't leak.

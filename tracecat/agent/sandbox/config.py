@@ -464,9 +464,9 @@ def build_agent_nsjail_config(
         [
             "",
             "# Resource limits",
-            f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+            f"rlimit_as: {config.resources.memory_mb}",
             f"rlimit_cpu: {config.resources.cpu_seconds}",
-            f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+            f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",
             f"rlimit_nproc: {config.resources.max_processes}",
             f"time_limit: {config.resources.timeout_seconds}",

@@ -551,7 +551,7 @@ class WorkerPool:
                 'mount { src: "/dev/random" dst: "/dev/random" is_bind: true rw: false }',
                 "",
                 "# /proc and /tmp",
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true }',
             ]
         )
