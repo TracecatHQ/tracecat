@@ -199,6 +199,45 @@ def main():
         assert result.success
         assert result.output == 42
 
+    @pytest.mark.parametrize("timeout_seconds", [0, -1])
+    @pytest.mark.anyio
+    async def test_execute_non_positive_timeout_reaps_subprocess(
+        self,
+        executor: UnsafePidExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        timeout_seconds: int,
+    ) -> None:
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        created_processes: list[asyncio.subprocess.Process] = []
+
+        async def pid_namespace_unavailable() -> bool:
+            return False
+
+        async def create_subprocess_exec(*args, **kwargs):
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            created_processes.append(process)
+            return process
+
+        monkeypatch.setattr(
+            unsafe_pid_executor,
+            "pid_namespace_available",
+            pid_namespace_unavailable,
+        )
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            create_subprocess_exec,
+        )
+
+        with pytest.raises(SandboxTimeoutError):
+            await executor.execute(
+                script="def main(): return 42",
+                timeout_seconds=timeout_seconds,
+            )
+
+        assert len(created_processes) == 1
+        assert created_processes[0].returncode is not None
+
     @pytest.mark.anyio
     async def test_execute_kills_background_descendants_holding_output_pipes(
         self, executor: UnsafePidExecutor, tmp_path: Path

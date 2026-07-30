@@ -45,7 +45,7 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
-from tracecat.sandbox.utils import communicate_and_terminate_process_group
+from tracecat.sandbox.utils import communicate_process_group
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -469,8 +469,9 @@ class ActionRunner:
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                communicate_and_terminate_process_group(proc, input=input_json),
+            stdout, stderr = await communicate_process_group(
+                proc,
+                input=input_json,
                 timeout=timeout,
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000

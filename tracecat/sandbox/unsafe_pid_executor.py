@@ -30,7 +30,7 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.types import SandboxResult
 from tracecat.sandbox.utils import (
-    communicate_and_terminate_process_group,
+    communicate_process_group,
     pid_namespace_available,
     pid_namespace_probe_error,
 )
@@ -476,8 +476,8 @@ class UnsafePidExecutor:
                 start_new_session=True,
             )
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    communicate_and_terminate_process_group(process),
+                stdout_bytes, stderr_bytes = await communicate_process_group(
+                    process,
                     timeout=timeout_seconds,
                 )
             except TimeoutError as e:

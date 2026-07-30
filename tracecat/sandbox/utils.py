@@ -41,10 +41,11 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
     await process.wait()
 
 
-async def communicate_and_terminate_process_group(
+async def communicate_process_group(
     process: asyncio.subprocess.Process,
     *,
     input: bytes | None = None,  # noqa: A002
+    timeout: float | None = None,
 ) -> tuple[bytes, bytes]:
     """Communicate with a process while containing its process group.
 
@@ -57,11 +58,12 @@ async def communicate_and_terminate_process_group(
     communicate_task = asyncio.create_task(process.communicate(input=input))
     group_terminated = False
     try:
-        while process.returncode is None:
-            await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
-        await terminate_process_group(process)
-        group_terminated = True
-        stdout, stderr = await communicate_task
+        async with asyncio.timeout(timeout):
+            while process.returncode is None:
+                await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
+            await terminate_process_group(process)
+            group_terminated = True
+            stdout, stderr = await communicate_task
     finally:
         if not group_terminated:
             await terminate_process_group(process)

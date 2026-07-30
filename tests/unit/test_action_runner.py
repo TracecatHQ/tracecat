@@ -97,8 +97,12 @@ class TestActionRunner:
             process: asyncio.subprocess.Process,
             *,
             input: bytes | None = None,  # noqa: A002
+            timeout: float | None = None,
         ) -> tuple[bytes, bytes]:
-            stdout, stderr = await process.communicate(input=input)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input),
+                timeout=timeout,
+            )
             assert stdout is not None
             assert stderr is not None
             return stdout, stderr
@@ -106,7 +110,7 @@ class TestActionRunner:
         communication = AsyncMock(side_effect=communicate)
         monkeypatch.setattr(
             action_runner,
-            "communicate_and_terminate_process_group",
+            "communicate_process_group",
             communication,
         )
         return communication
