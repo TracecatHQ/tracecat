@@ -1,0 +1,27 @@
+docs/security/architecture.mdx
+  s_bc0370f494ffd8::t_9a5546bb740431 94-95,98,111,123,142,161,181,212
+  s_bc0370f494ffd8::t_764dd2a7ea5810 51
+  s_bc0370f494ffd8::t_5f29e1233dbf84 151,153-154,156-157
+  s_bc0370f494ffd8::t_ad4b039fd9be22 74
+  s_bc0370f494ffd8::t_53bbb7aea469ee 13,20-24,27-33,35,39,41-44,54-58,67-69
+  s_bc0370f494ffd8::t_a75a11fe1d8485 125-126,149,169,186,191-194,198-199
+  s_bc0370f494ffd8::t_fb2a99584c396c 260
+  s_bc0370f494ffd8::t_7cf3f2ee7a530c 214,218-220,225-229
+  s_bc0370f494ffd8::t_599e8e526cc2f4 230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "7bb6a802335441bc0c5a397170bb71b20af2dfd6",
+  "prompts": {},
+  "sessions": {
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
