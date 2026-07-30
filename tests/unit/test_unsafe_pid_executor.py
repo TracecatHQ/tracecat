@@ -61,8 +61,6 @@ def main(pid_file, wait):
     child = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(30)"],
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
     Path(pid_file).write_text(str(child.pid))
     if wait:
@@ -202,13 +200,16 @@ def main():
         assert result.output == 42
 
     @pytest.mark.anyio
-    async def test_execute_kills_background_descendants_after_success(
+    async def test_execute_kills_background_descendants_holding_output_pipes(
         self, executor: UnsafePidExecutor, tmp_path: Path
     ) -> None:
         pid_file = tmp_path / "success-child.pid"
-        result = await executor.execute(
-            script=_background_process_script(),
-            inputs={"pid_file": str(pid_file), "wait": False},
+        result = await asyncio.wait_for(
+            executor.execute(
+                script=_background_process_script(),
+                inputs={"pid_file": str(pid_file), "wait": False},
+            ),
+            timeout=5,
         )
 
         assert result.success

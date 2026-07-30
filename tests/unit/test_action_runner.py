@@ -88,11 +88,28 @@ class TestActionRunner:
     """Tests for ActionRunner class."""
 
     @pytest.fixture(autouse=True)
-    def mock_process_group_cleanup(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    def mock_process_group_communication(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> AsyncMock:
         """Keep subprocess unit tests focused on ActionRunner behavior."""
-        cleanup = AsyncMock()
-        monkeypatch.setattr(action_runner, "terminate_process_group", cleanup)
-        return cleanup
+
+        async def communicate(
+            process: asyncio.subprocess.Process,
+            *,
+            input: bytes | None = None,  # noqa: A002
+        ) -> tuple[bytes, bytes]:
+            stdout, stderr = await process.communicate(input=input)
+            assert stdout is not None
+            assert stderr is not None
+            return stdout, stderr
+
+        communication = AsyncMock(side_effect=communicate)
+        monkeypatch.setattr(
+            action_runner,
+            "communicate_and_terminate_process_group",
+            communication,
+        )
+        return communication
 
     @pytest.mark.anyio
     async def test_ensure_registry_environment_no_tarball(self, temp_cache_dir):
@@ -111,7 +128,7 @@ class TestActionRunner:
         temp_cache_dir,
         mock_run_action_input,
         mock_role,
-        mock_process_group_cleanup: AsyncMock,
+        mock_process_group_communication: AsyncMock,
     ):
         """Test that action execution respects timeout."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
@@ -151,7 +168,7 @@ class TestActionRunner:
 
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "TimeoutError"
-            mock_process_group_cleanup.assert_awaited_once_with(mock_proc)
+            mock_process_group_communication.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_execute_action_subprocess_crash(
