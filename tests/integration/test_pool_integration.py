@@ -449,14 +449,17 @@ class TestCacheBehavior:
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
-            cache_key = "concurrent-test"
             tarball_uri = "s3://bucket/concurrent.tar.gz"
+
+            async def lease_paths() -> list[Path]:
+                async with cache.lease([tarball_uri]) as paths:
+                    return paths
 
             # Launch concurrent requests
             results = await asyncio.gather(
-                cache.materialize(cache_key, tarball_uri),
-                cache.materialize(cache_key, tarball_uri),
-                cache.materialize(cache_key, tarball_uri),
+                lease_paths(),
+                lease_paths(),
+                lease_paths(),
             )
 
         assert download_count[0] == 1, (

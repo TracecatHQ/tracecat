@@ -56,25 +56,30 @@ _added_tarball_paths: set[str] = set()
 def _ensure_tarball_paths_in_sys_path() -> None:
     """Ensure all tarball extraction directories are in sys.path.
 
-    Scans the registry cache directory for tarball-* subdirectories and adds
-    them to sys.path if not already present. This allows the worker to import
-    modules from both builtin and custom registries.
+    Scans atomic cache entries, plus legacy flat-layout entries during rollout,
+    and adds materialized tarballs to sys.path if not already present.
     """
     cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
     if not cache_dir.exists():
         return
 
-    for path in cache_dir.iterdir():
-        if path.is_dir() and path.name.startswith("tarball-"):
-            path_str = str(path)
-            if path_str not in _added_tarball_paths and path_str not in sys.path:
-                sys.path.insert(0, path_str)
-                _added_tarball_paths.add(path_str)
-                logger.debug(
-                    "Added tarball path to sys.path",
-                    path=path_str,
-                    worker_id=_worker_id,
-                )
+    tarball_paths = (
+        *cache_dir.glob("entries/*/tarball"),
+        *cache_dir.glob("tarball-*"),
+    )
+    for path in tarball_paths:
+        if not path.is_dir():
+            continue
+        path_str = str(path)
+        if path_str in _added_tarball_paths or path_str in sys.path:
+            continue
+        sys.path.insert(0, path_str)
+        _added_tarball_paths.add(path_str)
+        logger.debug(
+            "Added tarball path to sys.path",
+            path=path_str,
+            worker_id=_worker_id,
+        )
 
 
 # Global counters for connection tracking

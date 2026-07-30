@@ -215,6 +215,7 @@ def _build_squashfs_image(source_dir: Path, image_path: Path, module_name: str) 
     """
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / module_name).write_text("VALUE = 1\n")
+    image_path.parent.mkdir(parents=True, exist_ok=True)
     image_path.unlink(missing_ok=True)
     subprocess.run(
         ["mksquashfs", str(source_dir), str(image_path), "-noappend", "-quiet"],
@@ -366,20 +367,28 @@ async def _run_mount_lifecycle_child() -> None:
         # (f) The startup sweep trims to budget and drops stale mount directories.
         sweep_dir = root / "sweep-cache"
         sweep_dir.mkdir()
+        sweep_cache = RegistryArtifactCache(sweep_dir)
         sweep_keys = ["aaaa1111", "bbbb2222"]
         for index, sweep_key in enumerate(sweep_keys):
-            image_path = sweep_dir / f"squashfs-{sweep_key}.squashfs"
+            sweep_paths = sweep_cache._paths_for(sweep_key)
+            sweep_paths.entry_dir.mkdir(parents=True)
+            image_path = sweep_paths.squashfs_image_path
             image_path.write_bytes(b"x" * 4096)
-            os.utime(image_path, (100.0 + index, 100.0 + index))
-        stale_mount_dir = sweep_dir / f"squashfs-{sweep_keys[0]}"
+            os.utime(sweep_paths.entry_dir, (100.0 + index, 100.0 + index))
+        stale_mount_dir = sweep_cache._paths_for(sweep_keys[0]).squashfs_mount_dir
         stale_mount_dir.mkdir()
+        os.utime(
+            sweep_cache._paths_for(sweep_keys[0]).entry_dir,
+            (100.0, 100.0),
+        )
 
         config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 1
-        sweep_cache = RegistryArtifactCache(sweep_dir)
         await sweep_cache.ensure_swept()
+        evicted_paths = sweep_cache._paths_for(sweep_keys[0])
+        retained_paths = sweep_cache._paths_for(sweep_keys[1])
         payload["startup_sweep_trimmed"] = (
-            not (sweep_dir / f"squashfs-{sweep_keys[0]}.squashfs").exists()
-            and (sweep_dir / f"squashfs-{sweep_keys[1]}.squashfs").exists()
+            not evicted_paths.squashfs_image_path.exists()
+            and retained_paths.squashfs_image_path.exists()
         )
         payload["startup_sweep_removed_stale_mount_dir"] = not stale_mount_dir.exists()
 

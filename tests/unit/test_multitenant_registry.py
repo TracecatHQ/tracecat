@@ -32,6 +32,14 @@ def temp_cache_dir():
         yield Path(tmpdir)
 
 
+async def _lease_paths(
+    cache: RegistryArtifactCache,
+    artifact_uri: str,
+) -> list[Path]:
+    async with cache.lease([artifact_uri]) as paths:
+        return paths
+
+
 # =============================================================================
 # Test Class: Tarball Cache Behavior
 # =============================================================================
@@ -62,7 +70,6 @@ class TestTarballCacheBehavior:
         - All calls return the same extracted path
         """
         cache = RegistryArtifactCache(temp_cache_dir)
-        cache_key = "concurrent-test-key"
         tarball_uri = "s3://bucket/concurrent-test.tar.gz"
 
         download_count = [0]  # Use list to allow mutation in nested function
@@ -81,10 +88,10 @@ class TestTarballCacheBehavior:
         ):
             # Launch multiple concurrent requests
             results = await asyncio.gather(
-                cache.materialize(cache_key, tarball_uri),
-                cache.materialize(cache_key, tarball_uri),
-                cache.materialize(cache_key, tarball_uri),
-                cache.materialize(cache_key, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
             )
 
         # All should return same path
@@ -128,8 +135,7 @@ class TestTarballCacheBehavior:
         ):
             results = []
             for uri in uris:
-                cache_key = compute_registry_artifact_cache_key(uri)
-                result = await cache.materialize(cache_key, uri)
+                result = await _lease_paths(cache, uri)
                 results.append(result)
 
         # All results should be different paths
@@ -155,8 +161,8 @@ class TestTarballCacheBehavior:
         - RuntimeError is raised with appropriate message
         """
         cache = RegistryArtifactCache(temp_cache_dir)
-        cache_key = "failed-extraction-test"
         tarball_uri = "s3://bucket/bad.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(tarball_uri)
 
         async def mock_download(self, ctx, path: Path):
             path.write_bytes(b"corrupt tarball")
@@ -169,14 +175,16 @@ class TestTarballCacheBehavior:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             with pytest.raises(RuntimeError, match="Extraction failed"):
-                await cache.materialize(cache_key, tarball_uri)
+                await _lease_paths(cache, tarball_uri)
 
         # Verify no temp files remain
-        temp_files = list(temp_cache_dir.glob(f"{cache_key}*"))
+        temp_files = (
+            list(cache.staging_dir.iterdir()) if cache.staging_dir.exists() else []
+        )
         assert len(temp_files) == 0, f"Temp files not cleaned up: {temp_files}"
 
         # Target directory should not exist
-        target_dir = temp_cache_dir / f"tarball-{cache_key}"
+        target_dir = cache._paths_for(cache_key).tarball_target_dir
         assert not target_dir.exists()
 
     @pytest.mark.anyio
@@ -192,7 +200,6 @@ class TestTarballCacheBehavior:
         - Both requests return the same path
         """
         cache = RegistryArtifactCache(temp_cache_dir)
-        cache_key = "reuse-test"
         tarball_uri = "s3://bucket/reuse.tar.gz"
 
         download_count = [0]
@@ -209,11 +216,11 @@ class TestTarballCacheBehavior:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # First request
-            result1 = await cache.materialize(cache_key, tarball_uri)
+            result1 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1
 
             # Second request (should use cache)
-            result2 = await cache.materialize(cache_key, tarball_uri)
+            result2 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1  # No additional download
 
             assert result1 == result2

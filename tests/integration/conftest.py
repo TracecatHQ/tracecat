@@ -275,8 +275,8 @@ def staged_cache_dirs(
     Returns tuple of (path_a, path_b) where each path contains the
     extracted mock modules for that workspace.
     """
-    path_a = temp_registry_cache / "tarball-workspace-a"
-    path_b = temp_registry_cache / "tarball-workspace-b"
+    path_a = temp_registry_cache / "entries" / "workspace-a" / "tarball"
+    path_b = temp_registry_cache / "entries" / "workspace-b" / "tarball"
 
     shutil.copytree(mock_modules_dir / "workspace_a", path_a)
     shutil.copytree(mock_modules_dir / "workspace_b", path_b)

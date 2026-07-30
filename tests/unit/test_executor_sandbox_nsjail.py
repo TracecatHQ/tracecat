@@ -521,9 +521,10 @@ async def _run_executor_action_smoke_case(
 
     runner = ActionRunner(cache_dir=cache_dir)
     cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)
-    mount_dir = cache_dir / f"squashfs-{cache_key}"
-    extract_dir = cache_dir / f"unsquashfs-{cache_key}"
-    tarball_dir = cache_dir / f"tarball-{cache_key}"
+    cache_paths = runner.registry_artifacts._paths_for(cache_key)
+    mount_dir = cache_paths.squashfs_mount_dir
+    extract_dir = cache_paths.squashfs_extract_dir
+    tarball_dir = cache_paths.tarball_target_dir
 
     async def sidecar_exists(
         *,
@@ -597,7 +598,7 @@ async def _run_executor_action_smoke_case(
         assert result["marker"] == "registry-artifact"
         if smoke_case == SmokeCase.DIRECT:
             assert tarball_dir.exists()
-            assert f"tarball-{cache_key}" in result["source"]
+            assert str(tarball_dir) in result["source"]
             assert result["source"].endswith("/registry_artifact_smoke_action.py")
         elif smoke_case == SmokeCase.DIRECT_SQUASHFS:
             assert extract_dir.exists()

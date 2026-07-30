@@ -16,14 +16,12 @@ import tracecat_registry
 
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
-    TEMP_ARTIFACT_PATTERN,
     RegistryArtifactCache,
     RegistryArtifactFormat,
-    RegistryArtifactPaths,
     SquashfsArtifact,
     SquashfsMountCommandError,
     TarballArtifact,
-    _delete_entry_paths,
+    _delete_cache_path,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
@@ -50,7 +48,7 @@ RESOLVE_BACKEND = "tracecat.executor.registry_artifacts.resolve_backend_type"
 
 def _write_tarball_entry(cache_dir: Path, cache_key: str) -> Path:
     """Create a materialized tarball cache entry on disk."""
-    target_dir = cache_dir / f"tarball-{cache_key}"
+    target_dir = cache_dir / "entries" / cache_key / "tarball"
     target_dir.mkdir(parents=True)
     (target_dir / "module.py").write_text("VALUE = 1")
     return target_dir
@@ -60,10 +58,41 @@ def _write_image_entry(
     cache_dir: Path, cache_key: str, *, size: int, mtime: float
 ) -> Path:
     """Create a downloaded SquashFS image cache entry with a fixed mtime."""
-    image_path = cache_dir / f"squashfs-{cache_key}.squashfs"
+    entry_dir = cache_dir / "entries" / cache_key
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    image_path = entry_dir / "image.squashfs"
     image_path.write_bytes(b"x" * size)
     os.utime(image_path, (mtime, mtime))
+    os.utime(entry_dir, (mtime, mtime))
     return image_path
+
+
+async def _materialize(
+    cache: RegistryArtifactCache,
+    cache_key: str,
+    artifact_uri: str,
+) -> list[Path]:
+    """Exercise internal materialization while releasing its test-only lease."""
+    await cache.ensure_swept()
+    ctx = cache._context_for(cache_key)
+    lock = await cache._lock_for(cache_key)
+    async with lock:
+        cache._acquire_lease(cache_key)
+        try:
+            candidates = await cache._artifact_candidates(ctx, artifact_uri)
+        except BaseException:
+            cache._release_lease(cache_key)
+            raise
+        if cached_paths := cache._first_cached_path(candidates, ctx):
+            cache._release_lease(cache_key)
+            return cached_paths
+
+    try:
+        await cache._enforce_cache_budget(protected_key=cache_key)
+        async with lock:
+            return await cache._materialize_candidates(ctx, artifact_uri)
+    finally:
+        cache._release_lease(cache_key)
 
 
 class _BlockingSubprocess:
@@ -374,7 +403,8 @@ class TestRegistryArtifactCache:
                 side_effect=fake_first_cached_path,
             ),
         ):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 cache_key,
                 "s3://bucket/path/site-packages.tar.gz",
             )
@@ -517,7 +547,8 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 "squashfs-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
@@ -541,6 +572,7 @@ class TestRegistryArtifactCache:
         )
         image_path = ctx.paths.squashfs_image_path
         target_dir = ctx.paths.squashfs_mount_dir
+        ctx.paths.entry_dir.mkdir(parents=True)
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         process = AsyncMock()
@@ -578,6 +610,7 @@ class TestRegistryArtifactCache:
         )
         image_path = ctx.paths.squashfs_image_path
         target_dir = ctx.paths.squashfs_mount_dir
+        ctx.paths.entry_dir.mkdir(parents=True)
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         process = _BlockingSubprocess()
@@ -614,6 +647,7 @@ class TestRegistryArtifactCache:
         )
         image_path = ctx.paths.squashfs_image_path
         target_dir = ctx.paths.squashfs_extract_dir
+        ctx.paths.entry_dir.mkdir(parents=True)
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         real_create_subprocess_exec = asyncio.create_subprocess_exec
@@ -741,14 +775,15 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 "fallback-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
         assert len(result) == 1
         assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name.startswith("unsquashfs-")
+        assert result[0].name == "extracted"
         tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
@@ -779,14 +814,15 @@ class TestRegistryArtifactCache:
             ),
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 "extract-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
         assert len(result) == 1
         assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name.startswith("unsquashfs-")
+        assert result[0].name == "extracted"
 
     @pytest.mark.anyio
     async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
@@ -826,14 +862,15 @@ class TestRegistryArtifactCache:
             patch.object(SquashfsArtifact, "extract", mock_extract),
             patch.object(TarballArtifact, "download", mock_tarball_download),
         ):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 "gzip-fallback-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
         assert len(result) == 1
         assert (result[0] / "module.py").read_text() == "VALUE = 1"
-        assert result[0].name.startswith("tarball-")
+        assert result[0].name == "tarball"
 
     @pytest.mark.anyio
     async def test_materialize_treats_unknown_suffix_as_gzip(self, temp_cache_dir):
@@ -849,7 +886,8 @@ class TestRegistryArtifactCache:
                 tar.add(source / "module.py", arcname="module.py")
 
         with patch.object(TarballArtifact, "download", mock_download):
-            result = await cache.materialize(
+            result = await _materialize(
+                cache,
                 "custom-key-test",
                 "s3://bucket/path/custom-key",
             )
@@ -862,10 +900,14 @@ class TestRegistryArtifactCache:
         """Test that tarball extraction is cached."""
         cache = RegistryArtifactCache(temp_cache_dir)
         cache_key = "test-cache-key"
-        target_dir = temp_cache_dir / f"tarball-{cache_key}"
+        target_dir = cache._paths_for(cache_key).tarball_target_dir
         target_dir.mkdir(parents=True)
 
-        result = await cache.materialize(cache_key, "s3://bucket/test.tar.gz")
+        result = await _materialize(
+            cache,
+            cache_key,
+            "s3://bucket/test.tar.gz",
+        )
 
         assert result == [target_dir]
 
@@ -890,9 +932,9 @@ class TestRegistryArtifactCache:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             results = await asyncio.gather(
-                cache.materialize(cache_key, "s3://bucket/test.tar.gz"),
-                cache.materialize(cache_key, "s3://bucket/test.tar.gz"),
-                cache.materialize(cache_key, "s3://bucket/test.tar.gz"),
+                _materialize(cache, cache_key, "s3://bucket/test.tar.gz"),
+                _materialize(cache, cache_key, "s3://bucket/test.tar.gz"),
+                _materialize(cache, cache_key, "s3://bucket/test.tar.gz"),
             )
 
         assert all(r == results[0] for r in results)
@@ -926,12 +968,13 @@ class TestRegistryArtifactCacheLease:
         """Touching a tarball-only entry persists its restart-safe recency."""
         cache = RegistryArtifactCache(temp_cache_dir)
         cache_key = "tarball-only"
-        target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
-        os.utime(target_dir, (100.0, 100.0))
+        _write_tarball_entry(temp_cache_dir, cache_key)
+        entry_dir = cache._paths_for(cache_key).entry_dir
+        os.utime(entry_dir, (100.0, 100.0))
 
         cache._touch_entry(cache_key)
 
-        assert target_dir.stat().st_mtime > 100.0
+        assert entry_dir.stat().st_mtime > 100.0
 
     @pytest.mark.anyio
     async def test_lease_refcounts_and_touches_image_mtime(self, temp_cache_dir):
@@ -941,13 +984,15 @@ class TestRegistryArtifactCacheLease:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
         image_path = _write_image_entry(temp_cache_dir, cache_key, size=16, mtime=100.0)
+        entry_dir = cache._paths_for(cache_key).entry_dir
 
         async with cache.lease([artifact_uri]) as registry_paths:
             assert registry_paths == [target_dir]
             assert cache._refcount(cache_key) == 1
-            assert image_path.stat().st_mtime > 100.0
+            assert entry_dir.stat().st_mtime > 100.0
 
         assert cache._refcount(cache_key) == 0
+        assert image_path.is_file()
 
     @pytest.mark.anyio
     async def test_lease_releases_refcount_when_materialization_fails(
@@ -1038,6 +1083,7 @@ class TestRegistryArtifactCacheLease:
         artifact_uri = "s3://bucket/path/site-packages.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
         paths.squashfs_image_path.write_bytes(b"squashfs")
         paths.squashfs_mount_dir.mkdir()
         mounted = {paths.squashfs_mount_dir}
@@ -1135,15 +1181,10 @@ class TestRegistryArtifactCacheLease:
 class TestRegistryArtifactCacheEviction:
     """Tests for bounded eviction of registry artifact cache entries."""
 
-    def test_delete_entry_paths_reports_directory_failure(self, temp_cache_dir):
+    def test_delete_cache_path_reports_directory_failure(self, temp_cache_dir):
         """Physical deletion failures are observable instead of suppressed."""
-        paths = RegistryArtifactPaths(
-            squashfs_image_path=temp_cache_dir / "image.squashfs",
-            squashfs_mount_dir=temp_cache_dir / "mount",
-            squashfs_extract_dir=temp_cache_dir / "extract",
-            tarball_target_dir=temp_cache_dir / "tarball",
-        )
-        paths.squashfs_extract_dir.mkdir()
+        entry_dir = temp_cache_dir / "entry"
+        entry_dir.mkdir()
 
         with (
             patch(
@@ -1152,13 +1193,13 @@ class TestRegistryArtifactCacheEviction:
             ),
             patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
         ):
-            deleted = _delete_entry_paths(paths)
+            deleted = _delete_cache_path(entry_dir)
 
         assert deleted is False
-        assert paths.squashfs_extract_dir.is_dir()
+        assert entry_dir.is_dir()
         warning.assert_called_once_with(
             "Failed to delete registry artifact cache path",
-            path=str(paths.squashfs_extract_dir),
+            path=str(entry_dir),
             error="permission denied",
         )
 
@@ -1188,8 +1229,8 @@ class TestRegistryArtifactCacheEviction:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([leased_uri]):
-                await cache.materialize(
-                    compute_registry_artifact_cache_key(new_uri), new_uri
+                await _materialize(
+                    cache, compute_registry_artifact_cache_key(new_uri), new_uri
                 )
 
         assert leased_dir.is_dir()
@@ -1219,11 +1260,11 @@ class TestRegistryArtifactCacheEviction:
         ):
             async with cache.lease([new_uri]) as registry_paths:
                 # Both entries fit only because the new one is still leased.
-                assert registry_paths == [temp_cache_dir / f"tarball-{new_key}"]
+                assert registry_paths == [cache._paths_for(new_key).tarball_target_dir]
                 assert idle.exists()
 
         assert not idle.exists()
-        assert (temp_cache_dir / f"tarball-{new_key}").is_dir()
+        assert cache._paths_for(new_key).tarball_target_dir.is_dir()
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
@@ -1247,22 +1288,101 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
-                "tracecat.executor.registry_artifacts._delete_entry_paths",
+                "tracecat.executor.registry_artifacts._delete_cache_path",
                 return_value=False,
             ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
             patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
         ):
-            registry_paths = await cache.materialize(cache_key, artifact_uri)
+            registry_paths = await _materialize(cache, cache_key, artifact_uri)
 
-        assert registry_paths == [temp_cache_dir / f"tarball-{cache_key}"]
+        assert registry_paths == [cache._paths_for(cache_key).tarball_target_dir]
         assert registry_paths[0].is_dir()
         assert cache._budget_dirty is True
         warning.assert_any_call(
             "Registry artifact eviction remains pending physical deletion",
             cache_key="idle",
         )
+
+    @pytest.mark.anyio
+    async def test_failed_physical_delete_retries_without_extra_eviction(
+        self, temp_cache_dir
+    ):
+        """A retired entry counts as evicted while its exact trash path retries."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        oldest = _write_image_entry(
+            temp_cache_dir,
+            "oldest",
+            size=16,
+            mtime=100.0,
+        )
+        retained = _write_image_entry(
+            temp_cache_dir,
+            "retained",
+            size=16,
+            mtime=200.0,
+        )
+        real_delete = _delete_cache_path
+        failed_once = False
+
+        def fail_once(path: Path) -> bool:
+            nonlocal failed_once
+            if not failed_once:
+                failed_once = True
+                return False
+            return real_delete(path)
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(
+                "tracecat.executor.registry_artifacts._delete_cache_path",
+                side_effect=fail_once,
+            ),
+        ):
+            assert await cache._enforce_cache_budget() is False
+            assert not oldest.exists()
+            assert retained.exists()
+            assert cache._discover_cache_keys() == {"retained"}
+            assert len(cache._pending_cleanup) == 1
+
+            assert await cache._enforce_cache_budget() is True
+
+        assert cache._pending_cleanup == set()
+        assert not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_rename_failure_does_not_block_materialization(self, temp_cache_dir):
+        """A failed atomic retirement keeps the old entry and admits new work."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        idle = _write_image_entry(temp_cache_dir, "idle", size=16, mtime=100.0)
+        artifact_uri = "s3://bucket/new-after-rename-failure.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+
+        async def mock_download(self, ctx, path):
+            path.write_bytes(b"fake tarball")
+
+        async def mock_extract(self, tarball_path, target_dir):
+            (target_dir / "module.py").write_text("VALUE = 2")
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(
+                "tracecat.executor.registry_artifacts._move_entry_to_trash",
+                side_effect=OSError("rename failed"),
+            ),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            registry_paths = await _materialize(cache, cache_key, artifact_uri)
+
+        assert registry_paths == [cache._paths_for(cache_key).tarball_target_dir]
+        assert registry_paths[0].is_dir()
+        assert idle.is_file()
+        assert cache._budget_dirty is True
 
     @pytest.mark.anyio
     async def test_releasing_a_lease_skips_the_scan_for_a_cache_hit(
@@ -1298,6 +1418,7 @@ class TestRegistryArtifactCacheEviction:
         artifact = SquashfsArtifact(uri=artifact_uri, cache_key=cache_key)
 
         async def mock_materialize(self, ctx):
+            ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
             ctx.paths.squashfs_image_path.write_bytes(b"orphaned image")
             raise RuntimeError("mount failed")
 
@@ -1311,7 +1432,7 @@ class TestRegistryArtifactCacheEviction:
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
         ):
             with pytest.raises(RuntimeError, match="mount failed"):
-                await cache.materialize(cache_key, artifact_uri)
+                await _materialize(cache, cache_key, artifact_uri)
 
         assert cache._paths_for(cache_key).squashfs_image_path.is_file()
         assert cache._budget_dirty is True
@@ -1333,6 +1454,7 @@ class TestRegistryArtifactCacheEviction:
             # A concurrent lease release consumes the dirty signal and finishes
             # its scan before this attempt lands its canonical bytes.
             cache._budget_dirty = False
+            ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
             ctx.paths.squashfs_image_path.write_bytes(b"late image")
             return [ctx.paths.squashfs_mount_dir]
 
@@ -1345,7 +1467,7 @@ class TestRegistryArtifactCacheEviction:
             ),
             patch.object(SquashfsArtifact, "materialize", mock_materialize),
         ):
-            await cache.materialize(cache_key, artifact_uri)
+            await _materialize(cache, cache_key, artifact_uri)
 
         assert cache._budget_dirty is True
 
@@ -1413,11 +1535,11 @@ class TestRegistryArtifactCacheEviction:
         ):
             convergence = asyncio.create_task(cache._converge_cache_budget())
             await scan_started.wait()
-            registry_paths = await cache.materialize(cache_key, artifact_uri)
+            registry_paths = await _materialize(cache, cache_key, artifact_uri)
             materialized.set()
             await convergence
 
-        assert registry_paths == [temp_cache_dir / f"tarball-{cache_key}"]
+        assert registry_paths == [cache._paths_for(cache_key).tarball_target_dir]
         assert convergence_scans == 2
         assert cache._budget_dirty is False
 
@@ -1466,8 +1588,9 @@ class TestRegistryArtifactCacheEviction:
         cache = RegistryArtifactCache(temp_cache_dir)
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=4096, mtime=100.0)
         if oldest_has_tarball:
-            oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
-            os.utime(oldest_tarball, (100.0, 100.0))
+            _write_tarball_entry(temp_cache_dir, "oldest")
+            oldest_entry = cache._paths_for("oldest").entry_dir
+            os.utime(oldest_entry, (100.0, 100.0))
         older = _write_image_entry(temp_cache_dir, "older", size=4096, mtime=200.0)
         newest = _write_image_entry(temp_cache_dir, "newest", size=4096, mtime=300.0)
 
@@ -1519,7 +1642,8 @@ class TestRegistryArtifactCacheEviction:
             temp_cache_dir, "oldest", size=16, mtime=100.0
         )
         oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
-        os.utime(oldest_tarball, (100.0, 100.0))
+        oldest_entry = cache._paths_for("oldest").entry_dir
+        os.utime(oldest_entry, (100.0, 100.0))
         newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=200.0)
 
         with (
@@ -1578,11 +1702,13 @@ class TestRegistryArtifactCacheEviction:
         """Loop-device recovery must preserve paths visible to warm workers."""
         cache = RegistryArtifactCache(temp_cache_dir)
         pool_visible = cache._paths_for("pool-visible")
+        pool_visible.entry_dir.mkdir(parents=True)
         pool_visible.squashfs_image_path.write_bytes(b"squashfs")
         os.utime(pool_visible.squashfs_image_path, (100.0, 100.0))
         pool_visible.squashfs_mount_dir.mkdir()
         _write_tarball_entry(temp_cache_dir, "pool-visible")
         eligible = cache._paths_for("eligible")
+        eligible.entry_dir.mkdir(parents=True)
         eligible.squashfs_image_path.write_bytes(b"squashfs")
         os.utime(eligible.squashfs_image_path, (200.0, 200.0))
         eligible.squashfs_mount_dir.mkdir()
@@ -1645,9 +1771,9 @@ class TestRegistryArtifactCacheEviction:
                     return False
                 eviction_started.set()
                 await finish_eviction.wait()
-                oldest.unlink(missing_ok=True)
+                _delete_cache_path(cache._paths_for("oldest").entry_dir)
             else:
-                retained.unlink(missing_ok=True)
+                _delete_cache_path(cache._paths_for("retained").entry_dir)
                 extra_eviction_finished.set()
             evicted_keys.append(cache_key)
             return True
@@ -1726,6 +1852,7 @@ class TestRegistryArtifactCacheEviction:
         """Unlinking a mounted image would strand an open-file zombie."""
         cache = RegistryArtifactCache(temp_cache_dir)
         paths = cache._paths_for("mounted")
+        paths.entry_dir.mkdir(parents=True)
         paths.squashfs_image_path.write_bytes(b"squashfs")
         paths.squashfs_mount_dir.mkdir()
         mounted = {paths.squashfs_mount_dir}
@@ -1772,6 +1899,7 @@ class TestRegistryArtifactCacheEviction:
         artifact_uri = "s3://bucket/path/cancelled-unmount.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
         paths.squashfs_image_path.write_bytes(b"squashfs")
         paths.squashfs_mount_dir.mkdir()
         (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
@@ -1819,13 +1947,13 @@ class TestRegistryArtifactCacheEviction:
         delete_started = threading.Event()
         finish_delete = threading.Event()
         delete_finished = threading.Event()
-        doomed: list[RegistryArtifactPaths] = []
+        doomed: list[Path] = []
 
-        def blocked_delete(paths: RegistryArtifactPaths) -> bool:
-            doomed.append(paths)
+        def blocked_delete(path: Path) -> bool:
+            doomed.append(path)
             delete_started.set()
             finish_delete.wait(timeout=5)
-            deleted = _delete_entry_paths(paths)
+            deleted = _delete_cache_path(path)
             delete_finished.set()
             return deleted
 
@@ -1837,7 +1965,7 @@ class TestRegistryArtifactCacheEviction:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts._delete_entry_paths",
+                "tracecat.executor.registry_artifacts._delete_cache_path",
                 side_effect=blocked_delete,
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -1851,60 +1979,55 @@ class TestRegistryArtifactCacheEviction:
 
             try:
                 assert not original_target.exists()
-                assert doomed[0].tarball_target_dir.is_dir()
+                assert (doomed[0] / "tarball").is_dir()
                 assert cache._discover_cache_keys() == set()
 
                 async with cache.lease([artifact_uri]) as registry_paths:
                     assert registry_paths == [original_target]
                     assert original_target.is_dir()
-                    assert doomed[0].tarball_target_dir.is_dir()
+                    assert (doomed[0] / "tarball").is_dir()
                     assert (original_target / "module.py").read_text() == "VALUE = 2"
             finally:
                 finish_delete.set()
 
         assert await asyncio.to_thread(delete_finished.wait, 1)
         assert original_target.is_dir()
-        assert not doomed[0].tarball_target_dir.exists()
+        assert not doomed[0].exists()
 
     @pytest.mark.anyio
     async def test_doomed_eviction_names_are_startup_scratch(self, temp_cache_dir):
         """Every renamed entry root is invisible and reclaimed on startup."""
         cache = RegistryArtifactCache(temp_cache_dir)
-        # This key makes doomed names look like live image paths unless cache
-        # discovery rejects the shared scratch pattern first.
         cache_key = "squashfs-doomed"
         paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
         paths.squashfs_image_path.write_bytes(b"squashfs")
         paths.squashfs_mount_dir.mkdir()
         paths.squashfs_extract_dir.mkdir()
         paths.tarball_target_dir.mkdir()
 
         with patch(
-            "tracecat.executor.registry_artifacts._delete_entry_paths",
+            "tracecat.executor.registry_artifacts._delete_cache_path",
             return_value=True,
-        ) as delete_entry_paths:
+        ) as delete_cache_path:
             assert await cache._evict_entry(cache_key) is True
 
-        doomed_paths = delete_entry_paths.call_args.args[0]
-        renamed = (
-            doomed_paths.squashfs_image_path,
-            doomed_paths.squashfs_mount_dir,
-            doomed_paths.squashfs_extract_dir,
-            doomed_paths.tarball_target_dir,
-        )
-        assert all(path.exists() for path in renamed)
-        assert all(TEMP_ARTIFACT_PATTERN.fullmatch(path.name) for path in renamed)
+        delete_cache_path.assert_called_once()
+        trash_path = delete_cache_path.call_args.args[0]
+        assert trash_path.parent == cache.trash_dir
+        assert trash_path.exists()
         assert cache._discover_cache_keys() == set()
 
         cache._sweep_startup_state()
 
-        assert not any(path.exists() for path in renamed)
+        assert not trash_path.exists()
 
     @pytest.mark.anyio
     async def test_eviction_skips_entry_when_unmount_fails(self, temp_cache_dir):
         """A failed unmount skips the key instead of forcing a lazy detach."""
         cache = RegistryArtifactCache(temp_cache_dir)
         stuck = cache._paths_for("stuck")
+        stuck.entry_dir.mkdir(parents=True)
         stuck.squashfs_image_path.write_bytes(b"squashfs")
         stuck.squashfs_mount_dir.mkdir()
         os.utime(stuck.squashfs_image_path, (100.0, 100.0))
@@ -1967,18 +2090,18 @@ class TestRegistryArtifactCacheStartupSweep:
     """Tests for the startup sweep that reclaims state from a dead process."""
 
     @pytest.mark.anyio
-    async def test_sweep_uses_tarball_root_mtime_for_restart_safe_lru(
+    async def test_sweep_uses_entry_root_mtime_for_restart_safe_lru(
         self, temp_cache_dir
     ):
         """Startup trimming preserves a touched older tarball-only entry."""
         previous_cache = RegistryArtifactCache(temp_cache_dir)
         old = _write_tarball_entry(temp_cache_dir, "old")
-        os.utime(old, (100.0, 100.0))
         previous_cache._touch_entry("old")
 
-        await asyncio.sleep(0.01)
+        old_mtime = previous_cache._paths_for("old").entry_dir.stat().st_mtime
         new = _write_tarball_entry(temp_cache_dir, "new")
-        os.utime(new, (200.0, 200.0))
+        new_entry_dir = previous_cache._paths_for("new").entry_dir
+        os.utime(new_entry_dir, (old_mtime - 1, old_mtime - 1))
 
         with (
             patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
@@ -2003,37 +2126,40 @@ class TestRegistryArtifactCacheStartupSweep:
         assert not cache_dir.exists()
 
     @pytest.mark.anyio
-    async def test_sweep_removes_orphaned_scratch_and_stale_mount_dirs(
-        self, temp_cache_dir
-    ):
-        """Interrupted materializations and dead mount dirs are reclaimed."""
-        orphaned = temp_cache_dir / "abc123.999999.4321.squashfs"
+    async def test_sweep_removes_orphaned_work_and_legacy_paths(self, temp_cache_dir):
+        """Interrupted work and disposable flat-layout paths are reclaimed."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        orphaned = cache.staging_dir / "abc123.999999.4321.squashfs"
+        orphaned.parent.mkdir()
         orphaned.write_bytes(b"partial")
-        orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
-        orphaned_dir.mkdir()
-        own = temp_cache_dir / f"abc123.{os.getpid()}.4321.tar.gz"
-        own.write_bytes(b"in flight")
-        stale_mount_dir = temp_cache_dir / "squashfs-abc123"
-        stale_mount_dir.mkdir()
+        orphaned_dir = cache.trash_dir / "abc123.999999.4321"
+        orphaned_dir.mkdir(parents=True)
+        legacy = temp_cache_dir / "squashfs-abc123.squashfs"
+        legacy.write_bytes(b"legacy")
+        unrelated = temp_cache_dir / "unrelated"
+        unrelated.mkdir()
+        unrelated_file = unrelated / "keep.txt"
+        unrelated_file.write_text("keep")
         entry_dir = _write_tarball_entry(temp_cache_dir, "abc123")
 
-        cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
 
         assert not orphaned.exists()
         assert not orphaned_dir.exists()
-        assert not own.exists()
-        assert not stale_mount_dir.exists()
+        assert not legacy.exists()
+        assert unrelated_file.read_text() == "keep"
         assert entry_dir.is_dir()
 
     @pytest.mark.anyio
     async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
         """A live mountpoint belongs to a running process and must survive."""
-        mount_dir = temp_cache_dir / "squashfs-abc123"
+        cache = RegistryArtifactCache(temp_cache_dir)
+        paths = cache._paths_for("abc123")
+        paths.entry_dir.mkdir(parents=True)
+        mount_dir = paths.squashfs_mount_dir
         mount_dir.mkdir()
 
         with patch.object(Path, "is_mount", lambda self: self == mount_dir):
-            cache = RegistryArtifactCache(temp_cache_dir)
             await cache.ensure_swept()
 
         assert mount_dir.is_dir()
@@ -2129,10 +2255,9 @@ class TestRegistryArtifactCacheStartupSweep:
     @pytest.mark.anyio
     async def test_lease_triggers_startup_sweep(self, temp_cache_dir):
         """Lease admission reclaims startup scratch before yielding paths."""
-        orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
-        orphaned_dir.mkdir()
-        assert TEMP_ARTIFACT_PATTERN.match(orphaned_dir.name) is not None
         cache = RegistryArtifactCache(temp_cache_dir)
+        orphaned_dir = cache.staging_dir / "abc123.999999.4321"
+        orphaned_dir.mkdir(parents=True)
 
         async with cache.lease(None):
             assert not orphaned_dir.exists()
@@ -2140,14 +2265,14 @@ class TestRegistryArtifactCacheStartupSweep:
     @pytest.mark.anyio
     async def test_failed_ensure_swept_retries(self, temp_cache_dir):
         """A failed startup sweep is retried by the next caller."""
-        orphaned_dir = temp_cache_dir / "abc123.999999.4321.tmp"
-        orphaned_dir.mkdir()
         cache = RegistryArtifactCache(temp_cache_dir)
+        orphaned_dir = cache.staging_dir / "abc123.999999.4321"
+        orphaned_dir.mkdir(parents=True)
 
         with (
             patch.object(
                 cache,
-                "_remove_orphaned_temp_paths",
+                "_clear_work_dir",
                 side_effect=OSError("simulated sweep failure"),
             ),
             pytest.raises(OSError),
@@ -2159,6 +2284,132 @@ class TestRegistryArtifactCacheStartupSweep:
         await cache.ensure_swept()
 
         assert not orphaned_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_failed_startup_cleanup_retries_exact_path(self, temp_cache_dir):
+        """Failed startup scratch cleanup retries without sweeping live staging."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        orphaned = cache.staging_dir / "orphaned.123.456.tmp"
+        orphaned.parent.mkdir(parents=True)
+        orphaned.write_bytes(b"partial")
+        real_delete = _delete_cache_path
+        failed_once = False
+
+        def fail_once(path: Path) -> bool:
+            nonlocal failed_once
+            if path == orphaned and not failed_once:
+                failed_once = True
+                return False
+            return real_delete(path)
+
+        with patch(
+            "tracecat.executor.registry_artifacts._delete_cache_path",
+            side_effect=fail_once,
+        ):
+            await cache.ensure_swept()
+            assert orphaned.is_file()
+            assert cache._pending_cleanup == {orphaned}
+            assert cache._budget_dirty is True
+
+            assert await cache._enforce_cache_budget() is True
+
+        assert not orphaned.exists()
+        assert cache._pending_cleanup == set()
+
+    @pytest.mark.anyio
+    async def test_failed_startup_retirement_stays_dirty_and_retries(
+        self, temp_cache_dir
+    ):
+        """A startup rename failure preserves entries for later enforcement."""
+        oldest = _write_image_entry(
+            temp_cache_dir,
+            "oldest",
+            size=16,
+            mtime=100.0,
+        )
+        newest = _write_image_entry(
+            temp_cache_dir,
+            "newest",
+            size=16,
+            mtime=200.0,
+        )
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(
+                "tracecat.executor.registry_artifacts._move_entry_to_trash",
+                side_effect=OSError("rename failed"),
+            ),
+        ):
+            await cache.ensure_swept()
+
+        assert oldest.is_file()
+        assert newest.is_file()
+        assert cache._budget_dirty is True
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            await cache._converge_cache_budget()
+
+        assert not oldest.exists()
+        assert newest.is_file()
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
+    async def test_failed_startup_physical_delete_retries_exact_path(
+        self, temp_cache_dir
+    ):
+        """A startup trash delete failure retries without evicting extra entries."""
+        oldest = _write_image_entry(
+            temp_cache_dir,
+            "oldest",
+            size=16,
+            mtime=100.0,
+        )
+        newest = _write_image_entry(
+            temp_cache_dir,
+            "newest",
+            size=16,
+            mtime=200.0,
+        )
+        cache = RegistryArtifactCache(temp_cache_dir)
+        real_delete = _delete_cache_path
+        failed_once = False
+
+        def fail_once(path: Path) -> bool:
+            nonlocal failed_once
+            if path.parent == cache.trash_dir and not failed_once:
+                failed_once = True
+                return False
+            return real_delete(path)
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(
+                "tracecat.executor.registry_artifacts._delete_cache_path",
+                side_effect=fail_once,
+            ),
+        ):
+            await cache.ensure_swept()
+            assert not oldest.exists()
+            assert newest.is_file()
+            assert len(cache._pending_cleanup) == 1
+            assert cache._budget_dirty is True
+
+            await cache._converge_cache_budget()
+
+        assert newest.is_file()
+        assert cache._pending_cleanup == set()
+        assert not any(cache.trash_dir.iterdir())
+        assert cache._budget_dirty is False
 
 
 class TestSquashfsMountCapability:
@@ -2173,6 +2424,8 @@ class TestSquashfsMountCapability:
         first_ctx = cache._context_for("first-probe")
         second_ctx = cache._context_for("second-probe")
         assert first_ctx.squashfs_mount_state is second_ctx.squashfs_mount_state
+        first_ctx.paths.entry_dir.mkdir(parents=True)
+        second_ctx.paths.entry_dir.mkdir(parents=True)
         first_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
         second_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
         first_artifact = SquashfsArtifact(
@@ -2237,6 +2490,8 @@ class TestSquashfsMountCapability:
         first_ctx = cache._context_for("first-success")
         second_ctx = cache._context_for("second-success")
         assert first_ctx.squashfs_mount_state is second_ctx.squashfs_mount_state
+        first_ctx.paths.entry_dir.mkdir(parents=True)
+        second_ctx.paths.entry_dir.mkdir(parents=True)
         first_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
         second_ctx.paths.squashfs_image_path.write_bytes(b"squashfs")
         first_artifact = SquashfsArtifact(
@@ -2323,8 +2578,8 @@ class TestSquashfsMountCapability:
                 return_value=False,
             ) as release_mounted_slot,
         ):
-            await cache.materialize(
-                "probe-key", "s3://bucket/path/site-packages.squashfs"
+            await _materialize(
+                cache, "probe-key", "s3://bucket/path/site-packages.squashfs"
             )
 
         assert cache._squashfs_mount_state.disabled is True
@@ -2338,6 +2593,7 @@ class TestSquashfsMountCapability:
         cache = RegistryArtifactCache(temp_cache_dir)
         cache._squashfs_mount_state.mounted_once = True
         idle = cache._paths_for("idle")
+        idle.entry_dir.mkdir(parents=True)
         idle.squashfs_image_path.write_bytes(b"squashfs")
         idle.squashfs_mount_dir.mkdir()
         mounted = {idle.squashfs_mount_dir}
@@ -2374,8 +2630,8 @@ class TestSquashfsMountCapability:
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
         ):
-            result = await cache.materialize(
-                "new", "s3://bucket/path/site-packages.squashfs"
+            result = await _materialize(
+                cache, "new", "s3://bucket/path/site-packages.squashfs"
             )
 
         assert result == [cache._paths_for("new").squashfs_mount_dir]
@@ -2418,8 +2674,8 @@ class TestSquashfsMountCapability:
                 return_value=False,
             ) as release_mounted_slot,
         ):
-            result = await cache.materialize(
-                "download-failure", "s3://bucket/path/site-packages.squashfs"
+            result = await _materialize(
+                cache, "download-failure", "s3://bucket/path/site-packages.squashfs"
             )
 
         assert result == [tarball_dir]
@@ -2460,8 +2716,8 @@ class TestSquashfsMountCapability:
                 return_value=True,
             ) as release_mounted_slot,
         ):
-            result = await cache.materialize(
-                "download-failure", "s3://bucket/path/site-packages.squashfs"
+            result = await _materialize(
+                cache, "download-failure", "s3://bucket/path/site-packages.squashfs"
             )
 
         assert result == [tarball_dir]
@@ -2494,9 +2750,9 @@ class TestSquashfsMountCapability:
             patch.object(SquashfsArtifact, "mount", mock_mount),
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
-            result = await cache.materialize(
-                "no-slot", "s3://bucket/path/site-packages.squashfs"
+            result = await _materialize(
+                cache, "no-slot", "s3://bucket/path/site-packages.squashfs"
             )
 
-        assert result[0].name.startswith("unsquashfs-")
+        assert result[0].name == "extracted"
         assert cache._squashfs_mount_state.disabled is False

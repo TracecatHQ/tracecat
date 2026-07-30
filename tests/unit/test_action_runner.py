@@ -647,8 +647,8 @@ class TestActionRunner:
         runner = ActionRunner(cache_dir=temp_cache_dir)
         artifact_uri = "s3://bucket/execute.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        entry_dir = temp_cache_dir / f"tarball-{cache_key}"
-        entry_dir.mkdir()
+        entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
+        entry_dir.mkdir(parents=True)
 
         monkeypatch.setattr(
             action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
