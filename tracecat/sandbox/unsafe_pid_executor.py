@@ -29,7 +29,11 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.types import SandboxResult
-from tracecat.sandbox.utils import pid_namespace_available, pid_namespace_probe_error
+from tracecat.sandbox.utils import (
+    communicate_process_group,
+    pid_namespace_available,
+    pid_namespace_probe_error,
+)
 
 module_logger = logging.getLogger(__name__)
 
@@ -469,19 +473,17 @@ class UnsafePidExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(work_dir),
                 env=exec_env,
+                start_new_session=True,
             )
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(),
+                stdout_bytes, stderr_bytes = await communicate_process_group(
+                    process,
                     timeout=timeout_seconds,
                 )
             except TimeoutError as e:
-                process.kill()
-                await process.wait()
                 raise SandboxTimeoutError(
                     f"Script execution timed out after {timeout_seconds}s"
                 ) from e
-
             execution_time_ms = (time.time() - start_time) * 1000
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")

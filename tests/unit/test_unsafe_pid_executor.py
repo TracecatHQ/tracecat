@@ -1,18 +1,95 @@
 """Tests for UnsafePidExecutor fallback mode."""
 
 import asyncio
+import contextlib
 import logging
+import os
+import signal
+from pathlib import Path
 
 import pytest
 
 from tracecat.sandbox import unsafe_pid_executor
+from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
+
+
+def _process_is_running(pid: int) -> bool:
+    """Return whether a process is alive, treating zombies as terminated."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if not stat_path.exists():
+        return True
+    try:
+        stat_fields = stat_path.read_text().split()
+    except (FileNotFoundError, ProcessLookupError):
+        # The process can exit between the existence check and reading procfs.
+        return False
+    if len(stat_fields) < 3 or stat_fields[2] == "Z":
+        return False
+    return True
+
+
+async def _wait_for_file(path: Path) -> None:
+    for _ in range(200):
+        if path.exists():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Timed out waiting for {path}")
+
+
+async def _wait_for_process_exit(pid: int) -> None:
+    for _ in range(200):
+        if not _process_is_running(pid):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Process {pid} did not exit")
+
+
+def _background_process_script() -> str:
+    return """
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+def main(pid_file, wait):
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdin=subprocess.DEVNULL,
+    )
+    Path(pid_file).write_text(str(child.pid))
+    if wait:
+        time.sleep(30)
+    return child.pid
+"""
 
 
 class TestUnsafePidExecutor:
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
         return UnsafePidExecutor(cache_dir=str(tmp_path))
+
+    def test_process_probe_handles_procfs_exit_race(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def process_disappeared(
+            path: Path,
+            encoding: str | None = None,
+            errors: str | None = None,
+        ) -> str:
+            del path, encoding, errors
+            raise ProcessLookupError
+
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(Path, "exists", lambda _: True)
+        monkeypatch.setattr(Path, "read_text", process_disappeared)
+
+        assert not _process_is_running(123)
 
     @pytest.mark.anyio
     async def test_build_execution_cmd_with_pid_namespace(
@@ -121,6 +198,110 @@ def main():
         result = await executor.execute(script=script)
         assert result.success
         assert result.output == 42
+
+    @pytest.mark.parametrize("timeout_seconds", [0, -1])
+    @pytest.mark.anyio
+    async def test_execute_non_positive_timeout_reaps_subprocess(
+        self,
+        executor: UnsafePidExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        timeout_seconds: int,
+    ) -> None:
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        created_processes: list[asyncio.subprocess.Process] = []
+
+        async def pid_namespace_unavailable() -> bool:
+            return False
+
+        async def create_subprocess_exec(*args, **kwargs):
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            created_processes.append(process)
+            return process
+
+        monkeypatch.setattr(
+            unsafe_pid_executor,
+            "pid_namespace_available",
+            pid_namespace_unavailable,
+        )
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            create_subprocess_exec,
+        )
+
+        with pytest.raises(SandboxTimeoutError):
+            await executor.execute(
+                script="def main(): return 42",
+                timeout_seconds=timeout_seconds,
+            )
+
+        assert len(created_processes) == 1
+        assert created_processes[0].returncode is not None
+
+    @pytest.mark.anyio
+    async def test_execute_kills_background_descendants_holding_output_pipes(
+        self, executor: UnsafePidExecutor, tmp_path: Path
+    ) -> None:
+        pid_file = tmp_path / "success-child.pid"
+        result = await asyncio.wait_for(
+            executor.execute(
+                script=_background_process_script(),
+                inputs={"pid_file": str(pid_file), "wait": False},
+            ),
+            timeout=5,
+        )
+
+        assert result.success
+        child_pid = int(pid_file.read_text())
+        try:
+            await _wait_for_process_exit(child_pid)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
+
+    @pytest.mark.anyio
+    async def test_execute_kills_descendants_on_timeout(
+        self, executor: UnsafePidExecutor, tmp_path: Path
+    ) -> None:
+        pid_file = tmp_path / "timeout-child.pid"
+
+        with pytest.raises(SandboxTimeoutError):
+            await executor.execute(
+                script=_background_process_script(),
+                inputs={"pid_file": str(pid_file), "wait": True},
+                timeout_seconds=1,
+            )
+
+        child_pid = int(pid_file.read_text())
+        try:
+            await _wait_for_process_exit(child_pid)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
+
+    @pytest.mark.anyio
+    async def test_execute_kills_descendants_on_cancellation(
+        self, executor: UnsafePidExecutor, tmp_path: Path
+    ) -> None:
+        pid_file = tmp_path / "cancelled-child.pid"
+        execution = asyncio.create_task(
+            executor.execute(
+                script=_background_process_script(),
+                inputs={"pid_file": str(pid_file), "wait": True},
+                timeout_seconds=30,
+            )
+        )
+        await _wait_for_file(pid_file)
+        child_pid = int(pid_file.read_text())
+
+        execution.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await execution
+            await _wait_for_process_exit(child_pid)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_execute_normalizes_non_json_leaf_values(

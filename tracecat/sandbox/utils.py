@@ -7,7 +7,9 @@ and agent runtime sandbox (tracecat/agent/sandbox/).
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
+import signal
 import subprocess
 from contextlib import suppress
 from pathlib import Path
@@ -20,6 +22,59 @@ from tracecat.config import (
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
 _PID_NAMESPACE_PROBE_ERROR: str | None = None
+_PROCESS_EXIT_POLL_INTERVAL_SECONDS = 0.01
+
+
+async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    """Kill and reap a subprocess session, including any surviving descendants.
+
+    The subprocess must have been started with ``start_new_session=True``, which
+    makes its PID the process-group ID. Calling this after normal completion is
+    intentional: a subprocess can exit while leaving background descendants
+    alive.
+    """
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            process.kill()
+    await process.wait()
+
+
+async def communicate_process_group(
+    process: asyncio.subprocess.Process,
+    *,
+    input: bytes | None = None,  # noqa: A002
+    timeout: float | None = None,
+) -> tuple[bytes, bytes]:
+    """Communicate with a process while containing its process group.
+
+    A background descendant can inherit the leader's output pipes, causing both
+    ``communicate()`` and asyncio's ``wait()`` to wait after the leader exits.
+    Polling ``returncode`` observes the leader exit independently, letting us
+    terminate the group immediately and close those pipes. Cancellation also
+    terminates the group before it propagates.
+    """
+    communicate_task = asyncio.create_task(process.communicate(input=input))
+    group_terminated = False
+    try:
+        async with asyncio.timeout(timeout):
+            while process.returncode is None:
+                await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
+            await terminate_process_group(process)
+            group_terminated = True
+            stdout, stderr = await communicate_task
+    finally:
+        if not group_terminated:
+            await terminate_process_group(process)
+        if not communicate_task.done():
+            communicate_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await communicate_task
+
+    if stdout is None or stderr is None:
+        raise RuntimeError("Captured stdout and stderr are required")
+    return stdout, stderr
 
 
 def is_nsjail_available() -> bool:
