@@ -1175,14 +1175,14 @@ class LoopbackHandler:
                     session, _session_line_jsonb_safe_content(line_data)
                 )
                 await session.commit()
-            if should_set_sdk_session_id:
-                self._sdk_session_id = sdk_session_id
-            if did_set_sdk_session_id:
-                logger.info(
-                    "Updated AgentSession with sdk_session_id",
-                    session_id=self.input.session_id,
-                    sdk_session_id=sdk_session_id,
-                )
+        if should_set_sdk_session_id:
+            self._sdk_session_id = sdk_session_id
+        if did_set_sdk_session_id:
+            logger.info(
+                "Updated AgentSession with sdk_session_id",
+                session_id=self.input.session_id,
+                sdk_session_id=sdk_session_id,
+            )
 
         # Track as persisted after successful commit
         if isinstance(line_uuid, str):
