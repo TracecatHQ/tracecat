@@ -96,6 +96,8 @@ from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditAction, AuditEventInput, AuditMetadataValue
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
@@ -117,6 +119,7 @@ from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
+from tracecat.contexts import RequestAuditContext, ctx_request_audit
 from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
     AgentSession,
@@ -155,7 +158,84 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+APPROVAL_AUDIT_DEDUP_TTL_SECONDS = 24 * 60 * 60
+MAX_PENDING_APPROVAL_AUDIT_TASKS = 64
 _background_tasks: set[asyncio.Task[None]] = set()
+_approval_audit_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _emit_approval_audit_events(
+    *,
+    events: tuple[AuditEventInput, ...],
+    role: Role,
+    request_audit: RequestAuditContext | None,
+    dedupe_id: uuid.UUID,
+) -> None:
+    """Deduplicate and enqueue an approval audit batch outside the request path."""
+    try:
+        try:
+            redis_client = await get_redis_client()
+            acquired = await redis_client.set_if_not_exists(
+                f"agent-approval-audit:{dedupe_id}",
+                "1",
+                expire_seconds=APPROVAL_AUDIT_DEDUP_TTL_SECONDS,
+            )
+            if not acquired:
+                return
+        except Exception as exc:
+            # The stable dedupe ID remains in every event so consumers can
+            # converge the rare duplicate produced while Redis is unavailable.
+            logger.warning(
+                "Approval audit dedup unavailable; emitting best-effort",
+                error_type=type(exc).__name__,
+            )
+
+        async with AuditService.with_session(role=role) as audit_service:
+            await audit_service.create_events(events, request_audit=request_audit)
+    except Exception as exc:
+        logger.warning(
+            "Failed to enqueue approval audit events",
+            error_type=type(exc).__name__,
+            event_count=len(events),
+        )
+
+
+def _schedule_approval_audit_events(
+    *,
+    events: tuple[AuditEventInput, ...],
+    role: Role,
+    request_audit: RequestAuditContext | None,
+    dedupe_id: uuid.UUID,
+) -> None:
+    """Schedule approval audit enrichment without delaying workflow progress."""
+    for stranded in [
+        task for task in _approval_audit_tasks if task.get_loop().is_closed()
+    ]:
+        _approval_audit_tasks.discard(stranded)
+    if len(_approval_audit_tasks) >= MAX_PENDING_APPROVAL_AUDIT_TASKS:
+        logger.warning(
+            "Dropped approval audit batch; pending limit reached",
+            event_count=len(events),
+            max_pending=MAX_PENDING_APPROVAL_AUDIT_TASKS,
+        )
+        return
+    task = asyncio.get_running_loop().create_task(
+        _emit_approval_audit_events(
+            events=events,
+            role=role,
+            request_audit=request_audit,
+            dedupe_id=dedupe_id,
+        )
+    )
+    _approval_audit_tasks.add(task)
+    task.add_done_callback(_approval_audit_tasks.discard)
+
+
+def _should_emit_approval_audit(
+    *, role: Role, source: Literal["inbox", "slack"]
+) -> bool:
+    """Limit first-party approval audits to authenticated UI/API users."""
+    return source == "inbox" and role.type == "user" and role.user_id is not None
 
 
 async def _auto_title_session(
@@ -346,6 +426,14 @@ class _DecisionRow(NamedTuple):
     reason: str | None
     decision: PersistedApprovalDecision
     approved_at: datetime
+
+
+class _PendingApproval(NamedTuple):
+    """Privacy-bounded fields captured by the existing pending-approval query."""
+
+    approval_id: uuid.UUID
+    tool_call_id: str
+    tool_name: str
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1333,15 +1421,21 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
-    async def _pending_approval_tool_call_ids(self, session_id: uuid.UUID) -> set[str]:
-        """Return pending approval tool-call IDs for one session."""
-        stmt = select(Approval.tool_call_id).where(
+    async def _pending_approvals(
+        self, session_id: uuid.UUID
+    ) -> dict[str, _PendingApproval]:
+        """Return audit-safe fields for the session's pending approvals."""
+        stmt = select(Approval.id, Approval.tool_call_id, Approval.tool_name).where(
             Approval.workspace_id == self.workspace_id,
             Approval.session_id == session_id,
             Approval.status == ApprovalStatus.PENDING,
         )
         result = await self.session.execute(stmt)
-        return set(result.scalars().all())
+        approvals = (
+            _PendingApproval(approval_id, tool_call_id, tool_name)
+            for approval_id, tool_call_id, tool_name in result.tuples().all()
+        )
+        return {approval.tool_call_id: approval for approval in approvals}
 
     async def _settled_approval_decisions(
         self, session_id: uuid.UUID
@@ -2229,6 +2323,67 @@ class AgentSessionService(BaseWorkspaceService):
             decision_metadata=decision_metadata,
         )
 
+    @staticmethod
+    def _approval_audit_dedupe_id(
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        stream_id: uuid.UUID,
+    ) -> uuid.UUID:
+        """Derive an opaque ID from the stable Temporal approval update identity."""
+        update_identity = (
+            f"tracecat:set-approvals:{workspace_id}:{session_id}:{run_id}:{stream_id}"
+        )
+        return uuid.uuid5(uuid.NAMESPACE_URL, update_identity)
+
+    @staticmethod
+    def _build_approval_audit_events(
+        *,
+        pending_approvals: Mapping[str, _PendingApproval],
+        validated: _ValidatedContinuation,
+        request: ContinueRunRequest,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        dedupe_id: uuid.UUID,
+        decided_at: datetime,
+    ) -> tuple[AuditEventInput, ...]:
+        """Build one privacy-bounded event for each accepted tool decision."""
+        decisions_by_tool_call = {
+            decision.tool_call_id: decision for decision in request.decisions
+        }
+        events: list[AuditEventInput] = []
+        for tool_call_id in validated.approval_map:
+            approval = pending_approvals[tool_call_id]
+            decision = decisions_by_tool_call[tool_call_id]
+            action: AuditAction = "reject" if decision.action == "deny" else "accept"
+            data: dict[str, AuditMetadataValue] = {
+                "session_id": str(session_id),
+                "run_id": str(run_id),
+                "tool_call_id": tool_call_id,
+                "tool_name": approval.tool_name,
+                "decision": decision.action,
+                "source": request.source,
+                "decision_timestamp": decided_at.isoformat(),
+                "arguments_overridden": decision.action == "override",
+                "dedupe_id": str(dedupe_id),
+            }
+            if decision.action == "deny" and decision.reason:
+                # Comments are useful investigation context, but keep the
+                # webhook payload bounded. The audit sanitizer separately
+                # drops values containing recognizable PII or credentials.
+                data["denial_reason"] = decision.reason[:1024]
+            events.append(
+                AuditEventInput(
+                    resource_type="agent_approval",
+                    resource_id=approval.approval_id,
+                    action=action,
+                    data=data,
+                    created_at=decided_at,
+                )
+            )
+        return tuple(events)
+
     async def _submit_approval_update(
         self,
         *,
@@ -2306,12 +2461,12 @@ class AgentSessionService(BaseWorkspaceService):
         # Idempotency path: resubmissions are normal for partial batches, so
         # reconcile against settled decisions instead of only pending ones.
         # A matching replay is a no-op; a contradicting one raises.
-        pending_tool_call_ids = await self._pending_approval_tool_call_ids(session_id)
+        pending_approvals = await self._pending_approvals(session_id)
         settled_decisions = await self._settled_approval_decisions(session_id)
 
         validated = self._validate_continuation_decisions(
             request=request,
-            pending_tool_call_ids=pending_tool_call_ids,
+            pending_tool_call_ids=set(pending_approvals),
             settled_decisions=settled_decisions,
         )
         if not validated.approval_map:
@@ -2416,6 +2571,31 @@ class AgentSessionService(BaseWorkspaceService):
                 with contextlib.suppress(Exception):
                     await dedup_client.delete(submission_key)
             raise
+
+        if _should_emit_approval_audit(role=self.role, source=source):
+            decided_at = datetime.now(tz=UTC)
+            audit_dedupe_id = self._approval_audit_dedupe_id(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                run_id=curr_run_id,
+                stream_id=attempt.stream_id,
+            )
+            audit_events = self._build_approval_audit_events(
+                pending_approvals=pending_approvals,
+                validated=validated,
+                request=request,
+                session_id=session_id,
+                run_id=curr_run_id,
+                dedupe_id=audit_dedupe_id,
+                decided_at=decided_at,
+            )
+            if audit_events:
+                _schedule_approval_audit_events(
+                    events=audit_events,
+                    role=self.role,
+                    request_audit=ctx_request_audit.get(),
+                    dedupe_id=audit_dedupe_id,
+                )
 
         if not did_resume:
             await self._apply_submitted_approval_decisions(
