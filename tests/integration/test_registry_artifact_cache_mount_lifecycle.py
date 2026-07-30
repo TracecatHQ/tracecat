@@ -1,11 +1,8 @@
 """Dockerized lifecycle test for executor registry artifact SquashFS mounts.
 
-The executor caches registry environments as SquashFS images and mounts them,
-which consumes one loop device per mounted artifact. Unit tests stub the mount
-and umount commands, so this test drives the real thing: it runs inside the
-privileged executor image, builds tiny SquashFS images with ``mksquashfs``, and
-asserts that materialization mounts them, that eviction unmounts them and
-releases their loop devices, and that the startup sweep reclaims stale state.
+The executor retains SquashFS images but only keeps them mounted while leased.
+Unit tests stub the mount and umount commands, so this test drives the real
+mount lifecycle inside the privileged executor image.
 
 Run it with the ``integration`` marker; it is skipped when Docker is unavailable.
 """
@@ -154,32 +151,25 @@ def test_registry_artifact_cache_mount_lifecycle() -> None:
     if skipped := payload.get("skipped"):
         pytest.skip(f"SquashFS mounts unsupported in this container: {skipped}")
 
-    # Every materialized artifact is mounted and holds its own loop device.
-    assert payload["mounted_targets"] == 3
-    assert payload["mounted_loop_devices"] == 3
+    # Each lease mounts its image and its final release frees the loop device.
     assert payload["module_readable_through_mount"] is True
+    assert payload["lease_mounts_observed"] == 3
+    assert payload["all_targets_unmounted_after_release"] is True
+    assert payload["all_loop_devices_released"] is True
+    assert payload["images_retained_after_release"] is True
 
-    # Eviction unmounts, frees the loop device, and deletes the entry.
+    # A later lease remounts from the retained image without downloading again.
+    assert payload["remounted_from_retained_image"] is True
+    assert payload["remount_released"] is True
+
+    # Eviction deletes an already-idle entry.
     assert payload["evicted"] is True
-    assert payload["evicted_target_unmounted"] is True
-    assert payload["evicted_loop_device_released"] is True
     assert payload["evicted_paths_removed"] is True
 
-    # Re-materializing the evicted key mounts again: no sticky disable flag.
-    assert payload["remounted"] is True
-    assert payload["squashfs_disabled_after_eviction"] is False
-
-    # Loop-device reclamation unmounts an idle entry but retains its cached image.
-    assert payload["mount_slot_released"] is True
-    assert payload["released_target_unmounted"] is True
-    assert payload["released_loop_device_released"] is True
-    assert payload["released_image_retained"] is True
-    assert payload["remounted_from_retained_image"] is True
-
-    # Releasing a lease converges an over-budget cache, destructively evicting it.
-    assert payload["converged_entry_unmounted"] is True
+    # Releasing a lease unmounts first, then converges the disk cache.
+    assert payload["converged_lease_unmounted"] is True
     assert payload["converged_loop_device_released"] is True
-    assert payload["converged_entries_remaining"] == 3
+    assert payload["converged_entries_remaining"] == 2
 
     # The startup sweep trims to budget and removes stale mount directories.
     assert payload["startup_sweep_trimmed"] is True
@@ -255,11 +245,14 @@ async def _run_mount_lifecycle_child() -> None:
                 f"module_{index}.py",
             )
 
-        # (a) Materialize every artifact through the real cache.
+        # (a) Every lease mounts its image; final release unmounts it.
         module_readable = True
+        lease_mounts_observed = 0
+        all_targets_unmounted = True
+        all_loop_devices_released = True
         for index, uri in enumerate(uris):
+            mount_dir = cache._paths_for(keys[index]).squashfs_mount_dir
             async with cache.lease([uri]) as registry_paths:
-                mount_dir = cache._paths_for(keys[index]).squashfs_mount_dir
                 if registry_paths != [mount_dir]:
                     if index == 0 and not mount_dir.is_mount():
                         # Kernels without SquashFS or loop support fall back to
@@ -279,92 +272,70 @@ async def _run_mount_lifecycle_child() -> None:
                     module_readable
                     and (mount_dir / f"module_{index}.py").read_text() == "VALUE = 1\n"
                 )
+                mounts = _squashfs_mounts(cache_dir)
+                device = mounts[str(mount_dir)]
+                lease_mounts_observed += 1
 
-        mounts = _squashfs_mounts(cache_dir)
-        payload["mounted_targets"] = len(mounts)
-        payload["mounted_loop_devices"] = len(
-            {device for device in mounts.values() if device.startswith("/dev/loop")}
-        )
+            mounts_after_release = _squashfs_mounts(cache_dir)
+            all_targets_unmounted = (
+                all_targets_unmounted and str(mount_dir) not in mounts_after_release
+            )
+            all_loop_devices_released = (
+                all_loop_devices_released
+                and device not in mounts_after_release.values()
+            )
+
         payload["module_readable_through_mount"] = module_readable
+        payload["lease_mounts_observed"] = lease_mounts_observed
+        payload["all_targets_unmounted_after_release"] = all_targets_unmounted
+        payload["all_loop_devices_released"] = all_loop_devices_released
+        payload["images_retained_after_release"] = all(
+            cache._paths_for(cache_key).squashfs_image_path.exists()
+            for cache_key in keys
+        )
 
-        # (b) Evict one entry: it must unmount, free its loop device, and vanish.
+        # (b) A later lease remounts from the retained image.
+        retained_paths = cache._paths_for(keys[0])
+        async with cache.lease([uris[0]]) as registry_paths:
+            payload["remounted_from_retained_image"] = registry_paths == [
+                retained_paths.squashfs_mount_dir
+            ]
+        payload["remount_released"] = not retained_paths.squashfs_mount_dir.is_mount()
+
+        # (c) Evict one already-idle entry.
         evicted_paths = cache._paths_for(keys[0])
-        evicted_device = mounts[str(evicted_paths.squashfs_mount_dir)]
-        payload["evicted"] = await cache._evict_entry(keys[0])
-        mounts_after_eviction = _squashfs_mounts(cache_dir)
-        payload["evicted_target_unmounted"] = (
-            str(evicted_paths.squashfs_mount_dir) not in mounts_after_eviction
-        )
-        payload["evicted_loop_device_released"] = (
-            evicted_device not in mounts_after_eviction.values()
-        )
+        eviction = await cache._evict_entry(keys[0])
+        payload["evicted"] = eviction.retired and eviction.reclaimed
         payload["evicted_paths_removed"] = not (
             evicted_paths.squashfs_image_path.exists()
             or evicted_paths.squashfs_mount_dir.exists()
         )
 
-        # (c) The evicted key must mount again: eviction is not a capability probe.
-        _build_squashfs_image(
-            root / "source-0",
-            evicted_paths.squashfs_image_path,
-            "module_0.py",
-        )
-        async with cache.lease([uris[0]]) as registry_paths:
-            payload["remounted"] = registry_paths == [evicted_paths.squashfs_mount_dir]
-        payload["squashfs_disabled_after_eviction"] = (
-            cache._squashfs_mount_state.disabled
-        )
-
-        # (d) Loop-device reclamation unmounts the LRU idle artifact while
-        # retaining its image, and a later lease remounts that image directly.
-        retained_paths = cache._paths_for(keys[1])
-        mounts_before_release = _squashfs_mounts(cache_dir)
-        retained_device = mounts_before_release[str(retained_paths.squashfs_mount_dir)]
-        payload["mount_slot_released"] = await cache._release_mounted_slot(keys[0])
-        mounts_after_release = _squashfs_mounts(cache_dir)
-        payload["released_target_unmounted"] = (
-            str(retained_paths.squashfs_mount_dir) not in mounts_after_release
-        )
-        payload["released_loop_device_released"] = (
-            retained_device not in mounts_after_release.values()
-        )
-        payload["released_image_retained"] = retained_paths.squashfs_image_path.exists()
-        async with cache.lease([uris[1]]) as registry_paths:
-            payload["remounted_from_retained_image"] = registry_paths == [
-                retained_paths.squashfs_mount_dir
-            ]
-
-        # (e) A released lease converges an over-budget cache, destructively
-        # evicting it. The fourth entry is materialized under the old budget, so
-        # only the release-time check can bring the cache back within the new one.
+        # (d) Final release unmounts, then converges an over-budget cache.
         fourth_uri = "s3://bucket/lifecycle/3/site-packages.squashfs"
         fourth_key = compute_registry_artifact_cache_key(fourth_uri)
+        fourth_paths = cache._paths_for(fourth_key)
         _build_squashfs_image(
             root / "source-3",
-            cache._paths_for(fourth_key).squashfs_image_path,
+            fourth_paths.squashfs_image_path,
             "module_3.py",
         )
-        # keys[2] is the least recently used idle entry: keys[0] was re-leased
-        # above and keys[1] is leased again below.
-        converged_paths = cache._paths_for(keys[2])
         async with cache.lease([fourth_uri]):
             mounts_before_converge = _squashfs_mounts(cache_dir)
             converged_device = mounts_before_converge[
-                str(converged_paths.squashfs_mount_dir)
+                str(fourth_paths.squashfs_mount_dir)
             ]
-            config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 3
-            async with cache.lease([uris[1]]):
-                pass
-            mounts_after_converge = _squashfs_mounts(cache_dir)
-            payload["converged_entry_unmounted"] = (
-                str(converged_paths.squashfs_mount_dir) not in mounts_after_converge
-            )
-            payload["converged_loop_device_released"] = (
-                converged_device not in mounts_after_converge.values()
-            )
-            payload["converged_entries_remaining"] = len(cache._discover_cache_keys())
+            config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 2
+        mounts_after_converge = _squashfs_mounts(cache_dir)
+        payload["converged_lease_unmounted"] = (
+            str(fourth_paths.squashfs_mount_dir) not in mounts_after_converge
+        )
+        payload["converged_loop_device_released"] = (
+            converged_device not in mounts_after_converge.values()
+        )
+        payload["converged_entries_remaining"] = len(cache._discover_cache_keys())
 
-        # (f) The startup sweep trims to budget and drops stale mount directories.
+        # (e) The startup sweep trims to budget and drops stale mount directories.
         sweep_dir = root / "sweep-cache"
         sweep_dir.mkdir()
         sweep_cache = RegistryArtifactCache(sweep_dir)

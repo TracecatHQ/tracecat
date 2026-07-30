@@ -607,7 +607,8 @@ async def _run_executor_action_smoke_case(
         else:
             assert result["source"] == "/packages/0/registry_artifact_smoke_action.py"
             if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
-                assert mount_dir.is_mount()
+                assert not mount_dir.is_mount()
+                assert cache_paths.squashfs_image_path.is_file()
             else:
                 assert tarball_dir.exists()
     finally:
