@@ -22,7 +22,14 @@ def _process_is_running(pid: int) -> bool:
         return False
 
     stat_path = Path(f"/proc/{pid}/stat")
-    if stat_path.exists() and stat_path.read_text().split()[2] == "Z":
+    if not stat_path.exists():
+        return True
+    try:
+        stat_fields = stat_path.read_text().split()
+    except (FileNotFoundError, ProcessLookupError):
+        # The process can exit between the existence check and reading procfs.
+        return False
+    if len(stat_fields) < 3 or stat_fields[2] == "Z":
         return False
     return True
 
@@ -68,6 +75,23 @@ class TestUnsafePidExecutor:
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
         return UnsafePidExecutor(cache_dir=str(tmp_path))
+
+    def test_process_probe_handles_procfs_exit_race(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def process_disappeared(
+            path: Path,
+            encoding: str | None = None,
+            errors: str | None = None,
+        ) -> str:
+            del path, encoding, errors
+            raise ProcessLookupError
+
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(Path, "exists", lambda _: True)
+        monkeypatch.setattr(Path, "read_text", process_disappeared)
+
+        assert not _process_is_running(123)
 
     @pytest.mark.anyio
     async def test_build_execution_cmd_with_pid_namespace(
