@@ -77,6 +77,19 @@ _ANTHROPIC_ONLY_FIELDS = (
 )
 
 
+# Beta headers are opt-ins the model never sees; headerless requests are the
+# vanilla-client default, so the header is dropped for non-Anthropic upstreams.
+# Bodies are forwarded untouched apart from the Anthropic-only top-level fields
+# above (tool_search wire artifacts like defer_loading/tool_reference are
+# tolerated by Anthropic-compatible gateways — verified against LiteLLM and
+# Ollama).
+def _drop_anthropic_beta_header(headers: dict[str, str]) -> dict[str, str]:
+    """Remove the anthropic-beta header for non-Anthropic upstreams."""
+    return {
+        key: value for key, value in headers.items() if key.lower() != "anthropic-beta"
+    }
+
+
 def _format_timeout_duration(seconds: float) -> str:
     if seconds >= 60 and seconds % 60 == 0:
         minutes = seconds / 60
@@ -209,11 +222,14 @@ class LLMRoute:
         excluded_headers = {"host", "connection", "transfer-encoding"}
         if self.is_direct:
             excluded_headers.add("authorization")
-        return {
+        forwarded = {
             key: value
             for key, value in headers.items()
             if key.lower() not in excluded_headers
         }
+        if self._applies_provider_cleanup:
+            forwarded = _drop_anthropic_beta_header(forwarded)
+        return forwarded
 
     def forward_body_and_headers(
         self,
@@ -254,12 +270,17 @@ class LLMRoute:
         headers["Content-Length"] = str(len(body))
         return body, headers
 
+    @property
+    def _applies_provider_cleanup(self) -> bool:
+        """Whether this route rewrites requests down to the whitelisted surface."""
+        return self.local_provider_cleanup and self.model_provider != "anthropic"
+
     def _forward_data(self, data: dict[str, Any]) -> dict[str, Any] | None:
         """Return rewritten request JSON, or None when the original can pass through."""
         forward_data = dict(data)
         if self.upstream_model_name is not None:
             forward_data["model"] = self.upstream_model_name
-        if self.local_provider_cleanup and self.model_provider != "anthropic":
+        if self._applies_provider_cleanup:
             for field_name in _ANTHROPIC_ONLY_FIELDS:
                 forward_data.pop(field_name, None)
         return forward_data if forward_data != data else None

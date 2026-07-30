@@ -1224,22 +1224,15 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
 
-    def test_disables_experimental_betas_when_subagent_uses_passthrough(
+    def test_enables_tool_search(
         self,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        child = SandboxSubagentConfig(
-            alias="analyst",
-            description="Use for enrichment analysis.",
-            prompt="Analyze enrichment data.",
-            config=sample_init_payload.config.model_copy(update={"passthrough": True}),
-            mcp_auth_token="child-mcp-token",
-        )
-        payload = replace(sample_init_payload, subagents=[child])
+        # Always on: the CLI would otherwise disable deferred tool loading
+        # because the socket bridge is not a first-party Anthropic host.
+        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
 
-        env = ClaudeAgentRuntime._sdk_env(payload)
-
-        assert env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] == "1"
+        assert env["ENABLE_TOOL_SEARCH"] == "true"
 
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
