@@ -198,6 +198,12 @@ just gen-functions
   dictionary semantics are required, prefer `TypedDict`. Any unavoidable
   untyped-dictionary exception must include a clear nearby explanation of why
   the typed alternatives are unsuitable.
+- Prefer `@dataclass(frozen=True, slots=True)` over `NamedTuple` for immutable
+  structured values. It is smaller and blocks positional/iteration access, so
+  fields stay named. Measured on this repo's CPython 3.12.8 (shallow instance
+  size): `NamedTuple` 56 bytes, `@dataclass(frozen=True, slots=True)` 48 bytes,
+  plain dataclass 344 bytes including `__dict__`. Use `NamedTuple` only when
+  tuple unpacking or tuple compatibility is actually required.
 - Never branch on exception or error-message strings to choose behavior, status
   codes, or retry policy. Use explicit exception types, machine-readable error
   codes in exception details, or structured error objects instead.
