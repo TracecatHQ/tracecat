@@ -1,0 +1,22 @@
+docs/security/architecture.mdx
+  s_bc0370f494ffd8::t_85aeeb64187497 129-130
+  s_bc0370f494ffd8::t_53462f765a411f 164-166,170
+  s_bc0370f494ffd8::t_c922f0398556d5 116-117
+  s_bc0370f494ffd8::t_cae6acc39803ff 150,194,199-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "030fea28f53b6f7bab36f9fa646fcc30fa3716b2",
+  "prompts": {},
+  "sessions": {
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
