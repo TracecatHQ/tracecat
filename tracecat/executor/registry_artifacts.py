@@ -885,7 +885,13 @@ class RegistryArtifactCache:
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cache_key, cached_paths
 
-            # Make room outside the per-key lock so eviction never nests key locks.
+            async with lock:
+                paths = await self._materialize_candidates(ctx, artifact_uri)
+                self._touch_entry(cache_key)
+
+            # Enforce only after publication, and outside the per-key lock so
+            # eviction never nests key locks. A failed cold admission must not
+            # discard a usable warm entry before a replacement exists.
             try:
                 await self._enforce_cache_budget(protected_key=cache_key)
             except OSError as e:
@@ -895,10 +901,7 @@ class RegistryArtifactCache:
                     cache_dir=str(self.cache_dir),
                     error=str(e),
                 )
-            async with lock:
-                paths = await self._materialize_candidates(ctx, artifact_uri)
-                self._touch_entry(cache_key)
-                return cache_key, paths
+            return cache_key, paths
         except BaseException:
             if self._release_lease(cache_key):
                 await self._unmount_idle_entry(cache_key)
@@ -1163,11 +1166,11 @@ class RegistryArtifactCache:
     async def _converge_cache_budget(self) -> None:
         """Bring an idle cache back under budget after a lease is released.
 
-        Materialization enforces the budget before a new entry exists, so the
-        cache can legitimately sit over budget while that entry is leased. This
-        runs on release, when the real on-disk size is known and the entry is
-        evictable. The scan is skipped entirely unless a new entry has landed
-        since the last successful enforcement.
+        Successful materialization enforces the budget after publication while
+        protecting the new entry. The cache can still sit over budget while
+        entries are leased. This runs on release, when every newly idle entry is
+        evictable. The scan is skipped entirely unless a materialization attempt
+        has occurred since the last successful enforcement.
 
         Each successful pass consumes the dirty signal before its awaited scan.
         A follow-up pass therefore occurs only when a concurrent materialization
@@ -1205,9 +1208,9 @@ class RegistryArtifactCache:
         invoke enforcement without holding a per-key lock.
 
         Args:
-            protected_key: Cache key about to be materialized. It is counted
-                against the budget but never evicted. None when enforcing
-                against the entries already on disk.
+            protected_key: Newly materialized cache key. It is counted against
+                the budget when present but never evicted. None when enforcing
+                against idle entries after leases are released.
 
         Returns:
             Whether the cache is within budget once eviction has finished.
@@ -1227,17 +1230,13 @@ class RegistryArtifactCache:
                 return True
 
             entries = await asyncio.to_thread(self._scan_cache_entries)
-            # The protected key is not on disk yet when it is a fresh entry.
-            pending_entries = (
-                1 if protected_key is not None and protected_key not in entries else 0
-            )
             total_bytes = sum(entry.size_bytes for entry in entries.values())
             protected = set() if protected_key is None else {protected_key}
             skipped: set[str] = set()
 
-            while (
-                max_entries > 0 and len(entries) + pending_entries > max_entries
-            ) or (max_bytes > 0 and total_bytes > max_bytes):
+            while (max_entries > 0 and len(entries) > max_entries) or (
+                max_bytes > 0 and total_bytes > max_bytes
+            ):
                 candidate = self._least_recently_used(
                     entries.values(),
                     excluded=skipped | protected,
@@ -1246,7 +1245,7 @@ class RegistryArtifactCache:
                     logger.warning(
                         "Registry artifact cache is over budget but every entry is in use",
                         cache_dir=str(self.cache_dir),
-                        entries=len(entries) + pending_entries,
+                        entries=len(entries),
                         max_entries=max_entries,
                         total_bytes=total_bytes,
                         max_bytes=max_bytes,

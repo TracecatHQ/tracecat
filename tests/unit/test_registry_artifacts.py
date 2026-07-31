@@ -143,9 +143,10 @@ async def _materialize(
             return cached_paths
 
     try:
-        await cache._enforce_cache_budget(protected_key=cache_key)
         async with lock:
-            return await cache._materialize_candidates(ctx, artifact_uri)
+            paths = await cache._materialize_candidates(ctx, artifact_uri)
+        await cache._enforce_cache_budget(protected_key=cache_key)
+        return paths
     finally:
         cache._release_lease(cache_key)
 
@@ -1743,10 +1744,10 @@ class TestRegistryArtifactCacheEviction:
         assert not idle_dir.exists()
 
     @pytest.mark.anyio
-    async def test_releasing_a_lease_converges_the_cache_to_budget(
+    async def test_successful_admission_enforces_actual_size_before_yield(
         self, temp_cache_dir
     ):
-        """Enforcement before materialization cannot see the new entry's size."""
+        """Post-publication enforcement sees the new entry's actual size."""
         cache = RegistryArtifactCache(temp_cache_dir)
         idle = _write_image_entry(temp_cache_dir, "idle", size=4096, mtime=100.0)
         new_uri = "s3://bucket/new.tar.gz"
@@ -1765,9 +1766,8 @@ class TestRegistryArtifactCacheEviction:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([new_uri]) as registry_paths:
-                # Both entries fit only because the new one is still leased.
                 assert registry_paths == [cache._paths_for(new_key).tarball_target_dir]
-                assert idle.exists()
+                assert not idle.exists()
 
         assert not idle.exists()
         assert cache._paths_for(new_key).tarball_target_dir.is_dir()
@@ -1950,6 +1950,33 @@ class TestRegistryArtifactCacheEviction:
                 pass
 
         assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
+    async def test_failed_cold_admission_keeps_warm_lru(self, temp_cache_dir):
+        """A missing cold artifact must not evict an existing warm entry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        warm_uri = "s3://bucket/warm.tar.gz"
+        warm_key = compute_registry_artifact_cache_key(warm_uri)
+        warm_dir = _write_tarball_entry(temp_cache_dir, warm_key)
+        missing_uri = "s3://bucket/missing.tar.gz"
+        missing_key = compute_registry_artifact_cache_key(missing_uri)
+
+        async def mock_download(self, ctx, path):
+            raise FileNotFoundError("missing artifact")
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", mock_download),
+        ):
+            with pytest.raises(FileNotFoundError, match="missing artifact"):
+                async with cache.lease([missing_uri]):
+                    pytest.fail("failed admission must not yield a lease")
+
+        assert warm_dir.is_dir()
+        assert not cache._paths_for(missing_key).entry_dir.exists()
 
     @pytest.mark.anyio
     async def test_failed_materialization_rearms_budget_dirty(self, temp_cache_dir):
@@ -2273,19 +2300,20 @@ class TestRegistryArtifactCacheEviction:
         assert retained.exists()
 
     @pytest.mark.anyio
-    async def test_enforce_budget_counts_the_pending_entry(self, temp_cache_dir):
-        """The entry about to be materialized counts against the entry budget."""
+    async def test_enforce_budget_ignores_missing_protected_key(self, temp_cache_dir):
+        """Only successfully published entries count against the entry budget."""
         cache = RegistryArtifactCache(temp_cache_dir)
         existing = _write_image_entry(temp_cache_dir, "existing", size=16, mtime=100.0)
 
         with patch(MAX_ENTRIES_CONFIG, 1), patch(MAX_BYTES_CONFIG, 0):
-            await cache._enforce_cache_budget(protected_key="pending")
+            within_budget = await cache._enforce_cache_budget(protected_key="missing")
 
-        assert not existing.exists()
+        assert within_budget is True
+        assert existing.exists()
 
     @pytest.mark.anyio
     async def test_enforce_budget_never_evicts_the_protected_key(self, temp_cache_dir):
-        """The key being materialized is exempt even when it is the LRU entry."""
+        """The newly materialized key is exempt even when it is the LRU entry."""
         cache = RegistryArtifactCache(temp_cache_dir)
         protected = _write_image_entry(
             temp_cache_dir, "protected", size=4096, mtime=100.0
@@ -2307,9 +2335,10 @@ class TestRegistryArtifactCacheEviction:
         leased = _write_image_entry(temp_cache_dir, "leased", size=4096, mtime=100.0)
         cache._acquire_lease("leased")
 
-        with patch(MAX_ENTRIES_CONFIG, 1), patch(MAX_BYTES_CONFIG, 0):
-            await cache._enforce_cache_budget(protected_key="pending")
+        with patch(MAX_ENTRIES_CONFIG, 0), patch(MAX_BYTES_CONFIG, 1):
+            within_budget = await cache._enforce_cache_budget(protected_key="missing")
 
+        assert within_budget is False
         assert leased.exists()
 
     @pytest.mark.anyio
