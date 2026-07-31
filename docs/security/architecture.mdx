@@ -11,7 +11,7 @@ Tracecat's threat model starts with platform-enforced boundaries:
 - Short-lived authorization tokens and brokered credentials.
 - Encrypted durable payloads and object-storage externalization.
 - Deterministic tool policy and human approval.
-- Versioned change control, audit logs, and agent telemetry.
+- Versioned change management, Git Ops, audit logs, and agent telemetry.
 
 These controls do not rely on the LLM following instructions. The LLM can propose actions, but Tracecat decides what runs.
 
@@ -31,7 +31,8 @@ flowchart LR
     temporal["Temporal<br/>durable orchestration"]
     policy["Hosted-agent policy<br/>allow · deny · require approval"]
     approval["Human approval<br/>accept · reject · reason"]
-    audit["Approval and platform<br/>audit events"]
+    audit["Platform and organization<br/>user audit events"]
+    mcpActivity["Workspace MCP<br/>access activity"]
   end
 
   subgraph sandbox["nsjail sandbox"]
@@ -54,7 +55,7 @@ flowchart LR
     llmProviders["Managed or BYO LLM<br/>optional LLM proxy"]
     objectStore["Managed or customer<br/>object storage"]
     observability["Observability or SIEM"]
-    auditSink["HTTPS audit webhook"]
+    auditSink["Platform or organization<br/>audit webhook"]
   end
 
   operator --> api
@@ -82,10 +83,11 @@ flowchart LR
   llmGateway --> llmProviders
   temporal <-->|encrypted inputs and outputs| payloads
   payloads -->|externalize large payloads| objectStore
-  agent -. telemetry .-> otel
+  agent -. organization agent telemetry .-> otel
   otel -. OTLP .-> observability
   api -. control-plane event .-> audit
   approval -. one event per tool .-> audit
+  tools -. external MCP call .-> mcpActivity
   audit -. HTTPS .-> auditSink
 ```
 
@@ -163,7 +165,7 @@ You own controls for systems that Tracecat does not operate.
 | MCP policy | Place an independent gateway around MCP traffic.<br/>Apply an allow or deny layer.<br/>Add inspection or consent controls. | MCP proxy |
 | User audit logs | Export user and control-plane events through the [organization audit webhook](/audit-logs/organization).<br/>Define detections and retention.<br/>Create an incident-response process. | SIEM |
 | Agent logs and traces | Export agent OTEL logs and traces.<br/>Set retention for agent telemetry.<br/>Alert on risky tool activity and approval decisions. | OpenTelemetry-compatible LLM observability tool |
-| Git change control | Require reviews and protected branches.<br/>Sign changes to synced configuration. | GitHub<br/>GitLab |
+| Git change management | Require reviews and protected branches.<br/>Sign changes to synced configuration. | GitHub<br/>GitLab |
 | [AI red teaming](https://research.ibm.com/blog/what-is-red-teaming-gen-AI) | Simulate adversarial attacks against the complete AI application.<br/>Test jailbreaks and prompt injection.<br/>Test data leakage and agentic misuse.<br/>Retest as the system and attack techniques change. | [garak](https://github.com/NVIDIA/garak)<br/>[PyRIT](https://github.com/microsoft/PyRIT)<br/>[DeepTeam](https://www.trydeepteam.com/) |
 
 Use these references to harden systems outside Tracecat:
@@ -190,7 +192,8 @@ The mapping identifies relevant categories. It does not represent OWASP certific
 | Sandboxed execution | `A05` Injection<br/>`A06` Insecure Design | — | `ASI05` Unexpected Code Execution<br/>`ASI08` Cascading Failures |
 | MCP supply chain | `A03` Software Supply Chain Failures<br/>`A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
 | Token budgets | — | `LLM10` Unbounded Consumption | `ASI08` Cascading Failures |
-| Auditability | `A09` Security Logging and Alerting Failures | — | — |
+| Audit logs | `A09` Security Logging and Alerting Failures | — | — |
+| Change management / Git Ops | `A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
 
 ## Identity and platform boundaries
 
@@ -348,33 +351,55 @@ Each approval event records:
 
 See [Secrets and variables](/agents/secrets-variables) to learn how to pass secrets securely to preset agents through Expressions.
 
-## Auditability and change control
+## Audit logs
 
 <Badge stroke color="gray" size="sm" shape="pill">A09</Badge>
 
-Tracecat separates platform audit events from full hosted-agent telemetry.
+Tracecat separates audit signals by administrative scope and runtime source.
 
-| Signal | Coverage | Destination |
-| --- | --- | --- |
-| Platform audit events | Authenticated actor and request source.<br/>Resource, action, and result.<br/>Approval events include the approver and decision time. | Your HTTPS audit webhook.<br/>Tracecat does not store a separate copy of the webhook stream. |
-| MCP access activity | OAuth connections and personal access tokens by user.<br/>External Tracecat MCP tool calls. | The MCP access page. |
-| Agent OpenTelemetry | Logs, traces, and metrics by tenant and run.<br/>Tool activity and Tracecat approval decisions. | Your OTLP-compatible observability backend. |
+### Platform audit logs
 
-- The scoped OTEL relay keeps destination credentials out of the agent runtime.
-- You choose the telemetry backend and retention policy.
-- Native tool telemetry records the initial tool decision.
-- Tracecat records the later human acceptance or rejection.
+- Cover actions performed through the platform administration boundary.
+- Include platform settings, users, organizations, tiers, and registry administration.
+- Record the authenticated actor, resource, action, result, and request source.
+- Stream to a separate platform-scoped HTTPS audit webhook.
+- Remain separate from every organization audit sink.
 
-Platform approval audit events:
+### Organization user audit logs
 
-- Cover authenticated Tracecat UI and API users.
+- Cover authenticated organization users and service accounts.
+- Include organization and workspace scope when applicable.
+- Record the actor, request source, resource, action, result, and event time.
+- Include the approver and decision time for authenticated UI and API approvals.
 - Exclude prompts and tool arguments.
 - Exclude outputs and overrides.
 - Exclude credentials.
 - Do not yet include Slack-originated approval actors.
-- Use best-effort webhook delivery so collectors cannot block a decision.
+- Stream to the configured [organization audit webhook](/audit-logs/organization).
+- Use best-effort delivery so a collector cannot block the audited action.
+- Do not create a second stored copy of the webhook stream in Tracecat.
 
-### Versioned change control and rollback
+### Organization agent logs
+
+- Export OpenTelemetry logs, traces, and metrics by organization and agent run.
+- Record tool activity and the initial Tracecat policy decision.
+- Record the later human acceptance or rejection.
+- Route telemetry through a scoped OTEL relay.
+- Keep observability-backend credentials outside the agent runtime.
+- Send telemetry to your OTLP-compatible observability backend.
+- Use the retention policy configured in that backend.
+
+### Workspace MCP access logs
+
+- Group OAuth connections and personal access tokens by user.
+- Show external Tracecat MCP tool calls.
+- Scope this activity to the current workspace.
+- Present it in the workspace MCP access page.
+- Keep it distinct from platform and organization audit webhooks.
+
+## Change management / Git Ops
+
+<Badge stroke color="gray" size="sm" shape="pill">A08</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM03</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI04</Badge>
 
 - Published workflow definitions are immutable and pin their registry dependencies.
 - Test draft changes before publishing a new runtime version.
@@ -403,5 +428,5 @@ Platform approval audit events:
 - See [Secrets and variables](/agents/secrets-variables) to keep credentials out of LLM context.
 - See [MCP servers](/automations/integrations/mcp-integrations) to connect remote or `stdio` servers.
 - See [Custom LLM providers](/agents/custom-llm-providers) to route agents through your LLM gateway.
-- See [Organization audit logs](/audit-logs/organization) to stream platform audit events.
+- See [Organization audit logs](/audit-logs/organization) to stream organization user audit events.
 - See [Self-hosted security](/self-hosting/security) to harden an execution backend.
