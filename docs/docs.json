@@ -97,13 +97,6 @@
             ]
           },
           {
-            "group": "Security",
-            "icon": "shield-check",
-            "pages": [
-              "security/architecture"
-            ]
-          },
-          {
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [
@@ -136,9 +129,10 @@
             ]
           },
           {
-            "group": "Audit logs",
-            "icon": "logs",
+            "group": "Security",
+            "icon": "shield-check",
             "pages": [
+              "security/architecture",
               "audit-logs/organization"
             ]
           }
