@@ -1,0 +1,69 @@
+docs/snippets/audit-event-fields.mdx
+  s_bc0370f494ffd8::t_52d9a6bb666ea7 1-15
+docs/docs.json
+  s_bc0370f494ffd8::t_144db242bf041e 136-139
+docs/audit-logs/organization.mdx
+  s_85b6c79b3ee482::t_2fad7a741d6cd4 84
+  s_85b6c79b3ee482::t_eb4ffe8bf4b966 4,7-8,12-14,65,70-72,77-83,85-94,97-147,149-171,178-179,182
+  s_97c6afe74d3d7a::t_3230f41faa610d 148
+  s_97c6afe74d3d7a::t_f4a6d9b674d94c 183-184
+docs/audit-logs/agents.mdx
+  s_97c6afe74d3d7a::t_5df539f4875abd 6,8,12-13
+  s_85b6c79b3ee482::t_af754a59e3d9a8 1-5,7,9-11,14
+docs/audit-logs/mcp-access.mdx
+  s_85b6c79b3ee482::t_23eba209226965 1-5,7,9-12,14
+  s_97c6afe74d3d7a::t_6daa6d3ed9d2b9 6,8,13
+docs/security/architecture.mdx
+  s_97c6afe74d3d7a::t_3d5488812455b2 188
+  s_97c6afe74d3d7a::t_2c198c37abb822 197,201-209,211-225,229,233-273
+  s_bc0370f494ffd8::t_144db242bf041e 441-442,444
+  s_bc0370f494ffd8::t_b1e1a7e0527ac9 317
+  s_bc0370f494ffd8::t_b48c2ca5622dff 210
+  s_97c6afe74d3d7a::t_ed9ccd2574d852 227
+  s_85b6c79b3ee482::t_b94532c7b0de33 331
+  s_97c6afe74d3d7a::t_debb01ab654bad 123
+  s_97c6afe74d3d7a::t_c900e0e50fcfe3 7,9-14,16
+  s_97c6afe74d3d7a::t_7bc6fddbbf5727 118
+  s_85b6c79b3ee482::t_31492d38e22d23 308
+  s_97c6afe74d3d7a::t_e6562458c04dac 404-411
+  s_97c6afe74d3d7a::t_788f015ae85ed8 346
+  s_97c6afe74d3d7a::t_5afab4665c79a2 279-280
+  s_85b6c79b3ee482::t_48d8e309c60483 25,29,33,35,40,64,88-89,91-92,98,105,144,152,281-284,286-290,298-300,302,314-316,318-319,321,329,335-336,339,347-348,360,366-370,383-387,418-421,443
+  s_97c6afe74d3d7a::t_e7101665e640c7 417
+  s_97c6afe74d3d7a::t_1b316032d079ad 327
+docs/audit-logs/platform.mdx
+  s_85b6c79b3ee482::t_b438d0c56a65ef 8-9
+  s_85b6c79b3ee482::t_260849295972aa 1-7,10-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "5f40ee2e0cce4305a632f13c9abda2681420df4d",
+  "prompts": {},
+  "sessions": {
+    "s_85b6c79b3ee482": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "516da7f3-a7ba-4c3c-a7f7-d85f33bec8ef",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_97c6afe74d3d7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ad68cdc-cad2-4e7a-bfb4-75ed548aad87",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    },
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
