@@ -4,7 +4,6 @@ This module defines the abstract base class for executor backends,
 enabling pluggable execution strategies for different deployment scenarios.
 
 Available backends:
-- pool: Warm nsjail workers for single-tenant, high throughput
 - ephemeral: Cold nsjail subprocess per action for multitenant workloads
 - direct: Direct subprocess execution without warm workers
 - test: In-process execution for tests only
@@ -261,7 +260,7 @@ class ExecutorBackend(ABC):
         """Initialize the backend.
 
         Called once at worker startup. Override to perform setup
-        like creating worker pools or establishing connections.
+        like allocating execution resources or establishing connections.
         """
 
     async def shutdown(self) -> None:  # noqa: B027
