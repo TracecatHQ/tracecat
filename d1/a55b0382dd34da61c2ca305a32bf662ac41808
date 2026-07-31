@@ -1,0 +1,24 @@
+docs/self-hosting/security.mdx
+  s_bc0370f494ffd8::t_b48c2ca5622dff 91
+docs/security/architecture.mdx
+  s_bc0370f494ffd8::t_b48c2ca5622dff 3,7-14,77,79,81-84,86,88,90,92-99,101,103,105-109,111-113,115,117,119-120,122-154,156,158,160-164,170,172-178,180,182-184,186,189-193,198,200-204,206,208-212,214,216-220,224,226-229,233-234,236-237,239,241-242,246,248-255,258-263,268-269,272-274,277-278,281,285,287,291-293,295-298,300,302,306-307,311-315,321-324,326-327,331-336
+  s_bc0370f494ffd8::t_a9a636cc587610 110,235,238,270-271,303-305
+docs/audit-logs/organization.mdx
+  s_bc0370f494ffd8::t_b48c2ca5622dff 93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "d1a55b0382dd34da61c2ca305a32bf662ac41808",
+  "prompts": {},
+  "sessions": {
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
