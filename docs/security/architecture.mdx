@@ -124,17 +124,18 @@ You own controls for systems that Tracecat does not operate.
 
 | Concern | Customer hardening | Suggested tools |
 | --- | --- | --- |
-| Identity provider | Require MFA and conditional access.<br/>Review session and account-lifecycle policy. | Your identity provider. |
-| External LLMs and APIs | Review data use and retention.<br/>Confirm residency and provider access.<br/>Apply provider and endpoint allowlists. | Your LLM and API providers. |
-| Prompt and data filtering | Route LLM traffic through an LLM gateway.<br/>Apply prompt-injection and content controls.<br/>Filter PII and sensitive data. | [LiteLLM Proxy](https://docs.litellm.ai/)<br/>[LLM Guard](https://github.com/protectai/llm-guard) |
-| MCP policy | Place an independent gateway around MCP traffic.<br/>Apply an allow or deny layer.<br/>Add inspection or consent controls. | [ContextForge](https://github.com/IBM/mcp-context-forge) |
-| Detection and retention | Export OTEL data and platform audit events.<br/>Define detections and retention.<br/>Create an incident-response process. | [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)<br/>[Grafana Alloy](https://grafana.com/docs/alloy/latest/) |
+| Identity provider | Require MFA and conditional access.<br/>Review session and account-lifecycle policy. | [Okta](/authentication/saml#okta)<br/>[Microsoft Entra ID](/authentication/saml#microsoft-entra-id)<br/>[Keycloak](/authentication/saml#keycloak) |
+| External LLMs | Review data use and retention.<br/>Confirm residency and provider access.<br/>Apply provider and endpoint allowlists. | [LLM proxy](/agents/custom-llm-providers) |
+| Prompt and data filtering | Route LLM traffic through an LLM gateway.<br/>Apply prompt-injection and content controls.<br/>Filter PII and sensitive data. | [LLM proxy](/agents/custom-llm-providers) |
+| MCP policy | Place an independent gateway around MCP traffic.<br/>Apply an allow or deny layer.<br/>Add inspection or consent controls. | MCP proxy |
+| User audit logs | Export user and control-plane events through the [organization audit webhook](/audit-logs/organization).<br/>Define detections and retention.<br/>Create an incident-response process. | SIEM |
+| Agent logs and traces | Export agent OTEL logs and traces.<br/>Set retention for agent telemetry.<br/>Alert on risky tool activity and approval decisions. | OpenTelemetry-compatible LLM observability tool |
 | Git change control | Require reviews and protected branches.<br/>Sign changes to synced configuration. | GitHub<br/>GitLab |
-| AI red teaming | Test agents before production.<br/>Retest prompt changes.<br/>Retest LLM and provider changes.<br/>Retest skill, tool, and MCP changes. | [PyRIT](https://github.com/microsoft/PyRIT)<br/>[garak](https://github.com/NVIDIA/garak) |
+| [AI red teaming](https://research.ibm.com/blog/what-is-red-teaming-gen-AI) | Simulate adversarial attacks against the complete AI application.<br/>Test jailbreaks and prompt injection.<br/>Test data leakage and agentic misuse.<br/>Retest as the system and attack techniques change. | [garak](https://github.com/NVIDIA/garak)<br/>[PyRIT](https://github.com/microsoft/PyRIT)<br/>[DeepTeam](https://www.trydeepteam.com/) |
 
 Tool links are examples, not endorsements.
 
-Use these references when you define customer-owned controls:
+Use these references to harden systems outside Tracecat:
 
 - [MCP security best practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices).
 - [NIST Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
