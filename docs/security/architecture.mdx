@@ -191,8 +191,8 @@ Tracecat separates remote and local MCP execution:
 - Remote MCP servers run outside the agent sandbox. The trusted Tracecat proxy resolves authentication, calls the approved server, and returns the result.
 - `stdio` MCP servers run as child processes inside the agent sandbox and inherit its filesystem, network, time, resource, and identity boundaries.
 
-Tracecat captures the approved MCP server and tool inventory for the run.
-The runtime cannot introduce a new server or call a tool outside that inventory.
+Tracecat captures the approved MCP server and tool inventory for the run, and normal SDK-dispatched calls are limited to that inventory.
+Because agent-controlled code and `stdio` MCP share one sandbox, local MCP is not a separate tool-policy isolation boundary against code that invokes the local executable directly; use remote HTTP MCP when calls must be rechecked at the trusted proxy.
 
 <Info>
   `stdio` MCP currently has four security-model limitations. Approval gates do not support `stdio` tools, so use remote HTTP MCP for tools that require human approval. Configuring `stdio` also requires network access for the whole agent sandbox, not only the child process. The agent and `stdio` process share one sandbox and execution identity rather than separate identities. Credentials required by a `stdio` server are materialized inside that shared sandbox and must be treated as accessible to agent-controlled code.
