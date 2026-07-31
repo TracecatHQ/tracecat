@@ -436,7 +436,7 @@ class TestCasesService:
         svc_role: Role,
         svc_workspace: Workspace,
     ) -> None:
-        """Concurrent creates should serialize on the workspace counter row."""
+        """Concurrent creates should allocate unique workspace-local numbers."""
         await cases_service.fields._ensure_schema_ready()
         await cases_service.session.commit()
         assert session.bind is not None
@@ -483,6 +483,140 @@ class TestCasesService:
                 )
             ).scalars()
             assert sorted(stored_case_numbers.all()) == [1, 2, 3, 4, 5]
+
+    async def test_slow_related_writes_do_not_hold_case_number_counter_lock(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """A stalled case should not block another case before final allocation."""
+        await cases_service.fields._ensure_schema_ready()
+        await cases_service.session.commit()
+        assert session.bind is not None
+        session_factory = async_sessionmaker(bind=session.bind, expire_on_commit=False)
+        slow_write_started = asyncio.Event()
+        release_slow_write = asyncio.Event()
+        original_upsert = CaseFieldsService.upsert_field_values
+
+        async def pause_slow_case(
+            fields_service: CaseFieldsService,
+            case: Case,
+            fields: dict[str, Any],
+        ) -> dict[str, Any]:
+            if case.summary == "Slow case":
+                slow_write_started.set()
+                await release_slow_write.wait()
+            return await original_upsert(fields_service, case, fields)
+
+        async def create_case(summary: str) -> int:
+            async with session_factory() as concurrent_session:
+                service = CasesService(
+                    session=concurrent_session,
+                    role=svc_role.model_copy(deep=True),
+                )
+                case = await service.create_case(
+                    CaseCreate(
+                        summary=summary,
+                        description=summary,
+                        status=CaseStatus.NEW,
+                        priority=CasePriority.MEDIUM,
+                        severity=CaseSeverity.LOW,
+                    )
+                )
+                return case.case_number
+
+        with (
+            patch.object(
+                CaseFieldsService,
+                "_ensure_schema_ready",
+                new=AsyncMock(return_value=None),
+            ),
+            patch.object(
+                CaseFieldsService,
+                "upsert_field_values",
+                new=pause_slow_case,
+            ),
+        ):
+            slow_task = asyncio.create_task(create_case("Slow case"))
+            try:
+                await asyncio.wait_for(slow_write_started.wait(), timeout=5)
+                fast_case_number = await asyncio.wait_for(
+                    create_case("Fast case"), timeout=5
+                )
+            finally:
+                release_slow_write.set()
+
+            slow_case_number = await asyncio.wait_for(slow_task, timeout=5)
+
+        assert fast_case_number == 1
+        assert slow_case_number == 2
+
+    async def test_failed_case_creation_rolls_back_allocated_number(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+    ) -> None:
+        """The counter remains gapless when failure occurs after allocation."""
+        workspace_id = cases_service.workspace_id
+        original_assign = cases_service._assign_next_case_number
+
+        async def fail_after_counter_update(case: Case) -> None:
+            await original_assign(case)
+            raise RuntimeError("Synthetic failure after case-number allocation")
+
+        with (
+            patch.object(
+                cases_service,
+                "_assign_next_case_number",
+                new=fail_after_counter_update,
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary="Failed case",
+                    description="Failed case",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+
+        workspace = await session.scalar(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        assert workspace is not None
+        assert workspace.last_case_number == 0
+        stored_cases = (
+            await session.execute(select(Case).where(Case.workspace_id == workspace_id))
+        ).scalars()
+        assert stored_cases.all() == []
+
+    async def test_pending_case_number_cannot_be_committed(
+        self,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+    ) -> None:
+        """The deferred database invariant rejects a persisted sentinel."""
+        session.add(
+            Case(
+                workspace_id=svc_workspace.id,
+                case_number=0,
+                summary="Pending case",
+                description="Pending case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        await session.flush()
+        # The session fixture wraps each test in an outer transaction, so force
+        # deferred triggers to run instead of relying on session.commit().
+        with pytest.raises(DBAPIError):
+            await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        await session.rollback()
 
     async def test_list_cases_with_limit(
         self, cases_service: CasesService, case_create_params: CaseCreate

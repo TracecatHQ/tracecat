@@ -106,6 +106,7 @@ from tracecat.db.models import (
     CaseTask,
     User,
     Workflow,
+    Workspace,
     WorkspaceSyncResourceMapping,
 )
 from tracecat.db.session_events import AfterCommitQueue
@@ -212,6 +213,7 @@ def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
 CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
 CASE_BATCH_LOCK_TIMEOUT = "5s"
 CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+PENDING_CASE_NUMBER = 0
 
 
 class CasesService(BaseWorkspaceService):
@@ -851,6 +853,19 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    async def _assign_next_case_number(self, case: Case) -> None:
+        """Assign the next gapless number at the end of case creation."""
+        next_case_number = await self.session.scalar(
+            sa.update(Workspace)
+            .where(Workspace.id == self.workspace_id)
+            .values(last_case_number=Workspace.last_case_number + 1)
+            .returning(Workspace.last_case_number)
+        )
+        if next_case_number is None:
+            raise TracecatNotFoundError("Workspace not found")
+        case.case_number = next_case_number
+        await self.session.flush()
+
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
@@ -864,6 +879,9 @@ class CasesService(BaseWorkspaceService):
             now = datetime.now(UTC)
             case = Case(
                 workspace_id=self.workspace_id,
+                # The trigger recognizes zero as a transaction-local sentinel. The
+                # real number is allocated after all potentially slow related writes.
+                case_number=PENDING_CASE_NUMBER,
                 summary=params.summary,
                 description=params.description,
                 priority=params.priority,
@@ -876,7 +894,8 @@ class CasesService(BaseWorkspaceService):
             )
 
             self.session.add(case)
-            await self.session.flush()  # Generate case ID
+            # Generate the case ID without locking the workspace counter.
+            await self.session.flush()
 
             # Always create the fields row to ensure defaults are applied
             # Pass empty dict if no fields provided to trigger default value application
@@ -896,6 +915,12 @@ class CasesService(BaseWorkspaceService):
                     params.dropdown_values,
                     commit=False,
                 )
+
+            # Flush all related writes before entering the gapless counter's short
+            # critical section. The counter update and case-number assignment remain
+            # in this transaction, so a failed commit rolls both back together.
+            await self.session.flush()
+            await self._assign_next_case_number(case)
 
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
