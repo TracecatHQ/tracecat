@@ -138,6 +138,10 @@ A policy decision has one of three results:
 Tracecat bounds each hosted-agent run at the sandbox boundary with wall-time and resource limits.
 These controls contain loops and cascading failures without assuming a fixed number of model requests or tool calls.
 
+<Info>
+  Coming soon: Per-run token budgets and token burn-rate limits will complement the sandbox boundary. A total token budget will bound worst-case inference cost, while the burn-rate limit will control how quickly long-running agents consume that budget. Tool policy and human approvals will continue to govern side-effect risk separately.
+</Info>
+
 ### Durable human approval
 
 OWASP mappings: `A01 Broken Access Control`, `A06 Insecure Design`, `LLM06 Excessive Agency`, `ASI02 Tool Misuse and Exploitation`, and `ASI09 Human-Agent Trust Exploitation`.
