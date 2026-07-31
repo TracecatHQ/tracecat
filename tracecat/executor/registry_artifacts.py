@@ -539,10 +539,19 @@ class TarballArtifact(RegistryArtifact):
             await asyncio.shield(extraction)
         except asyncio.CancelledError:
             # A thread cannot be killed. Rejoin it before materialize removes
-            # scratch; a second cancellation may interrupt this best-effort join.
+            # scratch. Each cancellation can interrupt shield without stopping
+            # the thread, so keep waiting until extraction reaches a terminal
+            # state before propagating the original cancellation.
+            while not extraction.done():
+                try:
+                    await asyncio.shield(extraction)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
             if not extraction.cancelled():
                 with contextlib.suppress(Exception):
-                    await asyncio.shield(extraction)
+                    extraction.result()
             raise
 
         logger.debug(

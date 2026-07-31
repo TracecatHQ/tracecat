@@ -755,8 +755,10 @@ class TestRegistryArtifactCache:
         assert captured.returncode is not None
 
     @pytest.mark.anyio
-    async def test_cancelled_tarball_extract_rejoins_thread(self, temp_cache_dir):
-        """Cancellation waits until the tar extractor stops writing."""
+    async def test_repeatedly_cancelled_tarball_extract_rejoins_thread(
+        self, temp_cache_dir
+    ):
+        """Repeated cancellation waits until the tar extractor stops writing."""
         artifact = TarballArtifact(
             uri="s3://bucket/path/site-packages.tar.gz",
             cache_key="cancelled-tarball-extract",
@@ -786,14 +788,19 @@ class TestRegistryArtifactCache:
             assert await asyncio.to_thread(extraction_started.wait, 1)
             extracting.cancel()
             done, _ = await asyncio.wait({extracting}, timeout=0.05)
-            cancellation_propagated_early = bool(done)
+            first_cancellation_propagated_early = bool(done)
+
+            extracting.cancel()
+            done, _ = await asyncio.wait({extracting}, timeout=0.05)
+            second_cancellation_propagated_early = bool(done)
             extraction_release.set()
 
             with pytest.raises(asyncio.CancelledError):
                 await extracting
 
         assert extraction_finished.is_set()
-        assert cancellation_propagated_early is False
+        assert first_cancellation_propagated_early is False
+        assert second_cancellation_propagated_early is False
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
