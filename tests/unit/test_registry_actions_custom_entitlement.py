@@ -235,6 +235,26 @@ async def test_get_actions_from_index_filters_custom_and_keeps_platform_fallback
 
 
 @pytest.mark.anyio
+async def test_get_actions_from_index_reuses_manifest_for_same_version(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_names = ["acme.batch.first", "acme.batch.second"]
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-shared-manifest",
+        action_names=action_names,
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    results = await service.get_actions_from_index(action_names)
+
+    assert set(results) == set(action_names)
+    assert results[action_names[0]].manifest is results[action_names[1]].manifest
+
+
+@pytest.mark.anyio
 async def test_list_actions_from_index_by_repository_returns_empty_for_custom_repo_without_entitlement(
     svc_role: Role,
     session: AsyncSession,
