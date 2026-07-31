@@ -148,12 +148,16 @@ module "ecs" {
   agent_worker_cpu                         = var.agent_worker_cpu
   agent_worker_memory                      = var.agent_worker_memory
   agent_worker_desired_count               = var.agent_worker_desired_count
+  agent_worker_max_concurrent_activities   = var.agent_worker_max_concurrent_activities
   agent_queue                              = var.agent_queue
   executor_cpu                             = var.executor_cpu
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
   executor_queue                           = var.executor_queue
+  executor_max_concurrent_activities       = var.executor_max_concurrent_activities
+  executor_threadpool_max_workers          = var.executor_threadpool_max_workers
+  executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
