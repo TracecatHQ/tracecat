@@ -135,8 +135,8 @@ A policy decision has one of three results:
 - `Deny`: Return a blocked result without resolving credentials or causing a side effect.
 - `Require approval`: Pause before execution and create a durable approval request.
 
-Agent presets also bound each run with maximum request and tool-call counts.
-Sandbox time and resource limits contain loops and cascading failures outside the model's instructions.
+Tracecat bounds each hosted-agent run at the sandbox boundary with wall-time and resource limits.
+These controls contain loops and cascading failures without assuming a fixed number of model requests or tool calls.
 
 ### Durable human approval
 
