@@ -1,0 +1,24 @@
+docs/snippets/generate-secrets.mdx
+  s_97c6afe74d3d7a::t_0b04d9ca40e91a 21-22
+docs/security/architecture.mdx
+  s_97c6afe74d3d7a::t_f6a29d18c6b6c0 450
+  s_97c6afe74d3d7a::t_e99c3016e45b7a 275-291
+docs/self-hosting/security.mdx
+  s_97c6afe74d3d7a::t_9e64eff81b3aa9 37-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "a35985981a08aa261a65e8e9d3452393b9bd8fcc",
+  "prompts": {},
+  "sessions": {
+    "s_97c6afe74d3d7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ad68cdc-cad2-4e7a-bfb4-75ed548aad87",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
