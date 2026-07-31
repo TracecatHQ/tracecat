@@ -622,12 +622,6 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
-variable "executor_worker_pool_size" {
-  type        = string
-  description = "Executor worker pool size (optional; auto when null)"
-  default     = null
-}
-
 variable "executor_max_concurrent_activities" {
   type        = number
   description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
@@ -687,12 +681,6 @@ variable "agent_executor_max_concurrent_activities" {
   type        = number
   description = "Maximum concurrent activities per agent-executor task"
   default     = 3
-}
-
-variable "agent_executor_worker_pool_size" {
-  type        = string
-  description = "Agent executor worker pool size (optional; auto when null)"
-  default     = null
 }
 
 variable "llm_proxy_read_timeout" {

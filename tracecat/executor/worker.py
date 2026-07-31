@@ -5,7 +5,6 @@ This worker listens on the 'shared-action-queue' and executes:
 - Registry sync operations (when sandboxed sync is enabled)
 
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
-- pool: Warm nsjail workers (single-tenant, high throughput)
 - ephemeral: Cold nsjail subprocess per action (multitenant, full isolation)
 - direct: Direct subprocess execution
 - test: In-process execution (tests only)

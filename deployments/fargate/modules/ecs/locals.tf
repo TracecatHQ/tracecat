@@ -164,12 +164,11 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                   = local.internal_api_url
-        TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__SERVICE_NAME              = "executor"
-        TRACECAT__EXECUTOR_BACKEND          = "direct"
-        TRACECAT__EXECUTOR_QUEUE            = var.executor_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.executor_worker_pool_size
+        TRACECAT__API_URL          = local.internal_api_url
+        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
+        TRACECAT__SERVICE_NAME     = "executor"
+        TRACECAT__EXECUTOR_BACKEND = "direct"
+        TRACECAT__EXECUTOR_QUEUE   = var.executor_queue
         # Executor concurrency tuning (see tracecat/executor/worker.py and tracecat/executor/service.py)
         TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.executor_max_concurrent_activities
         TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
@@ -201,7 +200,6 @@ locals {
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
         TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = var.llm_gateway_credential_cache_ttl_seconds
