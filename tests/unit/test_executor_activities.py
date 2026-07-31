@@ -195,25 +195,37 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "ExecutionError"
+            assert app_error.type == error_info.type
             # Check that the error info is in the details
             assert len(app_error.details) > 0
+            detail = app_error.details[0]
+            assert isinstance(detail, ActionErrorInfo)
+            assert detail.type == ExecutionError.__name__
 
     @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(
         self, mock_run_action_input, mock_role
     ):
         """Test that LoopExecutionError is converted to ApplicationError."""
-        # Create mock loop errors
-        error_info = ExecutorActionErrorInfo(
-            type="ValueError",
-            message="Loop iteration failed",
-            action_name="test_action",
-            filename="<test>",
-            function="test_function",
-            loop_iteration=0,
-        )
-        loop_errors = [ExecutionError(info=error_info)]
+        error_infos = [
+            ExecutorActionErrorInfo(
+                type="ValueError",
+                message="Loop iteration failed",
+                action_name="test_action",
+                filename="<test>",
+                function="test_function",
+                loop_iteration=0,
+            ),
+            ExecutorActionErrorInfo(
+                type="PoolTimeoutError",
+                message="Another loop iteration failed",
+                action_name="test_action",
+                filename="<test>",
+                function="test_function",
+                loop_iteration=1,
+            ),
+        ]
+        loop_errors = [ExecutionError(info=info) for info in error_infos]
         loop_error = LoopExecutionError(loop_errors)
 
         with (
@@ -234,7 +246,14 @@ class TestExecuteActionActivity:
                 )
 
             app_error = exc_info.value
-            assert app_error.type == "LoopExecutionError"
+            assert app_error.type == LoopExecutionError.__name__
+            detail = app_error.details[0]
+            assert isinstance(detail, ActionErrorInfo)
+            assert detail.type == LoopExecutionError.__name__
+            assert detail.children is not None
+            assert [child.type for child in detail.children] == [
+                info.type for info in error_infos
+            ]
 
     @pytest.mark.anyio
     async def test_unexpected_error_is_non_retryable(

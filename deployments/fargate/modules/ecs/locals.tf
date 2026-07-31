@@ -43,8 +43,15 @@ locals {
   }
 
   tracecat_db_configs_executor = {
-    TRACECAT__DB_MAX_OVERFLOW = var.db_max_overflow_executor
-    TRACECAT__DB_POOL_SIZE    = var.db_pool_size_executor
+    TRACECAT__DB_MAX_OVERFLOW      = var.db_max_overflow_executor
+    TRACECAT__DB_POOL_SIZE         = var.db_pool_size_executor
+    TRACECAT__DB_AUTH_MAX_OVERFLOW = var.db_auth_max_overflow_executor
+    TRACECAT__DB_AUTH_POOL_SIZE    = var.db_auth_pool_size_executor
+  }
+
+  tracecat_db_configs_agent_executor = {
+    TRACECAT__DB_MAX_OVERFLOW = var.db_max_overflow_agent_executor
+    TRACECAT__DB_POOL_SIZE    = var.db_pool_size_agent_executor
   }
 
   tracecat_common_env = {
@@ -190,7 +197,7 @@ locals {
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
-      local.tracecat_db_configs_executor,
+      local.tracecat_db_configs_agent_executor,
       {
         TRACECAT__API_URL                                  = local.internal_api_url
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname

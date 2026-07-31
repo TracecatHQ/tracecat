@@ -3793,6 +3793,8 @@ export type EventFailure = {
     [key: string]: unknown
   } | null
   root_cause_message?: string | null
+  failure_type?: string | null
+  failure_types?: Array<string>
 }
 
 export type EventGroup_TypeVar_ = {
@@ -9290,6 +9292,10 @@ export type WorkflowExecutionRead = {
    * Number of events in the history
    */
   history_length: number
+  /**
+   * Serialized Temporal workflow history size in bytes
+   */
+  history_size_bytes: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
@@ -9350,6 +9356,10 @@ export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
    * Number of events in the history
    */
   history_length: number
+  /**
+   * Serialized Temporal workflow history size in bytes
+   */
+  history_size_bytes: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
@@ -9401,6 +9411,10 @@ export type WorkflowExecutionReadMinimal = {
    * Number of events in the history
    */
   history_length: number
+  /**
+   * Serialized Temporal workflow history size in bytes
+   */
+  history_size_bytes: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
@@ -9573,6 +9587,10 @@ export type WorkflowRunReadMinimal = {
    * Number of events in the history
    */
   history_length: number
+  /**
+   * Serialized Temporal workflow history size in bytes
+   */
+  history_size_bytes: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**

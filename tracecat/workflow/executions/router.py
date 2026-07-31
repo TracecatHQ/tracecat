@@ -627,6 +627,7 @@ async def _get_workflow_execution_response(
         workflow_type=execution.workflow_type,
         task_queue=execution.task_queue,
         history_length=execution.history_length,
+        history_size_bytes=execution.raw_info.history_size_bytes,
         events=events,
         interactions=interactions,
         trigger_type=get_trigger_type_from_search_attr(
@@ -728,6 +729,7 @@ async def get_workflow_execution_compact(
         workflow_type=execution.workflow_type,
         task_queue=execution.task_queue,
         history_length=execution.history_length,
+        history_size_bytes=execution.raw_info.history_size_bytes,
         events=compact_events,
         interactions=interactions,
         trigger_type=get_trigger_type_from_search_attr(

@@ -83,6 +83,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
                 workflow_type="DSLWorkflow",
                 task_queue="tracecat-task-queue",
                 history_length=42,
+                raw_info=SimpleNamespace(history_size_bytes=8192),
                 parent_id=None,
                 typed_search_attributes=TypedSearchAttributes(search_attributes=[]),
             ),
@@ -95,6 +96,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
         )
 
         assert run.status == WorkflowExecutionStatus.COMPLETED
+        assert run.history_size_bytes == 8192
 
     async def test_get_execution_returns_none_for_workspace_mismatch(
         self,

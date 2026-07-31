@@ -85,14 +85,18 @@ module "ecs" {
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool
-  db_max_overflow          = var.db_max_overflow
-  db_pool_size             = var.db_pool_size
-  db_pool_timeout          = var.db_pool_timeout
-  db_pool_recycle          = var.db_pool_recycle
-  db_auth_max_overflow     = var.db_auth_max_overflow
-  db_auth_pool_size        = var.db_auth_pool_size
-  db_max_overflow_executor = var.db_max_overflow_executor
-  db_pool_size_executor    = var.db_pool_size_executor
+  db_max_overflow                = var.db_max_overflow
+  db_pool_size                   = var.db_pool_size
+  db_pool_timeout                = var.db_pool_timeout
+  db_pool_recycle                = var.db_pool_recycle
+  db_auth_max_overflow           = var.db_auth_max_overflow
+  db_auth_pool_size              = var.db_auth_pool_size
+  db_max_overflow_executor       = var.db_max_overflow_executor
+  db_pool_size_executor          = var.db_pool_size_executor
+  db_auth_max_overflow_executor  = var.db_auth_max_overflow_executor
+  db_auth_pool_size_executor     = var.db_auth_pool_size_executor
+  db_max_overflow_agent_executor = var.db_max_overflow_agent_executor
+  db_pool_size_agent_executor    = var.db_pool_size_agent_executor
 
   # RDS settings
   restore_from_snapshot            = var.restore_from_snapshot

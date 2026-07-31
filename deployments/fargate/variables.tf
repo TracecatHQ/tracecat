@@ -307,13 +307,37 @@ variable "db_auth_pool_size" {
 
 variable "db_max_overflow_executor" {
   type        = string
-  description = "The maximum number of connections to allow in the DB pool"
-  default     = "60"
+  description = "Maximum overflow connections per action-executor task"
+  default     = "0"
 }
 
 variable "db_pool_size_executor" {
   type        = string
-  description = "The size of the database connection pool"
+  description = "Main database pool size per action-executor task"
+  default     = "9"
+}
+
+variable "db_auth_max_overflow_executor" {
+  type        = string
+  description = "Maximum auth-pool overflow connections per action-executor task"
+  default     = "0"
+}
+
+variable "db_auth_pool_size_executor" {
+  type        = string
+  description = "Authentication database pool size per action-executor task"
+  default     = "5"
+}
+
+variable "db_max_overflow_agent_executor" {
+  type        = string
+  description = "Maximum overflow connections per agent-executor task"
+  default     = "60"
+}
+
+variable "db_pool_size_agent_executor" {
+  type        = string
+  description = "Main database pool size per agent-executor task"
   default     = "30"
 }
 
@@ -593,7 +617,7 @@ variable "executor_queue" {
 variable "executor_max_concurrent_activities" {
   type        = number
   description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
-  default     = 16
+  default     = 8
 
   validation {
     condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities

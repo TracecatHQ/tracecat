@@ -20,17 +20,27 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from pydantic import BaseModel
-from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
+from temporalio.api.enums.v1 import (
+    EventType,
+    ParentClosePolicy,
+    PendingActivityState,
+    TimeoutType,
+)
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
+from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import AgentActionMemo, ChildWorkflowMemo, DSLInput
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
+from tracecat.dsl.types import ActionErrorInfo
+from tracecat.exceptions import ExecutionError
+from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import (
     ExecutionUUID,
     WorkflowExecutionID,
@@ -2389,6 +2399,76 @@ def test_event_failure_extract_root_cause_message_handles_empty_and_cycles() -> 
     assert result == "Top-level failure"
 
 
+@pytest.mark.parametrize(
+    ("timeout_type", "expected"),
+    [
+        (TimeoutType.TIMEOUT_TYPE_UNSPECIFIED, "TIMEOUT"),
+        (
+            TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_START,
+            "TIMEOUT_TYPE_SCHEDULE_TO_START",
+        ),
+        (TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE, "TIMEOUT_TYPE_START_TO_CLOSE"),
+        (
+            TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE,
+            "TIMEOUT_TYPE_SCHEDULE_TO_CLOSE",
+        ),
+        (TimeoutType.TIMEOUT_TYPE_HEARTBEAT, "TIMEOUT_TYPE_HEARTBEAT"),
+        (cast(TimeoutType.ValueType, 99), "TIMEOUT_TYPE_99"),
+    ],
+)
+def test_event_failure_extract_failure_type_uses_structured_temporal_info(
+    timeout_type: TimeoutType.ValueType,
+    expected: str,
+) -> None:
+    failure = Failure(message="timed out")
+    failure.timeout_failure_info.timeout_type = timeout_type
+
+    assert EventFailure.extract_failure_type(failure) == expected
+
+
+@pytest.mark.anyio
+async def test_event_failure_prefers_structured_type_over_generic_chained_cause() -> (
+    None
+):
+    executor_error = ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name="core.table.insert_row",
+            type="PoolTimeoutError",
+            message="Pool exhausted",
+            filename="<test>",
+            function="test_action",
+        )
+    )
+    try:
+        raise ApplicationError(
+            "Action failed",
+            ActionErrorInfo(
+                ref="write_rows",
+                message="Action failed",
+                type="ExecutionError",
+            ),
+            type="PoolTimeoutError",
+        ) from executor_error
+    except ApplicationError as error:
+        decoded_error = error
+
+    failure_proto = Failure()
+    await get_data_converter(compression_enabled=False).encode_failure(
+        decoded_error,
+        failure_proto,
+    )
+    event = HistoryEvent(
+        event_id=1,
+        event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+    )
+    event.activity_task_failed_event_attributes.failure.CopyFrom(failure_proto)
+
+    failure = await EventFailure.from_history_event(event)
+
+    assert failure.failure_type == "PoolTimeoutError"
+    assert failure.failure_types == ["PoolTimeoutError"]
+
+
 @pytest.mark.anyio
 async def test_event_failure_from_history_event_populates_root_cause_message() -> None:
     failure_cause = Mock()
@@ -2456,6 +2536,48 @@ async def test_event_failure_from_history_event_decodes_encoded_attribute_messag
     assert failure.message == "Outer failure with Authorization: Bearer [REDACTED]"
     assert failure.root_cause_message == "Root failure with api_key=[REDACTED]"
     assert failure.cause is None
+    assert failure.failure_type == "RootFailure"
+    assert failure.failure_types == ["RootFailure"]
+
+
+@pytest.mark.anyio
+async def test_event_failure_preserves_structured_child_failure_types() -> None:
+    decoded_error = ApplicationError(
+        "Loop execution failed",
+        ActionErrorInfo(
+            ref="write_rows",
+            message="Loop execution failed",
+            type="LoopExecutionError",
+            children=[
+                ActionErrorInfo(
+                    ref="write_rows",
+                    message="Loop iteration failed",
+                    type="PoolTimeoutError",
+                ),
+                ActionErrorInfo(
+                    ref="write_rows",
+                    message="Loop iteration failed",
+                    type="PostgresError",
+                ),
+            ],
+        ),
+        type="LoopExecutionError",
+    )
+    failure_proto = Failure()
+    await get_data_converter(compression_enabled=False).encode_failure(
+        decoded_error,
+        failure_proto,
+    )
+    event = HistoryEvent(
+        event_id=1,
+        event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+    )
+    event.activity_task_failed_event_attributes.failure.CopyFrom(failure_proto)
+
+    failure = await EventFailure.from_history_event(event)
+
+    assert failure.failure_type == "LoopExecutionError"
+    assert failure.failure_types == ["PoolTimeoutError", "PostgresError"]
 
 
 @pytest.mark.anyio

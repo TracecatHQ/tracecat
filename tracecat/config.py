@@ -262,6 +262,14 @@ TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
     os.environ.get("TRACECAT__DB_AUTH_MAX_OVERFLOW") or 5
 )
 """The maximum number of overflow connections for the authentication pool."""
+TRACECAT__INTERNAL_DB_POOL_METRICS_PORT = int(
+    os.environ.get("TRACECAT__INTERNAL_DB_POOL_METRICS_PORT") or 0
+)
+"""Internal HTTP port for process-local SQLAlchemy pool diagnostics.
+
+This is not a supported tuning control. Diagnostic tooling may set a positive
+port to enable the endpoint; zero keeps it disabled for normal deployments.
+"""
 
 
 # === Auth config === #

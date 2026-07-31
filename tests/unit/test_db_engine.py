@@ -29,6 +29,7 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.pool_metrics import InstrumentedAsyncAdaptedQueuePool
 
 
 class DummySecretsClient:
@@ -263,8 +264,28 @@ async def test_auth_engine_pool_size_honors_config(
         auth_pool = auth_engine.pool
         assert isinstance(pool, QueuePool)
         assert isinstance(auth_pool, QueuePool)
+        assert not isinstance(pool, InstrumentedAsyncAdaptedQueuePool)
+        assert not isinstance(auth_pool, InstrumentedAsyncAdaptedQueuePool)
         assert auth_pool.size() == 3
         assert pool.size() == 11
+    finally:
+        await engine.dispose()
+        await auth_engine.dispose()
+        reset_async_engine()
+
+
+@pytest.mark.anyio
+async def test_pool_metrics_poolclass_is_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__INTERNAL_DB_POOL_METRICS_PORT", 9091)
+    reset_async_engine()
+
+    engine = get_async_engine()
+    auth_engine = get_async_auth_engine()
+    try:
+        assert isinstance(engine.pool, InstrumentedAsyncAdaptedQueuePool)
+        assert isinstance(auth_engine.pool, InstrumentedAsyncAdaptedQueuePool)
     finally:
         await engine.dispose()
         await auth_engine.dispose()

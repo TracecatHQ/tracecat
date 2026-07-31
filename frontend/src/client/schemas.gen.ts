@@ -12828,6 +12828,24 @@ export const $EventFailure = {
       ],
       title: "Root Cause Message",
     },
+    failure_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Failure Type",
+    },
+    failure_types: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Failure Types",
+    },
   },
   type: "object",
   required: ["message"],
@@ -31120,6 +31138,11 @@ export const $WorkflowExecutionRead = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    history_size_bytes: {
+      type: "integer",
+      title: "History Size Bytes",
+      description: "Serialized Temporal workflow history size in bytes",
+    },
     parent_wf_exec_id: {
       anyOf: [
         {
@@ -31168,6 +31191,7 @@ export const $WorkflowExecutionRead = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "history_size_bytes",
     "trigger_type",
     "events",
   ],
@@ -31243,6 +31267,11 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    history_size_bytes: {
+      type: "integer",
+      title: "History Size Bytes",
+      description: "Serialized Temporal workflow history size in bytes",
+    },
     parent_wf_exec_id: {
       anyOf: [
         {
@@ -31291,6 +31320,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "history_size_bytes",
     "trigger_type",
     "events",
   ],
@@ -31366,6 +31396,11 @@ export const $WorkflowExecutionReadMinimal = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    history_size_bytes: {
+      type: "integer",
+      title: "History Size Bytes",
+      description: "Serialized Temporal workflow history size in bytes",
+    },
     parent_wf_exec_id: {
       anyOf: [
         {
@@ -31398,6 +31433,7 @@ export const $WorkflowExecutionReadMinimal = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "history_size_bytes",
     "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
@@ -32045,6 +32081,11 @@ export const $WorkflowRunReadMinimal = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    history_size_bytes: {
+      type: "integer",
+      title: "History Size Bytes",
+      description: "Serialized Temporal workflow history size in bytes",
+    },
     parent_wf_exec_id: {
       anyOf: [
         {
@@ -32114,6 +32155,7 @@ export const $WorkflowRunReadMinimal = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "history_size_bytes",
     "trigger_type",
   ],
   title: "WorkflowRunReadMinimal",

@@ -3,7 +3,7 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator
 from contextvars import ContextVar
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 import boto3
 from botocore.exceptions import ClientError
@@ -24,7 +24,13 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.pool_metrics import (
+    InstrumentedAsyncAdaptedQueuePool,
+    start_pool_metrics_server,
+)
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+
+start_pool_metrics_server(config.TRACECAT__INTERNAL_DB_POOL_METRICS_PORT)
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -45,6 +51,23 @@ _ctx_auth_pool_session: ContextVar[AsyncSession | None] = ContextVar(
     "auth_pool_session",
     default=None,
 )
+
+
+class _PoolMetricsEngineOptions(TypedDict):
+    """Optional engine arguments used only for internal pool diagnostics."""
+
+    poolclass: NotRequired[type[InstrumentedAsyncAdaptedQueuePool]]
+    pool_metrics_name: NotRequired[str]
+
+
+def _pool_metrics_engine_options(pool_name: str) -> _PoolMetricsEngineOptions:
+    """Keep the production engine on SQLAlchemy's default pool implementation."""
+    if config.TRACECAT__INTERNAL_DB_POOL_METRICS_PORT <= 0:
+        return {}
+    return {
+        "poolclass": InstrumentedAsyncAdaptedQueuePool,
+        "pool_metrics_name": pool_name,
+    }
 
 
 class SupportsExecute(Protocol):
@@ -297,6 +320,7 @@ def _create_async_db_engine() -> AsyncEngine:
         connect_args={
             "server_settings": {"application_name": config.TRACECAT__SERVICE_NAME}
         },
+        **_pool_metrics_engine_options("main"),
     )
     event.listen(engine.sync_engine, "checkout", _guard_main_pool_checkout)
     return engine
@@ -324,6 +348,7 @@ def _create_async_auth_db_engine() -> AsyncEngine:
                 "application_name": f"{config.TRACECAT__SERVICE_NAME}-auth"
             }
         },
+        **_pool_metrics_engine_options("auth"),
     )
 
 

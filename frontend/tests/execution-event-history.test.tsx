@@ -44,6 +44,7 @@ function createExecution(
     workflow_type: "DSLWorkflow",
     task_queue: "default",
     history_length: events.length,
+    history_size_bytes: 0,
     trigger_type: "manual",
     events,
     interactions: [],

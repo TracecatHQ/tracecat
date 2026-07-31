@@ -3683,7 +3683,8 @@ def assert_error_handler_initiated_correctly(
             "message": (
                 "Workflow failed with 1 error(s)\n\n"
                 f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
-                "ExecutionError: [ACTIONS.failing_action -> execute_action] (Attempt 1)\n\n"
+                "TracecatExpressionError: "
+                "[ACTIONS.failing_action -> execute_action] (Attempt 1)\n\n"
                 "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
                 "\n"
                 "TracecatExpressionError: Error evaluating expression `1/0`\n\n"

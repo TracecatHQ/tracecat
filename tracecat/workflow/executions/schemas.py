@@ -23,6 +23,7 @@ from pydantic import (
     Field,
     PlainSerializer,
     PrivateAttr,
+    ValidationError,
     model_validator,
 )
 from temporalio.api.failure.v1 import Failure
@@ -48,6 +49,7 @@ from tracecat.dsl.schemas import (
     StreamID,
     TriggerInputs,
 )
+from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.ee.interactions.schemas import (
     InteractionInput,
     InteractionRead,
@@ -75,6 +77,9 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
 
 _ERROR_MESSAGE_MAX_LENGTH = 2048
+_GENERIC_APPLICATION_FAILURE_TYPES = frozenset(
+    {"APPLICATION", "ApplicationError", "ExecutionError"}
+)
 _SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
@@ -150,6 +155,9 @@ class WorkflowExecutionBase(BaseModel):
     workflow_type: str
     task_queue: str
     history_length: int = Field(..., description="Number of events in the history")
+    history_size_bytes: int = Field(
+        ..., description="Serialized Temporal workflow history size in bytes"
+    )
     parent_wf_exec_id: WorkflowExecutionID | None = None
     trigger_type: TriggerType
     execution_type: ExecutionType = Field(
@@ -171,6 +179,7 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             workflow_type=execution.workflow_type,
             task_queue=execution.task_queue,
             history_length=execution.history_length,
+            history_size_bytes=execution.raw_info.history_size_bytes,
             parent_wf_exec_id=execution.parent_id,
             trigger_type=get_trigger_type_from_search_attr(
                 execution.typed_search_attributes, execution.id
@@ -216,6 +225,7 @@ class WorkflowRunReadMinimal(WorkflowExecutionReadMinimal):
             workflow_type=base.workflow_type,
             task_queue=base.task_queue,
             history_length=base.history_length,
+            history_size_bytes=base.history_size_bytes,
             parent_wf_exec_id=base.parent_wf_exec_id,
             trigger_type=base.trigger_type,
             execution_type=base.execution_type,
@@ -610,21 +620,12 @@ class EventFailure(BaseModel):
     message: str
     cause: dict[str, Any] | None = None
     root_cause_message: str | None = None
-
-    @staticmethod
-    def _has_encoded_attributes(failure: Failure) -> bool:
-        current: Failure | None = failure
-        while current is not None:
-            if current.HasField("encoded_attributes"):
-                return True
-            current = current.cause if current.HasField("cause") else None
-        return False
+    failure_type: str | None = Field(default=None)
+    failure_types: list[str] = Field(default_factory=list)
 
     @staticmethod
     async def _decode_failure_exception(failure: Any) -> BaseException | None:
-        if not isinstance(failure, Failure) or not EventFailure._has_encoded_attributes(
-            failure
-        ):
+        if not isinstance(failure, Failure):
             return None
 
         decoded_failure = Failure()
@@ -712,6 +713,70 @@ class EventFailure(BaseModel):
         return sanitized
 
     @staticmethod
+    def extract_failure_type(failure: Any) -> str | None:
+        """Return the deepest meaningful machine-readable Temporal failure type."""
+        if not isinstance(failure, Failure):
+            return None
+
+        failure_types: list[str] = []
+        current: Failure | None = failure
+        while current is not None:
+            failure_info = current.WhichOneof("failure_info")
+            if failure_info == "application_failure_info":
+                application_type = current.application_failure_info.type.strip()
+                failure_types.append(application_type or "APPLICATION")
+            elif failure_info == "timeout_failure_info":
+                timeout_type = current.timeout_failure_info.timeout_type
+                if (
+                    timeout_type
+                    == temporalio.api.enums.v1.TimeoutType.TIMEOUT_TYPE_UNSPECIFIED
+                ):
+                    failure_types.append("TIMEOUT")
+                else:
+                    try:
+                        failure_types.append(
+                            temporalio.api.enums.v1.TimeoutType.Name(timeout_type)
+                        )
+                    except ValueError:
+                        failure_types.append(f"TIMEOUT_TYPE_{timeout_type}")
+            elif failure_info is not None:
+                failure_types.append(failure_info.removesuffix("_failure_info").upper())
+            current = current.cause if current.HasField("cause") else None
+
+        for failure_type in reversed(failure_types):
+            if failure_type not in _GENERIC_APPLICATION_FAILURE_TYPES:
+                return failure_type
+        return failure_types[-1] if failure_types else None
+
+    @staticmethod
+    def extract_detail_failure_types(error: BaseException | None) -> list[str]:
+        """Return structured child failure codes without retaining messages."""
+        failure_types: set[str] = set()
+        current = error
+        seen: set[int] = set()
+        while current is not None:
+            current_id = id(current)
+            if current_id in seen:
+                break
+            seen.add(current_id)
+
+            details = getattr(current, "details", ())
+            if isinstance(details, list | tuple):
+                for detail in details:
+                    try:
+                        error_info = ActionErrorInfoAdapter.validate_python(detail)
+                    except ValidationError:
+                        continue
+                    pending = list(error_info.children or ())
+                    while pending:
+                        child = pending.pop()
+                        if failure_type := child.type.strip():
+                            failure_types.add(failure_type)
+                        pending.extend(child.children or ())
+            current = current.__cause__
+        return sorted(failure_types)
+
+    @staticmethod
     async def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
         *,
@@ -737,10 +802,16 @@ class EventFailure(BaseModel):
         message = EventFailure._exception_message(decoded_error) or getattr(
             failure, "message", ""
         )
+        failure_type = EventFailure.extract_failure_type(failure)
+        failure_types = EventFailure.extract_detail_failure_types(decoded_error)
+        if not failure_types and failure_type is not None:
+            failure_types = [failure_type]
         return EventFailure(
             message=EventFailure.sanitize_error_text(message) or "",
             cause=cause if include_raw_cause else None,
             root_cause_message=EventFailure.sanitize_error_text(root_cause_message),
+            failure_type=failure_type,
+            failure_types=failure_types,
         )
 
 

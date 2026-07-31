@@ -718,6 +718,7 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     mock_execution.workflow_type = "DSLWorkflow"
     mock_execution.task_queue = "tracecat-task-queue"
     mock_execution.history_length = 0
+    mock_execution.raw_info.history_size_bytes = 0
     mock_execution.typed_search_attributes = {}
 
     mock_svc = AsyncMock()
@@ -742,6 +743,7 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     payload = response.json()
     assert payload["id"] == wf_exec_id
     assert payload["status"] == "RUNNING"
+    assert payload["history_size_bytes"] == 0
     mock_svc.get_execution.assert_awaited_once_with(wf_exec_id)
     mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(wf_exec_id)
 

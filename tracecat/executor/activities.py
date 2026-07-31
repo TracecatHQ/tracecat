@@ -209,6 +209,7 @@ class ExecutorActivities:
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__
+            failure_type = e.info.type
             msg = str(e)
             log.info("Execution error", error=msg, info=e.info)
             err_info = ActionErrorInfo(
@@ -219,7 +220,7 @@ class ExecutorActivities:
                 stream_id=input.stream_id,
             )
             err_msg = err_info.format("execute_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
+            raise ApplicationError(err_msg, err_info, type=failure_type) from e
         except LoopExecutionError as e:
             # LoopExecutionError from dispatch_action (for_each loop failure)
             kind = e.__class__.__name__
@@ -231,6 +232,21 @@ class ExecutorActivities:
                 type=kind,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
+                children=[
+                    ActionErrorInfo(
+                        ref=task.ref,
+                        message=(
+                            f"Loop iteration {loop_error.info.loop_iteration} failed"
+                            if loop_error.info.loop_iteration is not None
+                            else "Loop iteration failed"
+                        ),
+                        type=loop_error.info.type,
+                        attempt=act_attempt,
+                        stream_id=input.stream_id,
+                    )
+                    for loop_error in e.loop_errors
+                ]
+                or None,
             )
             err_msg = err_info.format("execute_action")
             raise ApplicationError(err_msg, err_info, type=kind) from e

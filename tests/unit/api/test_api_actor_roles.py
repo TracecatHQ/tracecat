@@ -362,6 +362,7 @@ async def test_service_account_can_get_workflow_execution_by_workflow_route(
         workflow_type="DSLWorkflow",
         task_queue="tracecat-task-queue",
         history_length=0,
+        raw_info=SimpleNamespace(history_size_bytes=0),
         typed_search_attributes={},
     )
     mock_service = AsyncMock()
