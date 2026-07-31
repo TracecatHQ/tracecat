@@ -625,7 +625,7 @@ variable "executor_queue" {
 variable "executor_max_concurrent_activities" {
   type        = number
   description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
-  default     = 100
+  default     = 16
 
   validation {
     condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities
@@ -636,7 +636,7 @@ variable "executor_max_concurrent_activities" {
 variable "executor_threadpool_max_workers" {
   type        = number
   description = "Activity thread-pool size per executor task (TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
-  default     = 100
+  default     = 16
 
   validation {
     condition     = var.executor_threadpool_max_workers > 0 && floor(var.executor_threadpool_max_workers) == var.executor_threadpool_max_workers

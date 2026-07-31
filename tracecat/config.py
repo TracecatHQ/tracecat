@@ -166,12 +166,12 @@ TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY = int(
 """Maximum concurrent iterations for a single executor-side action for_each loop."""
 
 TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES = int(
-    os.environ.get("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 100
+    os.environ.get("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 16
 )
 """Maximum concurrent activities for the ExecutorWorker Temporal worker."""
 
 TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS = int(
-    os.environ.get("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS") or 100
+    os.environ.get("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS") or 16
 )
 """Activity thread-pool size for the ExecutorWorker; bounds concurrent CPU-bound sync activities competing for the GIL."""
 
