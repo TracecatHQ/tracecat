@@ -653,16 +653,12 @@ TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direc
 """Executor backend for running actions.
 
 Supported values:
-- 'pool': Warm nsjail workers (single-tenant, high throughput, ~100-200ms).
-  EXPERIMENTAL: not production ready. The registry cache is exempt from
-  eviction under this backend and can grow without bound.
 - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
 - 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
 - 'test': In-process execution for tests only (no isolation, no subprocess overhead)
 - 'auto': Auto-select based on environment (ephemeral if nsjail available, else direct)
 
 Trust mode is derived from the backend type:
-- pool: untrusted (secrets pre-resolved, no DB creds)
 - ephemeral: untrusted (secrets pre-resolved, no DB creds)
 - direct: untrusted subprocess execution (secrets pre-resolved, no DB creds)
 - test: trusted in-process execution (no sandbox)
@@ -698,7 +694,7 @@ When True, actions run in an nsjail sandbox with:
 When False (default), actions run in direct subprocesses without sandboxing.
 
 Requires:
-- TRACECAT__EXECUTOR_BACKEND=pool, ephemeral, or direct
+- TRACECAT__EXECUTOR_BACKEND=ephemeral or direct
 - nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
 - Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
 """
@@ -715,20 +711,6 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 )
 """Path to the Python site-packages directory containing tracecat dependencies.
 If not set, will be auto-detected from a known dependency's location.
-"""
-
-TRACECAT__EXECUTOR_POOL_METRICS_ENABLED = env_bool(
-    "TRACECAT__EXECUTOR_POOL_METRICS_ENABLED", default=False
-)
-"""Enable periodic metrics emission for the worker pool.
-
-When True, the pool emits metrics every 10 seconds including:
-- Pool utilization and capacity
-- Worker states (alive, dead, recycling)
-- Lock contention stats
-- Throughput metrics
-
-When False (default), metrics are not emitted to reduce log noise.
 """
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #

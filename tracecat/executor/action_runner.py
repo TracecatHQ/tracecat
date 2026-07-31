@@ -145,8 +145,6 @@ class ActionRunner:
     async def ensure_registry_environment(self, artifact_uri: str | None) -> list[Path]:
         """Ensure the registry environment is set up and return PYTHONPATH entries.
 
-        This is the public API for pool workers to get the paths to add to PYTHONPATH.
-
         Args:
             artifact_uri: S3 URI to the registry execution artifact.
 

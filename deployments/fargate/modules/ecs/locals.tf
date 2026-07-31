@@ -168,7 +168,6 @@ locals {
         TRACECAT__SERVICE_NAME              = "executor"
         TRACECAT__EXECUTOR_BACKEND          = "direct"
         TRACECAT__EXECUTOR_QUEUE            = var.executor_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.executor_worker_pool_size
         TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
         TRACECAT__DISABLE_NSJAIL            = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
@@ -196,7 +195,6 @@ locals {
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
         TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = var.llm_gateway_credential_cache_ttl_seconds
