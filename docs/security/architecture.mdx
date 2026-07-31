@@ -4,14 +4,16 @@ description: "Understand Tracecat's threat model and security design."
 keywords: ["security architecture", "AI agent security", "MCP security", "sandboxing", "RBAC", "OpenTelemetry"]
 ---
 
-Tracecat enforces four controls outside the model:
+Tracecat's threat model relies on four platform-enforced controls:
 
 - Identity and tenant authorization.
 - Deterministic tool policy.
 - Sandboxed execution.
 - Audit and telemetry.
 
-The model cannot modify these controls. This page covers Tracecat Cloud and hardened self-hosted deployments.
+These controls do not rely on the LLM following instructions. The LLM can propose actions, but Tracecat decides what runs.
+
+This page covers Tracecat Cloud and hardened self-hosted deployments.
 
 ```mermaid
 flowchart LR
@@ -37,14 +39,14 @@ flowchart LR
   subgraph trusted["Trusted execution services"]
     tools["Tracecat API and MCP proxy"]
     credentials["Credential broker"]
-    model["Model gateway"]
+    llmGateway["LLM gateway"]
     otel["Scoped OTEL relay"]
   end
 
   subgraph customer["Customer-managed and external systems"]
     secrets["AWS Secrets Manager"]
     apis["Approved APIs<br/>remote HTTP MCP"]
-    models["Managed or BYO model<br/>optional LLM proxy"]
+    llmProviders["Managed or BYO LLM<br/>optional LLM proxy"]
     observability["Observability or SIEM"]
     auditSink["HTTPS audit webhook"]
   end
@@ -63,10 +65,10 @@ flowchart LR
   approval -->|durable decision| temporal
   tools --> apis
   credentials --> tools
-  credentials --> model
+  credentials --> llmGateway
   credentials -->|resolve reference| secrets
-  agent --> model
-  model --> models
+  agent --> llmGateway
+  llmGateway --> llmProviders
   agent -. telemetry .-> otel
   otel -. OTLP .-> observability
   api -. control-plane event .-> audit
@@ -76,27 +78,45 @@ flowchart LR
 
 ## Threat model
 
-Tracecat treats these inputs as untrusted:
+This threat model covers the complete Tracecat platform. It includes conventional application threats and AI-specific threats.
 
-- Prompts and client-supplied context.
-- Retrieved context and tool results.
-- Model output and generated code.
-- MCP servers and external systems.
+### Protected assets
 
-The platform enforces controls at boundaries the model cannot modify.
+- Organization and workspace data.
+- Agent and automation configuration.
+- User and service-account identity.
+- API and OAuth credentials.
+- MCP and LLM provider credentials.
+- External systems reachable through tools.
+- Control-plane and executor infrastructure.
+- Audit records and agent telemetry.
+
+### Threat actors and untrusted sources
+
+Tracecat assumes risk from:
+
+- External attackers targeting API, authentication, or MCP endpoints.
+- Compromised or malicious users and service accounts.
+- Attackers who control content consumed by an agent.
+- Compromised LLM or API providers.
+- Compromised MCP servers.
+- Malicious packages and local MCP processes.
+- Unsafe LLM output and generated code.
+
+Tracecat treats the LLM as an untrusted decision-maker. It can propose a tool call or generate code. It cannot grant itself a role or approve its own call. It cannot resolve a brokered secret or change sandbox policy.
 
 ### Within Tracecat boundary
 
-Tracecat addresses:
-
-- Unauthorized access across tenants and identities.
-- Agent goal hijacking and unsafe tool use.
-- Approval bypass and excessive agency.
-- Credential disclosure to models or untrusted tools.
-- Unexpected code execution and resource exhaustion.
-- Unintended network access.
-- Unreviewed MCP or agent configuration changes.
-- Actions without an attributable identity or execution.
+| Attack surface | How an attacker can use it | Primary Tracecat controls |
+| --- | --- | --- |
+| Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
+| Agent context | Place hostile instructions in prompts or retrieved documents.<br/>Hide instructions in alerts or email.<br/>Hide instructions in cases or tool results.<br/>Redirect the agent goal or induce a high-impact tool call. | Default-deny tool policy.<br/>Trusted-proxy authorization.<br/>Human approval for selected tools.<br/>Credentials kept outside LLM context. |
+| Tools and remote MCP | Publish misleading tool metadata.<br/>Return poisoned tool results.<br/>Compromise a remote server to exfiltrate data or trigger unsafe actions. | Captured tool inventory.<br/>Allow and deny policy.<br/>Approval gates.<br/>Trusted API and MCP proxy.<br/>Inherited user permissions for external Tracecat MCP. |
+| Generated code and `stdio` MCP | Cause shell or Python code to read files.<br/>Use local MCP code to consume resources.<br/>Reach the network.<br/>Attempt to attack the executor or another run. | nsjail namespaces and syscall filtering.<br/>Read-only runtime and scoped mounts.<br/>cgroup and process limits.<br/>Default-deny agent network. |
+| Credentials and secret references | Ask the LLM to expose a credential.<br/>Craft a tool request that tries to resolve or reuse another secret. | Execution-time credential broker.<br/>Policy checks before resolution.<br/>Credential injection outside the sandbox for brokered calls. |
+| Human approval | Disguise the purpose of a tool call.<br/>Attempt to resume execution without an authorized decision. | Authenticated approver checks.<br/>Temporal durable execution.<br/>Decision bound to the run.<br/>Per-tool approval audit event. |
+| Agent and platform configuration | Use a compromised administrator to widen tool access.<br/>Enable network access or connect a malicious provider.<br/>Persist the change across later runs. | RBAC and tenant scope.<br/>Platform audit events.<br/>Workspace Git sync and repository review. |
+| Availability and consumption | Loop LLM or tool calls.<br/>Fork processes.<br/>Fill storage or exhaust memory.<br/>Drive unexpected inference cost. | Wall-time and resource limits.<br/>cgroup memory enforcement.<br/>File and process limits.<br/>Planned token budgets and burn-rate limits. |
 
 ### Outside Tracecat boundary
 
@@ -105,12 +125,12 @@ You own controls for systems that Tracecat does not operate.
 | Concern | Customer hardening | Suggested tools |
 | --- | --- | --- |
 | Identity provider | Require MFA and conditional access.<br/>Review session and account-lifecycle policy. | Your identity provider. |
-| External models and APIs | Review data use and retention.<br/>Confirm residency and provider access.<br/>Apply model and endpoint allowlists. | Your model and API providers. |
-| Prompt and data filtering | Route model traffic through an LLM gateway.<br/>Apply prompt-injection and content controls.<br/>Filter PII and sensitive data. | [LiteLLM Proxy](https://docs.litellm.ai/)<br/>[LLM Guard](https://github.com/protectai/llm-guard) |
+| External LLMs and APIs | Review data use and retention.<br/>Confirm residency and provider access.<br/>Apply provider and endpoint allowlists. | Your LLM and API providers. |
+| Prompt and data filtering | Route LLM traffic through an LLM gateway.<br/>Apply prompt-injection and content controls.<br/>Filter PII and sensitive data. | [LiteLLM Proxy](https://docs.litellm.ai/)<br/>[LLM Guard](https://github.com/protectai/llm-guard) |
 | MCP policy | Place an independent gateway around MCP traffic.<br/>Apply an allow or deny layer.<br/>Add inspection or consent controls. | [ContextForge](https://github.com/IBM/mcp-context-forge) |
 | Detection and retention | Export OTEL data and platform audit events.<br/>Define detections and retention.<br/>Create an incident-response process. | [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)<br/>[Grafana Alloy](https://grafana.com/docs/alloy/latest/) |
 | Git change control | Require reviews and protected branches.<br/>Sign changes to synced configuration. | GitHub<br/>GitLab |
-| AI red teaming | Test agents before production.<br/>Retest prompt and model changes.<br/>Retest skill, tool, and MCP changes. | [PyRIT](https://github.com/microsoft/PyRIT)<br/>[garak](https://github.com/NVIDIA/garak) |
+| AI red teaming | Test agents before production.<br/>Retest prompt changes.<br/>Retest LLM and provider changes.<br/>Retest skill, tool, and MCP changes. | [PyRIT](https://github.com/microsoft/PyRIT)<br/>[garak](https://github.com/NVIDIA/garak) |
 
 Tool links are examples, not endorsements.
 
@@ -159,8 +179,9 @@ Tracecat applies these controls:
 
 - You can keep workspace and integration credentials in AWS Secrets Manager.
 - Tracecat stores credential metadata and resolves values at execution time.
-- Trusted proxies receive credentials for API, remote HTTP MCP, and model calls.
-- Models receive typed interfaces and results instead of credential values.
+- Trusted proxies receive credentials for API and LLM calls.
+- The remote HTTP MCP proxy receives MCP credentials.
+- The LLM receives typed interfaces and results instead of credential values.
 - Local `stdio` MCP credentials enter the shared sandbox. Treat them as accessible to agent-controlled code.
 
 ## Agent and MCP control plane
@@ -183,7 +204,7 @@ Every policy decision has one result:
 - `Deny`: Block the call before credentials resolve or side effects occur.
 - `Require approval`: Create a durable request and pause before execution.
 
-Hosted-agent runs have sandbox wall-time and resource limits. These limits do not assume a fixed number of model requests or tool calls.
+Hosted-agent runs have sandbox wall-time and resource limits. These limits do not assume a fixed number of LLM requests or tool calls.
 
 <Info>
   Coming soon:
@@ -230,7 +251,7 @@ Each approval event records:
 
 | Layer | Control |
 | --- | --- |
-| Network | Isolated network namespace.<br/>No direct route by default.<br/>Model and tool requests use trusted brokers.<br/>Direct internet access requires an explicit agent setting. |
+| Network | Isolated network namespace.<br/>No direct route by default.<br/>LLM and tool requests use trusted brokers.<br/>Direct internet access requires an explicit agent setting. |
 | Identity and processes | No host or platform-service identity.<br/>The agent and `stdio` children share one sandbox identity. |
 | Namespaces | User and process namespaces.<br/>Mount and IPC namespaces.<br/>Hostname and network namespaces. |
 | Filesystem | Read-only runtime and dependencies.<br/>Scoped mounts and bounded temporary storage.<br/>Isolated writable working directory. |
@@ -263,15 +284,15 @@ Each approval event records:
   - `stdio` credentials enter the shared sandbox.
 </Info>
 
-### Trusted API and model gateways
+### Trusted API and LLM gateways
 
-- The secure preset-agent path keeps brokered credentials outside model context.
+- The secure preset-agent path keeps brokered credentials outside LLM context.
 - Tracecat resolves a secret only after a permitted request.
 - The built-in proxy adds API and OAuth credentials outside the sandbox.
-- It adds MCP and model credentials outside the sandbox.
+- It adds MCP and LLM credentials outside the sandbox.
 - The agent receives the typed result instead of the credential.
-- You can use the managed model gateway or an OpenAI-compatible provider.
-- You can also route model traffic through your own LLM proxy.
+- You can use the managed LLM gateway or an OpenAI-compatible provider.
+- You can also route LLM traffic through your own proxy.
 
 <Warning>
   - Do not place credentials in prompts or agent inputs.
@@ -329,7 +350,7 @@ Platform approval audit events:
 ## Related pages
 
 - See [AI agent](/agents/ai-agent) to configure tools, approvals, and network access.
-- See [Secrets and variables](/agents/secrets-variables) to keep credentials out of model context.
+- See [Secrets and variables](/agents/secrets-variables) to keep credentials out of LLM context.
 - See [MCP servers](/automations/integrations/mcp-integrations) to connect remote or `stdio` servers.
 - See [Custom LLM providers](/agents/custom-llm-providers) to route agents through your LLM gateway.
 - See [Organization audit logs](/audit-logs/organization) to stream platform audit events.
