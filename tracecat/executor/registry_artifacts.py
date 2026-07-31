@@ -878,9 +878,11 @@ class RegistryArtifactCache:
             return None, await self._materialize_candidates(ctx, artifact_uri)
 
         lock = self._runtime_for(cache_key).lock
+        lease_acquired = False
         try:
             async with lock:
                 self._acquire_lease(cache_key)
+                lease_acquired = True
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cache_key, cached_paths
@@ -903,7 +905,7 @@ class RegistryArtifactCache:
                 )
             return cache_key, paths
         except BaseException:
-            if self._release_lease(cache_key):
+            if lease_acquired and self._release_lease(cache_key):
                 await self._unmount_idle_entry(cache_key)
             raise
 

@@ -1171,6 +1171,39 @@ class TestRegistryArtifactCacheLease:
         assert not target_dir.exists()
 
     @pytest.mark.anyio
+    async def test_cancelled_waiter_preserves_existing_same_key_lease(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A waiter cancelled before admission cannot release another holder."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/shared.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        lock = cache._runtime_for(cache_key).lock
+
+        async def take_lease() -> None:
+            async with cache.lease([artifact_uri]):
+                pytest.fail("cancelled waiter must not enter the lease context")
+
+        unmount_idle_entry = AsyncMock()
+        with patch.object(cache, "_unmount_idle_entry", unmount_idle_entry):
+            async with lock:
+                cache._acquire_lease(cache_key)
+                try:
+                    waiter = asyncio.create_task(take_lease())
+                    await asyncio.sleep(0)
+                    assert not waiter.done()
+
+                    waiter.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await waiter
+
+                    assert cache._refcount(cache_key) == 1
+                    unmount_idle_entry.assert_not_awaited()
+                finally:
+                    cache._release_lease(cache_key)
+
+    @pytest.mark.anyio
     async def test_lease_without_uris_returns_base_pythonpath_dir(self, temp_cache_dir):
         """No artifact URIs still yields the base PYTHONPATH directory."""
         cache = RegistryArtifactCache(temp_cache_dir)
