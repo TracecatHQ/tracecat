@@ -227,6 +227,9 @@ ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
+COPY docker/scripts/agent-executor-entrypoint.sh /usr/local/bin/agent-executor-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-executor-entrypoint.sh
+
 # Switch to non-root user (matches production, required for pasta userspace networking)
 USER apiuser
 
@@ -277,6 +280,9 @@ ENV PATH="/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home/apiuser/.cache/tmp"
 
 RUN mkdir -p /app/.scripts && chown -R apiuser:apiuser /app
+
+COPY docker/scripts/agent-executor-entrypoint.sh /usr/local/bin/agent-executor-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-executor-entrypoint.sh
 
 # Switch to non-root user
 USER apiuser

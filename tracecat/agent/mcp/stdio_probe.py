@@ -14,6 +14,7 @@ from pathlib import Path
 
 import orjson
 
+from tracecat import config
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PERSIST_ACTIVITY_NAME,
     MCP_STDIO_PROBE_ACTIVITY_NAME,
@@ -28,6 +29,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     sanitize_stdio_probe_error,
 )
 from tracecat.agent.mcp.utils import STDIO_MCP_TOOL_NAME_RE
+from tracecat.agent.sandbox.cgroup import get_agent_sandbox_cgroup
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -364,13 +366,18 @@ async def probe_stdio_mcp_tools_in_sandbox(
             (job_dir / "input.json").write_bytes(orjson.dumps(payload))
 
             if is_nsjail_available():
-                sandbox = NsjailExecutor()
+                sandbox = NsjailExecutor(
+                    cgroup_mount=get_agent_sandbox_cgroup().sandbox_mount
+                )
                 result = await sandbox.execute(
                     job_dir,
                     SandboxConfig(
                         network_enabled=True,
                         resources=ResourceLimits(
-                            memory_mb=1024,
+                            memory_mb=min(
+                                1024,
+                                config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+                            ),
                             cpu_seconds=hard_timeout_seconds,
                             max_open_files=512,
                             max_processes=128,

@@ -73,6 +73,22 @@ def env_bool(var: str, *, default: bool) -> bool:
     raise ValueError(f"{var} must be a boolean value (got {raw_value!r})")
 
 
+def _env_int(var: str, default: int, *, min_value: int) -> int:
+    """Read an integer env var and reject values below the minimum."""
+    raw_value = os.environ.get(var)
+    if raw_value is None or not raw_value.strip():
+        value = default
+    else:
+        try:
+            value = int(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{var} must be an integer (got {raw_value!r})") from exc
+
+    if value < min_value:
+        raise ValueError(f"{var} must be at least {min_value} (got {value})")
+    return value
+
+
 class RLSMode(StrEnum):
     """Runtime mode for application-level RLS session behavior."""
 
@@ -748,10 +764,30 @@ shutdowns can let active agent activities finish instead of interrupting the
 sandbox.
 """
 
-TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
+TRACECAT__AGENT_SANDBOX_MEMORY_MB = _env_int(
+    "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+    4096,
+    min_value=1,
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
+
+TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED = env_bool(
+    "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED", default=True
+)
+"""Require cgroup v2 memory limits for agent sandboxes when nsjail is enabled."""
+
+TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB = _env_int(
+    "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",
+    4096,
+    min_value=0,
+)
+"""Memory reserved for the agent executor worker and shared services."""
+
+TRACECAT__AGENT_EXECUTOR_READY_FILE = (
+    os.environ.get("TRACECAT__AGENT_EXECUTOR_READY_FILE")
+    or "/var/run/tracecat/agent-executor-ready"
+)
+"""Best-effort readiness sentinel written after the agent executor starts."""
 
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""

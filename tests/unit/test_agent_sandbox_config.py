@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tracecat.agent.sandbox.config import (
+    AgentResourceLimits,
     AgentSandboxConfig,
     build_agent_nsjail_config,
 )
@@ -121,3 +122,40 @@ def test_build_agent_nsjail_config_mounts_fresh_procfs() -> None:
 
     assert 'src: "/proc"' not in config_text
     assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text
+
+
+def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(
+            resources=AgentResourceLimits(memory_mb=3072),
+        ),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+        cgroup_mount=Path("/sys/fs/cgroup/kubepods.slice/pod.scope"),
+    )
+
+    assert "use_cgroupv2: true" in config_text
+    assert 'cgroupv2_mount: "/sys/fs/cgroup/kubepods.slice/pod.scope"' in config_text
+    assert "rlimit_as: 3072" in config_text
+    assert "rlimit_fsize: 256" in config_text
+    assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in config_text
+    assert "cgroup_mem_swap_max: 0" in config_text
+
+
+def test_build_agent_nsjail_config_omits_cgroup_v2_memory_limit_by_default() -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+    )
+
+    assert "use_cgroupv2:" not in config_text
+    assert "cgroupv2_mount:" not in config_text
+    assert "cgroup_mem_max:" not in config_text
+    assert "cgroup_mem_swap_max:" not in config_text

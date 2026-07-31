@@ -21,8 +21,23 @@ services:
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN
+    # Start as root so the entrypoint can delegate the container's cgroup v2
+    # subtree to apiuser for per-sandbox memory limits; it drops privileges
+    # before the worker starts. Override neither independently.
+    user: "0:0"
+    entrypoint: ["/usr/local/bin/agent-executor-entrypoint.sh"]
+    environment:
+      TRACECAT__AGENT_SANDBOX_MEMORY_MB: ${TRACECAT__AGENT_SANDBOX_MEMORY_MB:-4096}
+      TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED: ${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}
+      TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB: ${TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB:-4096}
+      TRACECAT__AGENT_EXECUTOR_READY_FILE: ${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}
     security_opt:
       - seccomp:unconfined
       - systempaths=unconfined
     devices:
       - /dev/net/tun:/dev/net/tun
+    healthcheck:
+      test: ["CMD", "test", "-f", "${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}"]
+      interval: 30s
+      retries: 3
+      start_period: 120s

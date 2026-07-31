@@ -2,23 +2,45 @@ from __future__ import annotations
 
 import ast
 import importlib
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 
 import tracecat.config as tracecat_config
+from tracecat.agent.common.config import _env_bool as agent_env_bool
 from tracecat.config import bound_env, env_bool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
-COMPOSE_ENV_FILES = (
+SANDBOX_COMPOSE_PATH = REPO_ROOT / "docker-compose.sandbox.yml"
+AGENT_EXECUTOR_BASE_COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
+COMPOSE_ENV_FILES = (
+    *AGENT_EXECUTOR_BASE_COMPOSE_FILES,
+    SANDBOX_COMPOSE_PATH,
+)
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+
+
+class _AgentExecutorComposeService(TypedDict):
+    user: str
+    entrypoint: list[str]
+    environment: list[str]
+    cap_add: list[str]
+    security_opt: list[str]
+
+
+class _ComposeConfig(TypedDict):
+    services: dict[str, _AgentExecutorComposeService]
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -97,6 +119,38 @@ def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None
         env_bool("TEST_BOOL_ENV", default=True)
 
 
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("1", True),
+        ("true", True),
+        (" YES ", True),
+        ("on", True),
+        ("0", False),
+        ("false", False),
+        (" NO ", False),
+        ("off", False),
+    ],
+)
+def test_agent_env_bool_matches_application_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+    expected: bool,
+) -> None:
+    monkeypatch.setenv("TEST_AGENT_BOOL_ENV", raw_value)
+
+    assert agent_env_bool("TEST_AGENT_BOOL_ENV", default=not expected) is expected
+
+
+def test_agent_env_bool_rejects_invalid_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_AGENT_BOOL_ENV", "not-a-bool")
+
+    with pytest.raises(ValueError, match="TEST_AGENT_BOOL_ENV must be a boolean"):
+        agent_env_bool("TEST_AGENT_BOOL_ENV", default=True)
+
+
 def test_config_boolean_env_values_use_env_bool() -> None:
     source = CONFIG_PATH.read_text()
     forbidden_patterns = {
@@ -169,6 +223,62 @@ def test_boolean_env_values_preserve_defaults_and_compose_overrides() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "base_compose_path",
+    AGENT_EXECUTOR_BASE_COMPOSE_FILES,
+    ids=lambda path: path.name,
+)
+def test_agent_executor_sandbox_overlay_delegates_cgroups(
+    base_compose_path: Path,
+) -> None:
+    docker_path = shutil.which("docker")
+    if docker_path is None:
+        pytest.skip("Docker CLI unavailable for Compose configuration test")
+
+    compose_version = subprocess.run(
+        [docker_path, "compose", "version"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if compose_version.returncode != 0:
+        pytest.skip("Docker Compose plugin unavailable")
+
+    result = subprocess.run(
+        [
+            docker_path,
+            "compose",
+            "-f",
+            str(base_compose_path),
+            "-f",
+            str(SANDBOX_COMPOSE_PATH),
+            "config",
+            "--no-interpolate",
+            "--format",
+            "json",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = cast(_ComposeConfig, json.loads(result.stdout))
+    service = config["services"]["agent-executor"]
+
+    assert service["user"] == "0:0"
+    assert service["entrypoint"] == ["/usr/local/bin/agent-executor-entrypoint.sh"]
+    assert "SYS_ADMIN" in service["cap_add"]
+    assert "systempaths=unconfined" in service["security_opt"]
+    assert (
+        "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED="
+        "${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}"
+    ) in service["environment"]
+
+
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_BOUND_ENV", "4")
 
@@ -216,6 +326,44 @@ def test_action_gateway_socket_uses_default_for_empty_string(
                 reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
                 == "/var/run/tracecat/action-gateway.sock"
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    ("env_var", "offending_value", "minimum"),
+    [
+        pytest.param(
+            "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+            "0",
+            1,
+            id="sandbox-memory",
+        ),
+        pytest.param(
+            "TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB",
+            "-1",
+            0,
+            id="executor-reserve",
+        ),
+    ],
+)
+def test_agent_memory_config_rejects_values_below_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    offending_value: str,
+    minimum: int,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv(env_var, offending_value)
+
+            with pytest.raises(ValueError) as exc_info:
+                importlib.reload(tracecat_config)
+
+            message = str(exc_info.value)
+            assert env_var in message
+            assert f"at least {minimum}" in message
+            assert f"got {offending_value}" in message
     finally:
         importlib.reload(tracecat_config)
 

@@ -372,14 +372,9 @@ services:
         - core
         - core-db
         - temporal
-      # Required for nsjail sandbox (uncomment if using nsjail)
-      # cap_add:
-      #   - SYS_ADMIN
-      # security_opt:
-      #   - seccomp:unconfined
-      # # Required for pasta userspace networking (creates TAP device in sandbox netns)
-      # devices:
-      #   - /dev/net/tun:/dev/net/tun
+      # To enable nsjail, set TRACECAT__DISABLE_NSJAIL=false and layer
+      # docker-compose.sandbox.yml; it configures the required privileges and
+      # cgroup delegation together.
       environment:
         # Common
         LOG_LEVEL: ${LOG_LEVEL}
@@ -431,6 +426,10 @@ services:
         TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
         TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
+        TRACECAT__AGENT_SANDBOX_MEMORY_MB: ${TRACECAT__AGENT_SANDBOX_MEMORY_MB:-4096}
+        TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED: ${TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED:-true}
+        TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB: ${TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB:-4096}
+        TRACECAT__AGENT_EXECUTOR_READY_FILE: ${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}
         TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-600}
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS: ${TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS:-60}
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS: ${TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-30}
@@ -457,6 +456,11 @@ services:
         - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
         - sandbox-cache:/var/lib/tracecat/sandbox-cache
       command: ["python", "-m", "tracecat.agent.executor_worker"]
+      healthcheck:
+        test: ["CMD", "test", "-f", "${TRACECAT__AGENT_EXECUTOR_READY_FILE:-/var/run/tracecat/agent-executor-ready}"]
+        interval: 30s
+        retries: 3
+        start_period: 120s
       depends_on:
         litellm:
           condition: service_healthy

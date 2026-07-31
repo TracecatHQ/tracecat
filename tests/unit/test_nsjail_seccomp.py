@@ -8,7 +8,7 @@ from tracecat.agent.sandbox.config import AgentSandboxConfig, build_agent_nsjail
 from tracecat.executor.backends.pool import WorkerPool
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 
 _EXPECTED_BLOCKED_SYSCALLS = (
     "ptrace",
@@ -52,6 +52,34 @@ def test_python_sandbox_config_includes_seccomp_policy(tmp_path: Path):
     )
 
     _assert_seccomp_config(config_text)
+    assert "use_cgroupv2:" not in config_text
+    assert "cgroupv2_mount:" not in config_text
+    assert "cgroup_mem_max:" not in config_text
+    assert "cgroup_mem_swap_max:" not in config_text
+
+
+def test_stdio_probe_sandbox_config_includes_cgroup_memory_limit(
+    tmp_path: Path,
+) -> None:
+    cgroup_mount = tmp_path / "cgroup" / "container.scope"
+    executor = NsjailExecutor(
+        rootfs_path=str(tmp_path / "rootfs"),
+        cgroup_mount=cgroup_mount,
+    )
+
+    config_text = executor._build_config(
+        job_dir=tmp_path / "job",
+        phase="execute",
+        config=SandboxConfig(resources=ResourceLimits(memory_mb=512)),
+        script_name="probe.py",
+    )
+
+    assert "use_cgroupv2: true" in config_text
+    assert f'cgroupv2_mount: "{cgroup_mount}"' in config_text
+    assert "rlimit_as: 512" in config_text
+    assert "rlimit_fsize: 256" in config_text
+    assert f"cgroup_mem_max: {512 * 1024 * 1024}" in config_text
+    assert "cgroup_mem_swap_max: 0" in config_text
 
 
 def test_action_sandbox_config_includes_seccomp_policy(tmp_path: Path):
@@ -63,10 +91,38 @@ def test_action_sandbox_config_includes_seccomp_policy(tmp_path: Path):
         config=ActionSandboxConfig(
             registry_paths=[tmp_path / "registry"],
             tracecat_app_dir=tmp_path / "app",
+            resources=ResourceLimits(
+                memory_mb=768,
+                max_file_size_mb=64,
+            ),
         ),
     )
 
     _assert_seccomp_config(config_text)
+    assert "rlimit_as: 768" in config_text
+    assert "rlimit_fsize: 64" in config_text
+
+
+def test_action_sandbox_config_ignores_general_executor_cgroup_mount(
+    tmp_path: Path,
+) -> None:
+    executor = NsjailExecutor(
+        rootfs_path=str(tmp_path / "rootfs"),
+        cgroup_mount=tmp_path / "cgroup",
+    )
+
+    config_text = executor._build_action_config(
+        job_dir=tmp_path / "job",
+        config=ActionSandboxConfig(
+            registry_paths=[tmp_path / "registry"],
+            tracecat_app_dir=tmp_path / "app",
+        ),
+    )
+
+    assert "use_cgroupv2:" not in config_text
+    assert "cgroupv2_mount:" not in config_text
+    assert "cgroup_mem_max:" not in config_text
+    assert "cgroup_mem_swap_max:" not in config_text
 
 
 def test_agent_sandbox_config_includes_seccomp_policy(tmp_path: Path):
