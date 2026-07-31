@@ -384,6 +384,16 @@ async def lookup_rows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    except Exception as exc:
+        logger.error(
+            "Unexpected table lookup error",
+            table=table_name,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Table lookup failed: {exc}",
+        ) from exc
 
 
 @router.post("/{table_name}/exists")
