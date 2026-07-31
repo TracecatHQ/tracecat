@@ -1,0 +1,60 @@
+docs/audit-logs/organization.mdx
+  s_85b6c79b3ee482::t_2fad7a741d6cd4 84
+  s_85b6c79b3ee482::t_eb4ffe8bf4b966 4,7-8,12-14,65,70-72,77-83,85-94,97-171,178-179,182-184
+docs/security/architecture.mdx
+  s_bc0370f494ffd8::t_144db242bf041e 339,343,381-382,384
+  s_85b6c79b3ee482::t_48d8e309c60483 9,11,18,22,26,28,33,57,81-82,84-85,91,98,111,116,137,145,194-196,198,204-208,214-217,219-223,231,233-235,247-249,251-254,260,262,268-269,272,279-281,293,299-303,316-320,347,351,357-361,383
+  s_85b6c79b3ee482::t_a0df4c1f9f40ef 7
+  s_85b6c79b3ee482::t_31492d38e22d23 241
+  s_85b6c79b3ee482::t_b94532c7b0de33 264
+docs/audit-logs/agents.mdx
+  s_97c6afe74d3d7a::t_279433c54c6514 70
+  s_97c6afe74d3d7a::t_c5eaaa4dcdfbb2 140-156
+  s_85b6c79b3ee482::t_6ce5298c80ac34 57-67,69
+  s_97c6afe74d3d7a::t_3437baafb81399 26
+  s_97c6afe74d3d7a::t_ec75574d4236b4 40-41
+  s_97c6afe74d3d7a::t_03a1366a38364e 139
+  s_85b6c79b3ee482::t_af754a59e3d9a8 1-25,27,30-39,42-56,68,71-138,157-182
+  s_97c6afe74d3d7a::t_374002ae25c36d 28-29
+docs/snippets/audit-event-fields.mdx
+  s_bc0370f494ffd8::t_52d9a6bb666ea7 1-15
+docs/audit-logs/mcp-access.mdx
+  s_85b6c79b3ee482::t_23eba209226965 1-107
+docs/audit-logs/platform.mdx
+  s_85b6c79b3ee482::t_260849295972aa 1-7,10-118
+  s_85b6c79b3ee482::t_b438d0c56a65ef 8-9
+docs/docs.json
+  s_bc0370f494ffd8::t_144db242bf041e 136-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "ac70cd3c271fd58ddb90903db006eef6527ae94f",
+  "prompts": {},
+  "sessions": {
+    "s_85b6c79b3ee482": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "516da7f3-a7ba-4c3c-a7f7-d85f33bec8ef",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_97c6afe74d3d7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ad68cdc-cad2-4e7a-bfb4-75ed548aad87",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    },
+    "s_bc0370f494ffd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019faebf-b6b1-7f53-94bb-508cee7ce321",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
