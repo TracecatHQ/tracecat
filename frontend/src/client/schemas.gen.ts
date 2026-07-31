@@ -15559,6 +15559,30 @@ export const $MCPAuthType = {
   description: "Authentication type for MCP integrations.",
 } as const
 
+export const $MCPCatalogConnectRequest = {
+  properties: {
+    connection_option_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Connection Option Id",
+      description: "Platform MCP catalog connection option to connect",
+    },
+  },
+  type: "object",
+  title: "MCPCatalogConnectRequest",
+  description: `Request for one-click connecting a platform MCP catalog entry.
+
+Carries no connection fields, so the recipe cannot be inferred from the
+payload; the caller names the connection option it offered.`,
+} as const
+
 export const $MCPCatalogConnectResponse = {
   properties: {
     status: {

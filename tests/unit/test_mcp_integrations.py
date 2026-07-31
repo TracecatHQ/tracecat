@@ -13,6 +13,7 @@ import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -28,6 +29,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError, RPCStatusCode
 
+import tracecat.integrations.catalog.resolver as catalog_resolver_module
 import tracecat.integrations.catalog.service as catalog_service_module
 import tracecat.integrations.router as integration_router_module
 import tracecat.integrations.service as integration_service_module
@@ -52,7 +54,12 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import EntitlementRequired
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
+from tracecat.integrations.catalog.resolver import (
+    ResolvedCatalogConnection,
+    connect_options,
+)
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
+from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
@@ -177,6 +184,11 @@ def _install_catalog_entry(
         _get_entry_by_slug,
     )
     monkeypatch.setattr(
+        catalog_resolver_module,
+        "get_platform_mcp_catalog_entry_by_slug",
+        _get_entry_by_slug,
+    )
+    monkeypatch.setattr(
         integration_service_module,
         "get_platform_mcp_catalog_entries",
         _entries,
@@ -185,6 +197,17 @@ def _install_catalog_entry(
         catalog_service_module,
         "get_platform_mcp_catalog_entries",
         _entries,
+    )
+
+
+def _resolved_catalog(
+    spec: MCPConnectionSpec, *, slug: str = "test-mcp", name: str = "Test MCP"
+) -> ResolvedCatalogConnection:
+    """Wrap a bare spec into the catalog binding the service threads through."""
+    entry = _catalog_entry(slug=slug, name=name, description=name, connection_spec=spec)
+    return ResolvedCatalogConnection(
+        entry=cast(PlatformMCPCatalogEntry, entry),
+        option=connect_options(cast(PlatformMCPCatalogEntry, entry))[0],
     )
 
 
@@ -496,6 +519,90 @@ class TestMCPIntegrationCRUD:
         assert first.server_type == "http"
         assert first.server_uri == "https://mcp.example.com/mcp"
         assert first.auth_type == MCPAuthType.NONE
+
+    async def test_connect_platform_mcp_catalog_honors_requested_option(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The caller's option wins over the catalog's declared default."""
+        remote_spec = {
+            "kind": "http_none",
+            "server_type": "http",
+            "auth_type": "NONE",
+            "requires_config": False,
+            "config_fields": [],
+            "credentials": [],
+            "server_uri": "https://mcp.example.com/mcp",
+        }
+        catalog = _catalog_entry(
+            slug="two-transport-mcp",
+            name="Two Transport MCP",
+            description="Remote default with a local stdio option",
+            connection_spec=remote_spec,
+            connection_options=[
+                {
+                    "id": "remote-http",
+                    "label": "Remote",
+                    "connection_spec": remote_spec,
+                },
+                {
+                    "id": "local-stdio",
+                    "label": "Local",
+                    "connection_spec": {
+                        "kind": "stdio_none",
+                        "server_type": "stdio",
+                        "auth_type": "NONE",
+                        "requires_config": False,
+                        "config_fields": [],
+                        "credentials": [],
+                        "stdio_command": "uvx",
+                        "stdio_args": ["two-transport-mcp"],
+                        "stdio_env": [],
+                        "packages": [],
+                    },
+                },
+            ],
+            sort_key="0000:two-transport-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug, connection_option_id="local-stdio"
+        )
+
+        created = result.mcp_integration
+        assert created is not None
+        assert created.server_type == "stdio"
+        assert created.stdio_command == "uvx"
+
+    async def test_connect_platform_mcp_catalog_rejects_unknown_option(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An option the catalog no longer ships must not silently fall back."""
+        catalog = _catalog_entry(
+            slug="single-option-mcp",
+            name="Single Option MCP",
+            description="Bare spec catalog row",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0000:single-option-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        with pytest.raises(ValueError, match="does not exist"):
+            await integration_service.connect_platform_mcp_catalog(
+                catalog_slug=catalog.slug, connection_option_id="gone"
+            )
 
     async def test_platform_mcp_catalog_redacts_locked_rows_without_entitlement(
         self,
@@ -970,7 +1077,7 @@ class TestMCPIntegrationCRUD:
         )
         _install_catalog_entry(monkeypatch, catalog)
 
-        with pytest.raises(ValueError, match="does not match any connection option"):
+        with pytest.raises(ValueError, match="connection option uses OAUTH2"):
             await integration_service.create_mcp_integration(
                 params=MCPHttpIntegrationCreate(
                     name=catalog.name,
@@ -1035,6 +1142,84 @@ class TestMCPIntegrationCRUD:
 
         assert created.catalog_slug == catalog.slug
         assert created.auth_type == MCPAuthType.CUSTOM
+
+    async def test_metadata_edit_survives_catalog_recipe_drift(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A drifted recipe must not block edits that leave the connection alone."""
+        spec = {
+            "kind": "http_custom",
+            "server_type": "http",
+            "auth_type": "CUSTOM",
+            "requires_config": False,
+            "config_fields": [],
+            "credentials": [],
+            "server_uri": "https://mcp.example.com/mcp",
+        }
+        catalog = _catalog_entry(
+            slug="drifting-mcp",
+            name="Drifting MCP",
+            description="Catalog row whose recipe changes after create",
+            connection_spec=spec,
+            sort_key="0003:drifting-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr('{"Authorization": "Bearer test-token"}'),
+            )
+        )
+
+        # The vendor moves its endpoint; the stored row now matches no recipe.
+        _install_catalog_entry(
+            monkeypatch,
+            _catalog_entry(
+                slug="drifting-mcp",
+                name="Drifting MCP",
+                description="Catalog row whose recipe changes after create",
+                connection_spec={
+                    **spec,
+                    "server_uri": "https://mcp.example.com/v2/mcp",
+                },
+                sort_key="0003:drifting-mcp",
+            ),
+        )
+
+        # The dialog always resubmits every HTTP field, so an unchanged
+        # connection must still save.
+        renamed = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                name="Renamed MCP",
+                server_type="http",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+            ),
+            verify_connection=False,
+        )
+        assert renamed is not None
+        assert renamed.name == "Renamed MCP"
+        assert renamed.server_uri == "https://mcp.example.com/mcp"
+
+        # Actually moving the connection still revalidates against the catalog.
+        with pytest.raises(ValueError, match="server URI must be"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    server_type="http",
+                    server_uri="https://attacker.example/mcp",
+                    auth_type=MCPAuthType.CUSTOM,
+                ),
+                verify_connection=False,
+            )
 
     async def test_create_mcp_integration_rejects_coming_soon_catalog_row(
         self,
@@ -3231,8 +3416,173 @@ class TestMCPIntegrationAuthTypeSwapping:
         assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
         assert updated.encrypted_headers is not None
-        # OAuth integration ID should still be set but not used
+        # Leaving OAuth must drop the grant so it can't be reused on a new URI.
+        assert updated.oauth_integration_id is None
+
+    async def test_oauth_to_custom_to_oauth_cannot_retain_grant_on_new_uri(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Two-step auth transitions must not redirect a live token to a new host."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Test MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        # Step one: leave OAuth and move the URI, omitting oauth_integration_id.
+        moved = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                server_type="http",
+                server_uri="https://attacker.example/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr('{"Authorization": "Bearer token"}'),
+            ),
+        )
+        assert moved is not None
+        assert moved.oauth_integration_id is None
+
+        # Step two: back to OAuth without naming a grant must not resurrect one.
+        with pytest.raises(ValueError, match="oauth_integration_id is required"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    server_type="http",
+                    server_uri="https://attacker.example/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                ),
+            )
+
+    async def test_oauth_uri_change_requires_reauthorization(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """A retained grant may not follow the server URI to a new host."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Test MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        with pytest.raises(ValueError, match="reauthorizing"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    server_type="http",
+                    server_uri="https://attacker.example/mcp",
+                ),
+            )
+
+    async def test_oauth_uri_change_rejected_when_grant_is_named(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """The edit form resubmits the stored grant; that must not unlock the URI.
+
+        Verification runs against the merged config before persistence, so a
+        grant paired with a new URI would reach the new host even if the write
+        were later rolled back.
+        """
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Test MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        with pytest.raises(ValueError, match="reauthorizing"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    server_type="http",
+                    server_uri="https://attacker.example/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    oauth_integration_id=oauth_integration.id,
+                ),
+            )
+
+    async def test_oauth_metadata_edit_allowed_when_grant_is_named(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """The same resubmitted-grant payload still permits benign edits."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Test MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                name="Renamed MCP",
+                server_type="http",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            ),
+        )
+
+        assert updated is not None
+        assert updated.name == "Renamed MCP"
         assert updated.oauth_integration_id == oauth_integration.id
+
+    async def test_non_oauth_target_drops_explicitly_named_grant(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """A grant named on a non-OAuth update must not survive to be reused.
+
+        Otherwise a caller launders the URI change through CUSTOM: step one
+        moves the URI while resubmitting the grant, step two switches back to
+        OAUTH2 omitting it. The URI guard sees no change on step two, so the
+        grant's bearer token reaches the new host.
+        """
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Test MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        laundered = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                server_type="http",
+                server_uri="https://attacker.example/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr('{"Authorization": "Bearer x"}'),
+                oauth_integration_id=oauth_integration.id,
+            ),
+        )
+
+        assert laundered is not None
+        assert laundered.oauth_integration_id is None
+
+        with pytest.raises(ValueError, match="oauth_integration_id is required"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(auth_type=MCPAuthType.OAUTH2),
+            )
 
     async def test_switch_from_custom_to_none(
         self,
@@ -5320,7 +5670,7 @@ class TestMCPProviderOAuth:
                     server_uri="https://mcp.example.com/mcp",
                     auth_type=MCPAuthType.OAUTH2,
                 ),
-                catalog_spec=catalog_spec,
+                resolved_catalog=_resolved_catalog(catalog_spec),
             )
 
         assert captured_hosts == [frozenset({"app.example.com"})]
@@ -6060,7 +6410,7 @@ class TestMCPProviderOAuth:
                 server_uri="https://mcp.example.test/mcp",
                 auth_type=MCPAuthType.OAUTH2,
             ),
-            catalog_spec=catalog_spec,
+            resolved_catalog=_resolved_catalog(catalog_spec),
         )
 
         assert result.oauth_connect is not None
@@ -6142,7 +6492,7 @@ class TestMCPProviderOAuth:
                 server_uri="https://mcp.example.test/mcp",
                 auth_type=MCPAuthType.OAUTH2,
             ),
-            catalog_spec=catalog_spec,
+            resolved_catalog=_resolved_catalog(catalog_spec),
         )
         assert connect_result.oauth_connect is not None
         assert connect_result.mcp_integration is not None
@@ -6173,6 +6523,64 @@ class TestMCPProviderOAuth:
             urlparse(reconnect_result.oauth_connect.auth_url).query
         )
         assert "offline_access" in reconnect_query["scope"][0].split()
+
+    async def test_catalog_pinned_endpoints_skip_discovery(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Rows pin endpoints because their server advertises no usable metadata."""
+        await _seed_service_user(session, integration_service)
+
+        async def fail_discover(**kwargs: object) -> None:
+            raise AssertionError(f"discovery must not run for pinned rows: {kwargs}")
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fail_discover
+        )
+
+        catalog_spec = _MCP_CONNECTION_SPEC_ADAPTER.validate_python(
+            {
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [
+                    {
+                        "key": "client_id",
+                        "label": "Client ID",
+                        "description": "OAuth client id",
+                        "required": True,
+                        "secret": False,
+                        "type": "string",
+                        "target": "oauth_client",
+                    }
+                ],
+                "server_uri": "https://mcp.example.test/mcp",
+                "scopes": ["read"],
+                "oauth_authorization_endpoint": "https://auth.example.test/oauth/authorize",
+                "oauth_token_endpoint": "https://auth.example.test/oauth/token",
+            }
+        )
+
+        result = await integration_service.connect_mcp_oauth_discovery(
+            params=MCPHttpIntegrationCreate(
+                name="Pinned Endpoint MCP",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                custom_credentials=SecretStr(
+                    '{"client_id": "pinned-client", "client_secret": "pinned-secret"}'
+                ),
+            ),
+            resolved_catalog=_resolved_catalog(catalog_spec),
+        )
+
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        assert parsed.hostname == "auth.example.test"
+        assert parsed.path == "/oauth/authorize"
 
     async def test_reconnect_emits_connect_log(
         self,
