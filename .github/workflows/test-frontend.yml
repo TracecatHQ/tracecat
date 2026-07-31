@@ -56,9 +56,11 @@ jobs:
         working-directory: frontend
         run: pnpm check
 
-      - name: Run TypeScript type check
+      - name: Run TypeScript 7 type check
         working-directory: frontend
-        run: pnpm run typecheck
+        run: |
+          pnpm run typecheck:version
+          pnpm run typecheck
 
       - name: Run frontend tests
         working-directory: frontend
