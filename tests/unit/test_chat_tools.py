@@ -61,6 +61,8 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.workflow.publish",
         "core.workflow.run",
         "core.workflow.execute",
+        "core.workflow.list_executions",
+        "core.workflow.get_status",
     ]
 
 

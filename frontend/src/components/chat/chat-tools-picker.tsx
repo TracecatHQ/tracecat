@@ -135,6 +135,8 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.workflow.publish",
       "core.workflow.run",
       "core.workflow.execute",
+      "core.workflow.list_executions",
+      "core.workflow.get_status",
     ],
   },
   {
