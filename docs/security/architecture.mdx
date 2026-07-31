@@ -113,8 +113,8 @@ OWASP mappings: `A04 Cryptographic Failures`, `LLM02 Sensitive Information Discl
 You can keep workspace and integration credential values in AWS Secrets Manager.
 Tracecat stores the credential metadata and resolves the referenced value at execution time through the credential broker.
 
-The model receives a typed tool interface, not the downstream credential.
-Only the trusted proxy or isolated target tool receives the resolved value required for that call.
+For brokered API, remote HTTP MCP, and model calls, the model receives a typed interface rather than the downstream credential, and only the trusted proxy receives the resolved value.
+Credentials for a local `stdio` MCP process are an exception because that process shares the agent sandbox; treat them as accessible to agent-controlled code.
 
 ## Agent and MCP control plane
 
@@ -126,7 +126,8 @@ Hosted agents apply the same deterministic policy boundary to Tracecat tools, re
 An agent can discover only tools that its identity, workspace, agent configuration, and tool policy allow.
 
 An explicit deny takes precedence over an allow.
-Tracecat rechecks every invocation at the trusted proxy, so calling a hidden or stale tool directly does not bypass policy.
+Tracecat rechecks brokered Tracecat and remote HTTP MCP invocations at the trusted proxy, so calling a hidden or stale remote tool directly does not bypass policy.
+Local `stdio` MCP is instead constrained to the tool inventory captured by the runtime and the shared sandbox boundary.
 
 A policy decision has one of three results:
 
@@ -146,7 +147,7 @@ The tool does not execute until an authorized approver accepts the request.
 
 The same approval decision remains attached to the run across retries, worker restarts, and time spent waiting.
 Tracecat does not authorize the tool until the recorded decision permits it.
-For authenticated UI and API decisions, Tracecat emits one audit event per tool with the approver, decision time, source, tool identifiers, accepted or rejected result, override indicator, and optional sanitized denial reason.
+For authenticated UI and API decisions, Tracecat emits one audit event per tool with the approver, decision time, source, tool identifiers, accepted or rejected result, override indicator, and optional bounded, pattern-filtered denial reason.
 
 ### External MCP connections
 
@@ -160,12 +161,13 @@ Tracecat does not currently narrow an MCP profile below the user's inherited sco
 
 OWASP mappings: `A05 Injection`, `A06 Insecure Design`, `ASI05 Unexpected Code Execution`, and `ASI08 Cascading Failures`.
 
-The secure execution profile runs agent runtimes, generated code, custom actions, and local MCP processes inside nsjail boundaries.
-The sandbox exposes only the files, processes, and broker interfaces required for the run.
+The secure execution profile runs hosted agent runtimes, agent-generated code, and local MCP processes inside nsjail boundaries.
+The agent sandbox exposes only the files, processes, and broker interfaces required for the run.
+General automation actions follow the network policy of their configured executor.
 
 | Layer | Control |
 | --- | --- |
-| Network | Each sandbox receives an isolated network namespace with no direct route by default. Model and tool requests use trusted brokers; direct internet access requires an explicit agent setting. |
+| Network | Each hosted-agent sandbox receives an isolated network namespace with no direct route by default. Model and tool requests use trusted brokers; direct internet access requires an explicit agent setting. |
 | Identity and processes | Workloads run without host or platform-service identity. The agent and its `stdio` child processes share the sandbox execution identity and private runtime state. |
 | Namespaces | User, process, mount, IPC, hostname, and network namespaces separate the workload from the executor and neighboring runs. |
 | Filesystem | The runtime and dependencies are read-only. Each run receives scoped mounts, bounded temporary storage, and an isolated writable working directory. |
@@ -189,13 +191,13 @@ Tracecat captures the approved MCP server and tool inventory for the run.
 The runtime cannot introduce a new server or call a tool outside that inventory.
 
 <Info>
-  `stdio` MCP currently has three security-model limitations. Approval gates do not support `stdio` tools, so use remote HTTP MCP for tools that require human approval. Configuring `stdio` also requires network access for the whole agent sandbox, not only the child process. The agent and `stdio` process share one sandbox and execution identity rather than separate identities.
+  `stdio` MCP currently has four security-model limitations. Approval gates do not support `stdio` tools, so use remote HTTP MCP for tools that require human approval. Configuring `stdio` also requires network access for the whole agent sandbox, not only the child process. The agent and `stdio` process share one sandbox and execution identity rather than separate identities. Credentials required by a `stdio` server are materialized inside that shared sandbox and must be treated as accessible to agent-controlled code.
 </Info>
 
 ### Trusted API and model gateways
 
-The secure preset-agent path keeps secret values out of model context.
-Tracecat evaluates secret references only after the model produces a permitted tool or model request, then its built-in API and MCP proxy adds the downstream API, OAuth, MCP, or model credential.
+For brokered API, remote HTTP MCP, and model calls, the secure preset-agent path keeps secret values out of model context and the agent sandbox.
+Tracecat evaluates secret references only after the model produces a permitted tool or model request, then its built-in API and MCP proxy adds the downstream API, OAuth, MCP, or model credential outside the sandbox.
 The agent receives the typed result, not the credential.
 
 You can use Tracecat's managed model gateway or configure an OpenAI-compatible provider and BYO model.
