@@ -1,0 +1,101 @@
+# Parent fixture for the phase 8 subflow fan-out follow-on.
+#
+# Same trigger inputs as workflow_scatter_insert_row.yml, so a phase 8 cell can
+# reuse a completed phase 3 or phase 5 cell's `workflow_count x branch_count`
+# and the per-logical-row cost stays directly comparable. The difference is
+# where the fan-out happens: here each logical branch becomes a whole child
+# workflow execution (`core.workflow.execute`) rather than one more action
+# execution inside this workflow.
+#
+# `core.workflow.execute` argument schema (tracecat.dsl.common.ExecuteSubflowArgs
+# - the platform validates this action against that model, not against the
+# registry UDF interface):
+#   workflow_id | workflow_alias  - at least one is required
+#   trigger_inputs                - arbitrary JSON passed to the child
+#   environment, version, timeout
+#   loop_strategy  parallel | batch | sequential   (default batch)
+#   batch_size                                     (default 32)
+#   fail_strategy  isolated | all                  (default isolated)
+#   wait_strategy  wait | detach                   (default wait in the DSL)
+#
+# `wait_strategy: wait` is mandatory here: the runner polls the parent to a
+# terminal state and then counts rows, so detached children would race the row
+# count and make the correctness check meaningless.
+#
+# `fail_strategy: all` mirrors the scatter fixture's failure semantics. With
+# `isolated`, a failing child is folded into the gathered result and the parent
+# still completes, hiding the first failure boundary from the runner's terminal
+# status.
+#
+# `loop_strategy: parallel` is the honest analogue of the scatter fixture's
+# `for_each`: all branches are released at once. Note the platform still bounds
+# actual concurrent dispatch by TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW
+# (default 16, clamped to 8..128), so `parallel` sets the logical batch, not the
+# in-flight dispatch count. Run a throttled sub-scenario as a modified copy with
+# `loop_strategy: batch` and an explicit `batch_size`.
+#
+# `retry_policy.max_attempts: 1` keeps the characterization pass honest, as in
+# the other fixtures.
+#
+# The child is referenced by alias, not by ID: the external workflow definition
+# format carries no ID for a freshly uploaded child, and an ID baked into this
+# file would go stale. fixtures.py uploads the child first, PATCHes the alias
+# onto it, and commits it before this workflow, because published subflow
+# resolution reads the alias off the child's committed WorkflowDefinition.
+#
+# External workflow definition format: POST as multipart/form-data to
+# `POST /workspaces/{workspace_id}/workflows`, then commit it.
+version: 1
+definition:
+  title: Scatter load - subflow fan-out
+  description: >-
+    Subflow fan-out: one child workflow execution per logical branch, gathered
+    into a compact count.
+  entrypoint:
+    ref: fan_out_branches
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      branch_count:
+        type: int
+        description: Number of logical branches (child workflows) to fan out.
+      payload:
+        type: str
+        description: Synthetic payload body written to every row.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: fan_out_branches
+      action: core.workflow.execute
+      description: One child workflow execution per logical branch.
+      for_each: ${{ for var.branch_seq in FN.range(0, TRIGGER.branch_count) }}
+      args:
+        workflow_alias: scatter_load_subflow_child
+        loop_strategy: parallel
+        fail_strategy: all
+        wait_strategy: wait
+        trigger_inputs:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branch_seq: ${{ var.branch_seq }}
+          payload: ${{ TRIGGER.payload }}
+      retry_policy:
+        max_attempts: 1
+    - ref: gather
+      action: core.transform.reshape
+      description: Compact gather. Deliberately drops the per-child results.
+      depends_on:
+        - fan_out_branches
+      args:
+        value:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branches_written: ${{ FN.length(ACTIONS.fan_out_branches.result) }}
+      retry_policy:
+        max_attempts: 1
+  returns: ${{ ACTIONS.gather.result }}

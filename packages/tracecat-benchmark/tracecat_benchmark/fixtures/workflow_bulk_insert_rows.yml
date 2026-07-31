@@ -1,0 +1,88 @@
+# Bulk control fixture for the PostgreSQL scatter load test.
+#
+# Writes exactly the same logical rows as workflow_scatter_insert_row.yml, but
+# through a single `core.table.insert_rows` action execution. This is the
+# phase 4 batching control.
+#
+# Row building happens in one `core.script.run_python` action rather than a
+# `for_each` reshape, because a `for_each` reshape would expand back into one
+# action execution per branch and destroy the "fewer action executions"
+# property this control exists to measure. The trade-off is that the control
+# pays for one sandboxed Python process; that cost is CPU-side, not
+# database-side, so it does not contaminate the database-time-per-logical-row
+# ratio that phase 4 records. Note it when reporting wall-clock numbers.
+#
+# External workflow definition format: POST as multipart/form-data to
+# `POST /workspaces/{workspace_id}/workflows`, then commit it.
+version: 1
+definition:
+  title: Scatter load - insert_rows bulk control
+  description: >-
+    Bulk control: the same logical rows as the scatter fixture, written by a
+    single core.table.insert_rows action execution.
+  entrypoint:
+    ref: build_rows
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      branch_count:
+        type: int
+        description: Number of logical branches (rows) this workflow writes.
+      payload:
+        type: str
+        description: Synthetic payload body written to every row.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: build_rows
+      action: core.script.run_python
+      description: Build every row body in a single action execution.
+      args:
+        timeout_seconds: 60
+        inputs:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branch_count: ${{ TRIGGER.branch_count }}
+          payload: ${{ TRIGGER.payload }}
+        script: |
+          def main(run_id, workflow_seq, branch_count, payload):
+              return [
+                  {
+                      "run_id": run_id,
+                      "workflow_seq": workflow_seq,
+                      "branch_seq": branch_seq,
+                      "payload": payload,
+                      "dedupe_key": f"{run_id}:{workflow_seq}:{branch_seq}",
+                  }
+                  for branch_seq in range(branch_count)
+              ]
+      retry_policy:
+        max_attempts: 1
+    - ref: bulk_insert
+      action: core.table.insert_rows
+      description: One database round trip for every logical branch.
+      depends_on:
+        - build_rows
+      args:
+        table: scatter_load_rows
+        rows_data: ${{ ACTIONS.build_rows.result }}
+      retry_policy:
+        max_attempts: 1
+    - ref: gather
+      action: core.transform.reshape
+      description: Compact gather. Deliberately drops the row bodies.
+      depends_on:
+        - bulk_insert
+      args:
+        value:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branches_written: ${{ ACTIONS.bulk_insert.result }}
+      retry_policy:
+        max_attempts: 1
+  returns: ${{ ACTIONS.gather.result }}

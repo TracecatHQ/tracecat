@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling >= 1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracecat-benchmark"
+version = "0.1.0"
+description = "Internal end-to-end benchmarking tooling for Tracecat"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0"
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+dependencies = [
+    "asyncpg==0.29.0",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.2",
+    "pyyaml==6.0.3",
+    "rich==13.9.4",
+    "sqlalchemy==2.0.45",
+    "temporalio==1.20.0",
+    "tracecat",
+]
+
+[project.scripts]
+tracecat-benchmark = "tracecat_benchmark.matrix:main"
+tracecat-benchmark-viewer = "tracecat_benchmark.viewer:main"
+
+[tool.uv.sources]
+tracecat = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracecat_benchmark"]
+artifacts = [
+    "tracecat_benchmark/examples/*",
+    "tracecat_benchmark/fixtures/*",
+    "tracecat_benchmark/pgdog/*",
+    "tracecat_benchmark/viewer.html",
+]
