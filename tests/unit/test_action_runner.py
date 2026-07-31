@@ -700,3 +700,107 @@ class TestActionRunner:
         assert refcounts == [1]
         assert registry_paths[0].startswith(str(entry_dir))
         assert runner.registry_artifacts._refcount(cache_key) == 0
+
+    @pytest.mark.anyio
+    async def test_cancelled_action_reaps_child_before_releasing_mounted_artifact(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Protect the subprocess-to-cache ownership boundary on cancellation.
+
+        Cancellation must kill and reap the action before dropping its registry
+        pin; only then may final release unmount the artifact. This prevents a
+        child from importing through a reclaimed mount while still retaining
+        the reusable SquashFS image for the next action.
+        """
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        cache = runner.registry_artifacts
+        artifact_uri = "s3://bucket/cancelled-action.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
+        mounted = {paths.squashfs_mount_dir}
+
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+        )
+
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+            secret_projection=_empty_secret_projection(),
+        )
+
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        process_started = asyncio.Event()
+        process: asyncio.subprocess.Process | None = None
+        reaped_before_unmount: list[bool] = []
+
+        async def capture_subprocess(*args, **kwargs):
+            nonlocal process
+            process = await real_create_subprocess_exec(*args, **kwargs)
+            process_started.set()
+            return process
+
+        async def release_mount(mount_dir: Path) -> bool:
+            reaped_before_unmount.append(
+                process is not None and process.returncode is not None
+            )
+            mounted.discard(mount_dir)
+            return True
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in mounted),
+            patch.object(
+                action_runner,
+                "_direct_subprocess_command",
+                return_value=["/bin/sleep", "30"],
+            ),
+            patch(
+                "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
+                side_effect=capture_subprocess,
+            ),
+            patch.object(cache, "_unmount", side_effect=release_mount),
+        ):
+            execution = asyncio.create_task(
+                runner.execute_action(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[artifact_uri],
+                    timeout=60.0,
+                )
+            )
+            try:
+                await process_started.wait()
+                assert cache._refcount(cache_key) == 1
+                execution.cancel()
+
+                with pytest.raises(asyncio.CancelledError):
+                    await execution
+            finally:
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
+
+        assert process is not None
+        assert process.returncode is not None
+        assert reaped_before_unmount == [True]
+        assert cache._refcount(cache_key) == 0
+        assert paths.squashfs_mount_dir not in mounted
+        assert paths.squashfs_image_path.is_file()

@@ -56,18 +56,14 @@ _added_tarball_paths: set[str] = set()
 def _ensure_tarball_paths_in_sys_path() -> None:
     """Ensure all tarball extraction directories are in sys.path.
 
-    Scans atomic cache entries, plus legacy flat-layout entries during rollout,
-    and adds materialized tarballs to sys.path if not already present.
+    Scans atomic cache entries and adds materialized tarballs to sys.path if not
+    already present.
     """
     cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
     if not cache_dir.exists():
         return
 
-    tarball_paths = (
-        *cache_dir.glob("entries/*/tarball"),
-        *cache_dir.glob("tarball-*"),
-    )
-    for path in tarball_paths:
+    for path in cache_dir.glob("entries/*/tarball"):
         if not path.is_dir():
             continue
         path_str = str(path)

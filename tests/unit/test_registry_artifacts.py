@@ -7,6 +7,7 @@ import os
 import tarfile
 import tempfile
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, patch
 
@@ -17,8 +18,10 @@ import tracecat_registry
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
+    RegistryArtifactCacheLoopError,
     RegistryArtifactEviction,
     RegistryArtifactFormat,
+    RegistryArtifactMaterializationContext,
     SquashfsArtifact,
     SquashfsMountCommandError,
     TarballArtifact,
@@ -66,6 +69,62 @@ def _write_image_entry(
     os.utime(image_path, (mtime, mtime))
     os.utime(entry_dir, (mtime, mtime))
     return image_path
+
+
+@dataclass(slots=True)
+class _SquashfsMountHarness:
+    """Model mount ownership without consuming host loop devices."""
+
+    cache: RegistryArtifactCache
+    failed_mount_keys: set[str] = field(default_factory=set)
+    mounted: set[Path] = field(default_factory=set)
+    mount_attempts: list[str] = field(default_factory=list)
+    extraction_attempts: list[str] = field(default_factory=list)
+    unmounts: list[Path] = field(default_factory=list)
+
+    def seed_mount(self, cache_key: str) -> Path:
+        """Create one reusable image and mark its mount directory active."""
+        paths = self.cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True, exist_ok=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir(exist_ok=True)
+        (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
+        self.mounted.add(paths.squashfs_mount_dir)
+        return paths.squashfs_mount_dir
+
+    async def mount(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        image_path: Path,
+    ) -> Path:
+        """Record a mount attempt, failing selected keys like loop exhaustion."""
+        self.mount_attempts.append(ctx.cache_key)
+        ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(b"squashfs")
+        if ctx.cache_key in self.failed_mount_keys:
+            raise SquashfsMountCommandError("no free loop device")
+        ctx.paths.squashfs_mount_dir.mkdir(exist_ok=True)
+        (ctx.paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
+        self.mounted.add(ctx.paths.squashfs_mount_dir)
+        return ctx.paths.squashfs_mount_dir
+
+    async def extract(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        image_path: Path,
+    ) -> Path:
+        """Publish an extracted fallback from the image retained by mount."""
+        assert image_path.is_file()
+        self.extraction_attempts.append(ctx.cache_key)
+        ctx.paths.squashfs_extract_dir.mkdir(parents=True, exist_ok=True)
+        (ctx.paths.squashfs_extract_dir / "module.py").write_text("VALUE = 1")
+        return ctx.paths.squashfs_extract_dir
+
+    async def unmount(self, mount_dir: Path) -> bool:
+        """Record final-release unmounts and release the modeled loop device."""
+        self.unmounts.append(mount_dir)
+        self.mounted.discard(mount_dir)
+        return True
 
 
 async def _materialize(
@@ -963,6 +1022,30 @@ class TestRegistryArtifactCache:
 class TestRegistryArtifactCacheLease:
     """Tests for lease-based pinning of registry artifact cache entries."""
 
+    @pytest.mark.anyio
+    async def test_cache_rejects_use_from_a_second_event_loop(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect the process-wide cache from thread-local Temporal loops.
+
+        The cache owns asyncio locks, tasks, and refcounts as one unit. A typed
+        ownership failure prevents a future synchronous activity from silently
+        sharing only part of that state across thread-local event loops, which
+        previously caused intermittent cross-loop failures in storage caches.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+
+        def use_cache_from_another_thread() -> None:
+            asyncio.run(cache.ensure_swept())
+
+        with pytest.raises(RegistryArtifactCacheLoopError):
+            await asyncio.to_thread(use_cache_from_another_thread)
+
+        # A rejected caller must not poison the owning loop's cache.
+        async with cache.lease(None) as registry_paths:
+            assert registry_paths == [temp_cache_dir / "base"]
+
     def test_touch_entry_refreshes_tarball_root_mtime(self, temp_cache_dir):
         """Touching a tarball-only entry persists its restart-safe recency."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -1076,6 +1159,390 @@ class TestRegistryArtifactCacheLease:
 
         async with cache.lease(uris) as registry_paths:
             assert registry_paths == expected
+
+    @pytest.mark.anyio
+    async def test_overlapping_same_key_leases_share_one_mount_until_final_release(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect refcount and loop-device lifetime under heavy fan-in.
+
+        Every holder must observe one published mount, intermediate releases
+        must leave that mount usable, and exactly the final release may reclaim
+        its loop device while retaining the downloaded image for a remount.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/shared.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        harness = _SquashfsMountHarness(cache)
+        holder_count = 32
+        entered = 0
+        all_entered = asyncio.Event()
+        releases = [asyncio.Event() for _ in range(holder_count)]
+
+        async def hold_lease(index: int) -> None:
+            nonlocal entered
+            async with cache.lease([artifact_uri]) as registry_paths:
+                assert registry_paths == [
+                    cache._paths_for(cache_key).squashfs_mount_dir
+                ]
+                entered += 1
+                if entered == holder_count:
+                    all_entered.set()
+                await releases[index].wait()
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", harness.mount),
+            patch.object(SquashfsArtifact, "extract", harness.extract),
+            patch.object(cache, "_unmount", harness.unmount),
+        ):
+            holders = [
+                asyncio.create_task(hold_lease(index)) for index in range(holder_count)
+            ]
+            await asyncio.wait_for(all_entered.wait(), timeout=5)
+
+            mount_dir = cache._paths_for(cache_key).squashfs_mount_dir
+            assert cache._refcount(cache_key) == holder_count
+            assert harness.mount_attempts == [cache_key]
+            assert harness.extraction_attempts == []
+            assert mount_dir in harness.mounted
+
+            for release in releases[:-1]:
+                release.set()
+            await asyncio.gather(*holders[:-1])
+
+            assert cache._refcount(cache_key) == 1
+            assert mount_dir in harness.mounted
+            assert harness.unmounts == []
+
+            releases[-1].set()
+            await holders[-1]
+
+        assert cache._refcount(cache_key) == 0
+        assert harness.unmounts == [mount_dir]
+        assert mount_dir not in harness.mounted
+        assert cache._paths_for(cache_key).squashfs_image_path.is_file()
+        assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
+        assert not cache.trash_dir.exists() or not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_cancelling_one_holder_preserves_sibling_leases(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect sibling actions from another holder's cancellation.
+
+        Cancellation must release exactly one pin without unmounting the shared
+        artifact beneath surviving actions; the last surviving holder remains
+        solely responsible for loop-device reclamation.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cancel-one.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        harness = _SquashfsMountHarness(cache)
+        entered = [asyncio.Event() for _ in range(3)]
+        releases = [asyncio.Event() for _ in range(3)]
+
+        async def hold_lease(index: int) -> None:
+            async with cache.lease([artifact_uri]):
+                entered[index].set()
+                await releases[index].wait()
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", harness.mount),
+            patch.object(SquashfsArtifact, "extract", harness.extract),
+            patch.object(cache, "_unmount", harness.unmount),
+        ):
+            holders = [asyncio.create_task(hold_lease(index)) for index in range(3)]
+            await asyncio.wait_for(
+                asyncio.gather(*(event.wait() for event in entered)),
+                timeout=5,
+            )
+
+            holders[0].cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await holders[0]
+
+            mount_dir = cache._paths_for(cache_key).squashfs_mount_dir
+            assert cache._refcount(cache_key) == 2
+            assert mount_dir in harness.mounted
+            assert harness.unmounts == []
+
+            releases[1].set()
+            await holders[1]
+            assert cache._refcount(cache_key) == 1
+            assert mount_dir in harness.mounted
+            assert harness.unmounts == []
+
+            releases[2].set()
+            await holders[2]
+
+        assert cache._refcount(cache_key) == 0
+        assert harness.mount_attempts == [cache_key]
+        assert harness.unmounts == [mount_dir]
+
+    @pytest.mark.anyio
+    async def test_new_lease_racing_final_release_prevents_stale_unmount(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect the zero-refcount-to-unmount handoff from a new acquisition.
+
+        A lease can arrive after the old holder decrements to zero but before
+        unmount takes the key lock. The lock-time refcount recheck must preserve
+        the mount for that newcomer instead of returning a path being torn down.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/release-race.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        harness = _SquashfsMountHarness(cache)
+        mount_dir = harness.seed_mount(cache_key)
+        first_entered = asyncio.Event()
+        release_first = asyncio.Event()
+        release_reached_unmount = asyncio.Event()
+        allow_unmount_recheck = asyncio.Event()
+        newcomer_entered = asyncio.Event()
+        release_newcomer = asyncio.Event()
+        original_unmount_idle_entry = cache._unmount_idle_entry
+        unmount_requests = 0
+
+        async def pause_first_unmount_request(requested_key: str) -> None:
+            nonlocal unmount_requests
+            unmount_requests += 1
+            if unmount_requests == 1:
+                release_reached_unmount.set()
+                await allow_unmount_recheck.wait()
+            await original_unmount_idle_entry(requested_key)
+
+        async def old_holder() -> None:
+            async with cache.lease([artifact_uri]):
+                first_entered.set()
+                await release_first.wait()
+
+        async def new_holder() -> None:
+            async with cache.lease([artifact_uri]):
+                newcomer_entered.set()
+                await release_newcomer.wait()
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch.object(cache, "_unmount", harness.unmount),
+            patch.object(
+                cache,
+                "_unmount_idle_entry",
+                pause_first_unmount_request,
+            ),
+        ):
+            old_task = asyncio.create_task(old_holder())
+            await first_entered.wait()
+            release_first.set()
+            await release_reached_unmount.wait()
+            assert cache._refcount(cache_key) == 0
+
+            new_task = asyncio.create_task(new_holder())
+            await newcomer_entered.wait()
+            assert cache._refcount(cache_key) == 1
+
+            allow_unmount_recheck.set()
+            await old_task
+
+            assert mount_dir in harness.mounted
+            assert harness.unmounts == []
+
+            release_newcomer.set()
+            await new_task
+
+        assert cache._refcount(cache_key) == 0
+        assert harness.unmounts == [mount_dir]
+
+    @pytest.mark.anyio
+    async def test_partial_multi_artifact_failure_rolls_back_prior_leases(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect sequential multi-artifact admission from partial pin leaks.
+
+        If a middle artifact fails, every earlier acquisition must be released
+        and unmounted, the failed key must leave no shell, later artifacts must
+        never be acquired, and the release path must still request convergence.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        first_uri = "s3://bucket/first.squashfs"
+        failed_uri = "s3://bucket/failed.tar.gz"
+        untouched_uri = "s3://bucket/untouched.tar.gz"
+        first_key = compute_registry_artifact_cache_key(first_uri)
+        failed_key = compute_registry_artifact_cache_key(failed_uri)
+        untouched_key = compute_registry_artifact_cache_key(untouched_uri)
+        harness = _SquashfsMountHarness(cache)
+        first_mount = harness.seed_mount(first_key)
+        untouched_path = _write_tarball_entry(temp_cache_dir, untouched_key)
+
+        async def fail_download(
+            artifact: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+            output_path: Path,
+        ) -> None:
+            del artifact, ctx, output_path
+            raise RuntimeError("download failed")
+
+        tracked_lease_artifact = AsyncMock(wraps=cache._lease_artifact)
+        converge_cache_budget = AsyncMock()
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", fail_download),
+            patch.object(cache, "_unmount", harness.unmount),
+            patch.object(cache, "_lease_artifact", tracked_lease_artifact),
+            patch.object(
+                cache,
+                "_converge_cache_budget",
+                converge_cache_budget,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="download failed"):
+                async with cache.lease([first_uri, failed_uri, untouched_uri]):
+                    pass
+
+        requested_uris = [
+            await_call.args[0] for await_call in tracked_lease_artifact.await_args_list
+        ]
+        assert requested_uris == [first_uri, failed_uri]
+        assert cache._refcount(first_key) == 0
+        assert cache._refcount(failed_key) == 0
+        assert cache._refcount(untouched_key) == 0
+        assert harness.unmounts == [first_mount]
+        assert cache._paths_for(first_key).squashfs_image_path.is_file()
+        assert not cache._paths_for(failed_key).entry_dir.exists()
+        assert untouched_path.is_dir()
+        converge_cache_budget.assert_awaited_once_with()
+        assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
+        assert not cache.trash_dir.exists() or not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_waiter_retries_after_first_same_key_materializer_fails(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect same-key waiters from a failed cold-cache publisher.
+
+        The first materializer may fail after writing scratch. Its waiter must
+        retry against a clean staging area, publish the sole valid entry, and
+        leave neither a leaked pin nor an empty LRU-visible cache shell.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/retry-after-failure.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        first_download_started = asyncio.Event()
+        fail_first_download = asyncio.Event()
+        retry_download_started = asyncio.Event()
+        allow_retry_download = asyncio.Event()
+        download_attempts = 0
+        retry_saw_clean_staging = False
+
+        async def controlled_download(
+            artifact: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+            output_path: Path,
+        ) -> None:
+            del artifact, ctx
+            nonlocal download_attempts, retry_saw_clean_staging
+            download_attempts += 1
+            if download_attempts == 1:
+                output_path.write_bytes(b"partial")
+                first_download_started.set()
+                await fail_first_download.wait()
+                raise RuntimeError("first publisher failed")
+
+            retry_saw_clean_staging = not any(cache.staging_dir.iterdir())
+            retry_download_started.set()
+            await allow_retry_download.wait()
+            output_path.write_bytes(b"complete")
+
+        async def mock_extract(
+            artifact: TarballArtifact,
+            tarball_path: Path,
+            target_dir: Path,
+        ) -> None:
+            del artifact
+            assert tarball_path.read_bytes() == b"complete"
+            (target_dir / "module.py").write_text("VALUE = 1")
+
+        async def take_lease() -> list[Path]:
+            async with cache.lease([artifact_uri]) as registry_paths:
+                return registry_paths
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", controlled_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            first = asyncio.create_task(take_lease())
+            await first_download_started.wait()
+            waiter = asyncio.create_task(take_lease())
+            await asyncio.sleep(0)
+            assert download_attempts == 1
+
+            fail_first_download.set()
+            with pytest.raises(RuntimeError, match="first publisher failed"):
+                await first
+
+            await retry_download_started.wait()
+            allow_retry_download.set()
+            registry_paths = await waiter
+
+        target_dir = cache._paths_for(cache_key).tarball_target_dir
+        assert registry_paths == [target_dir]
+        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        assert download_attempts == 2
+        assert retry_saw_clean_staging is True
+        assert cache._discover_cache_keys() == {cache_key}
+        assert cache._refcount(cache_key) == 0
+        assert not any(cache.staging_dir.iterdir())
+        assert not cache.trash_dir.exists() or not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_duplicate_uri_balances_each_acquisition_and_release(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect list bookkeeping when one lease requests the same URI twice.
+
+        Duplicate PYTHONPATH entries intentionally acquire two pins. Both must
+        be released, while materialization and final unmount still occur once;
+        accidental deduplication on only one side would leak or underflow pins.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/duplicate.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        harness = _SquashfsMountHarness(cache)
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", harness.mount),
+            patch.object(SquashfsArtifact, "extract", harness.extract),
+            patch.object(cache, "_unmount", harness.unmount),
+        ):
+            async with cache.lease([artifact_uri, artifact_uri]) as registry_paths:
+                mount_dir = cache._paths_for(cache_key).squashfs_mount_dir
+                assert registry_paths == [mount_dir, mount_dir]
+                assert cache._refcount(cache_key) == 2
+                assert harness.mount_attempts == [cache_key]
+
+        assert cache._refcount(cache_key) == 0
+        assert harness.unmounts == [mount_dir]
+        assert cache._paths_for(cache_key).squashfs_image_path.is_file()
 
     @pytest.mark.anyio
     async def test_lease_is_never_admitted_across_an_in_flight_eviction(
@@ -2195,16 +2662,14 @@ class TestRegistryArtifactCacheStartupSweep:
         assert not cache_dir.exists()
 
     @pytest.mark.anyio
-    async def test_sweep_removes_orphaned_work_and_legacy_paths(self, temp_cache_dir):
-        """Interrupted work and disposable flat-layout paths are reclaimed."""
+    async def test_sweep_removes_orphaned_work(self, temp_cache_dir):
+        """Interrupted work is reclaimed without touching unrelated paths."""
         cache = RegistryArtifactCache(temp_cache_dir)
         orphaned = cache.staging_dir / "abc123.999999.4321.squashfs"
         orphaned.parent.mkdir()
         orphaned.write_bytes(b"partial")
         orphaned_dir = cache.trash_dir / "abc123.999999.4321"
         orphaned_dir.mkdir(parents=True)
-        legacy = temp_cache_dir / "squashfs-abc123.squashfs"
-        legacy.write_bytes(b"legacy")
         unrelated = temp_cache_dir / "unrelated"
         unrelated.mkdir()
         unrelated_file = unrelated / "keep.txt"
@@ -2215,36 +2680,8 @@ class TestRegistryArtifactCacheStartupSweep:
 
         assert not orphaned.exists()
         assert not orphaned_dir.exists()
-        assert not legacy.exists()
         assert unrelated_file.read_text() == "keep"
         assert entry_dir.is_dir()
-
-    @pytest.mark.anyio
-    async def test_sweep_removes_legacy_partial_downloads(self, temp_cache_dir):
-        """Former ``.part`` downloads are startup scratch, not cache entries."""
-        partial = temp_cache_dir / "abc123.999.456.squashfs.part"
-        partial.write_bytes(b"partial")
-
-        await RegistryArtifactCache(temp_cache_dir).ensure_swept()
-
-        assert not partial.exists()
-
-    @pytest.mark.anyio
-    async def test_sweep_preserves_backing_image_for_active_legacy_mount(
-        self, temp_cache_dir
-    ):
-        """Legacy cleanup never deletes the image behind a live mount."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        image = temp_cache_dir / "squashfs-abc123.squashfs"
-        mount_dir = temp_cache_dir / "squashfs-abc123"
-        image.write_bytes(b"squashfs")
-        mount_dir.mkdir()
-
-        with patch.object(Path, "is_mount", lambda self: self == mount_dir):
-            await cache.ensure_swept()
-
-        assert image.read_bytes() == b"squashfs"
-        assert mount_dir.is_dir()
 
     @pytest.mark.anyio
     async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
@@ -2588,6 +3025,72 @@ class TestRegistryArtifactCacheStartupSweep:
 
 class TestSquashfsMountPolicy:
     """Tests for per-artifact SquashFS fallback."""
+
+    @pytest.mark.anyio
+    async def test_loop_device_exhaustion_isolated_sticky_extraction_fallback(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Protect the cache's fail-open policy when loop devices are saturated.
+
+        A mount-command failure must extract only the affected cold artifact,
+        preserve already-leased mounts, reuse that extraction on later leases,
+        and still let unrelated artifacts attempt mounting. This models loop
+        exhaustion deterministically without consuming host-global devices.
+        """
+        cache = RegistryArtifactCache(temp_cache_dir)
+        held_uri = "s3://bucket/already-mounted.squashfs"
+        saturated_uri = "s3://bucket/no-loop-available.squashfs"
+        later_uri = "s3://bucket/later-artifact.squashfs"
+        held_key = compute_registry_artifact_cache_key(held_uri)
+        saturated_key = compute_registry_artifact_cache_key(saturated_uri)
+        later_key = compute_registry_artifact_cache_key(later_uri)
+        harness = _SquashfsMountHarness(
+            cache,
+            failed_mount_keys={saturated_key},
+        )
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", harness.mount),
+            patch.object(SquashfsArtifact, "extract", harness.extract),
+            patch.object(cache, "_unmount", harness.unmount),
+        ):
+            async with cache.lease([held_uri]) as held_paths:
+                held_mount = cache._paths_for(held_key).squashfs_mount_dir
+                assert held_paths == [held_mount]
+
+                async with cache.lease([saturated_uri]) as saturated_paths:
+                    extracted = cache._paths_for(saturated_key).squashfs_extract_dir
+                    assert saturated_paths == [extracted]
+                    assert held_mount in harness.mounted
+                    assert cache._refcount(held_key) == 1
+                    assert harness.unmounts == []
+
+                # The extracted directory is the cache entry's sticky path;
+                # freeing a loop elsewhere does not trigger a remount attempt.
+                async with cache.lease([saturated_uri]) as cached_paths:
+                    assert cached_paths == [extracted]
+
+                async with cache.lease([later_uri]) as later_paths:
+                    later_mount = cache._paths_for(later_key).squashfs_mount_dir
+                    assert later_paths == [later_mount]
+                    assert held_mount in harness.mounted
+
+                assert held_mount in harness.mounted
+
+        assert harness.mount_attempts == [held_key, saturated_key, later_key]
+        assert harness.extraction_attempts == [saturated_key]
+        assert harness.unmounts == [later_mount, held_mount]
+        assert cache._paths_for(saturated_key).squashfs_image_path.is_file()
+        assert cache._paths_for(saturated_key).squashfs_extract_dir.is_dir()
+        assert cache._refcount(held_key) == 0
+        assert cache._refcount(saturated_key) == 0
+        assert cache._refcount(later_key) == 0
 
     @pytest.mark.anyio
     async def test_mount_failure_does_not_disable_later_artifacts(

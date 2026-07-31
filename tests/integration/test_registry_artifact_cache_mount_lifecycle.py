@@ -145,7 +145,12 @@ def _run_mount_lifecycle_in_docker_or_skip() -> dict[str, Any]:
 
 @pytest.mark.integration
 def test_registry_artifact_cache_mount_lifecycle() -> None:
-    """Real mounts, evictions, and loop devices behave as the cache assumes."""
+    """Protect lease invariants against the real kernel mount lifecycle.
+
+    Unit mocks cannot prove that overlapping holders share one loop device or
+    that final release actually returns it to the kernel. This privileged test
+    guards those assumptions alongside retained-image remount and eviction.
+    """
     payload = _run_mount_lifecycle_in_docker_or_skip()
 
     if skipped := payload.get("skipped"):
@@ -161,6 +166,14 @@ def test_registry_artifact_cache_mount_lifecycle() -> None:
     # A later lease remounts from the retained image without downloading again.
     assert payload["remounted_from_retained_image"] is True
     assert payload["remount_released"] is True
+
+    # Overlapping holders share one real mount and only the last one releases it.
+    assert payload["concurrent_paths_shared"] is True
+    assert payload["concurrent_peak_refcount"] == 3
+    assert payload["concurrent_single_mount"] is True
+    assert payload["concurrent_intermediate_release_preserved_mount"] is True
+    assert payload["concurrent_final_release_unmounted"] is True
+    assert payload["concurrent_loop_device_released"] is True
 
     # Eviction deletes an already-idle entry.
     assert payload["evicted"] is True
@@ -302,7 +315,60 @@ async def _run_mount_lifecycle_child() -> None:
             ]
         payload["remount_released"] = not retained_paths.squashfs_mount_dir.is_mount()
 
-        # (c) Evict one already-idle entry.
+        # (c) Overlapping leases share one mount until final release.
+        concurrent_holders = 3
+        concurrent_entered = 0
+        all_concurrent_entered = asyncio.Event()
+        concurrent_releases = [asyncio.Event() for _ in range(concurrent_holders)]
+        concurrent_paths_shared: list[bool] = []
+
+        async def hold_concurrent_lease(index: int) -> None:
+            nonlocal concurrent_entered
+            async with cache.lease([uris[0]]) as registry_paths:
+                concurrent_paths_shared.append(
+                    registry_paths == [retained_paths.squashfs_mount_dir]
+                    and (registry_paths[0] / "module_0.py").read_text() == "VALUE = 1\n"
+                )
+                concurrent_entered += 1
+                if concurrent_entered == concurrent_holders:
+                    all_concurrent_entered.set()
+                await concurrent_releases[index].wait()
+
+        holders = [
+            asyncio.create_task(hold_concurrent_lease(index))
+            for index in range(concurrent_holders)
+        ]
+        await asyncio.wait_for(all_concurrent_entered.wait(), timeout=10)
+        concurrent_mounts = _squashfs_mounts(cache_dir)
+        concurrent_device = concurrent_mounts[str(retained_paths.squashfs_mount_dir)]
+        payload["concurrent_paths_shared"] = all(concurrent_paths_shared)
+        payload["concurrent_peak_refcount"] = cache._refcount(keys[0])
+        payload["concurrent_single_mount"] = (
+            list(concurrent_mounts).count(str(retained_paths.squashfs_mount_dir)) == 1
+        )
+
+        for release in concurrent_releases[:-1]:
+            release.set()
+        await asyncio.gather(*holders[:-1])
+        mounts_after_intermediate_releases = _squashfs_mounts(cache_dir)
+        payload["concurrent_intermediate_release_preserved_mount"] = (
+            cache._refcount(keys[0]) == 1
+            and str(retained_paths.squashfs_mount_dir)
+            in mounts_after_intermediate_releases
+        )
+
+        concurrent_releases[-1].set()
+        await holders[-1]
+        mounts_after_concurrent_release = _squashfs_mounts(cache_dir)
+        payload["concurrent_final_release_unmounted"] = (
+            str(retained_paths.squashfs_mount_dir)
+            not in mounts_after_concurrent_release
+        )
+        payload["concurrent_loop_device_released"] = (
+            concurrent_device not in mounts_after_concurrent_release.values()
+        )
+
+        # (d) Evict one already-idle entry.
         evicted_paths = cache._paths_for(keys[0])
         eviction = await cache._evict_entry(keys[0])
         payload["evicted"] = eviction.retired and eviction.reclaimed
@@ -311,7 +377,7 @@ async def _run_mount_lifecycle_child() -> None:
             or evicted_paths.squashfs_mount_dir.exists()
         )
 
-        # (d) Final release unmounts, then converges an over-budget cache.
+        # (e) Final release unmounts, then converges an over-budget cache.
         fourth_uri = "s3://bucket/lifecycle/3/site-packages.squashfs"
         fourth_key = compute_registry_artifact_cache_key(fourth_uri)
         fourth_paths = cache._paths_for(fourth_key)
@@ -335,7 +401,7 @@ async def _run_mount_lifecycle_child() -> None:
         )
         payload["converged_entries_remaining"] = len(cache._discover_cache_keys())
 
-        # (e) The startup sweep trims to budget and drops stale mount directories.
+        # (f) The startup sweep trims to budget and drops stale mount directories.
         sweep_dir = root / "sweep-cache"
         sweep_dir.mkdir()
         sweep_cache = RegistryArtifactCache(sweep_dir)

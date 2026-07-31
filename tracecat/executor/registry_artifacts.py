@@ -6,10 +6,10 @@ import asyncio
 import contextlib
 import hashlib
 import os
-import re
 import shutil
 import sysconfig
 import tarfile
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterable
@@ -60,11 +60,6 @@ CACHE_STAGING_DIR_NAME = "staging"
 CACHE_TRASH_DIR_NAME = "trash"
 """Directory containing atomically retired entries pending physical deletion."""
 
-LEGACY_TEMP_ARTIFACT_PATTERN = re.compile(
-    r"^[^.]+\.\d+\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)(?:\.part)?$"
-)
-"""Matches scratch paths created by the former flat cache layout."""
-
 
 class SquashfsMountCommandError(RuntimeError):
     """The ``mount`` command itself failed for a SquashFS registry artifact.
@@ -73,6 +68,10 @@ class SquashfsMountCommandError(RuntimeError):
     preparation failures must not be mistaken for a missing mount capability or
     for loop-device exhaustion.
     """
+
+
+class RegistryArtifactCacheLoopError(RuntimeError):
+    """A registry artifact cache was used outside its owning event loop."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,18 +688,6 @@ def _directory_footprint(directory: Path) -> int:
     return total_bytes
 
 
-def _legacy_cache_key(path_name: str) -> str | None:
-    """Return the cache key encoded by a former flat-layout path."""
-    if path_name.startswith("squashfs-"):
-        cache_key = path_name.removeprefix("squashfs-")
-        return cache_key.removesuffix(".squashfs") or None
-    if path_name.startswith("unsquashfs-"):
-        return path_name.removeprefix("unsquashfs-") or None
-    if path_name.startswith("tarball-"):
-        return path_name.removeprefix("tarball-") or None
-    return None
-
-
 def _delete_cache_path(path: Path) -> bool:
     """Best-effort delete one cache path while reporting filesystem failures."""
     try:
@@ -761,6 +748,13 @@ class RegistryArtifactCache:
         # Runtime states live for the process lifetime so every operation for a
         # key always serializes on the same lock.
         self._runtime: dict[str, RegistryArtifactRuntimeState] = {}
+        # The cache contains asyncio locks, tasks, and multi-step lease state.
+        # Bind the public API to one loop/thread so a future synchronous
+        # Temporal activity fails immediately instead of corrupting that state
+        # through a thread-local event loop.
+        self._owner_binding_lock = threading.Lock()
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
+        self._owner_thread_id: int | None = None
         self._budget_lock = asyncio.Lock()
         # Guard the off-loop startup sweep independently from cache operations.
         self._swept: bool = False
@@ -785,6 +779,7 @@ class RegistryArtifactCache:
         before the first lease or materialization, so it never observes
         in-flight cache entries.
         """
+        self._assert_owner_loop()
         if self._swept:
             return
         async with self._sweep_lock:
@@ -810,6 +805,29 @@ class RegistryArtifactCache:
                     self._sweep_task = None
                 raise
             self._swept = True
+
+    def _assert_owner_loop(self) -> None:
+        """Bind to the current loop or reject use from another loop/thread."""
+        current_loop = asyncio.get_running_loop()
+        current_thread_id = threading.get_ident()
+        with self._owner_binding_lock:
+            if self._owner_loop is None:
+                self._owner_loop = current_loop
+                self._owner_thread_id = current_thread_id
+                return
+            if (
+                self._owner_loop is current_loop
+                and self._owner_thread_id == current_thread_id
+            ):
+                return
+
+            raise RegistryArtifactCacheLoopError(
+                "RegistryArtifactCache is bound to one event loop and thread "
+                f"(owner_loop={id(self._owner_loop)}, "
+                f"owner_thread={self._owner_thread_id}, "
+                f"current_loop={id(current_loop)}, "
+                f"current_thread={current_thread_id})"
+            )
 
     @asynccontextmanager
     async def lease(self, artifact_uris: list[str] | None) -> AsyncIterator[list[Path]]:
@@ -1501,11 +1519,10 @@ class RegistryArtifactCache:
     def _sweep_startup_state(self) -> None:
         """Reclaim orphaned cache state left behind by a previous process.
 
-        Scratch and trash paths from interrupted work are removed, legacy flat
-        cache paths are retired, and active entries are trimmed to budget using
-        entry-root mtimes as LRU order. Tarball-bearing entries are protected
-        for the pool backend because cache construction may happen after warm
-        workers have inherited those paths.
+        Scratch and trash paths from interrupted work are removed, and active
+        entries are trimmed to budget using entry-root mtimes as LRU order.
+        Tarball-bearing entries are protected for the pool backend because cache
+        construction may happen after warm workers have inherited those paths.
 
         The worker warms this sweep before activities can run; lazy first-use
         sweeping remains a safe fallback.
@@ -1515,13 +1532,12 @@ class RegistryArtifactCache:
             return
 
         try:
-            legacy_clean = self._remove_legacy_cache_paths()
             staging_clean = self._clear_work_dir(
                 self.staging_dir,
                 remember_failures=True,
             )
             trash_clean = self._clear_work_dir(self.trash_dir)
-            cleanup_complete = legacy_clean and staging_clean and trash_clean
+            cleanup_complete = staging_clean and trash_clean
             within_budget = cleanup_complete and self._trim_startup_cache()
             self._budget_dirty = not (cleanup_complete and within_budget)
         except OSError as e:
@@ -1572,69 +1588,6 @@ class RegistryArtifactCache:
             if _delete_cache_path(path):
                 self._failed_startup_cleanup.discard(path)
         return not self._failed_startup_cleanup
-
-    def _remove_legacy_cache_paths(self) -> bool:
-        """Best-effort remove flat-layout cache paths from earlier executors."""
-        try:
-            paths = list(self.cache_dir.iterdir())
-        except FileNotFoundError:
-            return True
-        except OSError as e:
-            logger.warning(
-                "Failed to inspect registry artifact cache root",
-                cache_dir=str(self.cache_dir),
-                error=str(e),
-            )
-            raise
-
-        current_names = {
-            BASE_PYTHONPATH_DIR_NAME,
-            CACHE_ENTRIES_DIR_NAME,
-            CACHE_STAGING_DIR_NAME,
-            CACHE_TRASH_DIR_NAME,
-        }
-        backend_type = resolve_backend_type()
-        mounted_keys = {
-            cache_key
-            for path in paths
-            if path.name.startswith("squashfs-")
-            and not path.name.endswith(".squashfs")
-            and path.is_mount()
-            and (cache_key := _legacy_cache_key(path.name)) is not None
-        }
-        deleted = True
-        for path in paths:
-            if path.name in current_names:
-                continue
-            cache_key = _legacy_cache_key(path.name)
-            is_legacy_entry = cache_key is not None
-            is_legacy_scratch = (
-                LEGACY_TEMP_ARTIFACT_PATTERN.fullmatch(path.name) is not None
-            )
-            if not is_legacy_entry and not is_legacy_scratch:
-                continue
-            if cache_key in mounted_keys:
-                logger.warning(
-                    "Preserving active legacy registry artifact",
-                    cache_key=cache_key,
-                    path=str(path),
-                )
-                continue
-            if backend_type == ExecutorBackendType.POOL and path.name.startswith(
-                "tarball-"
-            ):
-                continue
-            if path.is_mount():
-                deleted = False
-                logger.warning(
-                    "Cannot remove mounted legacy registry artifact path",
-                    path=str(path),
-                )
-                continue
-            if not _delete_cache_path(path):
-                deleted = False
-                self._failed_startup_cleanup.add(path)
-        return deleted
 
     def _trim_startup_cache(self) -> bool:
         """Trim the cache to budget before any artifact is leased.
