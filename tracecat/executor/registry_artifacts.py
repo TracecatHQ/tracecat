@@ -869,8 +869,7 @@ class RegistryArtifactCache:
             ]
             for cache_key in idle_keys:
                 await self._unmount_idle_entry(cache_key)
-            if leased_keys:
-                await self._converge_cache_budget()
+            await self._converge_cache_budget()
 
     async def _lease_artifact(self, artifact_uri: str) -> tuple[str | None, list[Path]]:
         """Pin and materialize one artifact, returning its releasable cache key."""

@@ -1098,6 +1098,47 @@ class TestRegistryArtifactCacheLease:
         assert cache_key not in cache._discover_cache_keys()
 
     @pytest.mark.anyio
+    async def test_failed_first_admission_converges_deposited_image(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A failed first artifact must not strand an over-budget image."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/failed-first.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = SquashfsArtifact(uri=artifact_uri, cache_key=cache_key)
+
+        async def fail_after_deposit(
+            artifact: SquashfsArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+        ) -> list[Path]:
+            del artifact
+            ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
+            ctx.paths.squashfs_image_path.write_bytes(b"reusable image")
+            raise RuntimeError("mount failed")
+
+        with (
+            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, 1),
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                return_value=[artifact],
+            ),
+            patch.object(SquashfsArtifact, "materialize", fail_after_deposit),
+        ):
+            with pytest.raises(RuntimeError, match="mount failed"):
+                async with cache.lease([artifact_uri]):
+                    pass
+
+        assert cache._refcount(cache_key) == 0
+        assert not cache._paths_for(cache_key).entry_dir.exists()
+        assert cache._discover_cache_keys() == set()
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
     async def test_cancelled_lease_admission_releases_refcount(self, temp_cache_dir):
         """Cancellation during candidate lookup must not leak a permanent pin."""
         cache = RegistryArtifactCache(temp_cache_dir)
