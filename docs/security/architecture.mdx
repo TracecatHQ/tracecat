@@ -4,12 +4,14 @@ description: "Understand Tracecat's threat model and security design."
 keywords: ["security architecture", "AI agent security", "MCP security", "sandboxing", "RBAC", "OpenTelemetry"]
 ---
 
-Tracecat's threat model relies on four platform-enforced controls:
+Tracecat's threat model starts with platform-enforced boundaries:
 
-- Identity and tenant authorization.
-- Deterministic tool policy.
-- Sandboxed execution.
-- Audit and telemetry.
+- Identity, RBAC, and tenant isolation.
+- Sandboxed execution for custom code and agents.
+- Short-lived authorization tokens and brokered credentials.
+- Encrypted durable payloads and object-storage externalization.
+- Deterministic tool policy and human approval.
+- Versioned change control, audit logs, and agent telemetry.
 
 These controls do not rely on the LLM following instructions. The LLM can propose actions, but Tracecat decides what runs.
 
@@ -25,6 +27,7 @@ flowchart LR
   subgraph control["Tracecat control plane"]
     api["Tracecat API"]
     identity["Identity · RBAC<br/>tenant scope"]
+    versions["Versioned definitions<br/>review · rollback"]
     temporal["Temporal<br/>durable orchestration"]
     policy["Hosted-agent policy<br/>allow · deny · require approval"]
     approval["Human approval<br/>accept · reject · reason"]
@@ -37,16 +40,19 @@ flowchart LR
   end
 
   subgraph trusted["Trusted execution services"]
+    runAuth["Run authorization<br/>short-lived scoped JWTs"]
     tools["Tracecat API and MCP proxy"]
     credentials["Credential broker"]
     llmGateway["LLM gateway"]
     otel["Scoped OTEL relay"]
+    payloads["Encrypted run payloads<br/>scoped object references"]
   end
 
   subgraph customer["Customer-managed and external systems"]
     secrets["AWS Secrets Manager"]
     apis["Approved APIs<br/>remote HTTP MCP"]
     llmProviders["Managed or BYO LLM<br/>optional LLM proxy"]
+    objectStore["Managed or customer<br/>object storage"]
     observability["Observability or SIEM"]
     auditSink["HTTPS audit webhook"]
   end
@@ -54,9 +60,14 @@ flowchart LR
   operator --> api
   trigger --> api
   api --> identity
+  api --> versions
+  versions --> temporal
   identity --> temporal
   identity -->|scoped policy| policy
+  identity -->|tenant and user scope| runAuth
+  policy -->|allowed tools and model| runAuth
   temporal --> agent
+  runAuth -->|short-lived JWTs| agent
   agent -->|tool request| policy
   policy -->|allowed remote tool| tools
   policy -->|allowed local tool| stdio
@@ -69,6 +80,8 @@ flowchart LR
   credentials -->|resolve reference| secrets
   agent --> llmGateway
   llmGateway --> llmProviders
+  temporal <-->|encrypted inputs and outputs| payloads
+  payloads -->|externalize large payloads| objectStore
   agent -. telemetry .-> otel
   otel -. OTLP .-> observability
   api -. control-plane event .-> audit
@@ -89,34 +102,54 @@ This threat model covers the complete Tracecat platform. It includes conventiona
 - MCP and LLM provider credentials.
 - External systems reachable through tools.
 - Control-plane and executor infrastructure.
+- Workflow and agent inputs and outputs.
 - Audit records and agent telemetry.
 
-### Threat actors and untrusted sources
-
-Tracecat assumes risk from:
-
-- External attackers targeting API, authentication, or MCP endpoints.
-- Compromised or malicious users and service accounts.
-- Attackers who control content consumed by an agent.
-- Compromised LLM or API providers.
-- Compromised MCP servers.
-- Malicious packages and local MCP processes.
-- Unsafe LLM output and generated code.
-
-Tracecat treats the LLM as an untrusted decision-maker. It can propose a tool call or generate code. It cannot grant itself a role or approve its own call. It cannot resolve a brokered secret or change sandbox policy.
-
 ### Within Tracecat boundary
+
+Tracecat separates in-scope threats into platform and application threats, and AI threats.
+
+#### Platform and application threats
+
+Threat actors and untrusted sources include:
+
+- External attackers targeting API, authentication, OAuth, or MCP endpoints.
+- Malicious or compromised tenant users who submit hostile code or workloads.
+- Compromised administrators, service accounts, personal access tokens, or OAuth grants.
+- Malicious packages, custom registry content, and local MCP processes.
+- Attackers targeting the control plane, executor, durable state, or object storage.
+
+Tracecat treats every tenant workload as potentially hostile. A tenant user may try to escape an executor, reach another tenant, access platform services, steal credentials, or exhaust shared resources.
 
 | Attack surface | How an attacker can use it | Primary Tracecat controls |
 | --- | --- | --- |
 | Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
-| Agent context | Place hostile instructions in prompts or retrieved documents.<br/>Hide instructions in alerts or email.<br/>Hide instructions in cases or tool results.<br/>Redirect the agent goal or induce a high-impact tool call. | Default-deny tool policy.<br/>Trusted-proxy authorization.<br/>Human approval for selected tools.<br/>Credentials kept outside LLM context. |
+| Multi-tenant code execution | Submit hostile Python, custom actions, agents, or local MCP processes.<br/>Read files or process state.<br/>Escape the executor.<br/>Reach another run, tenant, or platform service. | nsjail enabled by default on full-isolation profiles.<br/>User, process, mount, IPC, hostname, and network namespaces.<br/>Read-only runtime and scoped mounts.<br/>Syscall, cgroup, file, and process limits. |
+| Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Provider credentials added by trusted services outside the sandbox. |
+| OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls are visible by user. |
+| Run data and durable state | Read workflow or agent inputs and outputs.<br/>Tamper with queued work.<br/>Use oversized payloads to expand durable history. | Application-level encryption for Temporal payloads.<br/>Workspace-scoped encryption context.<br/>Automatic externalization of large payloads to object storage.<br/>Small scoped references remain in workflow state. |
+| Configuration and supply chain | Publish a malicious integration.<br/>Widen access or network policy.<br/>Persist an unsafe workflow or agent configuration. | RBAC and platform audit events.<br/>Versioned workflow and agent configuration.<br/>Immutable published versions.<br/>Workspace Git sync, review, and rollback. |
+| Platform availability | Fork processes.<br/>Fill storage.<br/>Exhaust memory or CPU.<br/>Block shared workers with long-running code. | Sandbox wall-time and CPU limits.<br/>cgroup memory enforcement.<br/>File-size and process-count limits.<br/>Temporal cancellation and retry controls. |
+
+#### AI threats
+
+Threat actors and untrusted sources include:
+
+- Attackers who control prompts, alerts, email, cases, retrieved documents, or tool results.
+- Users who try to steer an agent beyond their intended task or authorization.
+- Compromised LLM, API, or remote MCP providers.
+- Unsafe LLM output, generated code, tool selection, or resource consumption.
+
+Tracecat treats the LLM as an untrusted decision-maker. It can propose a tool call or generate code. It cannot grant itself a role or approve its own call. It cannot resolve a brokered secret or change sandbox policy.
+
+| Attack surface | How an attacker can use it | Primary Tracecat controls |
+| --- | --- | --- |
+| Agent context | Place hostile instructions in prompts or retrieved documents.<br/>Hide instructions in alerts, email, cases, or tool results.<br/>Redirect the agent goal.<br/>Induce a high-impact tool call. | Default-deny tool policy.<br/>Trusted-proxy authorization.<br/>Human approval for selected tools.<br/>Credentials kept outside LLM context. |
 | Tools and remote MCP | Publish misleading tool metadata.<br/>Return poisoned tool results.<br/>Compromise a remote server to exfiltrate data or trigger unsafe actions. | Captured tool inventory.<br/>Allow and deny policy.<br/>Approval gates.<br/>Trusted API and MCP proxy.<br/>Inherited user permissions for external Tracecat MCP. |
-| Generated code and `stdio` MCP | Cause shell or Python code to read files.<br/>Use local MCP code to consume resources.<br/>Reach the network.<br/>Attempt to attack the executor or another run. | nsjail namespaces and syscall filtering.<br/>Read-only runtime and scoped mounts.<br/>cgroup and process limits.<br/>Default-deny agent network. |
-| Credentials and secret references | Ask the LLM to expose a credential.<br/>Craft a tool request that tries to resolve or reuse another secret. | Execution-time credential broker.<br/>Policy checks before resolution.<br/>Credential injection outside the sandbox for brokered calls. |
-| Human approval | Disguise the purpose of a tool call.<br/>Attempt to resume execution without an authorized decision. | Authenticated approver checks.<br/>Temporal durable execution.<br/>Decision bound to the run.<br/>Per-tool approval audit event. |
-| Agent and platform configuration | Use a compromised administrator to widen tool access.<br/>Enable network access or connect a malicious provider.<br/>Persist the change across later runs. | RBAC and tenant scope.<br/>Platform audit events.<br/>Workspace Git sync and repository review. |
-| Availability and consumption | Loop LLM or tool calls.<br/>Fork processes.<br/>Fill storage or exhaust memory.<br/>Drive unexpected inference cost. | Wall-time and resource limits.<br/>cgroup memory enforcement.<br/>File and process limits.<br/>Planned token budgets and burn-rate limits. |
+| Generated code and `stdio` MCP | Generate shell or Python code that reads files.<br/>Use local MCP code to consume resources.<br/>Reach the network.<br/>Attack the executor or another run. | The same nsjail boundary used for tenant code.<br/>Read-only runtime and scoped mounts.<br/>cgroup and process limits.<br/>Default-deny agent network. |
+| Secret extraction | Ask the LLM to reveal a credential.<br/>Craft a tool request that tries to resolve or reuse another secret.<br/>Place secret-looking instructions in untrusted content. | Execution-time credential broker.<br/>Policy checks before resolution.<br/>Short-lived scoped JWTs in the sandbox.<br/>Provider credentials injected only by trusted services. |
+| Human approval | Disguise the purpose of a tool call.<br/>Mislead an approver with incomplete context.<br/>Attempt to resume execution without an authorized decision. | Authenticated approver checks.<br/>Temporal durable execution.<br/>Decision bound to the run and tool call.<br/>Per-tool approval audit event. |
+| Agent consumption | Loop LLM or tool calls.<br/>Create cascading model requests.<br/>Drive unexpected inference cost. | Total token budget.<br/>Token burn-rate limit.<br/>Sandbox wall-time and resource limits.<br/>Tool policy and approval for side effects. |
 
 ### Outside Tracecat boundary
 
@@ -158,7 +191,8 @@ The mapping identifies relevant categories. It does not represent OWASP certific
 | Durable approval | `A01` Broken Access Control<br/>`A06` Insecure Design | `LLM06` Excessive Agency | `ASI02` Tool Misuse and Exploitation<br/>`ASI09` Human-Agent Trust Exploitation |
 | Sandboxed execution | `A05` Injection<br/>`A06` Insecure Design | — | `ASI05` Unexpected Code Execution<br/>`ASI08` Cascading Failures |
 | MCP supply chain | `A03` Software Supply Chain Failures<br/>`A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
-| Auditability | `A09` Security Logging and Alerting Failures | `LLM10` Unbounded Consumption | `ASI08` Cascading Failures |
+| Token budgets | — | `LLM10` Unbounded Consumption | `ASI08` Cascading Failures |
+| Auditability | `A09` Security Logging and Alerting Failures | — | — |
 
 ## Identity and platform boundaries
 
@@ -170,9 +204,17 @@ Tracecat applies these controls:
 - RBAC through roles, groups, and scoped service accounts.
 - Tenant scope in the application and database layers.
 - PostgreSQL row-level policies for tenant-owned data.
-- Encryption for sensitive settings and stored credentials.
-- Application-level encryption for Temporal payloads.
-- TLS for production traffic.
+
+### Data protection and durable state
+
+<Badge stroke color="gray" size="sm" shape="pill">A04</Badge>
+
+- Tracecat encrypts workflow and agent inputs and outputs before Temporal stores them.
+- The encryption context is scoped to the workspace.
+- Large triggers and action results move automatically to object storage.
+- Workflow state keeps a scoped object reference instead of copying the full payload through durable history.
+- Tracecat encrypts sensitive settings and stored credentials at rest.
+- Production traffic uses TLS.
 
 ### External secrets
 
@@ -180,8 +222,9 @@ Tracecat applies these controls:
 
 - You can keep workspace and integration credentials in AWS Secrets Manager.
 - Tracecat stores credential metadata and resolves values at execution time.
-- Trusted proxies receive credentials for API and LLM calls.
-- The remote HTTP MCP proxy receives MCP credentials.
+- The sandbox receives short-lived JWTs scoped to the run, workspace, model, and allowed tools.
+- Trusted services validate those claims before resolving provider credentials.
+- Trusted proxies add credentials to API, LLM, and remote HTTP MCP calls.
 - The LLM receives typed interfaces and results instead of credential values.
 - Local `stdio` MCP credentials enter the shared sandbox. Treat them as accessible to agent-controlled code.
 
@@ -207,13 +250,15 @@ Every policy decision has one result:
 
 Hosted-agent runs have sandbox wall-time and resource limits. These limits do not assume a fixed number of LLM requests or tool calls.
 
-<Info>
-  Coming soon:
+### Token budget
 
-  - A total token budget will bound inference cost per run.
-  - A token burn-rate limit will bound consumption velocity.
-  - Tool policy and approval will continue to control side-effect risk.
-</Info>
+<Badge stroke color="blue" size="sm" shape="pill">LLM10</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI08</Badge>
+
+Tracecat uses token budgets to control inference consumption during hosted-agent runs. It does not use fixed LLM-request or tool-call counts as the primary boundary for long-running agents.
+
+- `Total token budget`: Bounds cumulative LLM token usage for the run. This caps worst-case inference consumption across multi-step work.
+- `Token burn-rate limit`: Controls how quickly the run consumes its budget. This contains abnormal loops and cascading LLM calls before the total budget is exhausted.
+- `Independent execution controls`: Sandbox wall-time and resource limits continue to contain execution. Tool policy and human approval continue to control side-effect risk.
 
 ### Durable human approval
 
@@ -245,7 +290,8 @@ Each approval event records:
 
 <Badge stroke color="gray" size="sm" shape="pill">A05</Badge> <Badge stroke color="gray" size="sm" shape="pill">A06</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI05</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI08</Badge>
 
-- Hosted agents run inside nsjail boundaries.
+- Custom Python actions and hosted agents run inside nsjail by default on full-isolation profiles.
+- Tracecat treats tenant code, third-party packages, and generated output as untrusted.
 - Agent-generated code and local MCP processes share that boundary.
 - The sandbox exposes only the files and broker interfaces required for the run.
 - General automation actions use their configured executor network policy.
@@ -277,7 +323,7 @@ Each approval event records:
 - Use remote HTTP MCP when every call must be rechecked at the trusted proxy.
 
 <Info>
-  `stdio` MCP limitations:
+  **`stdio` MCP limitations**
 
   - Approval gates do not support `stdio` tools. Use remote HTTP MCP for approved calls.
   - Enabling `stdio` requires network access for the whole agent sandbox.
@@ -287,7 +333,7 @@ Each approval event records:
 
 ### Trusted API and LLM gateways
 
-- The secure preset-agent path keeps brokered credentials outside LLM context.
+- Tracecat keeps secrets referenced by preset-agent Expressions outside LLM context.
 - Tracecat resolves a secret only after a permitted request.
 - The built-in proxy adds API and OAuth credentials outside the sandbox.
 - It adds MCP and LLM credentials outside the sandbox.
@@ -296,15 +342,17 @@ Each approval event records:
 - You can also route LLM traffic through your own proxy.
 
 <Warning>
-  - Do not place credentials in prompts or agent inputs.
-  - Use preset agents and server-side secret references.
+  **Keep credentials out of agent inputs**
+
+  - Do not place credentials directly in prompts or agent inputs.
+  - Use Tracecat Expressions to reference secrets in preset-agent instructions.
 </Warning>
 
-See [Secrets and variables](/agents/secrets-variables) for the preset-agent path and its limitations.
+See [Secrets and variables](/agents/secrets-variables) to learn how to pass secrets securely to preset agents through Expressions.
 
 ## Auditability and change control
 
-<Badge stroke color="gray" size="sm" shape="pill">A09</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM10</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI08</Badge>
+<Badge stroke color="gray" size="sm" shape="pill">A09</Badge>
 
 Tracecat separates platform audit events from full hosted-agent telemetry.
 
@@ -328,12 +376,15 @@ Platform approval audit events:
 - Do not yet include Slack-originated approval actors.
 - Use best-effort webhook delivery so collectors cannot block a decision.
 
-### Workspace Git sync
+### Versioned change control and rollback
 
+- Published workflow definitions are immutable and pin their registry dependencies.
+- Test draft changes before publishing a new runtime version.
 - Use Workspace Git sync for agent and automation configuration.
 - Tracecat supports customer-owned GitHub and GitLab repositories.
 - Apply review and branch-protection policy in the repository.
 - Git history records the configuration promoted into each environment.
+- Revert to a known-good commit and sync it to roll back configuration.
 - Tracecat RBAC and policy remain the runtime authorization boundary.
 
 ## Deployment profiles
