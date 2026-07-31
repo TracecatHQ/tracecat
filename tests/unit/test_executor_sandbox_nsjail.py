@@ -620,6 +620,7 @@ async def _run_current_builtin_smoke_case(
     *,
     smoke_case: SmokeCase,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
@@ -652,16 +653,23 @@ async def _run_current_builtin_smoke_case(
         role=role,
     )
 
+    runner = ActionRunner(cache_dir=tmp_path / "registry-cache")
     backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    get_action_runner_path = (
+        "tracecat.executor.backends.ephemeral.get_action_runner"
+        if smoke_case.force_sandbox
+        else "tracecat.executor.backends.direct.get_action_runner"
+    )
     action_gateway = ActionGateway()
     try:
         await action_gateway.start()
-        result = await backend.execute(
-            input=action_input,
-            role=role,
-            resolved_context=resolved_context,
-            timeout=30,
-        )
+        with patch(get_action_runner_path, return_value=runner):
+            result = await backend.execute(
+                input=action_input,
+                role=role,
+                resolved_context=resolved_context,
+                timeout=30,
+            )
     finally:
         await action_gateway.stop()
 
@@ -809,7 +817,9 @@ async def test_action_runner_executes_registry_action_smoke(
             _run_executor_action_smoke_in_docker_or_skip(smoke_case)
             return
         await _run_current_builtin_smoke_case(
-            smoke_case=smoke_case, monkeypatch=monkeypatch
+            smoke_case=smoke_case,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
         )
         return
 
@@ -831,7 +841,9 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         try:
             if smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
-                    smoke_case=smoke_case, monkeypatch=monkeypatch
+                    smoke_case=smoke_case,
+                    monkeypatch=monkeypatch,
+                    tmp_path=tmp_path,
                 )
             else:
                 await _run_executor_action_smoke_case(
