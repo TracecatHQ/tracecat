@@ -1,0 +1,118 @@
+---
+title: "Platform audit logs"
+description: "Stream platform administrator actions to an HTTPS webhook and separate them from organization audit events."
+keywords: ["platform audit", "superuser", "audit webhook", "SIEM"]
+---
+
+import AuditEventFields from "/snippets/audit-event-fields.mdx";
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Platform audit logs record what platform administrators do above the organization boundary.
+Use them to detect changes that no organization audit stream can see, such as a new organization, a promoted superuser, or a rewritten platform setting.
+
+You must be a platform superuser to configure the endpoint. These events go to their own sink, separate from every organization webhook.
+
+## Connect a log collector
+
+<Steps>
+  <Step title="Open platform administration">
+    Open **Admin**, then select **Audit Logs** under **Platform**.
+  </Step>
+  <Step title="Connect the endpoint">
+    Click **Connect** and enter the HTTPS URL that accepts your audit events.
+  </Step>
+  <Step title="Configure the request">
+    Add any headers your collector requires. You can also merge custom JSON into every event, wrap the payload under a key such as `event`, and control TLS certificate verification.
+  </Step>
+  <Step title="Save and verify delivery">
+    Click **Save changes**, then confirm that your collector receives a `platform_setting` event with a `SUCCESS` status.
+  </Step>
+</Steps>
+
+Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
+
+## Covered actions
+
+Platform events cover administration performed through the platform boundary.
+
+| Resource type | Actions | What it tells you |
+| --- | --- | --- |
+| `platform_setting` | `update` | A platform-wide setting changed, including the audit sink itself. |
+| `user` | `create`, `delete`, `promote`, `demote` | A platform account was created or removed, or superuser access was granted or withdrawn. |
+| `organization` | `create`, `update`, `delete` | A tenant was provisioned, reconfigured, or removed. |
+| `organization_tier` | `update` | An organization's tier assignment changed. |
+| `tier` | `create`, `update`, `delete` | A tier definition changed, altering limits for every organization on it. |
+| `platform_registry` | `sync` | Registry content was synchronized, which changes the integration code available to tenants. |
+
+Treat `user` `promote` and `platform_setting` `update` as your highest-signal events.
+Promotion grants access above every tenant boundary, and a settings update can redirect this audit stream.
+
+## Event payload
+
+A platform event uses the same schema as an organization event, with platform-scope identifiers left null.
+
+```json
+{
+  "organization_id": null,
+  "workspace_id": null,
+  "actor_type": "USER",
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "actor_label": "admin@example.com",
+  "ip_address": "192.0.2.10",
+  "user_agent": "Mozilla/5.0",
+  "resource_type": "platform_setting",
+  "resource_id": null,
+  "action": "update",
+  "status": "SUCCESS",
+  "data": {
+    "changed_fields": ["audit_webhook_url"]
+  },
+  "created_at": "2026-01-15T14:03:12.123456Z"
+}
+```
+
+<AuditEventFields />
+
+Platform administrators act outside any tenant, so `organization_id` and `workspace_id` are `null` on platform events.
+Filter on that pair to separate platform administration from tenant activity when both streams reach the same index.
+
+Some actions carry no single affected row, so `resource_id` can be `null`.
+Correlate those events on `actor_id`, `resource_type`, and `created_at` instead.
+
+## Delivery behavior
+
+Tracecat posts each event as a JSON `POST` request and does not block the audited action on the result.
+
+- Delivery runs in the background. A failing or slow collector never prevents an administrator's change from completing.
+- Each request times out after 10 seconds.
+- Tracecat retries up to three times with exponential backoff on `429`, `500`, `502`, `503`, `504`, and transport errors. Other `4xx` responses are terminal.
+- Under sustained backpressure Tracecat sheds events rather than buffering without bound.
+
+Delivery is best-effort, so treat the stream as a detection source rather than a guaranteed-complete ledger.
+Alert on gaps in `created_at` continuity if you need to catch a silently failing sink.
+
+## Send events to a SIEM
+
+Point the webhook at an HTTPS ingest endpoint and authenticate with custom headers.
+
+- Splunk HTTP Event Collector: set `Authorization: Splunk <token>` and wrap the payload under `event`.
+- Elastic and OpenSearch: post to a data-stream ingest endpoint and set `Authorization` to your API key.
+- Datadog: set `DD-API-KEY` and post to the logs intake endpoint.
+- Collector in front of a SIEM: post to your own HTTPS listener when you need queuing, replay, or enrichment that a direct sink cannot provide.
+
+Use a custom payload to tag the source when several Tracecat streams land in one index, for example `{"tracecat_sink": "platform"}`.
+
+## Keep the platform sink separate
+
+The platform sink is configured independently and is never derived from an organization's settings.
+Organization administrators cannot read it, change it, or receive its events.
+
+Keep the two streams separate in your SIEM as well.
+Platform events describe changes to the tenancy boundary itself, so an organization administrator who could see or alter them would gain visibility above their own tenant.
+
+## Related pages
+
+- See [Organization audit logs](/audit-logs/organization) to stream user and service-account activity inside an organization.
+- See [Architecture](/security/architecture) for the boundaries that platform audit events record.
+- See [Self-hosted security](/self-hosting/security) for deployment hardening guidance.

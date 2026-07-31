@@ -133,7 +133,10 @@
             "icon": "shield-check",
             "pages": [
               "security/architecture",
-              "audit-logs/organization"
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
             ]
           }
         ]

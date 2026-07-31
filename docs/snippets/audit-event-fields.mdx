@@ -1,0 +1,15 @@
+| Field | Description |
+| --- | --- |
+| `organization_id` | Organization scope for an organization event. `null` for a platform event. |
+| `workspace_id` | Workspace that owns the affected resource, when applicable. |
+| `actor_type` | `USER` or `SERVICE_ACCOUNT`. |
+| `actor_id` | Stable ID of the user or service account that performed the action. |
+| `actor_label` | User email or service-account name, when available. |
+| `ip_address` | Source IP address, when available. |
+| `user_agent` | Bounded client user-agent string, when available. |
+| `resource_type` | Type of resource affected by the action. |
+| `resource_id` | Stable ID of the affected resource, when available. |
+| `action` | Operation performed on the resource. |
+| `status` | `ATTEMPT`, `SUCCESS`, or `FAILURE`. |
+| `data` | Privacy-bounded operational metadata, when available. |
+| `created_at` | UTC event timestamp. |
