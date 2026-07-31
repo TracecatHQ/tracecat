@@ -45,6 +45,13 @@ from tracecat.exceptions import (
 )
 from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.expression_policy import (
+    ExpressionPolicy,
+    expand_template_source_references,
+    expression_policy,
+    partition_action_args,
+    prepare_action_args,
+)
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
@@ -446,6 +453,7 @@ async def _execute_template_action(
     ctx: DispatchActionContext,
     resolved_context: ResolvedContext,
     timeout: float,
+    source_args: Mapping[str, Any],
 ) -> Any:
     """Execute a template action by orchestrating its steps.
 
@@ -461,6 +469,7 @@ async def _execute_template_action(
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
         timeout: Execution timeout
+        source_args: Unevaluated arguments supplied to this template invocation
 
     Returns:
         The evaluated returns expression result
@@ -504,6 +513,15 @@ async def _execute_template_action(
         inputs=validated_input_args,
         steps={},
     )
+    source_input_args = dict(validated_input_args)
+    source_input_args.update(source_args)
+    source_context = TemplateExecutionContext(
+        SECRETS=secrets_context,
+        ENV=env_context,
+        VARS=vars_context,
+        inputs=source_input_args,
+        steps=template_context["steps"],
+    )
 
     logger.info(
         "Executing template action via backend",
@@ -519,10 +537,32 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Evaluate step args with template context
-        evaled_args = cast(
-            dict[str, Any],
-            eval_templated_object(step.args, operand=template_context),
+        # Expand direct input references to their source form only when a
+        # parameter's policy diverges from RESOLVE; the parse walk is wasted
+        # work otherwise.
+        source_step_args: dict[str, Any] | None = None
+        policy_args: Mapping[str, Any] = step.args
+        if any(
+            expression_policy(step.action, parameter) is not ExpressionPolicy.RESOLVE
+            for parameter in step.args
+        ):
+            source_step_args = cast(
+                dict[str, Any],
+                expand_template_source_references(step.args, source_context),
+            )
+            policy_args = {
+                parameter: (
+                    source_step_args[parameter]
+                    if expression_policy(step.action, parameter)
+                    is not ExpressionPolicy.RESOLVE
+                    else value
+                )
+                for parameter, value in step.args.items()
+            }
+        evaled_args = prepare_action_args(
+            step.action,
+            policy_args,
+            template_context,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -534,6 +574,17 @@ async def _execute_template_action(
             role=role,
         )
 
+        # Nested templates still route source to their own policy steps.
+        if source_step_args is None:
+            source_step_args = (
+                cast(
+                    dict[str, Any],
+                    expand_template_source_references(step.args, source_context),
+                )
+                if step_resolved.action_impl.type == "template"
+                else {}
+            )
+
         # Execute step via _invoke_step (handles nested templates)
         try:
             step_result = await _invoke_step(
@@ -542,6 +593,7 @@ async def _execute_template_action(
                 input=input,
                 ctx=ctx,
                 timeout=timeout,
+                source_args=source_step_args,
             )
         except ExecutionError:
             # Re-raise with step context preserved
@@ -574,6 +626,7 @@ async def _invoke_step(
     input: RunActionInput,
     ctx: DispatchActionContext,
     timeout: float,
+    source_args: Mapping[str, Any],
 ) -> Any:
     """Execute a template step. Skips masking (done at root level).
 
@@ -587,6 +640,7 @@ async def _invoke_step(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         timeout: Execution timeout
+        source_args: Unevaluated arguments supplied to this action invocation
 
     Returns:
         The step execution result (unmasked)
@@ -600,6 +654,7 @@ async def _invoke_step(
                 ctx=ctx,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                source_args=source_args,
             )
         case "udf":
             # Leaf node - execute via backend
@@ -679,8 +734,11 @@ async def prepare_resolved_context(
         action_name, input.registry_lock, role.organization_id
     )
 
-    # Collect expressions to know what secrets/variables are needed
-    collected = collect_expressions(task.args)
+    # Apply field policy before expression collection: preserved source is
+    # excluded, while secret-dependent occurrences in durable content are
+    # replaced before any argument-driven secret lookup.
+    partitioned_args = partition_action_args(action_name, task.args)
+    collected = collect_expressions(partitioned_args.resolvable)
 
     # Fetch secrets and variables
     secrets = await secrets_manager.get_action_secrets(
@@ -721,8 +779,7 @@ async def prepare_resolved_context(
             has_interaction=input.interaction_context is not None,
         )
 
-        # Evaluate templated args (now with logical_time and interaction context set)
-        evaluated_args = evaluate_templated_args(task, context)
+        evaluated_args = prepare_action_args(action_name, task.args, context)
     finally:
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
@@ -813,6 +870,7 @@ async def invoke_once(
             input=input,
             ctx=ctx,
             timeout=timeout,
+            source_args=input.task.args,
         )
 
     except ExecutionError as e:
