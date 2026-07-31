@@ -422,7 +422,7 @@ async def test_list_messages_sql_owns_active_run_visibility(
 
 
 @pytest.mark.anyio
-async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_row(
+async def test_replace_interrupt_with_tool_results_preserves_nul_result(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -498,7 +498,7 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
             ToolExecutionResult(
                 tool_call_id="call_123",
                 tool_name="core.http_request",
-                result={"status": "success"},
+                result="left\x00right",
                 is_error=False,
             )
         ],
@@ -516,7 +516,20 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
     [tool_result] = tool_result_blocks
     assert tool_result["tool_use_id"] == "call_123"
     assert tool_result["is_error"] is False
-    assert orjson.loads(tool_result["content"]) == {"status": "success"}
+    assert tool_result["content"] == r"left\u0000right"
+
+    tool_result_entry = next(
+        entry
+        for entry in history
+        if any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in entry.content.get("message", {}).get("content", [])
+        )
+    )
+    assert tool_result_entry.raw_session_line is not None
+    raw_entry = orjson.loads(tool_result_entry.raw_session_line)
+    [raw_tool_result] = raw_entry["message"]["content"]
+    assert raw_tool_result["content"] == "left\x00right"
 
 
 @pytest.mark.anyio

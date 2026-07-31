@@ -45,6 +45,7 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
+from tracecat.sandbox.utils import communicate_process_group
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -464,11 +465,13 @@ class ActionRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            start_new_session=True,
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=input_json),
+            stdout, stderr = await communicate_process_group(
+                proc,
+                input=input_json,
                 timeout=timeout,
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000
@@ -484,8 +487,6 @@ class ActionRunner:
                 action=input.task.action,
                 timeout=timeout,
             )
-            proc.kill()
-            await proc.wait()
             return ExecutorActionErrorInfo(
                 type="TimeoutError",
                 message=f"Action execution timed out after {timeout}s",
@@ -493,7 +494,6 @@ class ActionRunner:
                 filename="<subprocess>",
                 function="execute_action",
             )
-
         # Check for subprocess crash
         if proc.returncode != 0:
             stderr_text = apply_masks(

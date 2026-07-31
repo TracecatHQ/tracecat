@@ -97,6 +97,13 @@
             ]
           },
           {
+            "group": "Security",
+            "icon": "shield-check",
+            "pages": [
+              "security/architecture"
+            ]
+          },
+          {
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [

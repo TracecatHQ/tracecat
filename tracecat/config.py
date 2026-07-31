@@ -252,6 +252,16 @@ TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT") or 3
 """The timeout for the connection pool."""
 TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 600)
 """The time to recycle the connection pool."""
+TRACECAT__DB_AUTH_POOL_SIZE = int(os.environ.get("TRACECAT__DB_AUTH_POOL_SIZE") or 5)
+"""The size of the dedicated connection pool for short authentication lookups.
+
+This pool is an operational bulkhead, not a database privilege boundary. It
+uses the same database role and URI as the main pool.
+"""
+TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
+    os.environ.get("TRACECAT__DB_AUTH_MAX_OVERFLOW") or 5
+)
+"""The maximum number of overflow connections for the authentication pool."""
 
 
 # === Auth config === #

@@ -62,14 +62,23 @@ async def test_discovery_prefers_saml_for_mapped_domains(
         "TRACECAT__AUTH_TYPES",
         {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
+    setting_reader = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        setting_reader,
     )
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@acme.com")
 
     assert response.method == AuthDiscoveryMethod.SAML
+    setting_reader.assert_awaited_once_with(
+        "saml_enabled",
+        organization_id=organization.id,
+        session=session,
+        default=True,
+    )
 
 
 @pytest.mark.anyio
@@ -144,7 +153,9 @@ async def test_discovery_prefers_default_org_saml_for_unknown_domains_in_single_
         {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
     monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=True),
     )
     monkeypatch.setattr(
         auth_discovery_module,
@@ -170,7 +181,9 @@ async def test_discovery_unknown_domains_fallback_to_oidc_in_multi_tenant_with_s
         {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
     monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=True),
     )
     service = AuthDiscoveryService(session)
 
@@ -204,7 +217,9 @@ async def test_discovery_prefers_org_hint_over_email_domain(
         {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
     monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        AsyncMock(return_value=True),
     )
     service = AuthDiscoveryService(session)
 

@@ -2170,7 +2170,8 @@ class CaseDurationDefinition(WorkspaceModel):
         "CaseDuration",
         back_populates="definition",
         cascade="all, delete",
-        lazy="selectin",
+        lazy="raise",
+        passive_deletes=True,
     )
 
 
@@ -2224,12 +2225,12 @@ class CaseDuration(WorkspaceModel):
     case: Mapped[Case] = relationship(
         "Case",
         back_populates="durations",
-        lazy="selectin",
+        lazy="raise",
     )
     definition: Mapped[CaseDurationDefinition] = relationship(
         "CaseDurationDefinition",
         back_populates="case_durations",
-        lazy="selectin",
+        lazy="raise",
     )
 
 
@@ -2338,7 +2339,8 @@ class Case(WorkspaceModel):
         "CaseDuration",
         back_populates="case",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="raise",
+        passive_deletes=True,
     )
     attachments: Mapped[list[CaseAttachment]] = relationship(
         "CaseAttachment",
@@ -3014,6 +3016,11 @@ class AgentSessionHistory(WorkspaceModel):
         JSONB,
         nullable=False,
         doc="Harness-specific message content",
+    )
+    raw_session_line: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Exact JSONL bytes retained when content requires a JSONB-safe projection",
     )
     kind: Mapped[str] = mapped_column(
         String(50),

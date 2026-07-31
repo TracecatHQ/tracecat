@@ -87,6 +87,34 @@ def temp_cache_dir():
 class TestActionRunner:
     """Tests for ActionRunner class."""
 
+    @pytest.fixture(autouse=True)
+    def mock_process_group_communication(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> AsyncMock:
+        """Keep subprocess unit tests focused on ActionRunner behavior."""
+
+        async def communicate(
+            process: asyncio.subprocess.Process,
+            *,
+            input: bytes | None = None,  # noqa: A002
+            timeout: float | None = None,
+        ) -> tuple[bytes, bytes]:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input),
+                timeout=timeout,
+            )
+            assert stdout is not None
+            assert stderr is not None
+            return stdout, stderr
+
+        communication = AsyncMock(side_effect=communicate)
+        monkeypatch.setattr(
+            action_runner,
+            "communicate_process_group",
+            communication,
+        )
+        return communication
+
     @pytest.mark.anyio
     async def test_ensure_registry_environment_no_tarball(self, temp_cache_dir):
         """Test that an empty list is returned when no tarball URI provided."""
@@ -100,7 +128,11 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_execute_action_timeout(
-        self, temp_cache_dir, mock_run_action_input, mock_role
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        mock_process_group_communication: AsyncMock,
     ):
         """Test that action execution respects timeout."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
@@ -140,7 +172,7 @@ class TestActionRunner:
 
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "TimeoutError"
-            mock_proc.kill.assert_called_once()
+            mock_process_group_communication.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_execute_action_subprocess_crash(

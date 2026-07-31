@@ -167,10 +167,12 @@ def _add_exception_handlers(app: FastAPI) -> None:
     from fastapi import HTTPException
 
     from tracecat.api.common import (
+        auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
         tracecat_exception_handler,
     )
+    from tracecat.db.exceptions import AuthPoolExhaustedError
     from tracecat.exceptions import (
         EntitlementRequired,
         ScopeDeniedError,
@@ -178,6 +180,10 @@ def _add_exception_handlers(app: FastAPI) -> None:
     )
 
     app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(
+        AuthPoolExhaustedError,
+        auth_pool_exhausted_exception_handler,
+    )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)

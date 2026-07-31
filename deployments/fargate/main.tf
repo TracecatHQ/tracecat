@@ -89,6 +89,8 @@ module "ecs" {
   db_pool_size             = var.db_pool_size
   db_pool_timeout          = var.db_pool_timeout
   db_pool_recycle          = var.db_pool_recycle
+  db_auth_max_overflow     = var.db_auth_max_overflow
+  db_auth_pool_size        = var.db_auth_pool_size
   db_max_overflow_executor = var.db_max_overflow_executor
   db_pool_size_executor    = var.db_pool_size_executor
 

@@ -6,14 +6,28 @@ from unittest.mock import AsyncMock
 
 import pytest
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.pool import QueuePool
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    AuthSession,
     _get_db_uri,
+    get_async_auth_engine,
+    get_async_engine,
     get_async_session,
+    get_async_session_auth,
+    get_async_session_auth_context_manager,
     get_async_session_bypass_rls,
+    reset_async_engine,
+)
+from tracecat.db.exceptions import (
+    AuthPoolExhaustedError,
+    DatabasePoolAcquisitionOrderError,
 )
 
 
@@ -192,3 +206,190 @@ async def test_get_async_session_bypass_sets_explicit_bypass(
         user_id=None,
         bypass=True,
     )
+
+
+@pytest.mark.anyio
+async def test_only_auth_session_binds_to_auth_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """General bypass work stays on main; only auth uses the bulkhead."""
+    binds: list[AsyncEngine] = []
+
+    def record_bind(bind: AsyncEngine, **kwargs: object) -> AsyncMock:
+        binds.append(bind)
+        session_cm = AsyncMock()
+        session_cm.__aenter__.return_value = AsyncMock()
+        session_cm.__aexit__.return_value = None
+        return session_cm
+
+    monkeypatch.setattr("tracecat.db.engine.AsyncSession", record_bind)
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", AsyncMock())
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.OFF)
+
+    request_generator = get_async_session()
+    await anext(request_generator)
+    await request_generator.aclose()
+
+    bypass_generator = get_async_session_bypass_rls()
+    await anext(bypass_generator)
+    await bypass_generator.aclose()
+
+    auth_generator = get_async_session_auth()
+    await anext(auth_generator)
+    await auth_generator.aclose()
+
+    request_bind, bypass_bind, auth_bind = binds
+    assert request_bind is get_async_engine()
+    assert bypass_bind is get_async_engine()
+    assert auth_bind is get_async_auth_engine()
+    assert request_bind is not auth_bind
+    assert request_bind.pool is not auth_bind.pool
+
+
+@pytest.mark.anyio
+async def test_auth_engine_pool_size_honors_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__DB_POOL_SIZE", 11)
+    monkeypatch.setattr(config, "TRACECAT__DB_AUTH_POOL_SIZE", 3)
+    monkeypatch.setattr(config, "TRACECAT__DB_AUTH_MAX_OVERFLOW", 4)
+    reset_async_engine()
+
+    engine = get_async_engine()
+    auth_engine = get_async_auth_engine()
+    try:
+        pool = engine.pool
+        auth_pool = auth_engine.pool
+        assert isinstance(pool, QueuePool)
+        assert isinstance(auth_pool, QueuePool)
+        assert auth_pool.size() == 3
+        assert pool.size() == 11
+    finally:
+        await engine.dispose()
+        await auth_engine.dispose()
+        reset_async_engine()
+
+
+@pytest.mark.anyio
+async def test_main_session_acquisition_while_auth_session_held_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = AsyncMock()
+    session_cm.__aexit__.return_value = None
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.get_async_auth_engine", lambda: object())
+
+    auth_generator = get_async_session_auth()
+    await anext(auth_generator)
+    try:
+        main_generator = get_async_session()
+        with pytest.raises(DatabasePoolAcquisitionOrderError):
+            await anext(main_generator)
+    finally:
+        await auth_generator.aclose()
+
+
+@pytest.mark.anyio
+async def test_nested_auth_session_acquisition_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = AsyncMock()
+    session_cm.__aexit__.return_value = None
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.get_async_auth_engine", lambda: object())
+
+    outer_generator = get_async_session_auth()
+    await anext(outer_generator)
+    try:
+        nested_generator = get_async_session_auth()
+        with pytest.raises(DatabasePoolAcquisitionOrderError):
+            await anext(nested_generator)
+    finally:
+        await outer_generator.aclose()
+
+
+@pytest.mark.anyio
+async def test_auth_pool_timeout_raises_typed_exhaustion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = AsyncMock()
+    session_cm.__aexit__.return_value = None
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr(
+        "tracecat.db.engine.set_rls_context",
+        AsyncMock(side_effect=SQLAlchemyTimeoutError()),
+    )
+    monkeypatch.setattr("tracecat.db.engine.get_async_auth_engine", lambda: object())
+
+    generator = get_async_session_auth()
+    with pytest.raises(AuthPoolExhaustedError):
+        await anext(generator)
+
+
+@pytest.mark.anyio
+async def test_auth_accessor_yields_capability_narrowed_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The auth accessor hands out AuthSession, never a raw AsyncSession."""
+    underlying = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = underlying
+    session_cm.__aexit__.return_value = None
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr("tracecat.db.engine.get_async_auth_engine", lambda: object())
+
+    async with get_async_session_auth_context_manager() as session:
+        assert isinstance(session, AuthSession)
+        assert not isinstance(session, AsyncSession)
+
+
+def test_auth_session_withholds_transactional_surface() -> None:
+    """Misuse of the auth pool for long-lived work is unexpressible."""
+    handle = AuthSession(AsyncMock())
+
+    for attr in ("begin", "flush", "delete", "merge", "refresh", "get"):
+        assert not hasattr(handle, attr), f"AuthSession must not expose {attr}"
+
+    # Only the surface today's auth callsites need.
+    assert hasattr(handle, "execute")
+    assert hasattr(handle, "add")
+    assert hasattr(handle, "commit")
+
+
+@pytest.mark.anyio
+async def test_auth_session_delegates_to_wrapped_session() -> None:
+    """The handle forwards its narrow surface to the underlying session."""
+    underlying = AsyncMock()
+    sentinel = object()
+    underlying.execute.return_value = sentinel
+    handle = AuthSession(underlying)
+
+    statement = select(1)
+    assert await handle.execute(statement) is sentinel
+    underlying.execute.assert_awaited_once_with(statement)
+
+    record = object()
+    handle.add(record)
+    underlying.add.assert_called_once_with(record)
+
+    await handle.commit()
+    underlying.commit.assert_awaited_once()
