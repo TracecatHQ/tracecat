@@ -272,6 +272,23 @@ Temporal persists workflow and agent inputs and outputs for the life of an execu
 
 Two limits are worth knowing. Masking is literal substring replacement, so an encoded or otherwise transformed copy of a secret is not caught. Payload encryption is a deployment setting (`TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED`) that is off by default — enable it wherever Temporal history can hold sensitive data.
 
+### Encryption keys
+
+Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the Fernet key behind credential encryption, and the Temporal payload keyring behind workflow history encryption.
+
+On AWS, both live in AWS Secrets Manager. The core secrets are injected into the container by ECS at task launch, while the keyring is fetched at runtime by the task role, so it never appears in a task definition. On Kubernetes, both arrive through a Kubernetes Secret — preferably synced from your own secret manager by External Secrets Operator rather than created by hand.
+
+<Warning>
+  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
+
+  Tracecat encrypts under a single Fernet key and has no re-encryption path.
+  Changing or losing the key makes every stored credential unrecoverable. Back
+  it up, and restrict access to it at least as tightly as the credentials it
+  protects.
+</Warning>
+
+See [Platform secrets](/self-hosting/security#platform-secrets) for per-deployment storage and rotation, and [Secrets management](/self-hosting/kubernetes#secrets-management) for the Helm wiring.
+
 ### External secrets
 
 <Badge stroke color="gray" size="sm" shape="pill">A04</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM02</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI03</Badge>
@@ -430,7 +447,7 @@ Workspace Git sync moves agent and automation configuration into a customer-owne
 | macOS or Windows development | The direct backend lacks the Linux nsjail boundary. | Local development with trusted code only. |
 
 - See [Self-hosted security](/self-hosting/security) to select an execution backend.
-- See [Kubernetes](/self-hosting/kubernetes#security) for hardened deployment requirements.
+- See [Kubernetes](/self-hosting/kubernetes#security) for the sandboxing and authentication settings the chart expects.
 
 ## Related pages
 

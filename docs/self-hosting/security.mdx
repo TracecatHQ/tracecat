@@ -34,6 +34,50 @@ services:
 
 In production, consider replacing self-hosted PostgreSQL and Redis with managed services (e.g., Amazon RDS, ElastiCache) that handle encryption at rest, automated backups, and credential rotation.
 
+## Platform secrets
+
+Tracecat requires four cryptographic secrets, plus an optional keyring if you enable Temporal payload encryption.
+
+| Secret | Protects |
+| --- | --- |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for credentials and sensitive settings stored in PostgreSQL. |
+| `TRACECAT__SERVICE_KEY` | Service-to-service JWT signing. |
+| `TRACECAT__SIGNING_SECRET` | Webhook URL signing and HMAC operations. |
+| `USER_AUTH_SECRET` | Password reset tokens, email verification, and OAuth state. |
+| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional, and only read when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
+
+<Snippet file="generate-secrets.mdx" />
+
+### Where to store them
+
+Keep these out of your application configuration and out of version control. Use the mechanism your platform already provides.
+
+| Deployment | Recommended storage |
+| --- | --- |
+| [AWS ECS Fargate](/self-hosting/aws-fargate) | AWS Secrets Manager. Pass secret ARNs to Terraform; values are resolved at task launch and never appear in your `.tfvars`. |
+| [Kubernetes](/self-hosting/kubernetes#secrets-management) | External Secrets Operator syncing from your secret manager, or an existing Kubernetes Secret you create out of band. |
+| [Docker Compose](/self-hosting/docker-compose) | A `.env` file on the host. Restrict it to the service account that runs Tracecat and exclude it from version control. |
+
+On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your secret manager stays the source of truth, values are re-synced rather than copied, and no plaintext passes through a shell history or a manifest. Reserve chart-managed secret templates for pipelines that encrypt values at rest with Sealed Secrets or SOPS.
+
+### Rotation
+
+Rotation support differs by secret, and the differences matter before you plan a rotation window.
+
+<Warning>
+  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
+
+  Tracecat encrypts under a single Fernet key with no re-encryption path.
+  Changing it makes every stored credential unrecoverable, and there is no
+  migration to re-key existing rows. Treat this key as permanent for the life of
+  the deployment: back it up, and control access to it at least as tightly as
+  the credentials it encrypts.
+</Warning>
+
+- `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` rotates cleanly. Add a new key to the keyring and point `current_key_id` at it. New payloads use the new key while existing histories stay readable under the key they were written with, so keep retired keys in the keyring for as long as their histories are retained.
+- `TRACECAT__SIGNING_SECRET` can be rotated, but doing so invalidates every existing webhook URL. Plan to reissue them.
+- `TRACECAT__SERVICE_KEY` and `USER_AUTH_SECRET` can be rotated with a restart. In-flight password reset and verification links issued under the old value stop working.
+
 ## Execution sandboxing
 
 Tracecat executes user-defined Python scripts and actions inside the executor service. The level of isolation depends on your configuration.
