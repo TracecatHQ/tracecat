@@ -22,7 +22,6 @@ import httpx
 import tracecat_registry
 
 from tracecat import config
-from tracecat.executor.schemas import ExecutorBackendType, resolve_backend_type
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -1265,23 +1264,6 @@ class RegistryArtifactCache:
 
             return True
 
-    def _is_pool_worker_visible(
-        self,
-        cache_key: str,
-        backend_type: ExecutorBackendType,
-    ) -> bool:
-        """Return whether a warm pool worker may retain this tarball path.
-
-        Pool workers may start before the cache is constructed, then inherit
-        tarball paths that remain invisible to in-process lease refcounts. Both
-        runtime eviction and startup trimming must therefore protect these paths
-        whenever the resolved backend is the pool.
-        """
-        return (
-            backend_type == ExecutorBackendType.POOL
-            and self._paths_for(cache_key).tarball_target_dir.exists()
-        )
-
     def _least_recently_used(
         self,
         entries: Iterable[RegistryArtifactCacheEntry],
@@ -1289,13 +1271,10 @@ class RegistryArtifactCache:
         excluded: set[str],
     ) -> RegistryArtifactCacheEntry | None:
         """Return the least recently used idle entry eligible for eviction."""
-        backend_type = resolve_backend_type()
         eligible = [
             entry
             for entry in entries
-            if entry.cache_key not in excluded
-            and self._refcount(entry.cache_key) == 0
-            and not self._is_pool_worker_visible(entry.cache_key, backend_type)
+            if entry.cache_key not in excluded and self._refcount(entry.cache_key) == 0
         ]
         if not eligible:
             return None
@@ -1520,8 +1499,6 @@ class RegistryArtifactCache:
 
         Scratch and trash paths from interrupted work are removed, and active
         entries are trimmed to budget using entry-root mtimes as LRU order.
-        Tarball-bearing entries are protected for the pool backend because cache
-        construction may happen after warm workers have inherited those paths.
 
         The worker warms this sweep before activities can run; lazy first-use
         sweeping remains a safe fallback.
@@ -1591,8 +1568,6 @@ class RegistryArtifactCache:
     def _trim_startup_cache(self) -> bool:
         """Trim the cache to budget before any artifact is leased.
 
-        Tarball-bearing entries are ineligible when the resolved backend is the
-        pool because existing workers may already import from those paths.
         Returns whether active entries and pending physical deletion fit within
         the configured budget.
         """
@@ -1603,14 +1578,12 @@ class RegistryArtifactCache:
 
         entries = self._scan_cache_entries()
         total_bytes = sum(entry.size_bytes for entry in entries.values())
-        backend_type = resolve_backend_type()
         # Mounted entries belong to a live process sharing this cache directory.
         candidates = sorted(
             (
                 entry
                 for entry in entries.values()
                 if not self._paths_for(entry.cache_key).squashfs_mount_dir.is_mount()
-                and not self._is_pool_worker_visible(entry.cache_key, backend_type)
             ),
             key=lambda entry: entry.last_used,
         )

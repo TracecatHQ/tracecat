@@ -40,17 +40,12 @@ class ExecutorBackendType(StrEnum):
 
     All sandbox backends use untrusted mode - DB credentials are never passed.
 
-    - POOL: Warm nsjail workers (high throughput, single-tenant, untrusted).
-      EXPERIMENTAL: not production ready. Warm workers import from registry
-      cache paths that in-process leases cannot see, so tarball cache entries
-      are exempt from eviction and the cache can grow without bound.
     - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
     - DIRECT: Direct subprocess execution (no warm workers)
     - TEST: In-process execution for tests only
     - AUTO: Auto-select based on environment (never selects experimental backends)
     """
 
-    POOL = "pool"
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
     TEST = "test"
@@ -96,7 +91,6 @@ def resolve_backend_type() -> ExecutorBackendType:
                 "Auto-selecting 'direct' backend (nsjail not available)",
             )
             backend_type = ExecutorBackendType.DIRECT
-
     return backend_type
 
 

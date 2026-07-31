@@ -29,7 +29,6 @@ from tracecat.executor.registry_artifacts import (
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
-from tracecat.executor.schemas import ExecutorBackendType
 from tracecat.registry.artifact_keys import parse_s3_uri
 
 MAX_ENTRIES_CONFIG = (
@@ -44,10 +43,6 @@ SQUASHFS_ENABLED_CONFIG = (
     "tracecat.executor.registry_artifacts.config"
     ".TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"
 )
-BACKEND_CONFIG = (
-    "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_BACKEND"
-)
-RESOLVE_BACKEND = "tracecat.executor.registry_artifacts.resolve_backend_type"
 
 
 def _write_tarball_entry(cache_dir: Path, cache_key: str) -> Path:
@@ -1118,7 +1113,6 @@ class TestRegistryArtifactCacheLease:
             raise RuntimeError("mount failed")
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 1),
             patch.object(
@@ -2135,7 +2129,7 @@ class TestRegistryArtifactCacheEviction:
     async def test_enforce_budget_evicts_least_recently_used_until_under_max_bytes(
         self, temp_cache_dir, oldest_has_tarball: bool
     ):
-        """Direct-backend size eviction stops once the cache is within budget."""
+        """Size eviction stops once the cache is within budget."""
         cache = RegistryArtifactCache(temp_cache_dir)
         oldest = _write_image_entry(temp_cache_dir, "oldest", size=4096, mtime=100.0)
         if oldest_has_tarball:
@@ -2146,7 +2140,6 @@ class TestRegistryArtifactCacheEviction:
         newest = _write_image_entry(temp_cache_dir, "newest", size=4096, mtime=300.0)
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 9000),
         ):
@@ -2157,94 +2150,6 @@ class TestRegistryArtifactCacheEviction:
         assert not cache._paths_for("oldest").tarball_target_dir.exists()
         assert older.exists()
         assert newest.exists()
-
-    @pytest.mark.anyio
-    async def test_auto_pool_backend_skips_tarball_lru_and_evicts_next_entry(
-        self, temp_cache_dir
-    ):
-        """Auto-resolved pool workers protect tarballs from runtime eviction."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        pool_visible_image = _write_image_entry(
-            temp_cache_dir, "pool-visible", size=16, mtime=100.0
-        )
-        pool_visible_tarball = _write_tarball_entry(temp_cache_dir, "pool-visible")
-        next_lru = _write_image_entry(temp_cache_dir, "next-lru", size=16, mtime=200.0)
-        newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=300.0)
-
-        with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
-            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.POOL),
-            patch(MAX_ENTRIES_CONFIG, 2),
-            patch(MAX_BYTES_CONFIG, 0),
-        ):
-            within_budget = await cache._enforce_cache_budget()
-
-        assert within_budget is True
-        assert pool_visible_image.exists()
-        assert pool_visible_tarball.is_dir()
-        assert not next_lru.exists()
-        assert newest.exists()
-
-    @pytest.mark.anyio
-    async def test_auto_non_pool_backend_evicts_tarball_lru(self, temp_cache_dir):
-        """Auto-resolved non-pool backends may evict tarball entries normally."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        oldest_image = _write_image_entry(
-            temp_cache_dir, "oldest", size=16, mtime=100.0
-        )
-        oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
-        oldest_entry = cache._paths_for("oldest").entry_dir
-        os.utime(oldest_entry, (100.0, 100.0))
-        newest = _write_image_entry(temp_cache_dir, "newest", size=16, mtime=200.0)
-
-        with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
-            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.DIRECT),
-            patch(MAX_ENTRIES_CONFIG, 1),
-            patch(MAX_BYTES_CONFIG, 0),
-        ):
-            within_budget = await cache._enforce_cache_budget()
-
-        assert within_budget is True
-        assert not oldest_image.exists()
-        assert not oldest_tarball.exists()
-        assert newest.exists()
-
-    @pytest.mark.anyio
-    async def test_pool_backend_all_tarballs_remain_dirty_when_over_budget(
-        self, temp_cache_dir
-    ):
-        """An all-tarball pool cache warns and retries convergence later."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        first_image = _write_image_entry(temp_cache_dir, "first", size=16, mtime=100.0)
-        first_tarball = _write_tarball_entry(temp_cache_dir, "first")
-        second_image = _write_image_entry(
-            temp_cache_dir, "second", size=16, mtime=200.0
-        )
-        second_tarball = _write_tarball_entry(temp_cache_dir, "second")
-        cache._budget_dirty = True
-
-        with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.POOL.value),
-            patch(MAX_ENTRIES_CONFIG, 1),
-            patch(MAX_BYTES_CONFIG, 0),
-            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
-        ):
-            await cache._converge_cache_budget()
-
-        assert first_image.exists()
-        assert first_tarball.is_dir()
-        assert second_image.exists()
-        assert second_tarball.is_dir()
-        assert cache._budget_dirty is True
-        warning.assert_called_once_with(
-            "Registry artifact cache is over budget but every entry is in use",
-            cache_dir=str(temp_cache_dir),
-            entries=2,
-            max_entries=1,
-            total_bytes=50,
-            max_bytes=0,
-        )
 
     @pytest.mark.anyio
     async def test_final_lease_release_unmounts_and_retains_image(self, temp_cache_dir):
@@ -2681,7 +2586,6 @@ class TestRegistryArtifactCacheStartupSweep:
         os.utime(new_entry_dir, (old_mtime - 1, old_mtime - 1))
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
         ):
@@ -2737,31 +2641,6 @@ class TestRegistryArtifactCacheStartupSweep:
             await cache.ensure_swept()
 
         assert mount_dir.is_dir()
-
-    @pytest.mark.anyio
-    async def test_auto_pool_sweep_protects_tarballs_and_trims_other_entries(
-        self, temp_cache_dir
-    ):
-        """Startup trimming preserves paths inherited by auto-resolved workers."""
-        oldest = _write_image_entry(temp_cache_dir, "oldest", size=64, mtime=100.0)
-        oldest_tarball = _write_tarball_entry(temp_cache_dir, "oldest")
-        older = _write_image_entry(temp_cache_dir, "older", size=64, mtime=200.0)
-        newest = _write_image_entry(temp_cache_dir, "newest", size=64, mtime=300.0)
-
-        with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.AUTO.value),
-            patch(RESOLVE_BACKEND, return_value=ExecutorBackendType.POOL),
-            patch(MAX_ENTRIES_CONFIG, 2),
-            patch(MAX_BYTES_CONFIG, 0),
-        ):
-            cache = RegistryArtifactCache(temp_cache_dir)
-            await cache.ensure_swept()
-
-        assert oldest.exists()
-        assert oldest_tarball.is_dir()
-        assert not older.exists()
-        assert newest.exists()
-        assert cache._budget_dirty is False
 
     @pytest.mark.anyio
     async def test_ensure_swept_runs_once(self, temp_cache_dir):
@@ -2981,7 +2860,6 @@ class TestRegistryArtifactCacheStartupSweep:
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
@@ -2996,7 +2874,6 @@ class TestRegistryArtifactCacheStartupSweep:
         assert cache._budget_dirty is True
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
         ):
@@ -3041,7 +2918,6 @@ class TestRegistryArtifactCacheStartupSweep:
             return real_delete(path)
 
         with (
-            patch(BACKEND_CONFIG, ExecutorBackendType.DIRECT.value),
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 16),
             patch(

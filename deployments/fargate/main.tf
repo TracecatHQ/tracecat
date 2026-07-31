@@ -154,13 +154,11 @@ module "ecs" {
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
   executor_queue                           = var.executor_queue
-  executor_worker_pool_size                = var.executor_worker_pool_size
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
