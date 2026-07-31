@@ -882,3 +882,133 @@ async def test_stop_closes_http_client_and_removes_socket(tmp_path: Path) -> Non
 
     assert socket_proxy._client is None
     assert not socket_path.exists()
+
+
+def _custom_provider_route() -> LLMRoute:
+    return LLMRoute(
+        base_url="https://customer-gateway.example",
+        model_provider="custom-model-provider",
+    )
+
+
+def test_direct_route_drops_anthropic_beta_header() -> None:
+    route = _custom_provider_route()
+    request = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={
+            "Content-Type": "application/json",
+            "anthropic-beta": (
+                "claude-code-20250219,interleaved-thinking-2025-05-14,"
+                "advanced-tool-use-2025-11-20"
+            ),
+        },
+        body=b"{}",
+        data={},
+    )
+    assert "anthropic-beta" not in request.headers
+    assert request.headers["Content-Type"] == "application/json"
+
+
+def test_anthropic_route_preserves_beta_header() -> None:
+    route = LLMRoute(
+        base_url="https://customer-gateway.example",
+        model_provider="anthropic",
+    )
+    request = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={"anthropic-beta": "advanced-tool-use-2025-11-20"},
+        body=b"{}",
+        data={},
+    )
+    assert request.headers["anthropic-beta"] == "advanced-tool-use-2025-11-20"
+
+
+def test_direct_route_forwards_tools_untouched() -> None:
+    # Tool defs flow raw, including tool-search fields like defer_loading —
+    # verified tolerated by LiteLLM and Ollama Anthropic-compat endpoints.
+    route = _custom_provider_route()
+    data = {
+        "model": "claude-4-6-sonnet",
+        "tools": [
+            {
+                "name": "mcp__tracecat-registry__core__cases__list_cases",
+                "description": "List cases",
+                "input_schema": {"type": "object"},
+                "defer_loading": True,
+            }
+        ],
+    }
+    request = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={},
+        body=orjson.dumps(data),
+        data=data,
+    )
+    forwarded = orjson.loads(request.body)
+    assert forwarded["tools"] == data["tools"]
+
+
+def test_direct_route_forwards_messages_untouched() -> None:
+    # Message content is never rewritten — tool_reference blocks flow raw
+    # (verified tolerated by LiteLLM and Ollama Anthropic-compat endpoints).
+    route = _custom_provider_route()
+    data = {
+        "model": "claude-4-6-sonnet",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_01",
+                        "content": [
+                            {
+                                "type": "tool_reference",
+                                "tool_name": "mcp__tracecat-registry__core__cases__list_cases",
+                            },
+                            {"type": "text", "text": "1 result"},
+                        ],
+                    }
+                ],
+            },
+            {"role": "assistant", "content": "ok"},
+        ],
+    }
+    request = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={},
+        body=orjson.dumps(data),
+        data=data,
+    )
+    forwarded = orjson.loads(request.body)
+    assert forwarded["messages"] == data["messages"]
+
+
+def test_anthropic_route_preserves_tool_reference_blocks_and_tool_fields() -> None:
+    route = LLMRoute(
+        base_url="https://customer-gateway.example",
+        model_provider="anthropic",
+    )
+    data = {
+        "model": "claude-direct",
+        "tools": [{"name": "t", "input_schema": {}, "defer_loading": True}],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_01",
+                        "content": [{"type": "tool_reference", "tool_name": "t"}],
+                    }
+                ],
+            }
+        ],
+    }
+    request = route.prepare_forward_request(
+        path="/v1/messages",
+        headers={},
+        body=orjson.dumps(data),
+        data=data,
+    )
+    assert orjson.loads(request.body) == data
