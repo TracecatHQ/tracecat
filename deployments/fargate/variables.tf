@@ -546,6 +546,17 @@ variable "agent_worker_desired_count" {
   default     = 2
 }
 
+variable "agent_worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per agent-worker task (TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.agent_worker_max_concurrent_activities > 0 && floor(var.agent_worker_max_concurrent_activities) == var.agent_worker_max_concurrent_activities
+    error_message = "agent_worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
 variable "agent_queue" {
   type        = string
   description = "Task queue for agent-worker workflows"

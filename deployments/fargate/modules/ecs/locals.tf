@@ -139,17 +139,18 @@ locals {
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        TRACECAT__API_ROOT_PATH           = "/api"
-        TRACECAT__API_URL                 = local.internal_api_url
-        TRACECAT__PUBLIC_API_URL          = local.public_api_url
-        TRACECAT__DB_ENDPOINT             = local.core_db_hostname
-        TRACECAT__SERVICE_NAME            = "agent-worker"
-        TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
-        TRACECAT__AGENT_QUEUE             = var.agent_queue
-        TRACECAT__AGENT_EXECUTOR_QUEUE    = var.agent_executor_queue
-        TRACECAT__EXECUTOR_QUEUE          = var.executor_queue
-        TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
-        SENTRY_DSN                        = var.sentry_dsn
+        TRACECAT__API_ROOT_PATH                   = "/api"
+        TRACECAT__API_URL                         = local.internal_api_url
+        TRACECAT__PUBLIC_API_URL                  = local.public_api_url
+        TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                    = "agent-worker"
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT         = var.executor_client_timeout
+        TRACECAT__AGENT_QUEUE                     = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE            = var.agent_executor_queue
+        TRACECAT__EXECUTOR_QUEUE                  = var.executor_queue
+        TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
+        TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
+        SENTRY_DSN                                = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
