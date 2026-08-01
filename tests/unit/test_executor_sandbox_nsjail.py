@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -76,6 +77,14 @@ class SmokeCase(StrEnum):
         if self in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
             return RegistryArtifactFormat.SQUASHFS
         return RegistryArtifactFormat.TAR_GZ
+
+
+class CancelledNsjailOperation(StrEnum):
+    """NsJail entry points whose cancellation must terminate descendants."""
+
+    EXECUTE = "execute"
+    INSTALL = "install"
+    ACTION = "action"
 
 
 def _executor_nsjail_available() -> bool:
@@ -683,61 +692,13 @@ _CURRENT_BUILTIN_CASES = {
 }
 
 
+@pytest.mark.parametrize("operation", list(CancelledNsjailOperation))
 @pytest.mark.anyio
-async def test_cancelled_nsjail_execute_kills_and_reaps_subprocess(
+async def test_cancelled_nsjail_operation_kills_process_group(
     tmp_path: Path,
+    operation: CancelledNsjailOperation,
 ) -> None:
-    """Cancellation propagates only after the nsjail child is reaped."""
-    job_dir = tmp_path / "job"
-    job_dir.mkdir()
-    rootfs_dir = tmp_path / "rootfs"
-    rootfs_dir.mkdir()
-    runner = NsjailExecutor(
-        nsjail_path=str(tmp_path / "nsjail"),
-        rootfs_path=str(rootfs_dir),
-        cache_dir=str(tmp_path / "cache"),
-    )
-    real_create_subprocess_exec = asyncio.create_subprocess_exec
-    process_started = asyncio.Event()
-    process: asyncio.subprocess.Process | None = None
-
-    async def capture_subprocess(*args, **kwargs):
-        nonlocal process
-        process = await real_create_subprocess_exec(
-            "/bin/sleep",
-            "30",
-            **kwargs,
-        )
-        process_started.set()
-        return process
-
-    with patch(
-        "tracecat.sandbox.executor.asyncio.create_subprocess_exec",
-        side_effect=capture_subprocess,
-    ):
-        execution = asyncio.create_task(runner.execute(job_dir, SandboxConfig()))
-        try:
-            await process_started.wait()
-            await asyncio.sleep(0)
-            execution.cancel()
-
-            with pytest.raises(asyncio.CancelledError):
-                await execution
-
-            assert process is not None
-            assert process.returncode is not None
-            assert not (job_dir / "nsjail.cfg").exists()
-        finally:
-            if process is not None and process.returncode is None:
-                process.kill()
-                await process.wait()
-
-
-@pytest.mark.anyio
-async def test_cancelled_nsjail_action_kills_and_reaps_subprocess(
-    tmp_path: Path,
-) -> None:
-    """Cancellation propagates only after the nsjail child is reaped."""
+    """Cancellation propagates only after nsjail and its child are gone."""
     job_dir = tmp_path / "job"
     job_dir.mkdir()
     rootfs_dir = tmp_path / "rootfs"
@@ -755,12 +716,23 @@ async def test_cancelled_nsjail_action_kills_and_reaps_subprocess(
     real_create_subprocess_exec = asyncio.create_subprocess_exec
     process_started = asyncio.Event()
     process: asyncio.subprocess.Process | None = None
+    descendant_pid_path = tmp_path / "descendant.pid"
+    descendant_pid: int | None = None
 
     async def capture_subprocess(*args, **kwargs):
         nonlocal process
+        assert kwargs["start_new_session"] is True
         process = await real_create_subprocess_exec(
-            "/bin/sleep",
-            "30",
+            sys.executable,
+            "-c",
+            (
+                "import subprocess, sys, time; "
+                "child = subprocess.Popen([sys.executable, '-c', "
+                "'import time; time.sleep(30)']); "
+                "open(sys.argv[1], 'w').write(str(child.pid)); "
+                "time.sleep(30)"
+            ),
+            str(descendant_pid_path),
             **kwargs,
         )
         process_started.set()
@@ -770,10 +742,29 @@ async def test_cancelled_nsjail_action_kills_and_reaps_subprocess(
         "tracecat.sandbox.executor.asyncio.create_subprocess_exec",
         side_effect=capture_subprocess,
     ):
-        execution = asyncio.create_task(runner.execute_action(job_dir, sandbox_config))
+        match operation:
+            case CancelledNsjailOperation.EXECUTE:
+                execution = asyncio.create_task(
+                    runner.execute(job_dir, SandboxConfig())
+                )
+            case CancelledNsjailOperation.INSTALL:
+                execution = asyncio.create_task(
+                    runner.execute_install(job_dir, "deadbeef")
+                )
+            case CancelledNsjailOperation.ACTION:
+                execution = asyncio.create_task(
+                    runner.execute_action(job_dir, sandbox_config)
+                )
+
         try:
             await process_started.wait()
-            await asyncio.sleep(0)
+            for _ in range(100):
+                if descendant_pid_path.exists():
+                    break
+                await asyncio.sleep(0.01)
+            assert descendant_pid_path.is_file()
+            descendant_pid = int(descendant_pid_path.read_text())
+
             execution.cancel()
 
             with pytest.raises(asyncio.CancelledError):
@@ -782,10 +773,21 @@ async def test_cancelled_nsjail_action_kills_and_reaps_subprocess(
             assert process is not None
             assert process.returncode is not None
             assert not (job_dir / "nsjail.cfg").exists()
+            for _ in range(100):
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("nsjail descendant survived process-group cleanup")
         finally:
             if process is not None and process.returncode is None:
                 process.kill()
                 await process.wait()
+            if descendant_pid is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(descendant_pid, signal.SIGKILL)
 
 
 @pytest.mark.parametrize(
