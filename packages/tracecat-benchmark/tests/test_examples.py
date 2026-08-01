@@ -204,6 +204,40 @@ def test_orchestration_overhead_matrix_is_a_matched_noop_control() -> None:
     assert insert_case.process_environment() == noop_case.process_environment()
     assert insert_case.environment_overrides == noop_case.environment_overrides
 
+    environment = insert_case.process_environment()
+
+    def pool_ceiling(service: str) -> int:
+        prefix = f"TRACECAT__LOADTEST_{service}_DB_"
+        return sum(
+            int(environment[f"{prefix}{suffix}"])
+            for suffix in (
+                "POOL_SIZE",
+                "MAX_OVERFLOW",
+                "AUTH_POOL_SIZE",
+                "AUTH_MAX_OVERFLOW",
+            )
+        )
+
+    fixed_service_budget = sum(
+        pool_ceiling(service)
+        for service in (
+            "API",
+            "WORKER",
+            "AGENT_WORKER",
+            "MCP",
+            "LITELLM",
+            "AGENT_EXECUTOR",
+        )
+    )
+    executor_budget = int(
+        environment["TRACECAT__LOADTEST_EXECUTOR_REPLICAS"]
+    ) * pool_ceiling("EXECUTOR")
+
+    assert fixed_service_budget + executor_budget == 40
+    assert fixed_service_budget + executor_budget < int(
+        environment["TRACECAT__LOADTEST_POSTGRES_MAX_CONNECTIONS"]
+    )
+
 
 def test_scatter_burst_matrix_defines_independent_action_profile() -> None:
     cases = load_matrix(EXPERIMENT_ENV_PATH.with_name("scatter-burst.csv"))
