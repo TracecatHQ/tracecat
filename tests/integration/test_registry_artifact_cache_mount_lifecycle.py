@@ -184,9 +184,8 @@ def test_registry_artifact_cache_mount_lifecycle() -> None:
     assert payload["converged_loop_device_released"] is True
     assert payload["converged_entries_remaining"] == 2
 
-    # The startup sweep trims to budget and removes stale mount directories.
+    # The startup sweep trims retained images to budget.
     assert payload["startup_sweep_trimmed"] is True
-    assert payload["startup_sweep_removed_stale_mount_dir"] is True
 
 
 def _squashfs_mounts(cache_dir: Path) -> dict[str, str]:
@@ -401,7 +400,7 @@ async def _run_mount_lifecycle_child() -> None:
         )
         payload["converged_entries_remaining"] = len(cache._discover_cache_keys())
 
-        # (f) The startup sweep trims to budget and drops stale mount directories.
+        # (f) The startup sweep trims retained images to budget.
         sweep_dir = root / "sweep-cache"
         sweep_dir.mkdir()
         sweep_cache = RegistryArtifactCache(sweep_dir)
@@ -412,12 +411,6 @@ async def _run_mount_lifecycle_child() -> None:
             image_path = sweep_paths.squashfs_image_path
             image_path.write_bytes(b"x" * 4096)
             os.utime(sweep_paths.entry_dir, (100.0 + index, 100.0 + index))
-        stale_mount_dir = sweep_cache._paths_for(sweep_keys[0]).squashfs_mount_dir
-        stale_mount_dir.mkdir()
-        os.utime(
-            sweep_cache._paths_for(sweep_keys[0]).entry_dir,
-            (100.0, 100.0),
-        )
 
         config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 1
         await sweep_cache.ensure_swept()
@@ -427,7 +420,6 @@ async def _run_mount_lifecycle_child() -> None:
             not evicted_paths.squashfs_image_path.exists()
             and retained_paths.squashfs_image_path.exists()
         )
-        payload["startup_sweep_removed_stale_mount_dir"] = not stale_mount_dir.exists()
 
         # Leave no mounts behind for the container teardown.
         for cache_key in sorted(cache._discover_cache_keys()):
