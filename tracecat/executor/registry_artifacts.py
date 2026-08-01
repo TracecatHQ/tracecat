@@ -720,10 +720,18 @@ async def _delete_cache_path_off_loop(path: Path) -> bool:
         return await asyncio.shield(deletion)
     except asyncio.CancelledError:
         # A worker thread cannot be killed. Rejoin it so no live deletion can
-        # race a later trash-directory scan.
+        # race a later trash-directory scan. Repeated cancellation can interrupt
+        # shield without stopping the thread, so keep waiting for termination.
+        while not deletion.done():
+            try:
+                await asyncio.shield(deletion)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
         if not deletion.cancelled():
             with contextlib.suppress(Exception):
-                await asyncio.shield(deletion)
+                deletion.result()
         raise
 
 

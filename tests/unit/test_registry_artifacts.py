@@ -2575,6 +2575,8 @@ class TestRegistryArtifactCacheEviction:
             eviction.cancel()
             try:
                 await asyncio.sleep(0)
+                eviction.cancel()
+                await asyncio.sleep(0)
                 assert not eviction.done()
                 assert not original_target.exists()
                 assert (doomed[0] / "tarball").is_dir()
