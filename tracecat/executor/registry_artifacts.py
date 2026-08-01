@@ -155,6 +155,13 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                     if cleanup_task.cancelled():
                         raise
                     pending_cancellation = e
+                except Exception as e:
+                    logger.exception(
+                        "Registry artifact lease cleanup failed; preserving caller outcome",
+                        cache_dir=str(self.cache_dir),
+                        error=str(e),
+                    )
+                    break
 
             if pending_cancellation is not None:
                 raise pending_cancellation

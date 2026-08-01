@@ -447,6 +447,41 @@ class TestRegistryArtifactCacheLease:
         assert all(cache._refcount(cache_key) == 0 for cache_key in cache_keys)
 
     @pytest.mark.anyio
+    async def test_cleanup_failure_preserves_successful_lease_outcome(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Post-lease maintenance cannot replace a successful caller result."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cleanup-failure.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        target_dir = write_tarball_entry(temp_cache_dir, cache_key)
+
+        async def fail_cleanup(
+            idle_keys: list[str],
+            *,
+            converge: bool,
+        ) -> None:
+            del idle_keys, converge
+            raise RuntimeError("cleanup failed")
+
+        with (
+            patch.object(cache, "_finish_lease_cleanup", fail_cleanup),
+            patch(
+                "tracecat.executor.registry_artifacts.logger.exception"
+            ) as log_exception,
+        ):
+            async with cache.lease([artifact_uri]) as registry_paths:
+                result = registry_paths
+
+        assert result == [target_dir]
+        assert cache._refcount(cache_key) == 0
+        log_exception.assert_called_once_with(
+            "Registry artifact lease cleanup failed; preserving caller outcome",
+            cache_dir=str(temp_cache_dir),
+            error="cleanup failed",
+        )
+
+    @pytest.mark.anyio
     async def test_new_lease_racing_final_release_prevents_stale_unmount(
         self, temp_cache_dir: Path
     ) -> None:
