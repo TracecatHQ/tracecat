@@ -772,6 +772,81 @@ class TestEdgeCases:
         assert not (tmp_path / "out.bin.part").exists()
 
     @pytest.mark.anyio
+    async def test_download_file_to_path_reserves_content_length_before_writing(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Capacity is reserved before a downloader creates its partial file."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"payload"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), 7
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        reservations: list[int] = []
+
+        async def ensure_capacity(size_bytes: int) -> None:
+            assert not (tmp_path / "out.bin.part").exists()
+            reservations.append(size_bytes)
+
+        await download_file_to_path(
+            key="k",
+            bucket="b",
+            output_path=out,
+            max_bytes=10,
+            ensure_capacity=ensure_capacity,
+        )
+
+        assert reservations == [7]
+        assert out.read_bytes() == b"payload"
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_never_exceeds_reserved_length(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A body larger than ContentLength is rejected before its excess write."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"too-large"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), 5
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        reservations: list[int] = []
+
+        async def ensure_capacity(size_bytes: int) -> None:
+            reservations.append(size_bytes)
+
+        with pytest.raises(ValueError, match="exceeds max_bytes=5"):
+            await download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+                max_bytes=10,
+                ensure_capacity=ensure_capacity,
+            )
+
+        assert reservations == [5]
+        assert not out.exists()
+        assert not (tmp_path / "out.bin.part").exists()
+
+    @pytest.mark.anyio
     async def test_download_file_to_path_sha256_mismatch_cleans_partial(
         self, tmp_path: Path, monkeypatch
     ):

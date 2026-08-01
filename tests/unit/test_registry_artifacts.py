@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import tarfile
 import tempfile
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, patch
@@ -18,6 +20,7 @@ import tracecat_registry
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
+    RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactEviction,
     RegistryArtifactFormat,
@@ -26,6 +29,7 @@ from tracecat.executor.registry_artifacts import (
     SquashfsMountCommandError,
     TarballArtifact,
     _delete_cache_path,
+    _squashfs_listing_size,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
@@ -64,6 +68,17 @@ def _write_image_entry(
     os.utime(image_path, (mtime, mtime))
     os.utime(entry_dir, (mtime, mtime))
     return image_path
+
+
+def _tarball_payload(*, size: int) -> bytes:
+    """Return a gzip tarball containing one synthetic regular file."""
+    payload = b"x" * size
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as tar:
+        member = tarfile.TarInfo("module.py")
+        member.size = len(payload)
+        tar.addfile(member, io.BytesIO(payload))
+    return output.getvalue()
 
 
 @dataclass(slots=True)
@@ -468,6 +483,72 @@ class TestRegistryArtifactCache:
         assert results == [expected_paths] * 5
         sidecar_exists.assert_awaited_once()
         enforce_cache_budget.assert_awaited_once_with(protected_key=cache_key)
+
+    @pytest.mark.anyio
+    async def test_different_cold_keys_serialize_materialization(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Distinct cold keys cannot multiply staging and extraction peaks."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        uris = ["s3://bucket/first.tar.gz", "s3://bucket/second.tar.gz"]
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        second_started = asyncio.Event()
+        started_keys: list[str] = []
+
+        async def controlled_materialize(
+            self: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+        ) -> list[Path]:
+            del self
+            started_keys.append(ctx.cache_key)
+            if len(started_keys) == 1:
+                first_started.set()
+                await release_first.wait()
+            else:
+                second_started.set()
+            ctx.paths.tarball_target_dir.mkdir(parents=True)
+            return [ctx.paths.tarball_target_dir]
+
+        async def take_lease(uri: str) -> None:
+            async with cache.lease([uri]):
+                pass
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "materialize", controlled_materialize),
+            patch.object(cache, "_enforce_cache_budget", new_callable=AsyncMock),
+            patch.object(cache, "_converge_cache_budget", new_callable=AsyncMock),
+        ):
+            first = asyncio.create_task(take_lease(uris[0]))
+            await first_started.wait()
+            second = asyncio.create_task(take_lease(uris[1]))
+            await asyncio.sleep(0)
+            assert not second_started.is_set()
+
+            release_first.set()
+            await second_started.wait()
+            await asyncio.gather(first, second)
+
+        assert started_keys == [
+            compute_registry_artifact_cache_key(uri) for uri in uris
+        ]
+
+    def test_squashfs_listing_size_sums_files_and_symlinks(self) -> None:
+        listing = b"\n".join(
+            [
+                b"drwxr-xr-x 0/0                      64 2026-01-01 00:00 squashfs-root",
+                b"-rw-r--r-- 0/0                     123 2026-01-01 00:00 squashfs-root/module.py",
+                b"lrwxrwxrwx 0/0                       9 2026-01-01 00:00 squashfs-root/current -> module.py",
+            ]
+        )
+
+        assert _squashfs_listing_size(listing) == 132
+
+    def test_squashfs_listing_size_rejects_unparseable_files(self) -> None:
+        with pytest.raises(ValueError, match="Could not parse SquashFS listing"):
+            _squashfs_listing_size(b"-rw-r--r-- malformed")
 
     @pytest.mark.anyio
     async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
@@ -1602,6 +1683,10 @@ class TestRegistryArtifactCacheLease:
 
         with (
             patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                return_value=1,
+            ),
             patch.object(TarballArtifact, "download", controlled_download),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
@@ -1828,6 +1913,153 @@ class TestRegistryArtifactCacheEviction:
         assert not idle_dir.exists()
 
     @pytest.mark.anyio
+    async def test_cold_download_reserves_space_before_writing(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Admission evicts idle bytes before a new download enters staging."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        idle = _write_image_entry(temp_cache_dir, "idle", size=80, mtime=100.0)
+        artifact_uri = "s3://bucket/new.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        payload = _tarball_payload(size=32)
+        max_bytes = len(payload) + 32
+        capacity_checked = False
+
+        async def download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            max_bytes: int,
+            ensure_capacity: Callable[[int], Awaitable[None]],
+        ) -> int:
+            del key, bucket
+            nonlocal capacity_checked
+            assert max_bytes == len(payload) + 32
+            await ensure_capacity(len(payload))
+            capacity_checked = True
+            assert not idle.exists()
+            output_path.write_bytes(payload)
+            return len(payload)
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, max_bytes),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                side_effect=download_file_to_path,
+            ),
+        ):
+            async with cache.lease([artifact_uri]) as registry_paths:
+                assert registry_paths == [
+                    cache._paths_for(cache_key).tarball_target_dir
+                ]
+
+        assert capacity_checked is True
+        assert not idle.exists()
+        assert (registry_paths[0] / "module.py").read_bytes() == b"x" * 32
+
+    @pytest.mark.anyio
+    async def test_compression_heavy_tarball_is_rejected_before_extraction(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Compressed bytes plus declared extraction cannot exceed the cache cap."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/compression-heavy.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        payload = _tarball_payload(size=4096)
+        max_bytes = len(payload) + 256
+
+        async def download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            max_bytes: int,
+            ensure_capacity: Callable[[int], Awaitable[None]],
+        ) -> int:
+            del key, bucket
+            assert max_bytes == len(payload) + 256
+            await ensure_capacity(len(payload))
+            output_path.write_bytes(payload)
+            return len(payload)
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, max_bytes),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                side_effect=download_file_to_path,
+            ),
+            patch.object(
+                TarballArtifact,
+                "extract",
+                new_callable=AsyncMock,
+            ) as extract,
+        ):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                async with cache.lease([artifact_uri]):
+                    pass
+
+        assert raised.value.additional_bytes == 4096
+        assert raised.value.max_bytes == max_bytes
+        extract.assert_not_awaited()
+        assert not cache._paths_for(cache_key).entry_dir.exists()
+        assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_squashfs_expansion_is_rejected_before_extraction(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """SquashFS metadata is accounted before unsquashfs writes scratch."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/oversized.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+
+        async def download(
+            self: SquashfsArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+            image_path: Path,
+        ) -> float:
+            del self, ctx
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(b"image")
+            return 0.0
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, 100),
+            patch.object(
+                RegistryArtifactMaterializationContext,
+                "can_mount_squashfs",
+                return_value=False,
+            ),
+            patch.object(SquashfsArtifact, "download", download),
+            patch.object(
+                SquashfsArtifact,
+                "_squashfs_extracted_size",
+                new_callable=AsyncMock,
+                return_value=101,
+            ),
+            patch.object(
+                SquashfsArtifact,
+                "_extract_image",
+                new_callable=AsyncMock,
+            ) as extract_image,
+        ):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                async with cache.lease([artifact_uri]):
+                    pass
+
+        assert raised.value.additional_bytes == 101
+        extract_image.assert_not_awaited()
+        paths = cache._paths_for(cache_key)
+        assert paths.squashfs_image_path.read_bytes() == b"image"
+        assert not paths.squashfs_extract_dir.exists()
+
+    @pytest.mark.anyio
     async def test_successful_admission_enforces_actual_size_before_yield(
         self, temp_cache_dir
     ):
@@ -1846,6 +2078,10 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 6000),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                return_value=4096,
+            ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
@@ -2004,6 +2240,10 @@ class TestRegistryArtifactCacheEviction:
                 "_enforce_cache_budget",
                 new_callable=AsyncMock,
                 side_effect=PermissionError("denied"),
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                return_value=9,
             ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
@@ -2557,6 +2797,10 @@ class TestRegistryArtifactCacheEviction:
             patch(
                 "tracecat.executor.registry_artifacts._delete_cache_path",
                 side_effect=blocked_delete,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                return_value=9,
             ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),

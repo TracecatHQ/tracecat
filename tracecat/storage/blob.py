@@ -7,7 +7,7 @@ import hashlib
 import os
 import threading
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -758,6 +758,7 @@ async def download_file_to_path(
     chunk_size: int = DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES,
     max_bytes: int | None = None,
     expected_sha256: str | None = None,
+    ensure_capacity: Callable[[int], Awaitable[None]] | None = None,
 ) -> int:
     """Stream an S3/MinIO object to a local file.
 
@@ -771,6 +772,9 @@ async def download_file_to_path(
         chunk_size: Chunk size for streaming reads (default: 8MB).
         max_bytes: Optional guardrail; raise if the object exceeds this size.
         expected_sha256: Optional integrity check; raise if computed SHA-256 differs.
+        ensure_capacity: Optional callback invoked before the first disk write with
+            the maximum number of bytes the download may occupy. When the server
+            omits ContentLength, max_bytes is required to provide that bound.
 
     Returns:
         Total bytes written.
@@ -796,15 +800,33 @@ async def download_file_to_path(
                     f"ContentLength={content_length} exceeds max_bytes={max_bytes}"
                 )
 
+            download_limit = max_bytes
+            if ensure_capacity is not None:
+                reserved_bytes = content_length
+                if reserved_bytes is None:
+                    if max_bytes is None:
+                        raise ValueError(
+                            "Cannot reserve disk capacity for a download without "
+                            f"ContentLength or max_bytes: {bucket}/{key}"
+                        )
+                    reserved_bytes = max_bytes
+                await ensure_capacity(reserved_bytes)
+                download_limit = (
+                    reserved_bytes
+                    if download_limit is None
+                    else min(download_limit, reserved_bytes)
+                )
+
             async with aiofiles.open(temp_path, "wb") as f:
                 async for chunk in stream.iter_chunks(chunk_size=chunk_size):
                     if not chunk:
                         continue
                     bytes_written += len(chunk)
-                    if max_bytes is not None and bytes_written > max_bytes:
+                    if download_limit is not None and bytes_written > download_limit:
                         raise ValueError(
                             f"Refusing to download {bucket}/{key} to disk: "
-                            f"bytes_written={bytes_written} exceeds max_bytes={max_bytes}"
+                            f"bytes_written={bytes_written} exceeds "
+                            f"max_bytes={download_limit}"
                         )
                     if hasher is not None:
                         hasher.update(chunk)

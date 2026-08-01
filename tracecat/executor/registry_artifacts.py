@@ -12,7 +12,7 @@ import tarfile
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -73,6 +73,26 @@ class RegistryArtifactCacheLoopError(RuntimeError):
     """A registry artifact cache was used outside its owning event loop."""
 
 
+class RegistryArtifactCacheCapacityError(RuntimeError):
+    """A cold artifact cannot fit within the configured cache byte budget."""
+
+    def __init__(
+        self,
+        *,
+        current_bytes: int,
+        additional_bytes: int,
+        max_bytes: int,
+    ) -> None:
+        super().__init__(
+            "Registry artifact admission exceeds the cache byte budget: "
+            f"current_bytes={current_bytes}, additional_bytes={additional_bytes}, "
+            f"max_bytes={max_bytes}"
+        )
+        self.current_bytes = current_bytes
+        self.additional_bytes = additional_bytes
+        self.max_bytes = max_bytes
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactPaths:
     """Executor-local cache paths for one registry artifact key."""
@@ -110,6 +130,14 @@ class RegistryArtifactCacheEntry:
     last_used: float
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryArtifactAdmission:
+    """Byte-bound admission hook shared by one cold materialization."""
+
+    max_bytes: int
+    ensure_capacity: Callable[[int], Awaitable[None]]
+
+
 @dataclass(slots=True)
 class RegistryArtifactMaterializationContext:
     """Shared runtime state for artifact materialization."""
@@ -117,6 +145,7 @@ class RegistryArtifactMaterializationContext:
     cache_key: str
     staging_dir: Path
     paths: RegistryArtifactPaths
+    admission: RegistryArtifactAdmission | None = None
 
     def can_mount_squashfs(self) -> bool:
         return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED and (
@@ -242,7 +271,11 @@ class SquashfsArtifact(RegistryArtifact):
         temp_image = self._temp_path(ctx, ".squashfs")
         try:
             download_start = time.monotonic()
-            await _download_s3_artifact(self.uri, temp_image)
+            await _download_s3_artifact(
+                self.uri,
+                temp_image,
+                admission=ctx.admission,
+            )
             try:
                 temp_image.rename(image_path)
             except OSError:
@@ -324,6 +357,9 @@ class SquashfsArtifact(RegistryArtifact):
 
         temp_dir = self._temp_path(ctx, ".unsquashfs")
         try:
+            if ctx.admission is not None:
+                extracted_size = await self._squashfs_extracted_size(image_path)
+                await ctx.admission.ensure_capacity(extracted_size)
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
             await self._extract_image(image_path, temp_dir)
@@ -434,6 +470,32 @@ class SquashfsArtifact(RegistryArtifact):
         output = (stderr or stdout).decode(errors="replace").strip()
         raise RuntimeError(output or "unsquashfs command failed")
 
+    async def _squashfs_extracted_size(self, image_path: Path) -> int:
+        """Return a conservative logical size for an extracted SquashFS image."""
+        unsquashfs = shutil.which("unsquashfs")
+        if unsquashfs is None:
+            raise RuntimeError("unsquashfs command is not installed")
+
+        proc = await asyncio.create_subprocess_exec(
+            unsquashfs,
+            "-lln",
+            str(image_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
+
+        if proc.returncode != 0:
+            output = (stderr or stdout).decode(errors="replace").strip()
+            raise RuntimeError(output or "unsquashfs listing failed")
+        return _squashfs_listing_size(stdout)
+
 
 @dataclass(frozen=True, slots=True)
 class TarballArtifact(RegistryArtifact):
@@ -476,6 +538,13 @@ class TarballArtifact(RegistryArtifact):
             await self.download(ctx, temp_tarball)
             download_elapsed = (time.monotonic() - download_start) * 1000
 
+            if ctx.admission is not None:
+                extracted_size = await asyncio.to_thread(
+                    _tarball_extracted_size,
+                    temp_tarball,
+                )
+                await ctx.admission.ensure_capacity(extracted_size)
+
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
             await self.extract(temp_tarball, temp_dir)
@@ -516,7 +585,11 @@ class TarballArtifact(RegistryArtifact):
         ctx: RegistryArtifactMaterializationContext,
         output_path: Path,
     ) -> None:
-        await _download_s3_artifact(self.uri, output_path)
+        await _download_s3_artifact(
+            self.uri,
+            output_path,
+            admission=ctx.admission,
+        )
 
     async def extract(self, tarball_path: Path, target_dir: Path) -> None:
         """Extract a supported registry tarball to target directory.
@@ -561,15 +634,29 @@ class TarballArtifact(RegistryArtifact):
         )
 
 
-async def _download_s3_artifact(artifact_uri: str, output_path: Path) -> None:
+async def _download_s3_artifact(
+    artifact_uri: str,
+    output_path: Path,
+    *,
+    admission: RegistryArtifactAdmission | None = None,
+) -> None:
     """Download an S3 registry artifact to a local path."""
     bucket, key = parse_s3_uri(artifact_uri)
     try:
-        await blob.download_file_to_path(
-            key=key,
-            bucket=bucket,
-            output_path=output_path,
-        )
+        if admission is None:
+            await blob.download_file_to_path(
+                key=key,
+                bucket=bucket,
+                output_path=output_path,
+            )
+        else:
+            await blob.download_file_to_path(
+                key=key,
+                bucket=bucket,
+                output_path=output_path,
+                max_bytes=admission.max_bytes,
+                ensure_capacity=admission.ensure_capacity,
+            )
     except FileNotFoundError as e:
         request = httpx.Request("GET", artifact_uri)
         response = httpx.Response(status_code=404, request=request)
@@ -666,6 +753,38 @@ def _is_cache_entry_uri(artifact_uri: str) -> bool:
     writes into the cache directory, so it is exempt from eviction accounting.
     """
     return _bundled_builtin_registry_version(artifact_uri) is None
+
+
+def _tarball_extracted_size(tarball_path: Path) -> int:
+    """Return a conservative logical size for all tarball members."""
+    total_bytes = 0
+    with tarfile.open(tarball_path, "r:gz") as tar:
+        for member in tar:
+            if member.size < 0:
+                raise ValueError(
+                    f"Registry tarball member has a negative size: {member.name}"
+                )
+            total_bytes += member.size
+    return total_bytes
+
+
+def _squashfs_listing_size(output: bytes) -> int:
+    """Sum file sizes from ``unsquashfs -lln`` output, failing closed."""
+    total_bytes = 0
+    for raw_line in output.decode(errors="strict").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        fields = line.split(maxsplit=4)
+        mode = fields[0]
+        if len(mode) != 10 or mode[0] not in "bcdlps-":
+            continue
+        if mode[0] not in "-l":
+            continue
+        if len(fields) < 5 or "/" not in fields[1] or not fields[2].isdigit():
+            raise ValueError(f"Could not parse SquashFS listing line: {line}")
+        total_bytes += int(fields[2])
+    return total_bytes
 
 
 def _directory_footprint(directory: Path) -> int:
@@ -771,6 +890,9 @@ class RegistryArtifactCache:
         self._owner_binding_lock = threading.Lock()
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._owner_thread_id: int | None = None
+        # Cold materializations and budget passes share this outer lock. It
+        # keeps byte reservations stable while downloads and extraction write.
+        self._admission_lock = asyncio.Lock()
         self._budget_lock = asyncio.Lock()
         # Guard the off-loop startup sweep independently from cache operations.
         self._swept: bool = False
@@ -919,15 +1041,25 @@ class RegistryArtifactCache:
                 lease_acquired = True
                 if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                     return cache_key, cached_paths
-                candidates = await self._artifact_candidates(ctx, artifact_uri)
-                if cached_paths := self._first_cached_path(candidates, ctx):
-                    return cache_key, cached_paths
-                paths = await self._materialize_candidates(ctx, candidates)
-                self._touch_entry(cache_key)
 
-            # Enforce only after publication, and outside the per-key lock so
-            # eviction never nests key locks. A failed cold admission must not
-            # discard a usable warm entry before a replacement exists.
+            async with self._admission_lock:
+                async with lock:
+                    if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                        return cache_key, cached_paths
+                    ctx = self._context_for(
+                        cache_key,
+                        admission=self._admission_for(cache_key),
+                    )
+                    candidates = await self._artifact_candidates(ctx, artifact_uri)
+                    if cached_paths := self._first_cached_path(candidates, ctx):
+                        return cache_key, cached_paths
+                    paths = await self._materialize_candidates(ctx, candidates)
+                    self._touch_entry(cache_key)
+
+            # Enforce entry count and final measured size after publication,
+            # outside the per-key lock. Peak-byte reservations may already
+            # have reclaimed idle LRU entries when that was required to keep
+            # staging and extraction within the hard byte cap.
             try:
                 await self._enforce_cache_budget(protected_key=cache_key)
             except OSError as e:
@@ -999,12 +1131,36 @@ class RegistryArtifactCache:
         self._runtime[cache_key] = runtime
         return runtime
 
-    def _context_for(self, cache_key: str) -> RegistryArtifactMaterializationContext:
+    def _context_for(
+        self,
+        cache_key: str,
+        *,
+        admission: RegistryArtifactAdmission | None = None,
+    ) -> RegistryArtifactMaterializationContext:
         """Return a materialization context for a registry artifact key."""
         return RegistryArtifactMaterializationContext(
             cache_key=cache_key,
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
+            admission=admission,
+        )
+
+    def _admission_for(self, cache_key: str) -> RegistryArtifactAdmission | None:
+        """Return byte-bound admission controls for one cold cache key."""
+        max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+        if max_bytes <= 0:
+            return None
+
+        async def ensure_capacity(additional_bytes: int) -> None:
+            await self._ensure_cache_capacity(
+                additional_bytes=additional_bytes,
+                protected_key=cache_key,
+                max_bytes=max_bytes,
+            )
+
+        return RegistryArtifactAdmission(
+            max_bytes=max_bytes,
+            ensure_capacity=ensure_capacity,
         )
 
     def _base_pythonpath_dir(self) -> Path:
@@ -1266,9 +1422,10 @@ class RegistryArtifactCache:
     async def _enforce_cache_budget(self, *, protected_key: str | None = None) -> bool:
         """Evict least-recently-used idle entries until the cache fits its budget.
 
-        The budget lock serializes the complete scan/select/evict pass. It is
-        always acquired before any candidate's per-key lock, and callers must
-        invoke enforcement without holding a per-key lock.
+        The admission lock excludes cold writers before the budget lock begins
+        a scan/select/evict pass. Callers invoke enforcement without holding a
+        per-key lock. Cold writers already hold the admission lock and use
+        ``_ensure_cache_capacity`` for their staged reservations instead.
 
         Args:
             protected_key: Newly materialized cache key. It is counted against
@@ -1278,53 +1435,122 @@ class RegistryArtifactCache:
         Returns:
             Whether the cache is within budget once eviction has finished.
         """
+        async with self._admission_lock:
+            async with self._budget_lock:
+                return await self._enforce_cache_budget_locked(
+                    protected_key=protected_key
+                )
+
+    async def _enforce_cache_budget_locked(
+        self,
+        *,
+        protected_key: str | None,
+    ) -> bool:
+        """Enforce entry and byte limits while both cache-wide locks are held."""
+        trash_clean, startup_clean = await asyncio.gather(
+            asyncio.to_thread(self._clear_work_dir, self.trash_dir),
+            asyncio.to_thread(self._retry_failed_startup_cleanup),
+        )
+        cleanup_complete = trash_clean and startup_clean
+        if not cleanup_complete:
+            return False
+
+        max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
+        max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+        if max_entries <= 0 and max_bytes <= 0:
+            return True
+
+        entries = await asyncio.to_thread(self._scan_cache_entries)
+        total_bytes = sum(entry.size_bytes for entry in entries.values())
+        protected = set() if protected_key is None else {protected_key}
+        skipped: set[str] = set()
+
+        while (max_entries > 0 and len(entries) > max_entries) or (
+            max_bytes > 0 and total_bytes > max_bytes
+        ):
+            candidate = self._least_recently_used(
+                entries.values(),
+                excluded=skipped | protected,
+            )
+            if candidate is None:
+                logger.warning(
+                    "Registry artifact cache is over budget but every entry is in use",
+                    cache_dir=str(self.cache_dir),
+                    entries=len(entries),
+                    max_entries=max_entries,
+                    total_bytes=total_bytes,
+                    max_bytes=max_bytes,
+                )
+                return False
+
+            eviction = await self._evict_entry(candidate.cache_key)
+            if eviction.retired:
+                del entries[candidate.cache_key]
+                if not eviction.reclaimed:
+                    return False
+                total_bytes -= candidate.size_bytes
+            else:
+                skipped.add(candidate.cache_key)
+
+        return True
+
+    async def _ensure_cache_capacity(
+        self,
+        *,
+        additional_bytes: int,
+        protected_key: str,
+        max_bytes: int,
+    ) -> None:
+        """Reserve peak bytes for a cold writer without exceeding the cap.
+
+        The caller holds the admission lock and its key lock. Every normal
+        budget pass takes the admission lock first, so acquiring the budget
+        lock here cannot deadlock with eviction of the protected key.
+        """
+        if additional_bytes < 0:
+            raise ValueError("additional_bytes must be non-negative")
+
         async with self._budget_lock:
-            trash_clean, startup_clean = await asyncio.gather(
+            await asyncio.gather(
                 asyncio.to_thread(self._clear_work_dir, self.trash_dir),
                 asyncio.to_thread(self._retry_failed_startup_cleanup),
             )
-            cleanup_complete = trash_clean and startup_clean
-            if not cleanup_complete:
-                return False
-
-            max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
-            max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
-            if max_entries <= 0 and max_bytes <= 0:
-                return True
-
             entries = await asyncio.to_thread(self._scan_cache_entries)
-            total_bytes = sum(entry.size_bytes for entry in entries.values())
-            protected = set() if protected_key is None else {protected_key}
-            skipped: set[str] = set()
+            staging_bytes, trash_bytes = await asyncio.gather(
+                asyncio.to_thread(_directory_footprint, self.staging_dir),
+                asyncio.to_thread(_directory_footprint, self.trash_dir),
+            )
+            total_bytes = (
+                sum(entry.size_bytes for entry in entries.values())
+                + staging_bytes
+                + trash_bytes
+            )
+            skipped = {protected_key}
 
-            while (max_entries > 0 and len(entries) > max_entries) or (
-                max_bytes > 0 and total_bytes > max_bytes
-            ):
+            while total_bytes + additional_bytes > max_bytes:
                 candidate = self._least_recently_used(
                     entries.values(),
-                    excluded=skipped | protected,
+                    excluded=skipped,
                 )
                 if candidate is None:
-                    logger.warning(
-                        "Registry artifact cache is over budget but every entry is in use",
-                        cache_dir=str(self.cache_dir),
-                        entries=len(entries),
-                        max_entries=max_entries,
-                        total_bytes=total_bytes,
+                    raise RegistryArtifactCacheCapacityError(
+                        current_bytes=total_bytes,
+                        additional_bytes=additional_bytes,
                         max_bytes=max_bytes,
                     )
-                    return False
 
                 eviction = await self._evict_entry(candidate.cache_key)
                 if eviction.retired:
                     del entries[candidate.cache_key]
                     if not eviction.reclaimed:
-                        return False
+                        raise RegistryArtifactCacheCapacityError(
+                            current_bytes=total_bytes,
+                            additional_bytes=additional_bytes,
+                            max_bytes=max_bytes,
+                        )
                     total_bytes -= candidate.size_bytes
                 else:
                     skipped.add(candidate.cache_key)
-
-            return True
 
     def _least_recently_used(
         self,
