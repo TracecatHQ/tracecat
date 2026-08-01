@@ -4007,6 +4007,7 @@ def test_resource_cadence_allows_normal_docker_stats_latency(
         _collector_config(tmp_path),
         SuccessfulSampler(),
     )
+    assert collector_module.RESOURCE_SAMPLE_INTERVAL_SECONDS == 3.0
     sink = tmp_path / "resource_usage.jsonl"
 
     with sink.open("x", encoding="utf-8") as handle:

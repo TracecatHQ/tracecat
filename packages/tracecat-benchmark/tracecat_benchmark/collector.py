@@ -160,10 +160,10 @@ KNOWN_APPLICATION_NAMES: Final = frozenset(
     }
 )
 # A real ``docker stats --no-stream`` snapshot routinely takes just over two
-# seconds on Docker Desktop. Keep resource sampling independent from the
-# requested PostgreSQL/Temporal cadence and retain enough headroom to
-# distinguish that expected capture time from a stalled sampler.
-RESOURCE_SAMPLE_INTERVAL_SECONDS: Final = 5.0
+# seconds on Docker Desktop. Keep the documented three-second resource cadence
+# independent from the requested PostgreSQL/Temporal cadence while retaining
+# enough headroom for that expected capture time.
+RESOURCE_SAMPLE_INTERVAL_SECONDS: Final = 3.0
 SAMPLER_OPERATION_TIMEOUT_SECONDS: Final = 5.0
 LOCAL_CLUSTER_HOSTS: Final = frozenset({"localhost", "127.0.0.1", "::1"})
 TEMPORAL_WORKFLOW_TASK_QUEUE_TYPE: Final[TaskQueueType.ValueType] = (
