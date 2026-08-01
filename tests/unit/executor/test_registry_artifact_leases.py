@@ -72,7 +72,7 @@ class TestRegistryArtifactCacheLease:
 
     @pytest.mark.anyio
     async def test_lease_refcounts_and_touches_image_mtime(self, temp_cache_dir):
-        """A lease pins its entry and refreshes the restart-safe LRU timestamp."""
+        """Acquire and final release persist the restart-safe LRU timestamp."""
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uri = "s3://bucket/leased.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
@@ -84,8 +84,10 @@ class TestRegistryArtifactCacheLease:
             assert registry_paths == [target_dir]
             assert cache._refcount(cache_key) == 1
             assert entry_dir.stat().st_mtime > 100.0
+            os.utime(entry_dir, (100.0, 100.0))
 
         assert cache._refcount(cache_key) == 0
+        assert entry_dir.stat().st_mtime > 100.0
         assert image_path.is_file()
 
     @pytest.mark.anyio

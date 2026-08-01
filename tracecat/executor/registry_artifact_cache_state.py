@@ -145,7 +145,10 @@ class _RegistryArtifactCacheState:
             return False
         runtime.refcount -= 1
         runtime.last_used = time.time()
-        return runtime.refcount == 0
+        became_idle = runtime.refcount == 0
+        if became_idle:
+            self._touch_entry(cache_key)
+        return became_idle
 
     def _refcount(self, cache_key: str) -> int:
         """Return the number of live leases on a cache entry."""
