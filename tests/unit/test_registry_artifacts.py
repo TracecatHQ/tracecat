@@ -1368,6 +1368,59 @@ class TestRegistryArtifactCacheLease:
         assert harness.unmounts == [mount_dir]
 
     @pytest.mark.anyio
+    async def test_repeated_cancellation_finishes_all_lease_cleanup(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Every unmount and budget pass finishes before cancellation propagates."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uris = [
+            "s3://bucket/first.tar.gz",
+            "s3://bucket/second.tar.gz",
+        ]
+        cache_keys = [compute_registry_artifact_cache_key(uri) for uri in artifact_uris]
+        for cache_key in cache_keys:
+            _write_tarball_entry(temp_cache_dir, cache_key)
+
+        lease_entered = asyncio.Event()
+        first_unmount_started = asyncio.Event()
+        finish_first_unmount = asyncio.Event()
+        cleanup_calls: list[str] = []
+
+        async def mock_unmount_idle_entry(cache_key: str) -> None:
+            cleanup_calls.append(cache_key)
+            if cache_key == cache_keys[0]:
+                first_unmount_started.set()
+                await finish_first_unmount.wait()
+
+        async def mock_converge_cache_budget() -> None:
+            cleanup_calls.append("converge")
+
+        async def hold_lease() -> None:
+            async with cache.lease(artifact_uris):
+                lease_entered.set()
+                await asyncio.Event().wait()
+
+        with (
+            patch.object(cache, "_unmount_idle_entry", mock_unmount_idle_entry),
+            patch.object(cache, "_converge_cache_budget", mock_converge_cache_budget),
+        ):
+            holder = asyncio.create_task(hold_lease())
+            await lease_entered.wait()
+            holder.cancel()
+            await first_unmount_started.wait()
+
+            holder.cancel()
+            await asyncio.sleep(0)
+            assert not holder.done()
+
+            finish_first_unmount.set()
+            with pytest.raises(asyncio.CancelledError):
+                await holder
+
+        assert cleanup_calls == [*cache_keys, "converge"]
+        assert all(cache._refcount(cache_key) == 0 for cache_key in cache_keys)
+
+    @pytest.mark.anyio
     async def test_new_lease_racing_final_release_prevents_stale_unmount(
         self, temp_cache_dir: Path
     ) -> None:

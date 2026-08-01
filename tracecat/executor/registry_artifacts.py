@@ -875,9 +875,25 @@ class RegistryArtifactCache:
             idle_keys = [
                 cache_key for cache_key in leased_keys if self._release_lease(cache_key)
             ]
-            for cache_key in idle_keys:
-                await self._unmount_idle_entry(cache_key)
-            await self._converge_cache_budget()
+            cleanup_task = asyncio.ensure_future(self._finish_lease_cleanup(idle_keys))
+            pending_cancellation: asyncio.CancelledError | None = None
+            while True:
+                try:
+                    await asyncio.shield(cleanup_task)
+                    break
+                except asyncio.CancelledError as e:
+                    if cleanup_task.cancelled():
+                        raise
+                    pending_cancellation = e
+
+            if pending_cancellation is not None:
+                raise pending_cancellation
+
+    async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
+        """Unmount every newly idle entry and converge the cache budget."""
+        for cache_key in idle_keys:
+            await self._unmount_idle_entry(cache_key)
+        await self._converge_cache_budget()
 
     async def _lease_artifact(self, artifact_uri: str) -> tuple[str | None, list[Path]]:
         """Pin and materialize one artifact, returning its releasable cache key."""
