@@ -738,6 +738,15 @@ class TestRegistryArtifactCacheLease:
                 side_effect=mock_umount,
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
+            # This test targets the per-key eviction/lease handoff. Keep the
+            # lease's budget pass from concurrently sweeping the same trash
+            # path and turning physical reclamation into a two-deleter race.
+            patch.object(
+                cache,
+                "_enforce_cache_budget",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await umount_started.wait()
