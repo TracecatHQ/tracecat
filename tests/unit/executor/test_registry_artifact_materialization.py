@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import shutil
+import signal
 import tarfile
 import threading
 from pathlib import Path
@@ -249,6 +250,7 @@ class TestRegistryArtifactMaterialization:
             str(target_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
 
     @pytest.mark.anyio
@@ -268,10 +270,13 @@ class TestRegistryArtifactMaterialization:
         target_dir.mkdir()
         process = BlockingSubprocess()
 
-        with patch(
-            "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=process,
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ),
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             mounting = asyncio.create_task(
                 artifact._mount_image(image_path, target_dir)
@@ -283,6 +288,7 @@ class TestRegistryArtifactMaterialization:
                 await mounting
 
         assert process.cleanup_calls == ["kill", "wait"]
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
         assert target_dir.is_dir()
         assert not target_dir.is_mount()
 
@@ -316,6 +322,7 @@ class TestRegistryArtifactMaterialization:
                 "30",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
             captured = CapturedSubprocess(process)
             captured_processes.append(captured)
@@ -378,7 +385,8 @@ class TestRegistryArtifactMaterialization:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
-            ),
+            ) as create_subprocess_exec,
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             if operation == "mount":
                 running = asyncio.create_task(
@@ -407,6 +415,10 @@ class TestRegistryArtifactMaterialization:
 
         assert second_cancellation_propagated_early is False
         assert process.cleanup_calls == ["kill", "wait"]
+        await_args = create_subprocess_exec.await_args
+        assert await_args is not None
+        assert await_args.kwargs["start_new_session"] is True
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_tarball_extract_rejoins_thread(

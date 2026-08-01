@@ -810,6 +810,7 @@ class TestRegistryArtifactCacheBudget:
         process.returncode = 0
 
         async def mock_umount(*args, **kwargs):
+            assert kwargs["start_new_session"] is True
             mounted.discard(paths.squashfs_mount_dir)
             return process
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -47,6 +48,7 @@ class TestRegistryArtifactCacheEviction:
         process.returncode = 0
 
         async def mock_umount(*args, **kwargs):
+            assert kwargs["start_new_session"] is True
             image_present_at_umount.append(paths.squashfs_image_path.exists())
             mounted.discard(paths.squashfs_mount_dir)
             return process
@@ -96,6 +98,7 @@ class TestRegistryArtifactCacheEviction:
 
         async def mock_umount(*args, **kwargs):
             nonlocal unmount_attempts
+            assert kwargs["start_new_session"] is True
             unmount_attempts += 1
             if unmount_attempts == 1:
                 return blocked_process
@@ -112,6 +115,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await blocked_process.communicate_started.wait()
@@ -126,6 +130,10 @@ class TestRegistryArtifactCacheEviction:
                 await eviction
 
             assert blocked_process.cleanup_calls == ["kill", "wait"]
+            kill_group.assert_called_once_with(
+                blocked_process.pid,
+                signal.SIGKILL,
+            )
             async with cache.lease([artifact_uri]) as registry_paths:
                 assert registry_paths == [paths.squashfs_mount_dir]
                 assert registry_paths[0].is_dir()

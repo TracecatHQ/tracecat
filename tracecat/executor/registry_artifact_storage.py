@@ -632,6 +632,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             str(mount_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         stdout, stderr = await _communicate_rejoin_on_cancel(proc)
         if proc.returncode == 0 or not mount_dir.is_mount():

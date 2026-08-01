@@ -130,6 +130,7 @@ class BlockingSubprocess:
     """Fake subprocess that blocks in communicate until it is cancelled."""
 
     def __init__(self, *, block_wait: bool = False) -> None:
+        self.pid = 999_999_999
         self.communicate_started = asyncio.Event()
         self.wait_started = asyncio.Event()
         self.release_wait = asyncio.Event()
@@ -169,6 +170,11 @@ class CapturedSubprocess:
     def returncode(self) -> int | None:
         """Return the wrapped subprocess exit status."""
         return self.process.returncode
+
+    @property
+    def pid(self) -> int:
+        """Return the wrapped subprocess process-group identifier."""
+        return self.process.pid
 
     async def communicate(self) -> tuple[bytes, bytes]:
         """Wait for the wrapped subprocess and collect its output."""
