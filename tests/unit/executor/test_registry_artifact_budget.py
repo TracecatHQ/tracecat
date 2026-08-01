@@ -780,6 +780,49 @@ class TestRegistryArtifactCacheBudget:
         assert paths.squashfs_mount_dir.is_dir()
 
     @pytest.mark.anyio
+    async def test_failed_final_release_unmount_retries_on_later_cleanup(
+        self, temp_cache_dir
+    ):
+        """A transient unmount failure is retried after another lease release."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/retry-unmount.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        paths = cache._paths_for(cache_key)
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        mounted = {paths.squashfs_mount_dir}
+        retry_uri = "s3://bucket/path/retry-trigger.tar.gz"
+        retry_key = compute_registry_artifact_cache_key(retry_uri)
+        write_tarball_entry(temp_cache_dir, retry_key)
+        attempts: list[Path] = []
+
+        async def flaky_unmount(mount_dir: Path) -> bool:
+            attempts.append(mount_dir)
+            if len(attempts) == 1:
+                return False
+            mounted.discard(mount_dir)
+            return True
+
+        with (
+            patch.object(Path, "is_mount", lambda path: path in mounted),
+            patch.object(cache, "_unmount", side_effect=flaky_unmount),
+        ):
+            async with cache.lease([artifact_uri]):
+                pass
+
+            assert cache._failed_unmounts == {cache_key}
+            assert paths.squashfs_mount_dir in mounted
+
+            async with cache.lease([retry_uri]):
+                pass
+
+        assert attempts == [paths.squashfs_mount_dir, paths.squashfs_mount_dir]
+        assert cache._failed_unmounts == set()
+        assert paths.squashfs_mount_dir not in mounted
+
+    @pytest.mark.anyio
     async def test_concurrent_budget_passes_only_evict_once(self, temp_cache_dir):
         """A waiting budget pass must re-scan after the active pass evicts."""
         cache = RegistryArtifactCache(temp_cache_dir)

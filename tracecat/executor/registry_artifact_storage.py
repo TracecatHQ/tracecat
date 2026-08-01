@@ -205,13 +205,41 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
     async def _unmount_idle_entry(self, cache_key: str) -> None:
         """Best-effort unmount an entry after its final lease is released."""
         try:
-            await self._unmount_entry(cache_key)
+            unmounted = await self._unmount_entry(cache_key)
         except OSError as e:
+            self._failed_unmounts.add(cache_key)
             logger.warning(
                 "Failed to release idle registry artifact mount",
                 cache_key=cache_key,
                 error=str(e),
             )
+            return
+
+        if unmounted:
+            self._failed_unmounts.discard(cache_key)
+            return
+
+        mount_dir = self._paths_for(cache_key).squashfs_mount_dir
+        try:
+            retry = self._refcount(cache_key) == 0 and mount_dir.is_mount()
+        except OSError as e:
+            retry = True
+            logger.warning(
+                "Failed to inspect idle registry artifact mount",
+                cache_key=cache_key,
+                mount_dir=str(mount_dir),
+                error=str(e),
+            )
+
+        if retry:
+            self._failed_unmounts.add(cache_key)
+        else:
+            self._failed_unmounts.discard(cache_key)
+
+    async def _retry_failed_unmounts(self, *, excluded: set[str]) -> None:
+        """Retry prior unmount failures once on a later lease cleanup."""
+        for cache_key in sorted(self._failed_unmounts - excluded):
+            await self._unmount_idle_entry(cache_key)
 
     async def _converge_cache_budget(self) -> None:
         """Bring an idle cache back under budget after a lease is released.

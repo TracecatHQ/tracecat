@@ -168,6 +168,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         """Unmount newly idle entries and converge after meaningful changes."""
         for cache_key in idle_keys:
             await self._unmount_idle_entry(cache_key)
+        await self._retry_failed_unmounts(excluded=set(idle_keys))
         if converge:
             await self._converge_cache_budget()
 

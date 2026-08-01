@@ -71,6 +71,9 @@ class _RegistryArtifactCacheState:
         # Startup is the only time the whole staging directory is swept. Exact
         # paths that could not be removed are safe to retry later.
         self._failed_startup_cleanup: set[Path] = set()
+        # Final-release unmount failures are retried by later lease cleanup so
+        # transient errors cannot accumulate idle loop devices indefinitely.
+        self._failed_unmounts: set[str] = set()
         # Whether the on-disk cache may exceed its budget. Set when a new entry
         # is materialized and cleared once enforcement measures a cache that
         # fits, so steady-state cache hits never pay for a disk scan.
