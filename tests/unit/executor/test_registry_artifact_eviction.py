@@ -75,10 +75,10 @@ class TestRegistryArtifactCacheEviction:
         )
 
     @pytest.mark.anyio
-    async def test_cancelled_unmount_kills_and_reaps_before_releasing_key_lock(
+    async def test_repeatedly_cancelled_unmount_reaps_before_releasing_key_lock(
         self, temp_cache_dir
     ):
-        """Cancellation leaves a consistent entry for the next admission."""
+        """Repeated cancellation leaves a consistent entry for next admission."""
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uri = "s3://bucket/path/cancelled-unmount.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
@@ -88,7 +88,7 @@ class TestRegistryArtifactCacheEviction:
         paths.squashfs_mount_dir.mkdir()
         (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
         mounted = {paths.squashfs_mount_dir}
-        blocked_process = BlockingSubprocess()
+        blocked_process = BlockingSubprocess(block_wait=True)
         released_process = AsyncMock()
         released_process.communicate.return_value = (b"", b"")
         released_process.returncode = 0
@@ -116,7 +116,12 @@ class TestRegistryArtifactCacheEviction:
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await blocked_process.communicate_started.wait()
             eviction.cancel()
+            await blocked_process.wait_started.wait()
 
+            eviction.cancel()
+            done, _ = await asyncio.wait({eviction}, timeout=0.05)
+            assert not done
+            blocked_process.release_wait.set()
             with pytest.raises(asyncio.CancelledError):
                 await eviction
 

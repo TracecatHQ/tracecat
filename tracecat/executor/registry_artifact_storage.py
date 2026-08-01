@@ -17,6 +17,7 @@ from tracecat.executor.registry_artifact_cache_state import (
 )
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
+    _communicate_rejoin_on_cancel,
 )
 from tracecat.logger import logger
 
@@ -587,13 +588,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
         if proc.returncode == 0 or not mount_dir.is_mount():
             return True
 
