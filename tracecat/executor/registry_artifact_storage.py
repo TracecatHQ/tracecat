@@ -62,12 +62,20 @@ class RegistryArtifactCacheEntry:
     last_used: float
 
 
-def _allocated_stat_size(file_stat: os.stat_result) -> int:
-    """Return allocated bytes for one inode, falling back to logical size."""
+def _allocated_stat_size(
+    file_stat: os.stat_result,
+    *,
+    allocation_unit: int,
+) -> int:
+    """Return allocated bytes while charging at least one unit per inode."""
+    if allocation_unit <= 0:
+        raise ValueError("allocation_unit must be positive")
     blocks = getattr(file_stat, "st_blocks", None)
     if blocks is None:
-        return file_stat.st_size
-    return blocks * 512
+        allocated_bytes = file_stat.st_size
+    else:
+        allocated_bytes = blocks * 512
+    return max(allocation_unit, allocated_bytes)
 
 
 def _filesystem_allocation_unit(path: Path) -> int:
@@ -86,7 +94,11 @@ def _filesystem_allocation_unit(path: Path) -> int:
     return filesystem.f_frsize or filesystem.f_bsize or 1
 
 
-def _directory_footprint(directory: Path) -> int:
+def _directory_footprint(
+    directory: Path,
+    *,
+    allocation_unit: int | None = None,
+) -> int:
     """Return the allocated footprint of a cache directory tree.
 
     Args:
@@ -100,18 +112,25 @@ def _directory_footprint(directory: Path) -> int:
     def raise_walk_error(error: OSError) -> None:
         raise error
 
+    if allocation_unit is None:
+        allocation_unit = _filesystem_allocation_unit(directory)
+
     total_bytes = 0
     try:
         walker = os.walk(directory, onerror=raise_walk_error)
         for root, dirs, files in walker:
             try:
-                total_bytes += _allocated_stat_size(os.lstat(root))
+                total_bytes += _allocated_stat_size(
+                    os.lstat(root),
+                    allocation_unit=allocation_unit,
+                )
             except FileNotFoundError:
                 continue
             for file_name in files:
                 try:
                     total_bytes += _allocated_stat_size(
-                        os.lstat(os.path.join(root, file_name))
+                        os.lstat(os.path.join(root, file_name)),
+                        allocation_unit=allocation_unit,
                     )
                 except FileNotFoundError:
                     continue
@@ -121,7 +140,10 @@ def _directory_footprint(directory: Path) -> int:
                 except FileNotFoundError:
                     continue
                 if stat.S_ISLNK(directory_stat.st_mode):
-                    total_bytes += _allocated_stat_size(directory_stat)
+                    total_bytes += _allocated_stat_size(
+                        directory_stat,
+                        allocation_unit=allocation_unit,
+                    )
     except FileNotFoundError:
         return 0
     return total_bytes
@@ -659,6 +681,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         measured individually so a concurrent eviction cannot fail the scan.
         """
         paths = self._paths_for(cache_key)
+        allocation_unit = _filesystem_allocation_unit(self.cache_dir)
         size_bytes = 0
 
         for path in (
@@ -667,12 +690,18 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             paths.squashfs_mount_dir,
         ):
             try:
-                size_bytes += _allocated_stat_size(path.lstat())
+                size_bytes += _allocated_stat_size(
+                    path.lstat(),
+                    allocation_unit=allocation_unit,
+                )
             except FileNotFoundError:
                 continue
 
         for directory in (paths.squashfs_extract_dir, paths.tarball_target_dir):
-            size_bytes += _directory_footprint(directory)
+            size_bytes += _directory_footprint(
+                directory,
+                allocation_unit=allocation_unit,
+            )
 
         try:
             last_used = paths.entry_dir.stat().st_mtime

@@ -44,7 +44,14 @@ class TestRegistryArtifactCacheBudget:
         file_stat.st_blocks = 7
         file_stat.st_size = 1
 
-        assert _allocated_stat_size(file_stat) == 7 * 512
+        assert _allocated_stat_size(file_stat, allocation_unit=512) == 7 * 512
+
+    def test_allocated_stat_size_charges_zero_block_inode(self) -> None:
+        file_stat = MagicMock(spec=os.stat_result)
+        file_stat.st_blocks = 0
+        file_stat.st_size = 0
+
+        assert _allocated_stat_size(file_stat, allocation_unit=4096) == 4096
 
     def test_directory_footprint_includes_directory_inodes(
         self,
