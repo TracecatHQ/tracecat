@@ -230,14 +230,21 @@ class TestRegistryArtifactMaterialization:
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         process = AsyncMock()
+        process.pid = 1234
         process.communicate.return_value = (b"", b"")
         process.returncode = 0
 
-        with patch(
-            "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=process,
-        ) as create_subprocess_exec:
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ) as create_subprocess_exec,
+            patch(
+                "tracecat.sandbox.utils.terminate_process_group",
+                new_callable=AsyncMock,
+            ) as terminate_process_group,
+        ):
             await artifact.mount(ctx, image_path)
 
         create_subprocess_exec.assert_awaited_once_with(
@@ -252,6 +259,7 @@ class TestRegistryArtifactMaterialization:
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
+        terminate_process_group.assert_awaited_once_with(process)
 
     @pytest.mark.anyio
     async def test_cancelled_mount_kills_and_reaps_subprocess(self, temp_cache_dir):

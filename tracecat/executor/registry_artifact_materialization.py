@@ -23,7 +23,7 @@ from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.sandbox.utils import terminate_process_group
+from tracecat.sandbox.utils import communicate_process_group
 from tracecat.storage import blob
 
 __all__ = [
@@ -158,36 +158,6 @@ async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
             with contextlib.suppress(Exception):
                 worker.result()
         raise
-
-
-async def _kill_and_reap_subprocess(process: asyncio.subprocess.Process) -> None:
-    """Kill a subprocess group and wait until its leader is reaped."""
-    await terminate_process_group(process)
-
-
-async def _communicate_rejoin_on_cancel(
-    process: asyncio.subprocess.Process,
-) -> tuple[bytes, bytes]:
-    """Communicate while keeping cancellation from abandoning child cleanup."""
-    try:
-        stdout, stderr = await process.communicate()
-    except asyncio.CancelledError:
-        reaper = asyncio.ensure_future(_kill_and_reap_subprocess(process))
-        while not reaper.done():
-            try:
-                await asyncio.shield(reaper)
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                break
-        if not reaper.cancelled():
-            with contextlib.suppress(Exception):
-                reaper.result()
-        raise
-
-    if stdout is None or stderr is None:
-        raise RuntimeError("Captured subprocess output is required")
-    return stdout, stderr
 
 
 async def _remove_tree_rejoin_on_cancel(
@@ -511,7 +481,7 @@ class SquashfsArtifact(RegistryArtifact):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
 
         if proc.returncode == 0 or target_dir.is_mount():
             return
@@ -540,7 +510,7 @@ class SquashfsArtifact(RegistryArtifact):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
 
         if proc.returncode == 0:
             return
@@ -567,7 +537,7 @@ class SquashfsArtifact(RegistryArtifact):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
 
         if proc.returncode != 0:
             output = (stderr or stdout).decode(errors="replace").strip()

@@ -44,6 +44,7 @@ class TestRegistryArtifactCacheEviction:
         image_present_at_umount: list[bool] = []
 
         process = AsyncMock()
+        process.pid = 999_999_999
         process.communicate.return_value = (b"", b"")
         process.returncode = 0
 
@@ -63,6 +64,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ) as create_subprocess_exec,
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             evicted = await cache._evict_entry("mounted")
 
@@ -75,6 +77,7 @@ class TestRegistryArtifactCacheEviction:
             "/sbin/umount",
             str(paths.squashfs_mount_dir),
         )
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_unmount_reaps_before_releasing_key_lock(
@@ -253,6 +256,7 @@ class TestRegistryArtifactCacheEviction:
         mounted = {stuck.squashfs_mount_dir}
 
         process = AsyncMock()
+        process.pid = 999_999_999
         process.communicate.return_value = (b"", b"target is busy")
         process.returncode = 32
 
@@ -267,6 +271,7 @@ class TestRegistryArtifactCacheEviction:
                 new_callable=AsyncMock,
                 return_value=process,
             ) as create_subprocess_exec,
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
         ):
@@ -277,6 +282,7 @@ class TestRegistryArtifactCacheEviction:
         assert not idle.exists()
         create_subprocess_exec.assert_awaited_once()
         process.communicate.assert_awaited_once()
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_eviction_discards_idle_runtime_state(self, temp_cache_dir):

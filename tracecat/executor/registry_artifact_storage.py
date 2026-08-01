@@ -19,9 +19,9 @@ from tracecat.executor.registry_artifact_cache_state import (
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
     _allocated_size_bound,
-    _communicate_rejoin_on_cancel,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.utils import communicate_process_group
 
 
 class RegistryArtifactCacheCapacityError(RuntimeError):
@@ -634,7 +634,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
         if proc.returncode == 0 or not mount_dir.is_mount():
             return True
 

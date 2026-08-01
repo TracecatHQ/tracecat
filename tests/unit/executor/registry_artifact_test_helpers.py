@@ -138,8 +138,12 @@ class BlockingSubprocess:
         self.returncode: int | None = None
         self._block_wait = block_wait
 
-    async def communicate(self) -> tuple[bytes, bytes]:
+    async def communicate(
+        self,
+        input: bytes | None = None,  # noqa: A002
+    ) -> tuple[bytes, bytes]:
         """Block until the task awaiting subprocess completion is cancelled."""
+        del input
         self.communicate_started.set()
         await asyncio.Event().wait()
         return b"", b""
@@ -176,9 +180,12 @@ class CapturedSubprocess:
         """Return the wrapped subprocess process-group identifier."""
         return self.process.pid
 
-    async def communicate(self) -> tuple[bytes, bytes]:
+    async def communicate(
+        self,
+        input: bytes | None = None,  # noqa: A002
+    ) -> tuple[bytes, bytes]:
         """Wait for the wrapped subprocess and collect its output."""
-        return await self.process.communicate()
+        return await self.process.communicate(input=input)
 
     def kill(self) -> None:
         """Kill the wrapped subprocess and record the signal."""
