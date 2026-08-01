@@ -759,6 +759,7 @@ async def download_file_to_path(
     max_bytes: int | None = None,
     expected_sha256: str | None = None,
     ensure_capacity: Callable[[int], Awaitable[None]] | None = None,
+    defer_cleanup: Callable[[Path], None] | None = None,
 ) -> int:
     """Stream an S3/MinIO object to a local file.
 
@@ -776,6 +777,8 @@ async def download_file_to_path(
             the maximum number of bytes the download may occupy. When the server
             omits ContentLength, max_bytes is required and capacity is checked
             incrementally before each chunk is written.
+        defer_cleanup: Optional callback that retains a partial-file path for a
+            later cleanup retry when immediate deletion fails.
 
     Returns:
         Total bytes written.
@@ -879,6 +882,8 @@ async def download_file_to_path(
                 "Failed to cleanup partial download",
                 temp_path=str(temp_path),
             )
+            if defer_cleanup is not None:
+                defer_cleanup(temp_path)
         raise
 
     logger.debug(

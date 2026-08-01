@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -93,7 +94,9 @@ class TestRegistryArtifactResolution:
             key: str,
             bucket: str,
             output_path: Path,
+            defer_cleanup: Callable[[Path], None],
         ) -> None:
+            assert defer_cleanup == ctx.defer_cleanup
             output_path.write_bytes(b"squashfs")
 
         with patch(

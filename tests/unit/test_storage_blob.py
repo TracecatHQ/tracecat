@@ -923,6 +923,46 @@ class TestEdgeCases:
         assert not (tmp_path / "out.bin.part").exists()
 
     @pytest.mark.anyio
+    async def test_download_file_to_path_defers_failed_partial_cleanup(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A failed partial unlink remains available for runtime cleanup."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"hello"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), 5
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        temp_path = tmp_path / "out.bin.part"
+        deferred_paths: list[Path] = []
+        expected_sha256 = hashlib.sha256(b"hello").hexdigest()
+        with (
+            patch.object(Path, "unlink", side_effect=PermissionError("busy")),
+            pytest.raises(ValueError, match="Integrity check failed"),
+        ):
+            await download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+                expected_sha256=expected_sha256 + "bad",
+                defer_cleanup=deferred_paths.append,
+            )
+
+        assert temp_path.exists()
+        assert deferred_paths == [temp_path]
+
+    @pytest.mark.anyio
     async def test_download_file_to_path_cancellation_cleans_partial(
         self, tmp_path: Path, monkeypatch
     ):

@@ -330,6 +330,7 @@ class SquashfsArtifact(RegistryArtifact):
                 self.uri,
                 temp_image,
                 admission=ctx.admission,
+                defer_cleanup=ctx.defer_cleanup,
             )
             try:
                 temp_image.rename(image_path)
@@ -648,6 +649,7 @@ class TarballArtifact(RegistryArtifact):
             self.uri,
             output_path,
             admission=ctx.admission,
+            defer_cleanup=ctx.defer_cleanup,
         )
 
     async def extract(self, tarball_path: Path, target_dir: Path) -> None:
@@ -680,6 +682,7 @@ async def _download_s3_artifact(
     output_path: Path,
     *,
     admission: RegistryArtifactAdmission | None = None,
+    defer_cleanup: Callable[[Path], None],
 ) -> None:
     """Download an S3 registry artifact to a local path."""
     bucket, key = parse_s3_uri(artifact_uri)
@@ -689,6 +692,7 @@ async def _download_s3_artifact(
                 key=key,
                 bucket=bucket,
                 output_path=output_path,
+                defer_cleanup=defer_cleanup,
             )
         else:
             await blob.download_file_to_path(
@@ -697,6 +701,7 @@ async def _download_s3_artifact(
                 output_path=output_path,
                 max_bytes=admission.max_bytes,
                 ensure_capacity=admission.ensure_capacity,
+                defer_cleanup=defer_cleanup,
             )
     except FileNotFoundError as e:
         request = httpx.Request("GET", artifact_uri)
