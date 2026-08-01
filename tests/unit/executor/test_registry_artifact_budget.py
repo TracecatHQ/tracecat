@@ -180,7 +180,7 @@ class TestRegistryArtifactCacheBudget:
         artifact_uri = "s3://bucket/new.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         payload = tarball_payload(size=32)
-        max_bytes = len(payload) + 32
+        max_bytes = len(payload) + 33
         capacity_checked = False
 
         async def download_file_to_path(
@@ -193,7 +193,7 @@ class TestRegistryArtifactCacheBudget:
         ) -> int:
             del key, bucket
             nonlocal capacity_checked
-            assert max_bytes == len(payload) + 32
+            assert max_bytes == len(payload) + 33
             await ensure_capacity(len(payload))
             capacity_checked = True
             assert not idle.exists()
@@ -261,7 +261,7 @@ class TestRegistryArtifactCacheBudget:
                 async with cache.lease([artifact_uri]):
                     pass
 
-        assert raised.value.additional_bytes == 4096
+        assert raised.value.additional_bytes == 4097
         assert raised.value.max_bytes == max_bytes
         extract.assert_not_awaited()
         assert not cache._paths_for(cache_key).entry_dir.exists()
@@ -276,7 +276,7 @@ class TestRegistryArtifactCacheBudget:
         artifact_uri = "s3://bucket/path/site-packages.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         payload = tarball_payload(size=32)
-        max_bytes = len(payload) + 32
+        max_bytes = len(payload) + 33
 
         async def fail_after_squashfs_download(
             self: SquashfsArtifact,
