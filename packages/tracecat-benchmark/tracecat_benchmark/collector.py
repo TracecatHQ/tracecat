@@ -3003,6 +3003,11 @@ class MetricCollector:
                 raise ActivityMetricsCaptureError(
                     "activity metrics handoff does not match the collector run"
                 )
+            if not handoff["workflow_execution_ids_complete"]:
+                raise ActivityMetricsCaptureError(
+                    "activity metrics are incomplete because an admission outcome "
+                    "has no workflow execution ID"
+                )
             measurement_window = handoff["measurement_window_seconds"]
             sdk_metrics, history_metrics = await asyncio.gather(
                 self._sdk_metrics_capture.capture_delta(

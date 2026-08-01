@@ -238,6 +238,7 @@ def test_history_metrics_group_actions_and_follow_child_workflows() -> None:
             measurement_started_at="2026-01-01T00:00:00+00:00",
             measurement_finished_at="2026-01-01T00:00:10+00:00",
             workflow_execution_ids=["root-workflow"],
+            workflow_execution_ids_complete=True,
         )
         return await collect_activity_history_metrics(
             client,

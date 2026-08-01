@@ -177,6 +177,7 @@ def _write_activity_metrics_handoff(
     run_id: str,
     summary: RunSummary,
     workflow_execution_ids: list[str],
+    workflow_execution_ids_complete: bool,
     *,
     measurement_started_at: str,
     measurement_finished_at: str,
@@ -188,6 +189,7 @@ def _write_activity_metrics_handoff(
         measurement_started_at=measurement_started_at,
         measurement_finished_at=measurement_finished_at,
         workflow_execution_ids=workflow_execution_ids,
+        workflow_execution_ids_complete=workflow_execution_ids_complete,
     )
     try:
         with path.open("x", encoding="utf-8") as handle:
@@ -510,6 +512,15 @@ class LoadRunner:
             for record in self._records
             if record.phase is not Phase.WARMUP and record.wf_exec_id is not None
         ]
+
+    def measured_workflow_execution_ids_complete(self) -> bool:
+        """Whether every possibly accepted measured admission has an ID."""
+        return all(
+            record.wf_exec_id is not None
+            or record.failure_mode is FailureMode.ADMISSION_REJECTED
+            for record in self._records
+            if record.phase is not Phase.WARMUP
+        )
 
     def measurement_timestamps(self) -> tuple[str, str]:
         """Return the exact UTC boundaries corresponding to the run summary."""
@@ -1317,6 +1328,7 @@ async def amain(argv: list[str]) -> int:
                     run_id,
                     summary,
                     runner.measured_workflow_execution_ids(),
+                    runner.measured_workflow_execution_ids_complete(),
                     measurement_started_at=measurement_started_at,
                     measurement_finished_at=measurement_finished_at,
                 )

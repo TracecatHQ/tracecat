@@ -1056,6 +1056,7 @@ def load_activity_metrics_handoff(path: str) -> ActivityMetricsHandoff:
     measurement_started_at = raw.get("measurement_started_at")
     measurement_finished_at = raw.get("measurement_finished_at")
     workflow_ids = raw.get("workflow_execution_ids")
+    workflow_ids_complete = raw.get("workflow_execution_ids_complete")
     if (
         not isinstance(run_id, str)
         or not isinstance(window, int | float)
@@ -1064,6 +1065,7 @@ def load_activity_metrics_handoff(path: str) -> ActivityMetricsHandoff:
         or not isinstance(measurement_finished_at, str)
         or not isinstance(workflow_ids, list)
         or not all(isinstance(value, str) and value for value in workflow_ids)
+        or not isinstance(workflow_ids_complete, bool)
     ):
         raise ActivityMetricsCaptureError("activity metrics handoff has invalid fields")
     try:
@@ -1094,4 +1096,5 @@ def load_activity_metrics_handoff(path: str) -> ActivityMetricsHandoff:
         measurement_started_at=measurement_started_at,
         measurement_finished_at=measurement_finished_at,
         workflow_execution_ids=cast(list[str], workflow_ids),
+        workflow_execution_ids_complete=workflow_ids_complete,
     )

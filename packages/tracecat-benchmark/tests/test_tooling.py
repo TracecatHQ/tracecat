@@ -27,6 +27,7 @@ from tracecat_benchmark import fixtures as fixtures_module
 from tracecat_benchmark import matrix as matrix_module
 from tracecat_benchmark import provision_monitor as provision_monitor_module
 from tracecat_benchmark import runner as runner_module
+from tracecat_benchmark.activity_metrics import ActivityMetricsCaptureError
 from tracecat_benchmark.client import (
     ExecutionFailureDiagnostic,
     ExecutionStatusRefreshError,
@@ -137,6 +138,80 @@ def test_unrecognized_postgres_application_names_are_fingerprinted() -> None:
     assert _application_name_artifact_label(
         application_name
     ) == deployment_value_fingerprint(application_name)
+
+
+def test_activity_metrics_require_ids_for_possibly_accepted_admissions(
+    tmp_path: Path,
+) -> None:
+    writer = JsonLinesWriter(tmp_path / "runner.jsonl")
+    runner = LoadRunner(
+        cast(TracecatClient, object()),
+        _scenario_config(
+            tmp_path,
+            warmup=False,
+            workflow_count=2,
+            one_shot=True,
+        ),
+        "workflow-1",
+        writer,
+    )
+    try:
+        runner._records = [
+            ExecutionRecord(
+                workflow_seq=0,
+                phase=Phase.RAMP,
+                submitted_at=0.0,
+                wf_exec_id="execution-1",
+            ),
+            ExecutionRecord(
+                workflow_seq=1,
+                phase=Phase.RAMP,
+                submitted_at=0.0,
+                failure_mode=FailureMode.ADMISSION_OUTCOME_UNKNOWN,
+            ),
+        ]
+
+        assert not runner.measured_workflow_execution_ids_complete()
+
+        runner._records[1].failure_mode = FailureMode.ADMISSION_REJECTED
+        assert runner.measured_workflow_execution_ids_complete()
+    finally:
+        writer.close()
+
+
+def test_collector_rejects_incomplete_activity_metrics_handoff(
+    tmp_path: Path,
+) -> None:
+    handoff_path = tmp_path / "activity-metrics-handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id_fingerprint("scatter-test"),
+                "measurement_window_seconds": 1.0,
+                "measurement_started_at": "2026-01-01T00:00:00+00:00",
+                "measurement_finished_at": "2026-01-01T00:00:01+00:00",
+                "workflow_execution_ids": ["execution-1"],
+                "workflow_execution_ids_complete": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    collector = MetricCollector(
+        replace(
+            _collector_config(tmp_path),
+            execution_id_handoff_path=str(handoff_path),
+            temporal_executor_task_queue="executor-queue",
+            temporal_workflow_task_queues=("workflow-queue",),
+        )
+    )
+
+    with pytest.raises(
+        ActivityMetricsCaptureError,
+        match="admission outcome has no workflow execution ID",
+    ):
+        asyncio.run(collector._capture_activity_metrics())
+
+    assert not handoff_path.exists()
 
 
 @pytest.mark.parametrize(

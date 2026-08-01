@@ -571,6 +571,7 @@ class ActivityMetricsHandoff(TypedDict):
     measurement_started_at: str
     measurement_finished_at: str
     workflow_execution_ids: list[str]
+    workflow_execution_ids_complete: bool
 
 
 @dataclass(slots=True, frozen=True)
