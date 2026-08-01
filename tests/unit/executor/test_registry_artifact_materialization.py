@@ -578,6 +578,54 @@ class TestRegistryArtifactMaterialization:
         assert cache._deferred_staging_cleanup == set()
         assert not deferred_path.exists()
 
+    @pytest.mark.anyio
+    async def test_failed_tarball_unlink_is_deferred_without_masking_success(
+        self, temp_cache_dir
+    ):
+        """A failed tarball unlink preserves success and remains retryable."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/failed-tarball-cleanup.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = TarballArtifact(uri=artifact_uri, cache_key=cache_key)
+        ctx = cache._context_for(cache_key)
+        downloaded_paths: list[Path] = []
+        real_unlink = Path.unlink
+
+        async def download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(b"archive")
+            downloaded_paths.append(path)
+
+        async def extract(self, tarball_path, target_dir):
+            del self, tarball_path
+            (target_dir / "module.py").write_text("VALUE = 1")
+
+        def fail_download_unlink(
+            path: Path,
+            missing_ok: bool = False,
+        ) -> None:
+            if path in downloaded_paths:
+                raise PermissionError("cleanup denied")
+            real_unlink(path, missing_ok=missing_ok)
+
+        with (
+            patch.object(TarballArtifact, "download", download),
+            patch.object(TarballArtifact, "extract", extract),
+            patch.object(Path, "unlink", fail_download_unlink),
+        ):
+            result = await artifact.materialize(ctx)
+
+        assert result == [ctx.paths.tarball_target_dir]
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert len(downloaded_paths) == 1
+        deferred_path = downloaded_paths[0]
+        assert cache._deferred_staging_cleanup == {deferred_path}
+        assert deferred_path.exists()
+
+        assert cache._retry_deferred_staging_cleanup() is True
+        assert cache._deferred_staging_cleanup == set()
+        assert not deferred_path.exists()
+
     @pytest.mark.parametrize("artifact_format", ["squashfs", "tarball"])
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_partial_cleanup_rejoins_thread(

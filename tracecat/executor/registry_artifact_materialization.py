@@ -219,6 +219,23 @@ async def _remove_tree_rejoin_on_cancel(
         )
 
 
+def _remove_file_or_defer(
+    path: Path,
+    *,
+    defer_cleanup: Callable[[Path], None],
+) -> None:
+    """Remove one staging file without masking the materialization outcome."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as e:
+        defer_cleanup(path)
+        logger.warning(
+            "Deferred failed registry artifact staging cleanup",
+            path=str(path),
+            error=str(e),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinArtifact(RegistryArtifact):
     """Current builtin registry package already installed in the executor image."""
@@ -643,7 +660,10 @@ class TarballArtifact(RegistryArtifact):
                     defer_cleanup=ctx.defer_cleanup,
                 )
             finally:
-                temp_tarball.unlink(missing_ok=True)
+                _remove_file_or_defer(
+                    temp_tarball,
+                    defer_cleanup=ctx.defer_cleanup,
+                )
 
         return [target_dir]
 
