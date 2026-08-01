@@ -1,0 +1,77 @@
+docs/agents/secrets-variables.mdx
+  s_90aa3141f07289::t_a742ca4df4bfae 18
+docs/self-hosting/security.mdx
+  s_90aa3141f07289::t_1c86e9598c270f 77-82
+  s_90aa3141f07289::t_45ea068af12e92 46
+docs/snippets/generate-secrets.mdx
+  s_90aa3141f07289::t_c97d76f1ce1c7a 19
+  s_90aa3141f07289::t_57dc31ce9b56da 10
+docs/audit-logs/agents.mdx
+  s_90aa3141f07289::t_f7cd5066fadcc8 14
+docs/security/architecture.mdx
+  s_90aa3141f07289::t_b5406eb18836e5 282,284
+  s_90aa3141f07289::t_09cd4ac5fe3d15 283
+  s_90aa3141f07289::t_ef9e4859e037a4 133
+  s_90aa3141f07289::t_15b48ae64bdd86 197-198
+  s_90aa3141f07289::t_440e94aac1b63e 15,19
+  s_90aa3141f07289::t_d170160ad5489f 330
+  s_90aa3141f07289::t_7886320941c1ff 450
+  s_90aa3141f07289::t_7d6f1b3eb99759 501-511
+  s_90aa3141f07289::t_f93d57bb268eee 7
+  s_90aa3141f07289::t_405636809b2d1a 169
+  s_90aa3141f07289::t_908aa52698098c 305-313
+  s_90aa3141f07289::t_e3fc7c97deaae3 286
+  s_90aa3141f07289::t_64b6a044debd54 167
+  s_90aa3141f07289::t_bc4a4f454b58bc 317
+  s_90aa3141f07289::t_d925c6bca7b4ee 14
+  s_90aa3141f07289::t_4e4588f35c4220 455,461-464,466,469,471-473,476-495
+  s_90aa3141f07289::t_bacff2c8c882fd 465,467-468,470,474-475
+  s_90aa3141f07289::t_844c3c733193cc 497-500
+  s_90aa3141f07289::t_f058baf20174ad 50
+  s_90aa3141f07289::t_e3c2bed562a4f1 303,315,318-319,321,323-325
+  s_90aa3141f07289::t_319b46ef41b8c8 513
+  s_90aa3141f07289::t_887b986b8fdb24 20
+  s_90aa3141f07289::t_3827c44173b865 285
+  s_90aa3141f07289::t_80aad4f759490d 304
+  s_90aa3141f07289::t_b7898b76b5df64 314
+  s_90aa3141f07289::t_4e979c2d32dfab 316
+  s_90aa3141f07289::t_2f68099b2109ca 496
+docs/audit-logs/platform.mdx
+  s_90aa3141f07289::t_0f2d7cea7625cf 77-78,80-81
+  s_90aa3141f07289::t_94eb81dd0f3bcf 7
+  s_90aa3141f07289::t_b9efe31a180681 68,73
+  s_90aa3141f07289::t_0c2e6801d3f95f 27,33
+  s_90aa3141f07289::t_9af9b68f15049b 85
+  s_90aa3141f07289::t_6c4bb9f3eee16b 34
+  s_90aa3141f07289::t_27a84863be71ca 74
+docs/self-hosting/environment-variables.mdx
+  s_90aa3141f07289::t_02b05ddc23ec56 14
+  s_90aa3141f07289::t_20c26787359e9c 15
+docs/snippets/audit-delivery-behavior.mdx
+  s_90aa3141f07289::t_91750cb71952ad 1-9
+docs/audit-logs/organization.mdx
+  s_90aa3141f07289::t_3997c397ab88af 95
+  s_90aa3141f07289::t_2ab0faba943cfe 14
+  s_90aa3141f07289::t_410b9d924b86f8 7
+  s_90aa3141f07289::t_d41bf699148756 114
+  s_90aa3141f07289::t_1bde8eee82d02f 165
+  s_90aa3141f07289::t_04c7c8e90ae305 120
+  s_90aa3141f07289::t_cef18c384b1fc3 146
+  s_90aa3141f07289::t_5b5567c9feaee1 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "f89d182ad0cb5d9c88d03e6089fecc45d362de60",
+  "prompts": {},
+  "sessions": {
+    "s_90aa3141f07289": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "879c367d-ac9e-45f8-bd75-382a66fe994f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
