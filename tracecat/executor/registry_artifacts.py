@@ -908,7 +908,8 @@ class RegistryArtifactCache:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         ctx = self._context_for(cache_key)
         if not _is_cache_entry_uri(artifact_uri):
-            return None, await self._materialize_candidates(ctx, artifact_uri)
+            candidates = await self._artifact_candidates(ctx, artifact_uri)
+            return None, await self._materialize_candidates(ctx, candidates)
 
         lock = self._runtime_for(cache_key).lock
         lease_acquired = False
@@ -916,12 +917,12 @@ class RegistryArtifactCache:
             async with lock:
                 self._acquire_lease(cache_key)
                 lease_acquired = True
+                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                    return cache_key, cached_paths
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cache_key, cached_paths
-
-            async with lock:
-                paths = await self._materialize_candidates(ctx, artifact_uri)
+                paths = await self._materialize_candidates(ctx, candidates)
                 self._touch_entry(cache_key)
 
             # Enforce only after publication, and outside the per-key lock so
@@ -945,13 +946,12 @@ class RegistryArtifactCache:
     async def _materialize_candidates(
         self,
         ctx: RegistryArtifactMaterializationContext,
-        artifact_uri: str,
+        candidates: list[RegistryArtifact],
     ) -> list[Path]:
         """Materialize the first viable artifact candidate.
 
         Callers hold the cache key's lock for evictable entries.
         """
-        candidates = await self._artifact_candidates(ctx, artifact_uri)
         if cached_paths := self._first_cached_path(candidates, ctx):
             return cached_paths
 
@@ -989,7 +989,7 @@ class RegistryArtifactCache:
                     error=str(e),
                 )
 
-        raise RuntimeError(f"No registry artifact candidates for {artifact_uri}")
+        raise RuntimeError(f"No registry artifact candidates for {ctx.cache_key}")
 
     def _runtime_for(self, cache_key: str) -> RegistryArtifactRuntimeState:
         """Return the process-local state for one cache key."""
@@ -1081,6 +1081,34 @@ class RegistryArtifactCache:
             if cached_paths := artifact.cached_path(ctx):
                 return cached_paths
         return None
+
+    def _locally_cached_path(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        artifact_uri: str,
+    ) -> list[Path] | None:
+        """Return a reusable local candidate without probing remote sidecars."""
+        artifact_format = _artifact_format(artifact_uri)
+        candidates: list[RegistryArtifact] = []
+        if artifact_format == RegistryArtifactFormat.SQUASHFS:
+            candidates.append(
+                SquashfsArtifact(uri=artifact_uri, cache_key=ctx.cache_key)
+            )
+            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
+                candidates.append(
+                    TarballArtifact(uri=tarball_uri, cache_key=ctx.cache_key)
+                )
+        else:
+            if self._can_try_squashfs() and (
+                squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
+            ):
+                candidates.append(
+                    SquashfsArtifact(uri=squashfs_uri, cache_key=ctx.cache_key)
+                )
+            candidates.append(
+                TarballArtifact(uri=artifact_uri, cache_key=ctx.cache_key)
+            )
+        return self._first_cached_path(candidates, ctx)
 
     def _remove_unpublished_entry(
         self,

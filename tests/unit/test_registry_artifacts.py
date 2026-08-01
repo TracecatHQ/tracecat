@@ -131,24 +131,21 @@ async def _materialize(
     await cache.ensure_swept()
     ctx = cache._context_for(cache_key)
     lock = cache._runtime_for(cache_key).lock
-    async with lock:
-        cache._acquire_lease(cache_key)
-        try:
-            candidates = await cache._artifact_candidates(ctx, artifact_uri)
-        except BaseException:
-            cache._release_lease(cache_key)
-            raise
-        if cached_paths := cache._first_cached_path(candidates, ctx):
-            cache._release_lease(cache_key)
-            return cached_paths
-
+    lease_acquired = False
     try:
         async with lock:
-            paths = await cache._materialize_candidates(ctx, artifact_uri)
+            cache._acquire_lease(cache_key)
+            lease_acquired = True
+            candidates = await cache._artifact_candidates(ctx, artifact_uri)
+            if cached_paths := cache._first_cached_path(candidates, ctx):
+                return cached_paths
+            paths = await cache._materialize_candidates(ctx, candidates)
+            cache._touch_entry(cache_key)
         await cache._enforce_cache_budget(protected_key=cache_key)
         return paths
     finally:
-        cache._release_lease(cache_key)
+        if lease_acquired:
+            cache._release_lease(cache_key)
 
 
 class _BlockingSubprocess:
@@ -421,56 +418,56 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
-    async def test_materialize_recomputes_candidates_after_lock(self, temp_cache_dir):
-        """Test that lock waiters re-check preferred artifact candidates."""
+    async def test_same_key_cold_fan_in_materializes_and_enforces_once(
+        self, temp_cache_dir
+    ):
+        """Same-key waiters share candidate lookup, materialization, and enforcement."""
         cache = RegistryArtifactCache(temp_cache_dir)
-        cache_key = "recompute-key"
-        cached_path = temp_cache_dir / "cached-squashfs"
-        cached_path.mkdir()
-        tarball = TarballArtifact(
-            uri="s3://bucket/path/site-packages.tar.gz",
-            cache_key=cache_key,
-        )
-        squashfs = SquashfsArtifact(
-            uri="s3://bucket/path/site-packages.squashfs",
-            cache_key=cache_key,
-        )
-        pre_lock_candidates = [tarball]
-        post_lock_candidates = [squashfs, tarball]
-        seen_candidates: list[list[RegistryArtifactFormat]] = []
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        materialization_started = asyncio.Event()
+        finish_materialization = asyncio.Event()
 
-        def fake_first_cached_path(candidates, ctx):
-            del ctx
-            seen_candidates.append([artifact.format for artifact in candidates])
-            if candidates is post_lock_candidates:
-                return [cached_path]
-            return None
+        async def mock_materialize(
+            self: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+        ) -> list[Path]:
+            materialization_started.set()
+            await finish_materialization.wait()
+            ctx.paths.tarball_target_dir.mkdir(parents=True)
+            return [ctx.paths.tarball_target_dir]
+
+        async def take_lease() -> list[Path]:
+            async with cache.lease([artifact_uri]) as paths:
+                return paths
 
         with (
             patch.object(
                 cache,
-                "_artifact_candidates",
+                "_sidecar_exists",
                 new_callable=AsyncMock,
-                side_effect=[pre_lock_candidates, post_lock_candidates],
-            ) as artifact_candidates,
+                return_value=False,
+            ) as sidecar_exists,
             patch.object(
                 cache,
-                "_first_cached_path",
-                side_effect=fake_first_cached_path,
-            ),
+                "_enforce_cache_budget",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as enforce_cache_budget,
+            patch.object(cache, "_converge_cache_budget", new_callable=AsyncMock),
+            patch.object(TarballArtifact, "materialize", mock_materialize),
         ):
-            result = await _materialize(
-                cache,
-                cache_key,
-                "s3://bucket/path/site-packages.tar.gz",
-            )
+            leases = [asyncio.create_task(take_lease()) for _ in range(5)]
+            await materialization_started.wait()
+            await asyncio.sleep(0)
+            finish_materialization.set()
+            results = await asyncio.gather(*leases)
 
-        assert result == [cached_path]
-        assert artifact_candidates.await_count == 2
-        assert seen_candidates == [
-            [RegistryArtifactFormat.TAR_GZ],
-            [RegistryArtifactFormat.SQUASHFS, RegistryArtifactFormat.TAR_GZ],
-        ]
+        expected_paths = [cache._paths_for(cache_key).tarball_target_dir]
+        assert results == [expected_paths] * 5
+        sidecar_exists.assert_awaited_once()
+        enforce_cache_budget.assert_awaited_once_with(protected_key=cache_key)
 
     @pytest.mark.anyio
     async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
@@ -1146,7 +1143,6 @@ class TestRegistryArtifactCacheLease:
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uri = "s3://bucket/path/site-packages.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
         lookup_started = asyncio.Event()
         finish_lookup = asyncio.Event()
 
@@ -1171,11 +1167,7 @@ class TestRegistryArtifactCacheLease:
                 await acquisition
 
         assert cache._refcount(cache_key) == 0
-        assert await cache._evict_entry(cache_key) == RegistryArtifactEviction(
-            retired=True,
-            reclaimed=True,
-        )
-        assert not target_dir.exists()
+        assert not cache._paths_for(cache_key).entry_dir.exists()
 
     @pytest.mark.anyio
     async def test_cancelled_waiter_preserves_existing_same_key_lease(
@@ -1620,12 +1612,11 @@ class TestRegistryArtifactCacheLease:
             assert download_attempts == 1
 
             fail_first_download.set()
-            with pytest.raises(RuntimeError, match="first publisher failed"):
-                await first
-
             await retry_download_started.wait()
             allow_retry_download.set()
             registry_paths = await waiter
+            with pytest.raises(RuntimeError, match="first publisher failed"):
+                await first
 
         target_dir = cache._paths_for(cache_key).tarball_target_dir
         assert registry_paths == [target_dir]
