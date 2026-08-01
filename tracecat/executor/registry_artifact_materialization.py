@@ -77,6 +77,7 @@ class RegistryArtifactAdmission:
     """Byte-bound admission hook shared by one cold materialization."""
 
     max_bytes: int
+    allocation_unit: int
     ensure_capacity: Callable[[int], Awaitable[None]]
 
 
@@ -424,7 +425,10 @@ class SquashfsArtifact(RegistryArtifact):
         temp_dir = self._temp_path(ctx, ".unsquashfs")
         try:
             if ctx.admission is not None:
-                extracted_size = await self._squashfs_extracted_size(image_path)
+                extracted_size = await self._squashfs_extracted_size(
+                    image_path,
+                    allocation_unit=ctx.admission.allocation_unit,
+                )
                 await ctx.admission.ensure_capacity(extracted_size)
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -526,8 +530,13 @@ class SquashfsArtifact(RegistryArtifact):
         output = (stderr or stdout).decode(errors="replace").strip()
         raise RuntimeError(output or "unsquashfs command failed")
 
-    async def _squashfs_extracted_size(self, image_path: Path) -> int:
-        """Return a conservative logical size for an extracted SquashFS image."""
+    async def _squashfs_extracted_size(
+        self,
+        image_path: Path,
+        *,
+        allocation_unit: int = 1,
+    ) -> int:
+        """Return a conservative allocated size for a SquashFS extraction."""
         unsquashfs = shutil.which("unsquashfs")
         if unsquashfs is None:
             raise RuntimeError("unsquashfs command is not installed")
@@ -544,7 +553,7 @@ class SquashfsArtifact(RegistryArtifact):
         if proc.returncode != 0:
             output = (stderr or stdout).decode(errors="replace").strip()
             raise RuntimeError(output or "unsquashfs listing failed")
-        return _squashfs_listing_size(stdout)
+        return _squashfs_listing_size(stdout, allocation_unit=allocation_unit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,11 +597,15 @@ class TarballArtifact(RegistryArtifact):
             await self.download(ctx, temp_tarball)
             download_elapsed = (time.monotonic() - download_start) * 1000
 
-            if ctx.admission is not None:
+            admission = ctx.admission
+            if admission is not None:
                 extracted_size = await _run_blocking_rejoin_on_cancel(
-                    lambda: _tarball_extracted_size(temp_tarball)
+                    lambda: _tarball_extracted_size(
+                        temp_tarball,
+                        allocation_unit=admission.allocation_unit,
+                    )
                 )
-                await ctx.admission.ensure_capacity(extracted_size)
+                await admission.ensure_capacity(extracted_size)
 
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -789,8 +802,23 @@ def _is_cache_entry_uri(artifact_uri: str) -> bool:
     return _bundled_builtin_registry_version(artifact_uri) is None
 
 
-def _tarball_extracted_size(tarball_path: Path) -> int:
-    """Return a conservative logical size for all tarball members."""
+def _allocated_size_bound(size_bytes: int, *, allocation_unit: int) -> int:
+    """Round one filesystem object up to its minimum allocated footprint."""
+    if size_bytes < 0:
+        raise ValueError("size_bytes must be non-negative")
+    if allocation_unit <= 0:
+        raise ValueError("allocation_unit must be positive")
+    return (
+        max(1, (size_bytes + allocation_unit - 1) // allocation_unit) * allocation_unit
+    )
+
+
+def _tarball_extracted_size(
+    tarball_path: Path,
+    *,
+    allocation_unit: int = 1,
+) -> int:
+    """Return a conservative allocated size bound for all tarball members."""
     total_bytes = 0
     with tarfile.open(tarball_path, "r:gz") as tar:
         for member in tar:
@@ -798,12 +826,15 @@ def _tarball_extracted_size(tarball_path: Path) -> int:
                 raise ValueError(
                     f"Registry tarball member has a negative size: {member.name}"
                 )
-            total_bytes += member.size
+            total_bytes += _allocated_size_bound(
+                member.size,
+                allocation_unit=allocation_unit,
+            )
     return total_bytes
 
 
-def _squashfs_listing_size(output: bytes) -> int:
-    """Sum file sizes from ``unsquashfs -lln`` output, failing closed."""
+def _squashfs_listing_size(output: bytes, *, allocation_unit: int = 1) -> int:
+    """Bound allocated bytes from ``unsquashfs -lln`` output, failing closed."""
     total_bytes = 0
     for raw_line in output.decode(errors="strict").splitlines():
         line = raw_line.strip()
@@ -813,9 +844,10 @@ def _squashfs_listing_size(output: bytes) -> int:
         mode = fields[0]
         if len(mode) != 10 or mode[0] not in "bcdlps-":
             continue
-        if mode[0] not in "-l":
-            continue
         if len(fields) < 5 or "/" not in fields[1] or not fields[2].isdigit():
             raise ValueError(f"Could not parse SquashFS listing line: {line}")
-        total_bytes += int(fields[2])
+        total_bytes += _allocated_size_bound(
+            int(fields[2]),
+            allocation_unit=allocation_unit,
+        )
     return total_bytes

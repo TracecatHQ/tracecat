@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import os
 import shutil
+import stat
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from tracecat.executor.registry_artifact_cache_state import (
 )
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
+    _allocated_size_bound,
     _communicate_rejoin_on_cancel,
 )
 from tracecat.logger import logger
@@ -59,14 +61,38 @@ class RegistryArtifactCacheEntry:
     last_used: float
 
 
+def _allocated_stat_size(file_stat: os.stat_result) -> int:
+    """Return allocated bytes for one inode, falling back to logical size."""
+    blocks = getattr(file_stat, "st_blocks", None)
+    if blocks is None:
+        return file_stat.st_size
+    return blocks * 512
+
+
+def _filesystem_allocation_unit(path: Path) -> int:
+    """Return the allocation unit for a path or its nearest existing parent."""
+    candidate = path
+    while True:
+        try:
+            filesystem = os.statvfs(candidate)
+            break
+        except FileNotFoundError:
+            parent = candidate.parent
+            if parent == candidate:
+                raise
+            candidate = parent
+
+    return filesystem.f_frsize or filesystem.f_bsize or 1
+
+
 def _directory_footprint(directory: Path) -> int:
-    """Return the total file size of a cache directory.
+    """Return the allocated footprint of a cache directory tree.
 
     Args:
         directory: Cache directory to measure.
 
     Returns:
-        Total byte size of contained files, or zero when the directory is
+        Total allocated bytes of contained inodes, or zero when the directory is
         missing.
     """
 
@@ -76,12 +102,25 @@ def _directory_footprint(directory: Path) -> int:
     total_bytes = 0
     try:
         walker = os.walk(directory, onerror=raise_walk_error)
-        for root, _dirs, files in walker:
+        for root, dirs, files in walker:
+            try:
+                total_bytes += _allocated_stat_size(os.lstat(root))
+            except FileNotFoundError:
+                continue
             for file_name in files:
                 try:
-                    total_bytes += os.lstat(os.path.join(root, file_name)).st_size
+                    total_bytes += _allocated_stat_size(
+                        os.lstat(os.path.join(root, file_name))
+                    )
                 except FileNotFoundError:
                     continue
+            for directory_name in dirs:
+                try:
+                    directory_stat = os.lstat(os.path.join(root, directory_name))
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISLNK(directory_stat.st_mode):
+                    total_bytes += _allocated_stat_size(directory_stat)
     except FileNotFoundError:
         return 0
     return total_bytes
@@ -191,15 +230,21 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         if max_bytes <= 0:
             return None
 
+        allocation_unit = _filesystem_allocation_unit(self.cache_dir)
+
         async def ensure_capacity(additional_bytes: int) -> None:
             await self._ensure_cache_capacity(
-                additional_bytes=additional_bytes,
+                additional_bytes=_allocated_size_bound(
+                    additional_bytes,
+                    allocation_unit=allocation_unit,
+                ),
                 protected_key=cache_key,
                 max_bytes=max_bytes,
             )
 
         return RegistryArtifactAdmission(
             max_bytes=max_bytes,
+            allocation_unit=allocation_unit,
             ensure_capacity=ensure_capacity,
         )
 
@@ -622,19 +667,22 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
     def _measure_entry(self, cache_key: str) -> RegistryArtifactCacheEntry:
         """Measure the on-disk footprint and recency of one cache entry.
 
-        The mount directory is excluded because a mounted view only costs the
-        image file that backs it. The image is measured with a single ``stat``
-        so a concurrent eviction deleting it cannot fail the scan.
+        Mounted contents are excluded because the image already accounts for
+        their backing bytes. The entry root, mount-point inode, and image are
+        measured individually so a concurrent eviction cannot fail the scan.
         """
         paths = self._paths_for(cache_key)
         size_bytes = 0
 
-        try:
-            image_stat = paths.squashfs_image_path.stat()
-        except FileNotFoundError:
-            pass
-        else:
-            size_bytes += image_stat.st_size
+        for path in (
+            paths.entry_dir,
+            paths.squashfs_image_path,
+            paths.squashfs_mount_dir,
+        ):
+            try:
+                size_bytes += _allocated_stat_size(path.lstat())
+            except FileNotFoundError:
+                continue
 
         for directory in (paths.squashfs_extract_dir, paths.tarball_target_dir):
             size_bytes += _directory_footprint(directory)

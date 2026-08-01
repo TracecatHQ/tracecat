@@ -7,7 +7,7 @@ import os
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,7 +18,9 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactMaterializationContext,
     SquashfsArtifact,
     TarballArtifact,
+    _allocated_stat_size,
     _delete_cache_path,
+    _directory_footprint,
     compute_registry_artifact_cache_key,
 )
 
@@ -35,6 +37,59 @@ from .registry_artifact_test_helpers import (
 
 class TestRegistryArtifactCacheBudget:
     """Enforce peak and steady-state cache capacity."""
+
+    def test_allocated_stat_size_uses_filesystem_blocks(self) -> None:
+        file_stat = MagicMock(spec=os.stat_result)
+        file_stat.st_blocks = 7
+        file_stat.st_size = 1
+
+        assert _allocated_stat_size(file_stat) == 7 * 512
+
+    def test_directory_footprint_includes_directory_inodes(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        nested = temp_cache_dir / "nested"
+        nested.mkdir()
+        (nested / "module.py").write_text("x")
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._allocated_stat_size",
+            return_value=4096,
+        ) as allocated_size:
+            assert _directory_footprint(temp_cache_dir) == 3 * 4096
+
+        assert allocated_size.call_count == 3
+
+    @pytest.mark.anyio
+    async def test_admission_rounds_download_reservation_to_allocation_unit(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(MAX_BYTES_CONFIG, 8192),
+            patch(
+                "tracecat.executor.registry_artifact_storage."
+                "_filesystem_allocation_unit",
+                return_value=4096,
+            ),
+            patch.object(
+                cache,
+                "_ensure_cache_capacity",
+                new_callable=AsyncMock,
+            ) as ensure_capacity,
+        ):
+            admission = cache._admission_for("new")
+            assert admission is not None
+            await admission.ensure_capacity(1)
+
+        ensure_capacity.assert_awaited_once_with(
+            additional_bytes=4096,
+            protected_key="new",
+            max_bytes=8192,
+        )
 
     def test_delete_cache_path_reports_directory_failure(self, temp_cache_dir):
         """Physical deletion failures are observable instead of suppressed."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import shutil
 import tarfile
 import threading
@@ -19,6 +20,7 @@ from tracecat.executor.registry_artifacts import (
     SquashfsMountCommandError,
     TarballArtifact,
     _squashfs_listing_size,
+    _tarball_extracted_size,
     compute_registry_artifact_cache_key,
 )
 
@@ -138,7 +140,7 @@ class TestRegistryArtifactMaterialization:
             compute_registry_artifact_cache_key(uri) for uri in uris
         ]
 
-    def test_squashfs_listing_size_sums_files_and_symlinks(self) -> None:
+    def test_squashfs_listing_size_bounds_each_inode_allocation(self) -> None:
         listing = b"\n".join(
             [
                 b"drwxr-xr-x 0/0                      64 2026-01-01 00:00 squashfs-root",
@@ -147,7 +149,20 @@ class TestRegistryArtifactMaterialization:
             ]
         )
 
-        assert _squashfs_listing_size(listing) == 132
+        assert _squashfs_listing_size(listing, allocation_unit=4096) == 12_288
+
+    def test_tarball_size_bounds_each_member_allocation(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        tarball_path = temp_cache_dir / "many-small-files.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            for index in range(3):
+                member = tarfile.TarInfo(f"module-{index}.py")
+                member.size = 1
+                tar.addfile(member, io.BytesIO(b"x"))
+
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 12_288
 
     def test_squashfs_listing_size_rejects_unparseable_files(self) -> None:
         with pytest.raises(ValueError, match="Could not parse SquashFS listing"):
@@ -459,7 +474,8 @@ class TestRegistryArtifactMaterialization:
             path.write_bytes(tarball_payload(size=1))
             downloaded_paths.append(path)
 
-        def blocking_size_scan(path: Path) -> int:
+        def blocking_size_scan(path: Path, *, allocation_unit: int) -> int:
+            assert allocation_unit == 1
             scan_started.set()
             scan_release.wait()
             input_present_at_finish.append(path.exists())
