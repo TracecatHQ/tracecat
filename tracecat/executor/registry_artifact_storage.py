@@ -313,7 +313,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         """Enforce entry and byte limits while both cache-wide locks are held."""
         trash_clean, startup_clean = await asyncio.gather(
             asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-            asyncio.to_thread(self._retry_failed_startup_cleanup),
+            asyncio.to_thread(self._retry_deferred_staging_cleanup),
         )
         cleanup_complete = trash_clean and startup_clean
         if not cleanup_complete:
@@ -377,7 +377,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         async with self._budget_lock:
             trash_clean, startup_clean = await asyncio.gather(
                 asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-                asyncio.to_thread(self._retry_failed_startup_cleanup),
+                asyncio.to_thread(self._retry_deferred_staging_cleanup),
             )
             entries = await asyncio.to_thread(self._scan_cache_entries)
             staging_bytes, trash_bytes = await asyncio.gather(
@@ -708,7 +708,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         for path in paths:
             if _delete_cache_path(path):
                 if remember_failures:
-                    self._failed_startup_cleanup.discard(path)
+                    self._deferred_staging_cleanup.discard(path)
                 logger.info(
                     "Removed registry artifact work path",
                     path=str(path),
@@ -716,15 +716,15 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             else:
                 deleted = False
                 if remember_failures:
-                    self._failed_startup_cleanup.add(path)
+                    self._deferred_staging_cleanup.add(path)
         return deleted
 
-    def _retry_failed_startup_cleanup(self) -> bool:
-        """Retry exact startup paths without sweeping live staging work."""
-        for path in tuple(self._failed_startup_cleanup):
+    def _retry_deferred_staging_cleanup(self) -> bool:
+        """Retry exact failed paths without sweeping live staging work."""
+        for path in tuple(self._deferred_staging_cleanup):
             if _delete_cache_path(path):
-                self._failed_startup_cleanup.discard(path)
-        return not self._failed_startup_cleanup
+                self._deferred_staging_cleanup.discard(path)
+        return not self._deferred_staging_cleanup
 
     def _trim_startup_cache(self) -> bool:
         """Trim the cache to budget before any artifact is leased.

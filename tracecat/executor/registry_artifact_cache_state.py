@@ -69,8 +69,8 @@ class _RegistryArtifactCacheState:
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
         # Startup is the only time the whole staging directory is swept. Exact
-        # paths that could not be removed are safe to retry later.
-        self._failed_startup_cleanup: set[Path] = set()
+        # startup or runtime paths that could not be removed are safe to retry.
+        self._deferred_staging_cleanup: set[Path] = set()
         # Final-release unmount failures are retried by later lease cleanup so
         # transient errors cannot accumulate idle loop devices indefinitely.
         self._failed_unmounts: set[str] = set()
@@ -121,6 +121,7 @@ class _RegistryArtifactCacheState:
             cache_key=cache_key,
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
+            defer_cleanup=self._deferred_staging_cleanup.add,
             admission=admission,
         )
 

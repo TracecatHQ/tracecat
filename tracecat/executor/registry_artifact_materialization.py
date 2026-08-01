@@ -87,6 +87,7 @@ class RegistryArtifactMaterializationContext:
     cache_key: str
     staging_dir: Path
     paths: RegistryArtifactPaths
+    defer_cleanup: Callable[[Path], None]
     admission: RegistryArtifactAdmission | None = None
 
     def can_mount_squashfs(self) -> bool:
@@ -157,13 +158,33 @@ async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
         raise
 
 
-async def _remove_tree_rejoin_on_cancel(path: Path) -> None:
-    """Remove a directory off-loop without abandoning cleanup on cancellation."""
+async def _remove_tree_rejoin_on_cancel(
+    path: Path,
+    *,
+    defer_cleanup: Callable[[Path], None],
+) -> None:
+    """Remove a tree off-loop and retain failed paths for a later retry."""
     if not path.exists():
         return
-    await _run_blocking_rejoin_on_cancel(
-        lambda: shutil.rmtree(path, ignore_errors=True)
-    )
+    try:
+        await _run_blocking_rejoin_on_cancel(lambda: shutil.rmtree(path))
+    except FileNotFoundError:
+        return
+    except asyncio.CancelledError:
+        if path.exists():
+            defer_cleanup(path)
+            logger.warning(
+                "Deferred cancelled registry artifact staging cleanup",
+                path=str(path),
+            )
+        raise
+    except OSError as e:
+        defer_cleanup(path)
+        logger.warning(
+            "Deferred failed registry artifact staging cleanup",
+            path=str(path),
+            error=str(e),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,7 +422,10 @@ class SquashfsArtifact(RegistryArtifact):
                 else:
                     raise
         finally:
-            await _remove_tree_rejoin_on_cancel(temp_dir)
+            await _remove_tree_rejoin_on_cancel(
+                temp_dir,
+                defer_cleanup=ctx.defer_cleanup,
+            )
 
         return target_dir
 
@@ -585,7 +609,10 @@ class TarballArtifact(RegistryArtifact):
                     raise
         finally:
             try:
-                await _remove_tree_rejoin_on_cancel(temp_dir)
+                await _remove_tree_rejoin_on_cancel(
+                    temp_dir,
+                    defer_cleanup=ctx.defer_cleanup,
+                )
             finally:
                 temp_tarball.unlink(missing_ok=True)
 

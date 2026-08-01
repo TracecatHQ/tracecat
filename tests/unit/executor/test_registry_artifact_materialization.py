@@ -444,6 +444,51 @@ class TestRegistryArtifactMaterialization:
         assert second_cancellation_propagated_early is False
         extract.assert_not_awaited()
 
+    @pytest.mark.anyio
+    async def test_failed_partial_cleanup_is_deferred_for_capacity_retry(
+        self, temp_cache_dir
+    ):
+        """A failed staging-tree deletion remains discoverable and retryable."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/failed-cleanup.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = TarballArtifact(uri=artifact_uri, cache_key=cache_key)
+        ctx = cache._context_for(cache_key)
+        cleanup_attempts: list[Path] = []
+
+        async def download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(b"archive")
+
+        async def fail_extract(self, tarball_path, target_dir):
+            del self, tarball_path
+            (target_dir / "partial.py").write_text("partial")
+            raise RuntimeError("extraction failed")
+
+        def fail_cleanup(path: Path) -> None:
+            cleanup_attempts.append(path)
+            raise PermissionError("cleanup denied")
+
+        with (
+            patch.object(TarballArtifact, "download", download),
+            patch.object(TarballArtifact, "extract", fail_extract),
+            patch(
+                "tracecat.executor.registry_artifact_materialization.shutil.rmtree",
+                side_effect=fail_cleanup,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="extraction failed"):
+                await artifact.materialize(ctx)
+
+        assert len(cleanup_attempts) == 1
+        assert set(cleanup_attempts) == cache._deferred_staging_cleanup
+        deferred_path = cleanup_attempts[0]
+        assert deferred_path.is_dir()
+
+        assert cache._retry_deferred_staging_cleanup() is True
+        assert cache._deferred_staging_cleanup == set()
+        assert not deferred_path.exists()
+
     @pytest.mark.parametrize("artifact_format", ["squashfs", "tarball"])
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_partial_cleanup_rejoins_thread(

@@ -294,13 +294,13 @@ class TestRegistryArtifactCacheStartupSweep:
         ):
             await cache.ensure_swept()
             assert orphaned.is_file()
-            assert cache._failed_startup_cleanup == {orphaned}
+            assert cache._deferred_staging_cleanup == {orphaned}
             assert cache._budget_dirty is True
 
             assert await cache._enforce_cache_budget() is True
 
         assert not orphaned.exists()
-        assert cache._failed_startup_cleanup == set()
+        assert cache._deferred_staging_cleanup == set()
 
     @pytest.mark.anyio
     async def test_failed_startup_retirement_stays_dirty_and_retries(
