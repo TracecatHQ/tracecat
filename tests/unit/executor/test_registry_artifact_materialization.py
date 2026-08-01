@@ -384,6 +384,66 @@ class TestRegistryArtifactMaterialization:
         assert second_cancellation_propagated_early is False
 
     @pytest.mark.anyio
+    async def test_repeatedly_cancelled_tarball_size_scan_rejoins_thread(
+        self, temp_cache_dir
+    ):
+        """Cancellation cannot unlink a tarball while its size scan is running."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/slow-size-scan.tar.gz"
+        downloaded_paths: list[Path] = []
+        scan_started = threading.Event()
+        scan_release = threading.Event()
+        scan_finished = threading.Event()
+        input_present_at_finish: list[bool] = []
+
+        async def mock_download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(tarball_payload(size=1))
+            downloaded_paths.append(path)
+
+        def blocking_size_scan(path: Path) -> int:
+            scan_started.set()
+            scan_release.wait()
+            input_present_at_finish.append(path.exists())
+            scan_finished.set()
+            return 1
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch(
+                "tracecat.executor.registry_artifact_materialization._tarball_extracted_size",
+                side_effect=blocking_size_scan,
+            ),
+            patch.object(
+                TarballArtifact,
+                "extract",
+                new_callable=AsyncMock,
+            ) as extract,
+        ):
+            materializing = asyncio.create_task(lease_paths(cache, artifact_uri))
+            assert await asyncio.to_thread(scan_started.wait, 1)
+            materializing.cancel()
+            done, _ = await asyncio.wait({materializing}, timeout=0.05)
+            first_cancellation_propagated_early = bool(done)
+
+            materializing.cancel()
+            done, _ = await asyncio.wait({materializing}, timeout=0.05)
+            second_cancellation_propagated_early = bool(done)
+            assert downloaded_paths[0].exists()
+            scan_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await materializing
+
+        assert scan_finished.is_set()
+        assert input_present_at_finish == [True]
+        assert not downloaded_paths[0].exists()
+        assert first_cancellation_propagated_early is False
+        assert second_cancellation_propagated_early is False
+        extract.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
         """Test that SquashFS mount failures fall back to unsquashfs extraction."""
         cache = RegistryArtifactCache(temp_cache_dir)

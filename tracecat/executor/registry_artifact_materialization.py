@@ -129,6 +129,28 @@ class RegistryArtifact(ABC):
         return ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{unique_id}{suffix}"
 
 
+async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
+    """Run blocking work without abandoning its thread on cancellation."""
+    worker = asyncio.ensure_future(asyncio.to_thread(operation))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        # A thread cannot be killed. Rejoin it before callers remove its input
+        # or output paths. Repeated cancellation can interrupt shield without
+        # stopping the thread, so keep waiting for a terminal state.
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not worker.cancelled():
+            with contextlib.suppress(Exception):
+                worker.result()
+        raise
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinArtifact(RegistryArtifact):
     """Current builtin registry package already installed in the executor image."""
@@ -481,9 +503,8 @@ class TarballArtifact(RegistryArtifact):
             download_elapsed = (time.monotonic() - download_start) * 1000
 
             if ctx.admission is not None:
-                extracted_size = await asyncio.to_thread(
-                    _tarball_extracted_size,
-                    temp_tarball,
+                extracted_size = await _run_blocking_rejoin_on_cancel(
+                    lambda: _tarball_extracted_size(temp_tarball)
                 )
                 await ctx.admission.ensure_capacity(extracted_size)
 
@@ -549,25 +570,7 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        extraction = asyncio.ensure_future(asyncio.to_thread(_do_extract))
-        try:
-            await asyncio.shield(extraction)
-        except asyncio.CancelledError:
-            # A thread cannot be killed. Rejoin it before materialize removes
-            # scratch. Each cancellation can interrupt shield without stopping
-            # the thread, so keep waiting until extraction reaches a terminal
-            # state before propagating the original cancellation.
-            while not extraction.done():
-                try:
-                    await asyncio.shield(extraction)
-                except asyncio.CancelledError:
-                    continue
-                except Exception:
-                    break
-            if not extraction.cancelled():
-                with contextlib.suppress(Exception):
-                    extraction.result()
-            raise
+        await _run_blocking_rejoin_on_cancel(_do_extract)
 
         logger.debug(
             "Tarball extracted",
