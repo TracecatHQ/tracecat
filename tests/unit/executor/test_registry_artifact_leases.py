@@ -797,7 +797,15 @@ class TestRegistryArtifactCacheLease:
         mounted = {paths.squashfs_mount_dir}
         umount_started = asyncio.Event()
         finish_umount = asyncio.Event()
+        lease_waiting_for_key = asyncio.Event()
         remounts: list[str] = []
+        original_runtime_for = cache._runtime_for
+
+        def observed_runtime_for(requested_key: str):
+            runtime = original_runtime_for(requested_key)
+            if requested_key == cache_key and umount_started.is_set():
+                lease_waiting_for_key.set()
+            return runtime
 
         umount_process = AsyncMock()
         umount_process.communicate.return_value = (b"", b"")
@@ -836,6 +844,7 @@ class TestRegistryArtifactCacheLease:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
+            patch.object(cache, "_runtime_for", side_effect=observed_runtime_for),
             patch.object(SquashfsArtifact, "mount", mock_mount),
             # This test targets the per-key eviction/lease handoff. Keep the
             # lease's budget pass from concurrently sweeping the same trash
@@ -850,8 +859,8 @@ class TestRegistryArtifactCacheLease:
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await umount_started.wait()
             lease = asyncio.create_task(take_lease())
-            # Let the lease block on the per-key lock the eviction holds.
-            await asyncio.sleep(0)
+            await lease_waiting_for_key.wait()
+            assert cache._runtime[cache_key].users == 2
             finish_umount.set()
             evicted, _ = await asyncio.gather(eviction, lease)
 
