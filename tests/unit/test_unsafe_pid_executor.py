@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import signal
+import sys
 from pathlib import Path
 
 import pytest
@@ -188,6 +189,77 @@ class TestUnsafePidExecutor:
         assert (
             unsafe_pid_executor.pid_namespace_probe_error() == "unshare probe timed out"
         )
+
+    @pytest.mark.parametrize("operation", ["create-venv", "install-packages"])
+    @pytest.mark.anyio
+    async def test_cancelled_dependency_setup_kills_process_group(
+        self,
+        executor: UnsafePidExecutor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        operation: str,
+    ) -> None:
+        """Cancellation cannot leave package-build descendants running."""
+        pid_file = tmp_path / f"{operation}-child.pid"
+        real_create_subprocess_exec = asyncio.create_subprocess_exec
+        created_processes: list[asyncio.subprocess.Process] = []
+        setup_script = """
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(30)"],
+    stdin=subprocess.DEVNULL,
+)
+Path(sys.argv[1]).write_text(str(child.pid))
+time.sleep(30)
+"""
+
+        async def create_dependency_process(*args, **kwargs):
+            del args
+            assert kwargs["start_new_session"] is True
+            process = await real_create_subprocess_exec(
+                sys.executable,
+                "-c",
+                setup_script,
+                str(pid_file),
+                stdout=kwargs["stdout"],
+                stderr=kwargs["stderr"],
+                start_new_session=True,
+            )
+            created_processes.append(process)
+            return process
+
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            create_dependency_process,
+        )
+
+        if operation == "create-venv":
+            setup = executor._create_venv(tmp_path / "venv")
+        else:
+            setup = executor._install_packages(
+                tmp_path / "venv",
+                ["synthetic-package"],
+            )
+
+        task = asyncio.create_task(setup)
+        await _wait_for_file(pid_file)
+        child_pid = int(pid_file.read_text())
+        try:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            assert len(created_processes) == 1
+            assert created_processes[0].returncode is not None
+            await _wait_for_process_exit(child_pid)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:

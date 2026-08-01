@@ -6,7 +6,6 @@ cannot run (for example, without SYS_ADMIN).
 """
 
 import asyncio
-import contextlib
 import hashlib
 import json
 import logging
@@ -331,17 +330,11 @@ class UnsafePidExecutor:
                 "HOME": os.environ.get("HOME", "/tmp"),
                 "UV_CACHE_DIR": str(self.uv_cache),
             },
+            start_new_session=True,
         )
         try:
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
-            await process.wait()
-            raise
+            _, stderr = await communicate_process_group(process, timeout=60)
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise PackageInstallError("Virtual environment creation timed out") from e
         if process.returncode != 0:
             raise PackageInstallError(
@@ -377,21 +370,15 @@ class UnsafePidExecutor:
                 "HOME": os.environ.get("HOME", "/tmp"),
                 "UV_CACHE_DIR": str(self.uv_cache),
             },
+            start_new_session=True,
         )
 
         try:
-            _, stderr = await asyncio.wait_for(
-                process.communicate(),
+            _, stderr = await communicate_process_group(
+                process,
                 timeout=timeout_seconds,
             )
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
-            await process.wait()
-            raise
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise PackageInstallError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e
