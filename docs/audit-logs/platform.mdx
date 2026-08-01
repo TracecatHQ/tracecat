@@ -4,6 +4,7 @@ description: "Stream platform administrator actions to an HTTPS webhook and sepa
 keywords: ["platform audit", "superuser", "audit webhook", "SIEM"]
 ---
 
+import AuditDeliveryBehavior from "/snippets/audit-delivery-behavior.mdx";
 import AuditEventFields from "/snippets/audit-event-fields.mdx";
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
@@ -23,14 +24,13 @@ You must be a platform superuser to configure the endpoint. These events go to t
     Click **Connect** and enter the HTTPS URL that accepts your audit events.
   </Step>
   <Step title="Configure the request">
-    Add any headers your collector requires. You can also merge custom JSON into every event, wrap the payload under a key such as `event`, and control TLS certificate verification.
-  </Step>
-  <Step title="Save and verify delivery">
-    Click **Save changes**, then confirm that your collector receives a `platform_setting` event with a `SUCCESS` status.
+    Add any headers your collector requires. You can also merge custom JSON into every event, wrap the payload under a key such as `event`, and control TLS certificate verification, then click **Save changes**.
   </Step>
 </Steps>
 
 Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
+
+Events can continue to reach the old endpoint for up to 30 seconds after an endpoint change while cached settings expire.
 
 ## Covered actions
 
@@ -65,32 +65,24 @@ A platform event uses the same schema as an organization event, with platform-sc
   "resource_id": null,
   "action": "update",
   "status": "SUCCESS",
-  "data": {
-    "changed_fields": ["audit_webhook_url"]
-  },
+  "data": null,
   "created_at": "2026-01-15T14:03:12.123456Z"
 }
 ```
 
+For platform settings updates, `data` is `null`, so the event tells you who made the change and whether it succeeded, but not which setting changed.
+
 <AuditEventFields />
 
-Platform administrators act outside any tenant, so `organization_id` and `workspace_id` are `null` on platform events.
-Filter on that pair to separate platform administration from tenant activity when both streams reach the same index.
+Platform events normally carry `null` `organization_id` and `workspace_id` because Tracecat emits them with a platform role.
+Organization-scoped sign-in is the exception: its `auth` `sign_in` event reaches both sinks, and the platform copy carries the organization's ID.
 
-Some actions carry no single affected row, so `resource_id` can be `null`.
-Correlate those events on `actor_id`, `resource_type`, and `created_at` instead.
+Do not filter strictly on null scope to separate platform administration from tenant activity — that drops those sign-in events.
+Tag each stream with a custom payload instead when both reach the same index.
 
 ## Delivery behavior
 
-Tracecat posts each event as a JSON `POST` request and does not block the audited action on the result.
-
-- Delivery runs in the background. A failing or slow collector never prevents an administrator's change from completing.
-- Each request times out after 10 seconds.
-- Tracecat retries up to three times with exponential backoff on `429`, `500`, `502`, `503`, `504`, and transport errors. Other `4xx` responses are terminal.
-- Under sustained backpressure Tracecat sheds events rather than buffering without bound.
-
-Delivery is best-effort, so treat the stream as a detection source rather than a guaranteed-complete ledger.
-Alert on gaps in `created_at` continuity if you need to catch a silently failing sink.
+<AuditDeliveryBehavior />
 
 ## Send events to a SIEM
 

@@ -4,18 +4,19 @@ description: "Understand Tracecat's threat model and security design."
 keywords: ["security architecture", "AI agent security", "MCP security", "sandboxing", "RBAC", "OpenTelemetry"]
 ---
 
-Tracecat's security design rests on six control areas:
+Tracecat's security design rests on seven control areas:
 
 - Identity: SSO, SCIM provisioning, and role-based access control at organization and workspace level.
 - Data security: row-level tenant isolation, encrypted credentials, and encrypted workflow payloads.
 - AI agent security: default-deny tool policy, durable human approval, and token budgets.
 - Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers.
 - Auditability: platform and organization audit webhooks, agent telemetry, and workspace MCP access records.
-- Change management: immutable published versions and Git-backed configuration with rollback.
-
-Tracecat processes data from systems it does not control and runs customer-authored code on shared infrastructure. Ingested content is treated as data rather than instructions, and code runs inside a boundary that does not assume it is correct.
+- Change management: roll back custom integrations to any commit, and review and revert workspace configuration — workflows, agents, skills, tables, and case fields — in your own Git repository.
+- Dependencies: lockfile-pinned core registry dependencies, per-commit builds of custom registry dependencies, and sandboxed execution for both.
 
 This page covers Tracecat Cloud and hardened self-hosted deployments.
+
+Tracecat runs customer-authored code and agents on multi-tenant infrastructure, so every execution path is sandboxed. That code then acts with privileged access to your systems, so credentials are encrypted at rest, resolved at execution time, and attached by trusted proxies rather than handed to a model.
 
 ```mermaid
 flowchart LR
@@ -46,7 +47,7 @@ flowchart LR
     tools["Tracecat API and MCP proxy"]
     credentials["Credential broker"]
     llmGateway["LLM gateway"]
-    otel["Scoped OTEL relay"]
+    otel["OTLP gateway"]
     payloads["Encrypted run payloads<br/>scoped object references"]
   end
 
@@ -129,7 +130,7 @@ Custom code runs on shared infrastructure, so isolation cannot depend on that co
 | Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Provider credentials added by trusted services outside the sandbox. |
 | OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls are visible by user. |
 | Run data and durable state | Read workflow or agent inputs and outputs.<br/>Tamper with queued work.<br/>Use oversized payloads to expand durable history. | Application-level encryption for Temporal payloads.<br/>Workspace-scoped encryption context.<br/>Automatic externalization of large payloads to object storage.<br/>Small scoped references remain in workflow state. |
-| Configuration and supply chain | Publish a malicious integration.<br/>Widen access or network policy.<br/>Persist an unsafe workflow or agent configuration. | RBAC and platform audit events.<br/>Versioned workflow and agent configuration.<br/>Immutable published versions.<br/>Workspace Git sync, review, and rollback. |
+| Configuration and supply chain | Publish a malicious integration.<br/>Widen access or network policy.<br/>Persist an unsafe workflow or agent configuration. | RBAC and platform audit events.<br/>Versioned workflow and agent configuration.<br/>Immutable published versions.<br/>Custom registry rollback to any commit.<br/>Registry lock on published workflows.<br/>Workspace Git sync, review, and rollback. |
 | Platform availability | Fork processes.<br/>Fill storage.<br/>Exhaust memory or CPU.<br/>Block shared workers with long-running code. | Sandbox wall-time and CPU limits.<br/>cgroup memory enforcement.<br/>File-size and process-count limits.<br/>Temporal cancellation and retry controls. |
 
 #### AI threats
@@ -163,8 +164,9 @@ You own controls for systems that Tracecat does not operate.
 | Prompt and data filtering | Route LLM traffic through an LLM gateway.<br/>Apply prompt-injection and content controls.<br/>Filter PII and sensitive data. | [LLM proxy](/agents/custom-llm-providers) |
 | MCP policy | Place an independent gateway around MCP traffic.<br/>Apply an allow or deny layer.<br/>Add inspection or consent controls. | MCP proxy |
 | User audit logs | Export user and control-plane events through the [organization audit webhook](/audit-logs/organization).<br/>Define detections and retention.<br/>Create an incident-response process. | SIEM |
-| Agent logs and traces | Export agent OTEL logs and traces.<br/>Set retention for agent telemetry.<br/>Alert on risky tool activity and approval decisions. | OpenTelemetry-compatible LLM observability tool |
+| Agent logs and traces | Export agent OTel logs and traces.<br/>Set retention for agent telemetry.<br/>Alert on risky tool activity and approval decisions. | OpenTelemetry-compatible LLM observability tool |
 | Git change management | Require reviews and protected branches.<br/>Sign changes to synced configuration. | GitHub<br/>GitLab |
+| Custom registry code and dependencies | Pin and review third-party dependencies.<br/>Scan the registry repository.<br/>Require branch protection on the registry repository. | Dependency scanning<br/>GitHub<br/>GitLab |
 | [AI red teaming](https://research.ibm.com/blog/what-is-red-teaming-gen-AI) | Simulate adversarial attacks against the complete AI application.<br/>Test jailbreaks and prompt injection.<br/>Test data leakage and agentic misuse.<br/>Retest as the system and attack techniques change. | [garak](https://github.com/NVIDIA/garak)<br/>[PyRIT](https://github.com/microsoft/PyRIT)<br/>[DeepTeam](https://www.trydeepteam.com/) |
 
 Use these references to harden systems outside Tracecat:
@@ -192,7 +194,8 @@ The mapping identifies relevant categories. It does not represent OWASP certific
 | MCP supply chain | `A03` Software Supply Chain Failures<br/>`A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
 | Token budgets | — | `LLM10` Unbounded Consumption | `ASI08` Cascading Failures |
 | Audit logs | `A09` Security Logging and Alerting Failures | — | — |
-| Change management / Git Ops | `A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
+| Change management | `A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
+| Dependencies | `A03` Software Supply Chain Failures<br/>`A08` Software or Data Integrity Failures | `LLM03` Supply Chain | `ASI04` Agentic Supply Chain Vulnerabilities |
 
 ## Identity
 
@@ -276,7 +279,11 @@ Two limits are worth knowing. Masking is literal substring replacement, so an en
 
 Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the Fernet key behind credential encryption, and the Temporal payload keyring behind workflow history encryption.
 
-On AWS, both live in AWS Secrets Manager. The core secrets are injected into the container by ECS at task launch, while the keyring is fetched at runtime by the task role, so it never appears in a task definition. On Kubernetes, both arrive through a Kubernetes Secret — preferably synced from your own secret manager by External Secrets Operator rather than created by hand.
+Store both in the secret manager your platform already provides, and keep them out of application configuration and version control. On Kubernetes, the recommended production deployment, use a Kubernetes Secret synced from your own secret manager by External Secrets Operator rather than one created by hand.
+
+On AWS Fargate, use AWS Secrets Manager: ECS injects the core secrets into the container at task launch, and the task role fetches the keyring at runtime so it never appears in a task definition.
+
+On Docker Compose, treat the `.env` file as the sensitive artifact: restrict it to the service account that runs Tracecat and keep it out of version control. Move to Kubernetes for a managed secret store and the full sandbox boundary.
 
 <Warning>
   **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
@@ -293,16 +300,34 @@ See [Platform secrets](/self-hosting/security#platform-secrets) for per-deployme
 
 <Badge stroke color="gray" size="sm" shape="pill">A04</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM02</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI03</Badge>
 
-The subsections above cover how credentials are stored. This one covers how a value reaches a running agent without entering its sandbox.
+The subsections above cover how credentials are stored. This one covers how a value reaches running code, and the boundary differs between workflow actions and agents.
 
-Agent-controlled code runs in the same sandbox as the agent, so any credential placed inside that sandbox is readable by whatever the model generates.
+Tracecat stores credential metadata and resolves values at execution time, in trusted services only:
 
-Tracecat keeps credential values out of the sandbox. It stores metadata and resolves values at execution time, and you can keep workspace and integration credentials in AWS Secrets Manager instead of Tracecat.
+- The executor, for the secrets a workflow action declares.
+- The agent tool runner, for secret expressions in tool arguments.
+- The trusted MCP server, which resolves remote HTTP MCP headers per call.
+- The LLM gateway, which attaches provider credentials per request.
+- The preset service, for `stdio` MCP environment values.
+
+None of these services runs inside the agent sandbox, and no credential value is persisted in workflow state. You can keep workspace and integration credentials in AWS Secrets Manager instead of Tracecat.
+
+#### Workflow actions
+
+An action receives the secrets it declares or references, injected into its sandbox at dispatch. The sandbox bounds what the action can reach — the host, the database, other runs — rather than hiding the credential from code that needs it.
+
+`core.script.run_python` receives no ambient workspace secrets. Your script sees only what you pass through `env_vars` or Action inputs.
+
+See [Secrets](/automations/core-concepts/secrets) for how actions declare and reference secrets.
+
+#### Agents
+
+Agent-controlled code runs in the same sandbox as the agent, so any credential placed inside that sandbox is readable by whatever the model generates. Tracecat keeps credential values out of the agent sandbox.
 
 - The sandbox receives short-lived JWTs scoped to the run, workspace, model, and allowed tools.
 - Trusted services validate those claims before resolving a provider credential.
 - Trusted proxies attach credentials to API, LLM, and remote HTTP MCP calls outside the sandbox.
-- The LLM receives typed interfaces and results, never credential values.
+- The LLM receives typed interfaces and results; Tracecat never places a stored credential value into model context. Secret expressions in tool arguments resolve outside the sandbox, after the model responds.
 
 Local `stdio` MCP is the exception. Its credentials enter the shared sandbox, so treat them as readable by agent-controlled code.
 
@@ -422,20 +447,70 @@ Tracecat separates audit signals by administrative scope and runtime source.
 | --- | --- | --- | --- |
 | [Platform audit logs](/audit-logs/platform) | Platform administrators acting above any organization | Platform-scoped HTTPS webhook, separate from every organization sink | Who changed platform settings, users, organizations, tiers, or the registry? |
 | [Organization audit logs](/audit-logs/organization) | Users and service accounts, scoped to an organization and workspace | Organization HTTPS webhook | Who changed this resource, from where, and did it succeed? |
-| [Organization agent logs](/audit-logs/agents) | Agent runs inside the sandbox | OTLP export through the scoped relay | Which models, tools, and approvals did the agent use? |
+| [Organization agent logs](/audit-logs/agents) | Agent runs inside the sandbox | OTLP export through the trusted gateway | Which models, tools, and approvals did the agent use? |
 | [MCP access logs](/audit-logs/mcp-access) | External MCP clients calling Tracecat as a user | Workspace MCP access page | Which client invoked which tool as which user, and did it succeed? |
 
 Audit events record operations, not content. They exclude prompts, tool arguments, tool outputs, and credentials.
 
-## Change management / Git Ops
+## Change management
 
 <Badge stroke color="gray" size="sm" shape="pill">A08</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM03</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI04</Badge>
 
 A configuration change persists beyond the session that made it, so an account compromise can outlive the access that caused it.
 
-Published workflow definitions are immutable and pin their registry dependencies, so a running version cannot be altered in place. Test draft changes before publishing a new runtime version.
+### Actions registry
 
-Workspace Git sync moves agent and automation configuration into a customer-owned GitHub or GitLab repository. Review and branch-protection policy live in that repository, Git history records what was promoted into each environment, and rollback is a revert to a known-good commit followed by a sync. Tracecat RBAC and policy remain the runtime authorization boundary.
+A custom registry rolls back to any commit: each sync creates an immutable version identified by the source commit, and you can sync to any commit or promote any earlier version from the UI or the API. Tracecat blocks deletion of a version that published workflows still reference.
+
+Rollback is predictable for workflows you publish in Tracecat. Publishing records a registry lock mapping each registry origin to the version current at publish time, and every execution resolves actions from that lock, so neither a sync nor a rollback changes what the published workflow runs.
+
+Workflows imported through workspace sync carry no registry lock, so every execution resolves their actions against the current registry version. Republish an imported workflow in Tracecat to pin it.
+
+<Info>
+  Republish a workflow to adopt newly synced actions, even when the workflow itself has not changed. Imported workflows are not pinned until you republish them.
+</Info>
+
+The core registry tracks the Tracecat release version and updates when you upgrade Tracecat. Earlier core versions stay available to workflows that pinned them.
+
+See [Custom registry](/custom-actions/custom-registry) for repository setup, sync, and commit selection.
+
+### Workspace GitOps
+
+Workspace sync exports workflows, agent presets, skills, tables, case tags, case fields, case dropdowns, case durations, and variables to a GitHub or GitLab repository you own. Secrets sync as key names only — values never leave Tracecat.
+
+```mermaid
+flowchart LR
+  staging["Staging workspace<br/>author and test"] -->|export as pull request| pr["Pull request"]
+  pr --> review["Your Git repository<br/>review · branch protection · signing"]
+  review -->|merge| main["Default branch"]
+  main -->|pull pinned commit| prod["Production workspace<br/>separate workspace RBAC"]
+```
+
+- Build and test in a staging workspace, then export the workspace as a pull request.
+- Review in your Git repository, where branch protection and signing apply.
+- Merge to your default branch.
+- Pull that commit into the production workspace.
+- Use workspace-level RBAC so the people who author in staging are not the people who pull into production.
+
+Every pull targets an explicit commit, so imports are reproducible and rollback is a pull of an earlier commit. Tracecat does not pull in the background — to automate promotion, call the sync API from your CI/CD pipeline with a service account.
+
+<Info>
+  A pull reproduces workspace configuration, not action versions. Imported workflows carry no registry lock, so each execution resolves actions against the target workspace's current core and custom registry versions until you publish the workflow there.
+</Info>
+
+## Dependencies
+
+<Badge stroke color="gray" size="sm" shape="pill">A03</Badge> <Badge stroke color="gray" size="sm" shape="pill">A08</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM03</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI04</Badge>
+
+Core registry dependencies resolve from a committed lockfile that pins exact versions, and the executor runs that resolved set. The same dependency tree runs on every executor.
+
+Custom registry dependencies are yours. Tracecat resolves them from your repository's `pyproject.toml` at sync time and builds the result into the version artifact for that commit — it does not pin, scan, or review them on your behalf.
+
+Custom registry code runs in the same sandbox as core actions, at sync and at execution. The sandbox bounds what a compromised dependency can reach without making it safe.
+
+Pin your dependencies, review changes in the registry repository, and apply the same branch protection you use for production code.
+
+See [Custom registry](/custom-actions/custom-registry) for how to declare dependencies in your registry repository's `pyproject.toml`.
 
 ## Deployment profiles
 

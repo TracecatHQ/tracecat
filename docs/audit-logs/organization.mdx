@@ -4,13 +4,14 @@ description: "Stream organization audit events to an HTTPS webhook and shape eac
 keywords: ["organization audit", "detection", "audit webhook", "SIEM", "approval"]
 ---
 
+import AuditDeliveryBehavior from "/snippets/audit-delivery-behavior.mdx";
 import AuditEventFields from "/snippets/audit-event-fields.mdx";
 
 Send organization audit events to an external log collector over HTTPS.
 You must be an organization administrator to configure the endpoint.
 
 Each event answers one question: which identity changed which resource, from where, and did it work.
-Use the stream to detect privilege changes, credential access, agent configuration drift, and approval decisions on agent tool calls.
+Use the stream to detect privilege changes, credential changes, agent configuration drift, and approval decisions on agent tool calls.
 
 ## Connect a log collector
 
@@ -29,11 +30,7 @@ Use the stream to detect privilege changes, credential access, agent configurati
   <Step title="Configure the request">
     Add any headers your collector requires. You can also merge custom JSON into
     every event, wrap the payload under a key such as `event`, and control TLS
-    certificate verification.
-  </Step>
-  <Step title="Save and verify delivery">
-    Click **Save changes**, then confirm that your collector receives an
-    `organization_setting` event with a `SUCCESS` status.
+    certificate verification, then click **Save changes**.
   </Step>
 </Steps>
 
@@ -95,10 +92,7 @@ If you index platform and organization events together, filter on `organization_
 
 Most audited changes emit an `ATTEMPT` event followed by `SUCCESS` or `FAILURE`.
 
-The pair is what makes failed activity detectable.
-An `ATTEMPT` with no matching terminal event points at a request that died mid-flight, and a burst of `FAILURE` events from one `actor_id` or `ip_address` is a probing signal worth alerting on.
-
-Join the pair on `actor_id`, `resource_type`, `resource_id`, and adjacent `created_at` values.
+A burst of `FAILURE` events from one `actor_id` or `ip_address` is a probing signal worth alerting on. An `ATTEMPT` with no matching terminal event is a weaker signal — the terminal event may have been shed or lost in delivery rather than the request failing.
 
 ## Approval decisions
 
@@ -117,13 +111,13 @@ Alert on approvals of high-impact tools, on a single approver clearing an unusua
 | Identity and access | `user`, `auth`, `organization_member`, `organization_session`, `organization_invitation` | Account lifecycle, sign-in, and membership changes. |
 | Privilege | `rbac_role`, `rbac_group`, `rbac_group_member`, `rbac_assignment`, `rbac_user_assignment`, `rbac_scope` | Grants and revocations that change what an identity can do. |
 | Non-human identity | `service_account`, `service_account_api_key`, `mcp_personal_access_token`, `webhook_api_key` | Credentials that act without a human session. |
-| Secrets | `secret`, `organization_secret`, `workspace_variable` | Access to and rotation of stored credentials. |
+| Secrets | `secret`, `organization_secret`, `workspace_variable` | Creation, rotation, and deletion of stored credentials. |
 | Agent configuration | `agent_preset`, `agent_catalog`, `agent_model_access`, `agent_custom_provider`, `agent_session` | Changes to what agents may call and which models they reach. |
 | Automation | `workflow`, `workflow_execution`, `schedule`, `webhook`, `case_trigger` | Changes to what runs, when, and on whose behalf. |
 | Configuration | `organization_setting`, `organization_domain`, `organization_tier` | Tenant-wide settings, including this audit sink. |
 | Case data | `case`, `case_comment`, `table`, `table_column` | Access to and modification of investigation data. |
 
-Start with three detections: privilege grants outside a change window, non-human credential creation, and any `update` to `organization_setting` that touches the audit webhook.
+Start with two detections: privilege grants outside a change window and non-human credential creation.
 
 ## Privacy boundaries
 
@@ -149,15 +143,7 @@ That signal is disabled by default and has its own privacy controls.
 
 ## Delivery behavior
 
-Tracecat posts each event as a JSON `POST` request and never blocks the audited action on the result.
-
-- Delivery runs in the background, so a failing or slow collector does not prevent a user's change from completing.
-- Each request times out after 10 seconds.
-- Tracecat retries up to three times with exponential backoff on `429`, `500`, `502`, `503`, `504`, and transport errors. Other `4xx` responses are terminal.
-- Under sustained backpressure Tracecat sheds events rather than buffering without bound.
-
-Delivery is best-effort.
-Treat the stream as a detection source rather than a guaranteed-complete ledger, and monitor for continuity gaps if you need to catch a silently failing sink.
+<AuditDeliveryBehavior />
 
 ## Ingest into a SIEM
 
@@ -176,6 +162,7 @@ Return to **Organization → Audit Logs** to update the request settings.
 Click the disconnect button to stop sending new organization audit events.
 
 Changing the endpoint is itself an audited `organization_setting` update, so your existing collector records the change before the stream moves.
+Events can continue to reach the old endpoint for up to 30 seconds after the change while cached settings expire.
 
 ## Related pages
 
