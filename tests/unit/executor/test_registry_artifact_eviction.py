@@ -248,6 +248,7 @@ class TestRegistryArtifactCacheEviction:
         stuck.squashfs_image_path.write_bytes(b"squashfs")
         stuck.squashfs_mount_dir.mkdir()
         os.utime(stuck.squashfs_image_path, (100.0, 100.0))
+        os.utime(stuck.entry_dir, (100.0, 100.0))
         idle = write_image_entry(temp_cache_dir, "idle", size=16, mtime=300.0)
         mounted = {stuck.squashfs_mount_dir}
 
@@ -265,7 +266,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
-            ),
+            ) as create_subprocess_exec,
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
         ):
@@ -274,6 +275,8 @@ class TestRegistryArtifactCacheEviction:
         assert stuck.squashfs_image_path.exists()
         assert stuck.squashfs_mount_dir.exists()
         assert not idle.exists()
+        create_subprocess_exec.assert_awaited_once()
+        process.communicate.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_eviction_discards_idle_runtime_state(self, temp_cache_dir):
