@@ -52,6 +52,35 @@ class TestRegistryArtifactCacheStartupSweep:
         assert not new.exists()
 
     @pytest.mark.anyio
+    async def test_sweep_removes_incomplete_shell_before_lru_trimming(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """A crashed cold admission cannot displace a reusable cache entry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        reusable_image = write_image_entry(
+            temp_cache_dir,
+            "reusable",
+            size=16,
+            mtime=100.0,
+        )
+        incomplete = cache._paths_for("incomplete")
+        incomplete.entry_dir.mkdir(parents=True)
+        incomplete.squashfs_mount_dir.mkdir()
+        os.utime(incomplete.entry_dir, (200.0, 200.0))
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+        ):
+            await cache.ensure_swept()
+
+        assert reusable_image.is_file()
+        assert not incomplete.entry_dir.exists()
+        assert not any(cache.trash_dir.iterdir())
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
     async def test_sweep_tolerates_missing_cache_dir(self, temp_cache_dir):
         """A cache directory that does not exist yet is a no-op."""
         cache_dir = temp_cache_dir / "missing"

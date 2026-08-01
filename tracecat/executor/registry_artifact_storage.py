@@ -798,10 +798,44 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         """
         max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
         max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
+        entries = self._scan_cache_entries()
+        for entry in tuple(entries.values()):
+            paths = self._paths_for(entry.cache_key)
+            if (
+                paths.squashfs_mount_dir.is_mount()
+                or paths.squashfs_image_path.exists()
+                or paths.squashfs_extract_dir.exists()
+                or paths.tarball_target_dir.exists()
+            ):
+                continue
+
+            try:
+                trash_path = _move_entry_to_trash(
+                    paths.entry_dir,
+                    self.trash_dir,
+                    entry.cache_key,
+                )
+            except OSError as e:
+                logger.warning(
+                    "Failed to retire incomplete registry artifact during startup sweep",
+                    cache_key=entry.cache_key,
+                    entry_dir=str(paths.entry_dir),
+                    error=str(e),
+                )
+                return False
+
+            del entries[entry.cache_key]
+            if not _delete_cache_path(trash_path):
+                return False
+            logger.info(
+                "Removed incomplete registry artifact during startup sweep",
+                cache_key=entry.cache_key,
+                size_bytes=entry.size_bytes,
+            )
+
         if max_entries <= 0 and max_bytes <= 0:
             return True
 
-        entries = self._scan_cache_entries()
         total_bytes = sum(entry.size_bytes for entry in entries.values())
         # Mounted entries belong to a live process sharing this cache directory.
         candidates = sorted(
