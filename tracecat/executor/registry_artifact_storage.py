@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 import shutil
 import stat
@@ -19,6 +18,7 @@ from tracecat.executor.registry_artifact_cache_state import (
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
     _allocated_size_bound,
+    _run_blocking_rejoin_on_cancel,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.utils import communicate_process_group
@@ -145,24 +145,7 @@ def _delete_cache_path(path: Path) -> bool:
 
 async def _delete_cache_path_off_loop(path: Path) -> bool:
     """Delete one path without abandoning its worker thread on cancellation."""
-    deletion = asyncio.ensure_future(asyncio.to_thread(_delete_cache_path, path))
-    try:
-        return await asyncio.shield(deletion)
-    except asyncio.CancelledError:
-        # A worker thread cannot be killed. Rejoin it so no live deletion can
-        # race a later trash-directory scan. Repeated cancellation can interrupt
-        # shield without stopping the thread, so keep waiting for termination.
-        while not deletion.done():
-            try:
-                await asyncio.shield(deletion)
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                break
-        if not deletion.cancelled():
-            with contextlib.suppress(Exception):
-                deletion.result()
-        raise
+    return await _run_blocking_rejoin_on_cancel(lambda: _delete_cache_path(path))
 
 
 def _unique_work_path(root: Path, cache_key: str) -> Path:
