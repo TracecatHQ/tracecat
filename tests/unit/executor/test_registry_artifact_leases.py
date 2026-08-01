@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -808,6 +809,7 @@ class TestRegistryArtifactCacheLease:
             return runtime
 
         umount_process = AsyncMock()
+        umount_process.pid = 999_999_999
         umount_process.communicate.return_value = (b"", b"")
         umount_process.returncode = 0
 
@@ -844,6 +846,7 @@ class TestRegistryArtifactCacheLease:
                 "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
             patch.object(cache, "_runtime_for", side_effect=observed_runtime_for),
             patch.object(SquashfsArtifact, "mount", mock_mount),
             # This test targets the per-key eviction/lease handoff. Keep the
@@ -870,6 +873,8 @@ class TestRegistryArtifactCacheLease:
         assert leased_paths == [paths.squashfs_mount_dir]
         assert leased_path_exists == [True]
         assert (paths.squashfs_mount_dir / "module.py").read_text() == "VALUE = 1"
+        assert kill_group.call_count == 2
+        kill_group.assert_called_with(umount_process.pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_builtin_artifact_is_exempt_from_cache_accounting(
