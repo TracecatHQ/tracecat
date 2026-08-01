@@ -138,7 +138,15 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
         # Warm the registry artifact cache sweep before the backend spawns
         # workers or activities run; cache construction itself is cheap.
-        await get_action_runner().registry_artifacts.ensure_swept()
+        try:
+            await get_action_runner().registry_artifacts.ensure_swept()
+        except OSError as e:
+            # Cache cleanup is best-effort. The failed sweep remains retryable
+            # at the first lease or materialization boundary.
+            logger.warning(
+                "Registry artifact cache warmup failed; continuing worker startup",
+                error=str(e),
+            )
 
         # Initialize the executor backend before accepting tasks
         await initialize_executor_backend()
