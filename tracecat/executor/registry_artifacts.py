@@ -116,12 +116,24 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         Yields:
             Importable Python paths for the requested artifacts.
         """
-        await self.ensure_swept()
-
         if not artifact_uris:
             logger.info("No registry artifact URIs provided, using base PYTHONPATH")
             yield [self._base_pythonpath_dir()]
             return
+
+        if not any(_is_cache_entry_uri(uri) for uri in artifact_uris):
+            cache_free_paths: list[Path] = []
+            for artifact_uri in artifact_uris:
+                _, artifact_paths = await self._lease_artifact(artifact_uri)
+                cache_free_paths.extend(artifact_paths)
+            logger.info(
+                "Using cache-free registry artifact environments",
+                count=len(cache_free_paths),
+            )
+            yield cache_free_paths
+            return
+
+        await self.ensure_swept()
 
         leased_keys: list[str] = []
         lease_setup_complete = False

@@ -6,13 +6,14 @@ import asyncio
 import os
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCache,
     _delete_cache_path,
+    bundled_builtin_registry_uri,
 )
 
 from .registry_artifact_test_helpers import (
@@ -168,14 +169,52 @@ class TestRegistryArtifactCacheStartupSweep:
         assert cache._swept is True
 
     @pytest.mark.anyio
-    async def test_lease_triggers_startup_sweep(self, temp_cache_dir):
+    async def test_cache_lease_triggers_startup_sweep(self, temp_cache_dir):
         """Lease admission reclaims startup scratch before yielding paths."""
         cache = RegistryArtifactCache(temp_cache_dir)
         orphaned_dir = cache.staging_dir / "abc123.999999.4321"
         orphaned_dir.mkdir(parents=True)
 
-        async with cache.lease(None):
-            assert not orphaned_dir.exists()
+        with patch.object(
+            cache,
+            "_lease_artifact",
+            new_callable=AsyncMock,
+            return_value=(None, []),
+        ):
+            async with cache.lease(["s3://bucket/registry.tar.gz"]):
+                assert not orphaned_dir.exists()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "artifact_uris",
+        [None, [bundled_builtin_registry_uri("1.2.3")]],
+    )
+    async def test_cache_free_lease_skips_failed_startup_sweep(
+        self,
+        temp_cache_dir,
+        artifact_uris: list[str] | None,
+    ):
+        """Unrelated cache inspection failures cannot block cache-free actions."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch.object(
+                cache,
+                "ensure_swept",
+                new_callable=AsyncMock,
+                side_effect=OSError("simulated sweep failure"),
+            ) as ensure_swept,
+            patch.object(
+                cache,
+                "_lease_artifact",
+                new_callable=AsyncMock,
+                return_value=(None, [temp_cache_dir / "builtin"]),
+            ),
+        ):
+            async with cache.lease(artifact_uris):
+                pass
+
+        ensure_swept.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_failed_ensure_swept_retries(self, temp_cache_dir):
