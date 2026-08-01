@@ -62,6 +62,9 @@ LOADTEST_ENV_FILE_VARIABLE: Final = "TRACECAT_LOADTEST_ENV_FILE"
 LOADTEST_MONITOR_DSN_VARIABLE: Final = "TRACECAT_LOADTEST_MONITOR_DSN"
 LOADTEST_PROVISION_DSN_VARIABLE: Final = "TRACECAT_LOADTEST_PROVISION_DSN"
 LOADTEST_EXECUTOR_REPLICAS_VARIABLE: Final = "TRACECAT__LOADTEST_EXECUTOR_REPLICAS"
+TEMPORAL_HISTORY_SHARDS_VARIABLE: Final = (
+    "TRACECAT__LOADTEST_TEMPORAL_NUM_HISTORY_SHARDS"
+)
 LOADTEST_ENV_NAME_RE: Final = re.compile(r"^TRACECAT__LOADTEST_[A-Z0-9_]+$")
 CASE_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 CLUSTER_NUMBER_RE: Final = re.compile(r"^Auto-selected new cluster ([0-9]+)\b")
@@ -503,6 +506,7 @@ def select_cases(
         selected = tuple(case for case in cases if case.enabled)
         if not selected:
             raise MatrixConfigurationError("matrix has no enabled cases")
+        _validate_immutable_environment(selected)
         return selected
 
     requested = set(selected_case_ids)
@@ -510,7 +514,22 @@ def select_cases(
     unknown = sorted(requested - known)
     if unknown:
         raise MatrixConfigurationError("unknown --case values: " + ", ".join(unknown))
-    return tuple(case for case in cases if case.case_id in requested)
+    selected = tuple(case for case in cases if case.case_id in requested)
+    _validate_immutable_environment(selected)
+    return selected
+
+
+def _validate_immutable_environment(cases: tuple[LoadTestCase, ...]) -> None:
+    """Reject per-row changes to settings fixed by persistent cluster state."""
+    history_shards = {
+        case.process_environment().get(TEMPORAL_HISTORY_SHARDS_VARIABLE)
+        for case in cases
+    }
+    if len(history_shards) > 1:
+        raise MatrixConfigurationError(
+            f"selected cases vary {TEMPORAL_HISTORY_SHARDS_VARIABLE}, but Temporal "
+            "history shard count is fixed when the shared persistence store is created"
+        )
 
 
 def _load_base_process_environment(repo_root: Path) -> dict[str, str]:

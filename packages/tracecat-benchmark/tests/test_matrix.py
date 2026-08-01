@@ -130,6 +130,27 @@ def test_matrix_rows_inherit_baseline_and_explicit_selection_includes_disabled(
     }
 
 
+def test_selected_matrix_cases_cannot_vary_temporal_history_shards(
+    tmp_path: Path,
+) -> None:
+    matrix_path, experiment_env = _write_matrix_files(
+        tmp_path,
+        (
+            "case_id,enabled,TRACECAT__LOADTEST_TEMPORAL_NUM_HISTORY_SHARDS\n"
+            "first,true,512\n"
+            "second,true,1024\n"
+        ),
+    )
+    with experiment_env.open("a", encoding="utf-8") as handle:
+        handle.write("TRACECAT__LOADTEST_TEMPORAL_NUM_HISTORY_SHARDS=512\n")
+
+    cases = load_matrix(matrix_path, experiment_env_path=experiment_env)
+
+    assert select_cases(cases, ("second",)) == (cases[1],)
+    with pytest.raises(MatrixConfigurationError, match="history shard count is fixed"):
+        select_cases(cases, ())
+
+
 @pytest.mark.parametrize(
     ("matrix_contents", "expected_error"),
     [
