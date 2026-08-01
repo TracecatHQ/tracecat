@@ -247,9 +247,10 @@ time.sleep(30)
             )
 
         task = asyncio.create_task(setup)
-        await _wait_for_file(pid_file)
-        child_pid = int(pid_file.read_text())
+        child_pid: int | None = None
         try:
+            await _wait_for_file(pid_file)
+            child_pid = int(pid_file.read_text())
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
@@ -258,8 +259,20 @@ time.sleep(30)
             assert created_processes[0].returncode is not None
             await _wait_for_process_exit(child_pid)
         finally:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(child_pid, signal.SIGKILL)
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+            for process in created_processes:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                if process.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.kill()
+                await process.wait()
+            if child_pid is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(child_pid, signal.SIGKILL)
 
     @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:
