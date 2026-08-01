@@ -6,6 +6,8 @@ import asyncio
 import os
 import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +42,7 @@ class RegistryArtifactRuntimeState:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     refcount: int = 0
     last_used: float = 0.0
+    users: int = 0
 
 
 class _RegistryArtifactCacheState:
@@ -50,8 +53,9 @@ class _RegistryArtifactCacheState:
         self.entries_dir = cache_dir / CACHE_ENTRIES_DIR_NAME
         self.staging_dir = cache_dir / CACHE_STAGING_DIR_NAME
         self.trash_dir = cache_dir / CACHE_TRASH_DIR_NAME
-        # Runtime states live for the process lifetime so every operation for a
-        # key always serializes on the same lock.
+        # Runtime states remain stable while their entry, leases, or lock users
+        # exist. Failed and evicted keys are discarded once no waiter can still
+        # hold the old lock identity.
         self._runtime: dict[str, RegistryArtifactRuntimeState] = {}
         # The cache contains asyncio locks, tasks, and multi-step lease state.
         # Bind the public API to one loop/thread so a future synchronous
@@ -109,6 +113,38 @@ class _RegistryArtifactCacheState:
         runtime = RegistryArtifactRuntimeState()
         self._runtime[cache_key] = runtime
         return runtime
+
+    @asynccontextmanager
+    async def _runtime_lock(
+        self, cache_key: str
+    ) -> AsyncIterator[RegistryArtifactRuntimeState]:
+        """Lock one key while keeping its runtime identity pinned for waiters."""
+        runtime = self._runtime_for(cache_key)
+        runtime.users += 1
+        try:
+            async with runtime.lock:
+                yield runtime
+        finally:
+            runtime.users -= 1
+            self._discard_idle_runtime(cache_key, runtime)
+
+    def _discard_idle_runtime(
+        self,
+        cache_key: str,
+        runtime: RegistryArtifactRuntimeState,
+    ) -> None:
+        """Discard state only after its entry and every possible user are gone."""
+        if runtime.users > 0 or runtime.refcount > 0 or runtime.lock.locked():
+            return
+        try:
+            if self._paths_for(cache_key).entry_dir.exists():
+                return
+        except OSError:
+            # Retaining a small state object is safer than splitting lock identity
+            # when the entry cannot be inspected.
+            return
+        if self._runtime.get(cache_key) is runtime:
+            del self._runtime[cache_key]
 
     def _context_for(
         self,

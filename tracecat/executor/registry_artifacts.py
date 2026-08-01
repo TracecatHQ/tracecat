@@ -180,17 +180,16 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             candidates = await self._artifact_candidates(ctx, artifact_uri)
             return None, await self._materialize_candidates(ctx, candidates)
 
-        lock = self._runtime_for(cache_key).lock
         lease_acquired = False
         try:
-            async with lock:
+            async with self._runtime_lock(cache_key):
                 self._acquire_lease(cache_key)
                 lease_acquired = True
                 if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                     return cache_key, cached_paths
 
             async with self._admission_lock:
-                async with lock:
+                async with self._runtime_lock(cache_key):
                     if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                         return cache_key, cached_paths
                     ctx = self._context_for(

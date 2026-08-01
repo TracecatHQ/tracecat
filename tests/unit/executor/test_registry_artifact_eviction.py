@@ -268,20 +268,17 @@ class TestRegistryArtifactCacheEviction:
         assert not idle.exists()
 
     @pytest.mark.anyio
-    async def test_eviction_keeps_stable_runtime_state(self, temp_cache_dir):
-        """A key keeps one lock and zeroed lease state for the process lifetime."""
+    async def test_eviction_discards_idle_runtime_state(self, temp_cache_dir):
+        """An evicted key releases runtime state after every lock user exits."""
         cache = RegistryArtifactCache(temp_cache_dir)
         write_tarball_entry(temp_cache_dir, "bookkeeping")
         cache._acquire_lease("bookkeeping")
         cache._release_lease("bookkeeping")
-        lock = cache._runtime_for("bookkeeping").lock
 
         assert await cache._evict_entry("bookkeeping") == RegistryArtifactEviction(
             retired=True, reclaimed=True
         )
-        runtime = cache._runtime["bookkeeping"]
-        assert runtime.lock is lock
-        assert runtime.refcount == 0
+        assert "bookkeeping" not in cache._runtime
 
     @pytest.mark.anyio
     async def test_eviction_skips_busy_key(self, temp_cache_dir):

@@ -464,15 +464,15 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         Returns:
             Whether a mounted entry was unmounted.
         """
-        lock = self._runtime_for(cache_key).lock
-        if lock.locked():
+        runtime = self._runtime.get(cache_key)
+        if runtime is not None and runtime.lock.locked():
             logger.debug(
                 "Skipping unmount of busy registry artifact",
                 cache_key=cache_key,
             )
             return False
 
-        async with lock:
+        async with self._runtime_lock(cache_key):
             if self._refcount(cache_key) > 0:
                 return False
 
@@ -511,15 +511,15 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         Returns:
             Whether the entry was retired and its bytes were reclaimed.
         """
-        lock = self._runtime_for(cache_key).lock
-        if lock.locked():
+        runtime = self._runtime.get(cache_key)
+        if runtime is not None and runtime.lock.locked():
             logger.debug(
                 "Skipping eviction of busy registry artifact",
                 cache_key=cache_key,
             )
             return RegistryArtifactEviction(retired=False, reclaimed=False)
 
-        async with lock:
+        async with self._runtime_lock(cache_key):
             if self._refcount(cache_key) > 0:
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
 

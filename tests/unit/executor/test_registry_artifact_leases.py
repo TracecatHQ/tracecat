@@ -110,6 +110,26 @@ class TestRegistryArtifactCacheLease:
         assert cache._refcount(cache_key) == 0
         assert not cache._paths_for(cache_key).entry_dir.exists()
         assert cache_key not in cache._discover_cache_keys()
+        assert cache_key not in cache._runtime
+
+    @pytest.mark.anyio
+    async def test_distinct_failed_keys_do_not_accumulate_runtime_states(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Failed cold keys release lock state after their last waiter exits."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        async def fail_download(self, ctx, path):
+            del self, ctx, path
+            raise RuntimeError("download failed")
+
+        with patch.object(TarballArtifact, "download", fail_download):
+            for index in range(100):
+                with pytest.raises(RuntimeError, match="download failed"):
+                    async with cache.lease([f"s3://bucket/broken-{index}.tar.gz"]):
+                        pass
+
+        assert cache._runtime == {}
 
     @pytest.mark.anyio
     async def test_failed_first_admission_converges_deposited_image(
