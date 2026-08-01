@@ -7,6 +7,7 @@ import os
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Literal
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -882,6 +883,21 @@ class TestRegistryArtifactCacheBudget:
     async def test_concurrent_budget_passes_only_evict_once(self, temp_cache_dir):
         """A waiting budget pass must re-scan after the active pass evicts."""
         cache = RegistryArtifactCache(temp_cache_dir)
+
+        class ObservedLock(asyncio.Lock):
+            def __init__(self) -> None:
+                super().__init__()
+                self.second_acquire_started = asyncio.Event()
+                self._acquire_attempts = 0
+
+            async def acquire(self) -> Literal[True]:
+                self._acquire_attempts += 1
+                if self._acquire_attempts == 2:
+                    self.second_acquire_started.set()
+                return await super().acquire()
+
+        admission_lock = ObservedLock()
+        cache._admission_lock = admission_lock
         oldest = write_image_entry(temp_cache_dir, "oldest", size=16, mtime=100.0)
         retained = write_image_entry(temp_cache_dir, "retained", size=16, mtime=200.0)
         original_scan = cache._scan_cache_entries
@@ -908,7 +924,6 @@ class TestRegistryArtifactCacheBudget:
 
         eviction_started = asyncio.Event()
         finish_eviction = asyncio.Event()
-        extra_eviction_finished = asyncio.Event()
         evicted_keys: list[str] = []
 
         async def controlled_evict(
@@ -925,7 +940,6 @@ class TestRegistryArtifactCacheBudget:
                 _delete_cache_path(cache._paths_for("oldest").entry_dir)
             else:
                 _delete_cache_path(cache._paths_for("retained").entry_dir)
-                extra_eviction_finished.set()
             evicted_keys.append(cache_key)
             return RegistryArtifactEviction(retired=True, reclaimed=True)
 
@@ -938,21 +952,17 @@ class TestRegistryArtifactCacheBudget:
             first_pass = asyncio.create_task(cache._enforce_cache_budget())
             assert await asyncio.to_thread(first_scan_started.wait, 1)
             second_pass = asyncio.create_task(cache._enforce_cache_budget())
-            second_scan_overlapped = await asyncio.to_thread(
-                second_scan_started.wait, 0.5
-            )
+            await admission_lock.second_acquire_started.wait()
+            assert not second_scan_started.is_set()
 
             release_first_scan.set()
             await asyncio.wait_for(eviction_started.wait(), timeout=1)
-            release_second_scan.set()
-            try:
-                await asyncio.wait_for(extra_eviction_finished.wait(), timeout=0.2)
-            except TimeoutError:
-                pass
+            assert not second_scan_started.is_set()
             finish_eviction.set()
+            assert await asyncio.to_thread(second_scan_started.wait, 1)
+            release_second_scan.set()
             await asyncio.gather(first_pass, second_pass)
 
-        assert second_scan_overlapped is False
         assert scan_count == 2
         assert evicted_keys == ["oldest"]
         assert not oldest.exists()
