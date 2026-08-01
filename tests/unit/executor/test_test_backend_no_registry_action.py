@@ -275,7 +275,7 @@ class TestTestBackendNoRegistryAction:
             async def lease(
                 self, artifact_uris: list[str] | None = None
             ) -> AsyncIterator[list[Path]]:
-                if artifact_uris == [broken_uri]:
+                if broken_uri in (artifact_uris or []):
                     raise RuntimeError("artifact unavailable")
                 self.active += 1
                 try:
