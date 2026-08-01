@@ -508,6 +508,34 @@ class TestRegistryArtifactCacheBudget:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
+    async def test_successful_cold_admission_skips_release_rescan(self, temp_cache_dir):
+        """A successful protected pass consumes the materialization dirty signal."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/new-with-one-budget-pass.tar.gz"
+
+        async def mock_download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(tarball_payload(size=1))
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 10),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(
+                cache,
+                "_scan_cache_entries",
+                wraps=cache._scan_cache_entries,
+            ) as scan_cache_entries,
+        ):
+            async with cache.lease([artifact_uri]):
+                assert cache._budget_dirty is False
+
+        assert scan_cache_entries.call_count == 1
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
     async def test_failed_cold_admission_keeps_warm_lru(self, temp_cache_dir):
         """A missing cold artifact must not evict an existing warm entry."""
         cache = RegistryArtifactCache(temp_cache_dir)

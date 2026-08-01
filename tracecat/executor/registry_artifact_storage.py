@@ -268,9 +268,14 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         """
         async with self._admission_lock:
             async with self._budget_lock:
-                return await self._enforce_cache_budget_locked(
+                within_budget = await self._enforce_cache_budget_locked(
                     protected_key=protected_key
                 )
+                if within_budget:
+                    # Clear while cold writers remain excluded so a later
+                    # materialization cannot have its dirty signal erased.
+                    self._budget_dirty = False
+                return within_budget
 
     async def _enforce_cache_budget_locked(
         self,
