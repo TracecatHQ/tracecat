@@ -281,7 +281,7 @@ The primary throughput controls are:
 | worker | `TRACECAT__LOADTEST_TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS` | 100 | Worker workflow-task slots |
 | executor | `TRACECAT__LOADTEST_EXECUTOR_MAX_CONCURRENT_ACTIVITIES` | 2 | Executor activity slots in the constrained baseline |
 | executor | `TRACECAT__LOADTEST_EXECUTOR_FOR_EACH_MAX_CONCURRENCY` | 4 | Per-action `for_each` fan-out |
-| executor | `TRACECAT__LOADTEST_EXECUTOR_WORKER_POOL_SIZE` | backend default | Executor backend process pool |
+| executor | `TRACECAT__LOADTEST_EXECUTOR_THREADPOOL_MAX_WORKERS` | backend default | Executor activity thread pool |
 
 Database pools are configured per database-capable service with
 `TRACECAT__LOADTEST_<SERVICE>_DB_POOL_SIZE` and

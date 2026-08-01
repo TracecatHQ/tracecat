@@ -3041,14 +3041,14 @@ def test_loadtest_override_exposes_resource_and_throughput_dimensions() -> None:
     assert {
         "TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES",
         "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY",
-        "TRACECAT__EXECUTOR_WORKER_POOL_SIZE",
+        "TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS",
     } <= executor_environment.keys()
     assert (
         executor_environment["TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY"]
         == "${TRACECAT__LOADTEST_EXECUTOR_FOR_EACH_MAX_CONCURRENCY:-4}"
     )
-    assert executor_environment["TRACECAT__EXECUTOR_WORKER_POOL_SIZE"] == (
-        "${TRACECAT__LOADTEST_EXECUTOR_WORKER_POOL_SIZE:-}"
+    assert executor_environment["TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS"] == (
+        "${TRACECAT__LOADTEST_EXECUTOR_THREADPOOL_MAX_WORKERS:-}"
     )
     litellm = services["litellm"]
     assert isinstance(litellm, dict)
@@ -3091,10 +3091,10 @@ def test_loadtest_override_exposes_resource_and_throughput_dimensions() -> None:
     assert "TRACECAT__LOADTEST_TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS=100" in example
     assert "\nTEMPORAL__THREADPOOL_MAX_WORKERS=" not in example
     assert "TRACECAT__LOADTEST_EXECUTOR_FOR_EACH_MAX_CONCURRENCY=4" in example
-    assert "TRACECAT__LOADTEST_EXECUTOR_WORKER_POOL_SIZE=" in example
+    assert "TRACECAT__LOADTEST_EXECUTOR_THREADPOOL_MAX_WORKERS=" in example
     assert "TRACECAT__LOADTEST_LITELLM_NUM_WORKERS=1" in example
     assert "\nTRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY=" not in example
-    assert "\nTRACECAT__EXECUTOR_WORKER_POOL_SIZE=" not in example
+    assert "\nTRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS=" not in example
     assert "TRACECAT__LOADTEST_DB_POOL_RECYCLE=600" in example
     assert "TRACECAT__LOADTEST_EXECUTOR_DB_AUTH_POOL_SIZE=5" in example
     assert "TRACECAT__LOADTEST_EXECUTOR_DB_AUTH_MAX_OVERFLOW=0" in example
