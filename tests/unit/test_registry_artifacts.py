@@ -329,7 +329,7 @@ class TestRegistryArtifactCache:
         monkeypatch.setattr(tracecat_registry, "__version__", version)
         monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
         monkeypatch.setattr(
-            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            "tracecat.executor.registry_artifact_materialization.sysconfig.get_path",
             lambda name: str(site_packages) if name == "purelib" else None,
         )
 
@@ -356,7 +356,7 @@ class TestRegistryArtifactCache:
         monkeypatch.setattr(tracecat_registry, "__version__", version)
         monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
         monkeypatch.setattr(
-            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            "tracecat.executor.registry_artifact_materialization.sysconfig.get_path",
             lambda name: str(site_packages) if name == "purelib" else None,
         )
 
@@ -612,7 +612,7 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value=None,
             ),
             patch(
@@ -671,7 +671,7 @@ class TestRegistryArtifactCache:
                 True,
             ),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
@@ -714,7 +714,7 @@ class TestRegistryArtifactCache:
         process.returncode = 0
 
         with patch(
-            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+            "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
             new_callable=AsyncMock,
             return_value=process,
         ) as create_subprocess_exec:
@@ -750,7 +750,7 @@ class TestRegistryArtifactCache:
         process = _BlockingSubprocess()
 
         with patch(
-            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+            "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
             new_callable=AsyncMock,
             return_value=process,
         ):
@@ -805,11 +805,11 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/usr/bin/unsquashfs",
             ),
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=create_sleep_subprocess,
             ),
         ):
@@ -905,7 +905,7 @@ class TestRegistryArtifactCache:
                 True,
             ),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
@@ -951,7 +951,8 @@ class TestRegistryArtifactCache:
                 True,
             ),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which", return_value=None
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
+                return_value=None,
             ),
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
@@ -996,7 +997,7 @@ class TestRegistryArtifactCache:
                 True,
             ),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
@@ -1343,7 +1344,7 @@ class TestRegistryArtifactCacheLease:
             patch.object(Path, "is_mount", lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", harness.mount),
@@ -1405,7 +1406,7 @@ class TestRegistryArtifactCacheLease:
             patch.object(Path, "is_mount", lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", harness.mount),
@@ -1684,7 +1685,7 @@ class TestRegistryArtifactCacheLease:
         with (
             patch(SQUASHFS_ENABLED_CONFIG, False),
             patch(
-                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                "tracecat.executor.registry_artifact_materialization._tarball_extracted_size",
                 return_value=1,
             ),
             patch.object(TarballArtifact, "download", controlled_download),
@@ -1732,7 +1733,7 @@ class TestRegistryArtifactCacheLease:
             patch.object(Path, "is_mount", lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", harness.mount),
@@ -1797,11 +1798,11 @@ class TestRegistryArtifactCacheLease:
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
             ),
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
@@ -1836,7 +1837,7 @@ class TestRegistryArtifactCacheLease:
         monkeypatch.setattr(tracecat_registry, "__version__", version)
         monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
         monkeypatch.setattr(
-            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            "tracecat.executor.registry_artifact_materialization.sysconfig.get_path",
             lambda name: str(site_packages) if name == "purelib" else None,
         )
 
@@ -1864,10 +1865,12 @@ class TestRegistryArtifactCacheEviction:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.shutil.rmtree",
+                "tracecat.executor.registry_artifact_storage.shutil.rmtree",
                 side_effect=OSError("permission denied"),
             ),
-            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+            patch(
+                "tracecat.executor.registry_artifact_storage.logger.warning"
+            ) as warning,
         ):
             deleted = _delete_cache_path(entry_dir)
 
@@ -2079,7 +2082,7 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 6000),
             patch(
-                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                "tracecat.executor.registry_artifact_materialization._tarball_extracted_size",
                 return_value=4096,
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -2114,12 +2117,14 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
-                "tracecat.executor.registry_artifacts._delete_cache_path",
+                "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 return_value=False,
             ),
             patch.object(TarballArtifact, "download", mock_download),
             patch.object(TarballArtifact, "extract", mock_extract),
-            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+            patch(
+                "tracecat.executor.registry_artifact_storage.logger.warning"
+            ) as warning,
         ):
             registry_paths = await _materialize(cache, cache_key, artifact_uri)
 
@@ -2170,7 +2175,7 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 16),
             patch(
-                "tracecat.executor.registry_artifacts._delete_cache_path",
+                "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 side_effect=fail_once,
             ),
         ):
@@ -2206,7 +2211,7 @@ class TestRegistryArtifactCacheEviction:
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
-                "tracecat.executor.registry_artifacts._move_entry_to_trash",
+                "tracecat.executor.registry_artifact_storage._move_entry_to_trash",
                 side_effect=OSError("rename failed"),
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -2242,7 +2247,7 @@ class TestRegistryArtifactCacheEviction:
                 side_effect=PermissionError("denied"),
             ),
             patch(
-                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                "tracecat.executor.registry_artifact_materialization._tarball_extracted_size",
                 return_value=9,
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -2525,7 +2530,7 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
             ),
             patch.object(
@@ -2688,11 +2693,11 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
             ),
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ) as create_subprocess_exec,
         ):
@@ -2739,11 +2744,11 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
             ),
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
         ):
@@ -2795,11 +2800,11 @@ class TestRegistryArtifactCacheEviction:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts._delete_cache_path",
+                "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 side_effect=blocked_delete,
             ),
             patch(
-                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                "tracecat.executor.registry_artifact_materialization._tarball_extracted_size",
                 return_value=9,
             ),
             patch.object(TarballArtifact, "download", mock_download),
@@ -2843,7 +2848,7 @@ class TestRegistryArtifactCacheEviction:
         paths.tarball_target_dir.mkdir()
 
         with patch(
-            "tracecat.executor.registry_artifacts._delete_cache_path",
+            "tracecat.executor.registry_artifact_storage._delete_cache_path",
             return_value=True,
         ) as delete_cache_path:
             assert await cache._evict_entry(cache_key) == RegistryArtifactEviction(
@@ -2879,11 +2884,11 @@ class TestRegistryArtifactCacheEviction:
         with (
             patch.object(Path, "is_mount", lambda self: self in mounted),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
             ),
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
             ),
@@ -3121,7 +3126,7 @@ class TestRegistryArtifactCacheStartupSweep:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.os.scandir",
+                "tracecat.executor.registry_artifact_storage.os.scandir",
                 side_effect=PermissionError("denied"),
             ),
             pytest.raises(PermissionError, match="denied"),
@@ -3157,7 +3162,7 @@ class TestRegistryArtifactCacheStartupSweep:
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
-                "tracecat.executor.registry_artifacts._delete_cache_path",
+                "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 side_effect=fail_orphan,
             ),
         ):
@@ -3186,7 +3191,7 @@ class TestRegistryArtifactCacheStartupSweep:
             return real_delete(path)
 
         with patch(
-            "tracecat.executor.registry_artifacts._delete_cache_path",
+            "tracecat.executor.registry_artifact_storage._delete_cache_path",
             side_effect=fail_once,
         ):
             await cache.ensure_swept()
@@ -3222,7 +3227,7 @@ class TestRegistryArtifactCacheStartupSweep:
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
             patch(
-                "tracecat.executor.registry_artifacts._move_entry_to_trash",
+                "tracecat.executor.registry_artifact_storage._move_entry_to_trash",
                 side_effect=OSError("rename failed"),
             ),
         ):
@@ -3280,7 +3285,7 @@ class TestRegistryArtifactCacheStartupSweep:
             patch(MAX_ENTRIES_CONFIG, 0),
             patch(MAX_BYTES_CONFIG, 16),
             patch(
-                "tracecat.executor.registry_artifacts._delete_cache_path",
+                "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 side_effect=fail_once,
             ),
         ):
@@ -3329,7 +3334,7 @@ class TestSquashfsMountPolicy:
             patch.object(Path, "is_mount", lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", harness.mount),
@@ -3402,7 +3407,7 @@ class TestSquashfsMountPolicy:
         with (
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),

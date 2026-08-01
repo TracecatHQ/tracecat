@@ -573,7 +573,7 @@ async def _run_executor_action_smoke_case(
             # path instead of attempting a loopback mount.
             patches.append(
                 patch(
-                    "tracecat.executor.registry_artifacts.shutil.which",
+                    "tracecat.executor.registry_artifact_materialization.shutil.which",
                     return_value=None,
                 )
             )
