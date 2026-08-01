@@ -114,7 +114,7 @@ class LoadType(StrEnum):
     """
 
     BULK = "bulk"
-    """Control: one core.table.insert_rows action execution per workflow."""
+    """Control: one batch table request in one action execution per workflow."""
 
     SUBFLOW = "subflow"
     """One child workflow execution per branch.

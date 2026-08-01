@@ -3140,6 +3140,30 @@ def test_scatter_fixture_materializes_static_actions_without_for_each() -> None:
     assert "returns" not in definition
 
 
+def test_bulk_fixture_does_not_pass_row_payloads_between_actions() -> None:
+    workflow = fixtures_module.load_workflow_fixture(LoadType.BULK, branch_count=256)
+    fixture: object = yaml.safe_load(Path(workflow.path).read_text(encoding="utf-8"))
+    assert isinstance(fixture, dict)
+    definition = fixture.get("definition")
+    assert isinstance(definition, dict)
+
+    actions = definition.get("actions")
+    assert isinstance(actions, list)
+    assert len(actions) == 1
+    action = actions[0]
+    assert isinstance(action, dict)
+    assert action["ref"] == "bulk_insert"
+    assert action["action"] == "core.script.run_python"
+
+    args = action.get("args")
+    assert isinstance(args, dict)
+    script = args.get("script")
+    assert isinstance(script, str)
+    assert "ctx.tables.insert_rows" in script
+    assert "rows_data=rows" in script
+    assert definition["returns"] == "${{ ACTIONS.bulk_insert.result }}"
+
+
 def test_noop_fixture_materializes_static_reshape_actions_without_expressions() -> None:
     workflow = fixtures_module.load_workflow_fixture(LoadType.NOOP, branch_count=256)
     assert workflow.content is not None
