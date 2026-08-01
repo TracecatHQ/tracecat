@@ -129,10 +129,13 @@ async def lease_paths(
 class BlockingSubprocess:
     """Fake subprocess that blocks in communicate until it is cancelled."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, block_wait: bool = False) -> None:
         self.communicate_started = asyncio.Event()
+        self.wait_started = asyncio.Event()
+        self.release_wait = asyncio.Event()
         self.cleanup_calls: list[str] = []
         self.returncode: int | None = None
+        self._block_wait = block_wait
 
     async def communicate(self) -> tuple[bytes, bytes]:
         """Block until the task awaiting subprocess completion is cancelled."""
@@ -148,6 +151,9 @@ class BlockingSubprocess:
     async def wait(self) -> int:
         """Record that the killed subprocess was reaped."""
         self.cleanup_calls.append("wait")
+        self.wait_started.set()
+        if self._block_wait:
+            await self.release_wait.wait()
         return -9
 
 

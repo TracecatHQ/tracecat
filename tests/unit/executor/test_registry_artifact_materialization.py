@@ -336,6 +336,63 @@ class TestRegistryArtifactMaterialization:
         assert captured.reaped is True
         assert captured.returncode is not None
 
+    @pytest.mark.parametrize("operation", ["mount", "extract", "size"])
+    @pytest.mark.anyio
+    async def test_repeated_cancellation_reaps_squashfs_subprocess(
+        self,
+        temp_cache_dir: Path,
+        operation: str,
+    ) -> None:
+        """A second cancellation cannot abandon a killed SquashFS child."""
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key="repeated-subprocess-cancellation",
+        )
+        image_path = temp_cache_dir / "image.squashfs"
+        image_path.write_bytes(b"squashfs")
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        process = BlockingSubprocess(block_wait=True)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
+                return_value="/usr/bin/unsquashfs",
+            ),
+            patch(
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ),
+        ):
+            if operation == "mount":
+                running = asyncio.create_task(
+                    artifact._mount_image(image_path, target_dir)
+                )
+            elif operation == "extract":
+                running = asyncio.create_task(
+                    artifact._extract_image(image_path, target_dir)
+                )
+            else:
+                running = asyncio.create_task(
+                    artifact._squashfs_extracted_size(image_path)
+                )
+
+            await process.communicate_started.wait()
+            running.cancel()
+            await process.wait_started.wait()
+
+            running.cancel()
+            done, _ = await asyncio.wait({running}, timeout=0.05)
+            second_cancellation_propagated_early = bool(done)
+            process.release_wait.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await running
+
+        assert second_cancellation_propagated_early is False
+        assert process.cleanup_calls == ["kill", "wait"]
+
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_tarball_extract_rejoins_thread(
         self, temp_cache_dir

@@ -158,6 +158,38 @@ async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
         raise
 
 
+async def _kill_and_reap_subprocess(process: asyncio.subprocess.Process) -> None:
+    """Kill a subprocess and wait until its child state is reaped."""
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    await process.wait()
+
+
+async def _communicate_rejoin_on_cancel(
+    process: asyncio.subprocess.Process,
+) -> tuple[bytes, bytes]:
+    """Communicate while keeping cancellation from abandoning child cleanup."""
+    try:
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        reaper = asyncio.ensure_future(_kill_and_reap_subprocess(process))
+        while not reaper.done():
+            try:
+                await asyncio.shield(reaper)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not reaper.cancelled():
+            with contextlib.suppress(Exception):
+                reaper.result()
+        raise
+
+    if stdout is None or stderr is None:
+        raise RuntimeError("Captured subprocess output is required")
+    return stdout, stderr
+
+
 async def _remove_tree_rejoin_on_cancel(
     path: Path,
     *,
@@ -458,13 +490,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode == 0 or target_dir.is_mount():
             return
@@ -492,13 +518,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode == 0:
             return
@@ -519,13 +539,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode != 0:
             output = (stderr or stdout).decode(errors="replace").strip()
