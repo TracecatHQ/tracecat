@@ -3843,7 +3843,7 @@ def test_slow_temporal_sampling_does_not_throttle_postgres_samples(
     assert temporal_samples <= 3
 
 
-def test_temporal_cadence_miss_records_nonfatal_gap(
+def test_temporal_cadence_miss_invalidates_observability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3867,9 +3867,9 @@ def test_temporal_cadence_miss_records_nonfatal_gap(
 
     manifest = asyncio.run(collector.run(tmp_path))
 
-    assert manifest["status"] == "completed"
+    assert manifest["status"] == "observability_failed"
     assert manifest["case_id"] == "unit-scatter"
-    assert manifest["observability_failure"] is None
+    assert manifest["observability_failure"] == "SamplingCadenceError"
     temporal_records = [
         json.loads(line)
         for line in (artifact_dir / "temporal_backlog.jsonl").read_text().splitlines()
@@ -3957,7 +3957,7 @@ def test_unrecovered_sampler_error_marks_manifest_failed(
     assert manifest["observability_failure"] == "OSError"
 
 
-def test_resource_cadence_miss_records_nonfatal_gap(
+def test_resource_cadence_miss_invalidates_observability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3986,8 +3986,8 @@ def test_resource_cadence_miss_records_nonfatal_gap(
 
     manifest = asyncio.run(collector.run(tmp_path))
 
-    assert manifest["status"] == "completed"
-    assert manifest["observability_failure"] is None
+    assert manifest["status"] == "observability_failed"
+    assert manifest["observability_failure"] == "SamplingCadenceError"
     resource_records = [
         json.loads(line)
         for line in (artifact_dir / "resource_usage.jsonl").read_text().splitlines()

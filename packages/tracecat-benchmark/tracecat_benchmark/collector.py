@@ -861,6 +861,10 @@ class SamplingReadinessError(RuntimeError):
     """The collector stopped before every required signal produced a sample."""
 
 
+class SamplingCadenceError(RuntimeError):
+    """A required gauge signal missed its configured sampling cadence."""
+
+
 class RunnerLifecycleError(RuntimeError):
     """The runner completion marker is malformed or targets another run."""
 
@@ -2550,6 +2554,7 @@ class MetricCollector:
         self._db_pool_metrics_sample_count = 0
         self._pgdog_metrics_sample_count = 0
         self._pending_sampling_failures: dict[str, str] = {}
+        self._cadence_sampling_failures: set[str] = set()
         self._runner_status: Literal["completed", "aborted"] | None = None
         self._external_stop_requested = False
 
@@ -2614,10 +2619,7 @@ class MetricCollector:
     ) -> None:
         elapsed = time.monotonic() - tick
         if elapsed > interval_seconds:
-            # A delayed gauge sample reduces local time-series resolution, but
-            # it is not signal loss: the successful observation is retained
-            # immediately before this structured gap. Endpoint/query failures
-            # are fatal only when that signal does not recover before shutdown.
+            self._cadence_sampling_failures.add(signal_name)
             gap = CadenceSamplingGap(
                 sampled_at=_utc_now_iso(),
                 sampling_gap="cadence_delayed",
@@ -3160,6 +3162,8 @@ class MetricCollector:
                 observability_failure = next(
                     iter(self._pending_sampling_failures.values())
                 )
+            if self._cadence_sampling_failures and observability_failure is None:
+                observability_failure = SamplingCadenceError.__name__
             if self._external_stop_requested and observability_failure is None:
                 observability_failure = RecoveryWindowInterruptedError.__name__
 
