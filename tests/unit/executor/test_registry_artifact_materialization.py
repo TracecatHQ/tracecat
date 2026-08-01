@@ -163,7 +163,32 @@ class TestRegistryArtifactMaterialization:
                 member.size = 1
                 tar.addfile(member, io.BytesIO(b"x"))
 
-        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 12_288
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 16_384
+
+    def test_tarball_size_includes_extraction_root(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Extraction reserves its root even when the manifest omits it."""
+        tarball_path = temp_cache_dir / "implicit-root.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            member = tarfile.TarInfo("module.py")
+            member.size = 0
+            tar.addfile(member, io.BytesIO())
+
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 8192
+
+    def test_tarball_size_does_not_duplicate_explicit_root(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        tarball_path = temp_cache_dir / "explicit-root.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            root = tarfile.TarInfo(".")
+            root.type = tarfile.DIRTYPE
+            tar.addfile(root)
+
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 4096
 
     def test_tarball_size_includes_implicit_parent_directories(
         self,
@@ -176,7 +201,7 @@ class TestRegistryArtifactMaterialization:
             member.size = 0
             tar.addfile(member, io.BytesIO())
 
-        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 16_384
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 20_480
 
     def test_squashfs_listing_size_rejects_unparseable_files(self) -> None:
         with pytest.raises(ValueError, match="Could not parse SquashFS listing"):

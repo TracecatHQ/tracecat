@@ -812,8 +812,10 @@ def _tarball_extracted_size(
     *,
     allocation_unit: int = 1,
 ) -> int:
-    """Return a conservative allocated size bound for all tarball members."""
+    """Return a conservative allocated size bound for a tarball extraction."""
     total_bytes = 0
+    root_path = PurePosixPath(".")
+    has_explicit_root_directory = False
     required_parent_dirs: set[PurePosixPath] = set()
     explicit_dirs: set[PurePosixPath] = set()
     with tarfile.open(tarball_path, "r:gz") as tar:
@@ -829,10 +831,14 @@ def _tarball_extracted_size(
             member_path = PurePosixPath(member.name)
             if member.isdir():
                 explicit_dirs.add(member_path)
+                has_explicit_root_directory |= member_path == root_path
             for parent in member_path.parents:
-                if parent == PurePosixPath("."):
+                if parent == root_path:
                     break
                 required_parent_dirs.add(parent)
+    # Extraction creates a target root even when the tar manifest omits it.
+    if not has_explicit_root_directory:
+        total_bytes += _allocated_size_bound(0, allocation_unit=allocation_unit)
     implicit_parent_dirs = required_parent_dirs - explicit_dirs
     total_bytes += len(implicit_parent_dirs) * allocation_unit
     return total_bytes
