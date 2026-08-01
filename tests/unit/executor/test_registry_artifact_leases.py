@@ -204,6 +204,50 @@ class TestRegistryArtifactCacheLease:
         assert not cache._paths_for(cache_key).entry_dir.exists()
 
     @pytest.mark.anyio
+    async def test_repeated_cancellation_finishes_acquisition_rollback(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """A second cancellation cannot abandon the final rollback unmount."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        lookup_started = asyncio.Event()
+        rollback_started = asyncio.Event()
+        finish_rollback = asyncio.Event()
+
+        async def blocked_sidecar_lookup(**kwargs):
+            del kwargs
+            lookup_started.set()
+            await asyncio.Event().wait()
+
+        async def blocked_unmount(requested_key: str) -> None:
+            assert requested_key == cache_key
+            rollback_started.set()
+            await finish_rollback.wait()
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch.object(cache, "_sidecar_exists", blocked_sidecar_lookup),
+            patch.object(cache, "_unmount_idle_entry", blocked_unmount),
+        ):
+            acquisition = asyncio.create_task(cache._lease_artifact(artifact_uri))
+            await lookup_started.wait()
+            acquisition.cancel()
+            await rollback_started.wait()
+
+            acquisition.cancel()
+            await asyncio.sleep(0)
+            assert not acquisition.done()
+
+            finish_rollback.set()
+            with pytest.raises(asyncio.CancelledError):
+                await acquisition
+
+        assert cache._refcount(cache_key) == 0
+
+    @pytest.mark.anyio
     async def test_cancelled_waiter_preserves_existing_same_key_lease(
         self, temp_cache_dir: Path
     ) -> None:

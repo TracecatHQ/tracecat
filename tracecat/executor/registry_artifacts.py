@@ -227,7 +227,19 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             return cache_key, paths
         except BaseException:
             if lease_acquired and self._release_lease(cache_key):
-                await self._unmount_idle_entry(cache_key)
+                rollback_task = asyncio.ensure_future(
+                    self._unmount_idle_entry(cache_key)
+                )
+                while not rollback_task.done():
+                    try:
+                        await asyncio.shield(rollback_task)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                if not rollback_task.cancelled():
+                    with contextlib.suppress(Exception):
+                        rollback_task.result()
             raise
 
     async def _materialize_candidates(
