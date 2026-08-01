@@ -18,6 +18,7 @@ document it, recommend it, or factor it into executor design decisions.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 import threading
 from contextlib import AsyncExitStack, contextmanager
@@ -54,7 +55,7 @@ from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
@@ -228,12 +229,40 @@ class TestBackend(ExecutorBackend):
                 if asyncio.iscoroutinefunction(fn):
                     result = await fn(**args)
                 else:
-                    result = await asyncio.to_thread(fn, **args)
+                    result = await self._run_sync_udf(fn, args)
 
             log.trace("Result", result=result)
             return result
         finally:
             registry_secrets.reset_context(secrets_token)
+
+    async def _run_sync_udf(
+        self,
+        fn: Callable[..., Any],
+        args: dict[str, Any],
+    ) -> Any:
+        """Keep a non-interruptible UDF thread joined through cancellation.
+
+        TestBackend timeouts are necessarily soft for synchronous functions: a
+        Python thread cannot be killed safely. Rejoining it keeps registry
+        leases, temporary ``sys.path`` entries, and secret contexts alive until
+        the function actually stops.
+        """
+        worker = asyncio.ensure_future(asyncio.to_thread(fn, **args))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not worker.cancelled():
+                with contextlib.suppress(Exception):
+                    worker.result()
+            raise
 
     def _load_udf_callable(self, action_impl: ActionImplementation):
         """Load the UDF callable from action_impl metadata."""
