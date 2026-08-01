@@ -346,16 +346,20 @@ class TestRegistryArtifactMaterialization:
             captured = captured_processes[0]
             extracting.cancel()
 
+            production_killed = False
+            production_reaped = False
             try:
                 with pytest.raises(asyncio.CancelledError):
                     await extracting
+                production_killed = captured.killed
+                production_reaped = captured.reaped
             finally:
                 if captured.returncode is None:
-                    captured.kill()
-                    await captured.wait()
+                    captured.process.kill()
+                    await captured.process.wait()
 
-        assert captured.killed is True
-        assert captured.reaped is True
+        assert production_killed is True
+        assert production_reaped is True
         assert captured.returncode is not None
 
     @pytest.mark.parametrize("operation", ["mount", "extract", "size"])
