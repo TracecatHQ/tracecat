@@ -87,15 +87,22 @@ class TestRegistryArtifactCacheStartupSweep:
     async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
         """A live mountpoint belongs to a running process and must survive."""
         cache = RegistryArtifactCache(temp_cache_dir)
-        paths = cache._paths_for("abc123")
+        paths = cache._paths_for("mounted")
         paths.entry_dir.mkdir(parents=True)
         mount_dir = paths.squashfs_mount_dir
         mount_dir.mkdir()
+        idle_dir = write_tarball_entry(temp_cache_dir, "idle")
 
-        with patch.object(Path, "is_mount", lambda self: self == mount_dir):
+        with (
+            patch(MAX_ENTRIES_CONFIG, 1),
+            patch(MAX_BYTES_CONFIG, 0),
+            patch.object(Path, "is_mount", lambda self: self == mount_dir),
+        ):
             await cache.ensure_swept()
 
         assert mount_dir.is_dir()
+        assert not idle_dir.exists()
+        assert cache._budget_dirty is False
 
     @pytest.mark.anyio
     async def test_ensure_swept_runs_once(self, temp_cache_dir):
