@@ -165,6 +165,19 @@ class TestRegistryArtifactMaterialization:
 
         assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 12_288
 
+    def test_tarball_size_includes_implicit_parent_directories(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Extraction reserves directories omitted from the tar manifest."""
+        tarball_path = temp_cache_dir / "implicit-directories.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            member = tarfile.TarInfo("one/two/three/module.py")
+            member.size = 0
+            tar.addfile(member, io.BytesIO())
+
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 16_384
+
     def test_squashfs_listing_size_rejects_unparseable_files(self) -> None:
         with pytest.raises(ValueError, match="Could not parse SquashFS listing"):
             _squashfs_listing_size(b"-rw-r--r-- malformed")

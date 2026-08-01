@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import httpx
 import tracecat_registry
@@ -814,6 +814,8 @@ def _tarball_extracted_size(
 ) -> int:
     """Return a conservative allocated size bound for all tarball members."""
     total_bytes = 0
+    required_parent_dirs: set[PurePosixPath] = set()
+    explicit_dirs: set[PurePosixPath] = set()
     with tarfile.open(tarball_path, "r:gz") as tar:
         for member in tar:
             if member.size < 0:
@@ -824,6 +826,15 @@ def _tarball_extracted_size(
                 member.size,
                 allocation_unit=allocation_unit,
             )
+            member_path = PurePosixPath(member.name)
+            if member.isdir():
+                explicit_dirs.add(member_path)
+            for parent in member_path.parents:
+                if parent == PurePosixPath("."):
+                    break
+                required_parent_dirs.add(parent)
+    implicit_parent_dirs = required_parent_dirs - explicit_dirs
+    total_bytes += len(implicit_parent_dirs) * allocation_unit
     return total_bytes
 
 
