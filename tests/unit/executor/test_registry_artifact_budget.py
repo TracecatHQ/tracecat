@@ -596,10 +596,10 @@ class TestRegistryArtifactCacheBudget:
         assert not cache._paths_for(missing_key).entry_dir.exists()
 
     @pytest.mark.anyio
-    async def test_release_keeps_retrying_while_the_cache_stays_over_budget(
+    async def test_non_final_release_defers_retry_while_cache_stays_over_budget(
         self, temp_cache_dir
     ):
-        """A cache that cannot shrink yet must stay marked for re-enforcement."""
+        """A non-final release defers rescanning until an entry becomes idle."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         artifact_uri = "s3://bucket/pinned.tar.gz"
@@ -610,7 +610,15 @@ class TestRegistryArtifactCacheBudget:
         # A second holder keeps the entry pinned past the inner lease.
         cache._acquire_lease(cache_key)
 
-        with patch(MAX_ENTRIES_CONFIG, 0), patch(MAX_BYTES_CONFIG, 1):
+        with (
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, 1),
+            patch.object(
+                cache,
+                "_scan_cache_entries",
+                side_effect=AssertionError("non-final releases must not rescan"),
+            ),
+        ):
             async with cache.lease([artifact_uri]):
                 pass
 

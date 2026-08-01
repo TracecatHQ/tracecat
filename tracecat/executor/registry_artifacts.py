@@ -122,6 +122,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             return
 
         leased_keys: list[str] = []
+        lease_setup_complete = False
         try:
             registry_paths: list[Path] = []
             for artifact_uri in artifact_uris:
@@ -133,12 +134,18 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                 "Using registry artifact environments",
                 count=len(registry_paths),
             )
+            lease_setup_complete = True
             yield registry_paths
         finally:
             idle_keys = [
                 cache_key for cache_key in leased_keys if self._release_lease(cache_key)
             ]
-            cleanup_task = asyncio.ensure_future(self._finish_lease_cleanup(idle_keys))
+            cleanup_task = asyncio.ensure_future(
+                self._finish_lease_cleanup(
+                    idle_keys,
+                    converge=not lease_setup_complete or bool(idle_keys),
+                )
+            )
             pending_cancellation: asyncio.CancelledError | None = None
             while True:
                 try:
@@ -152,11 +159,17 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             if pending_cancellation is not None:
                 raise pending_cancellation
 
-    async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
-        """Unmount every newly idle entry and converge the cache budget."""
+    async def _finish_lease_cleanup(
+        self,
+        idle_keys: list[str],
+        *,
+        converge: bool,
+    ) -> None:
+        """Unmount newly idle entries and converge after meaningful changes."""
         for cache_key in idle_keys:
             await self._unmount_idle_entry(cache_key)
-        await self._converge_cache_budget()
+        if converge:
+            await self._converge_cache_budget()
 
     async def _lease_artifact(self, artifact_uri: str) -> tuple[str | None, list[Path]]:
         """Pin and materialize one artifact, returning its releasable cache key."""
