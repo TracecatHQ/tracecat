@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -917,6 +918,81 @@ class TestEdgeCases:
 
         assert not out.exists()
         assert not (tmp_path / "out.bin.part").exists()
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_cancellation_rejoins_active_write(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Cancellation cannot unlink a partial file under an active writer."""
+        write_started = threading.Event()
+        write_release = threading.Event()
+        write_finished = threading.Event()
+        temp_path = tmp_path / "out.bin.part"
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"partial"
+
+        class BlockingFile:
+            async def __aenter__(self):
+                temp_path.touch()
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                del exc_type, exc, traceback
+
+            async def write(self, chunk: bytes) -> int:
+                def blocking_write() -> int:
+                    write_started.set()
+                    write_release.wait()
+                    temp_path.write_bytes(chunk)
+                    write_finished.set()
+                    return len(chunk)
+
+                return await asyncio.to_thread(blocking_write)
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), len(b"partial")
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.blob.aiofiles.open",
+            lambda *args, **kwargs: BlockingFile(),
+        )
+
+        out = tmp_path / "out.bin"
+        download = asyncio.create_task(
+            download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+            )
+        )
+        try:
+            assert await asyncio.to_thread(write_started.wait, 1.0)
+
+            download.cancel()
+            await asyncio.sleep(0)
+            assert not download.done()
+            assert temp_path.exists()
+
+            download.cancel()
+            await asyncio.sleep(0)
+            assert not download.done()
+            assert temp_path.exists()
+        finally:
+            write_release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await download
+
+        assert write_finished.is_set()
+        assert not out.exists()
+        assert not temp_path.exists()
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

@@ -785,6 +785,29 @@ async def download_file_to_path(
     hasher = hashlib.sha256() if expected_sha256 is not None else None
     bytes_written = 0
 
+    async def write_chunk_rejoin_on_cancel(file, chunk: bytes) -> None:
+        """Write one chunk without abandoning the aiofiles worker thread."""
+        writer = asyncio.ensure_future(file.write(chunk))
+        try:
+            await asyncio.shield(writer)
+        except asyncio.CancelledError:
+            # aiofiles delegates writes to a thread that cannot be killed. Keep
+            # the partial file live until the worker stops touching it, even if
+            # the caller is cancelled repeatedly while cleanup is in progress.
+            while not writer.done():
+                try:
+                    await asyncio.shield(writer)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not writer.cancelled():
+                try:
+                    writer.result()
+                except Exception:
+                    pass
+            raise
+
     try:
         async with open_download_stream(key=key, bucket=bucket) as (
             stream,
@@ -830,7 +853,7 @@ async def download_file_to_path(
                         )
                     if hasher is not None:
                         hasher.update(chunk)
-                    await f.write(chunk)
+                    await write_chunk_rejoin_on_cancel(f, chunk)
 
         if hasher is not None:
             actual_sha256 = hasher.hexdigest()
