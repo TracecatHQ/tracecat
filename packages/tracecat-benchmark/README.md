@@ -30,6 +30,48 @@ Run the package-local test suite with:
 uv run --all-packages pytest packages/tracecat-benchmark/tests
 ```
 
+## Existing OrbStack Kubernetes deployment
+
+Use the Kubernetes adapter to benchmark the already-running local deployment
+without changing its Helm values or resource requests. The adapter requires the
+active context to be exactly `orbstack` and checks that the API, workflow
+worker, and executor deployments are available before it creates fixtures or
+submits load.
+
+Resolve or create the synthetic workspace, then run a small one-shot workload:
+
+```bash
+export TRACECAT_LOADTEST_EMAIL='benchmark@tracecat.example'
+export TRACECAT_LOADTEST_PASSWORD='<local synthetic password>'
+
+benchmark_workspace_id="$(
+  uv run --all-packages tracecat-benchmark-kubernetes -- \
+    --bootstrap-workspace
+)"
+
+uv run --all-packages tracecat-benchmark-kubernetes -- \
+  --workspace-id "$benchmark_workspace_id" \
+  --run-id orbstack-smoke \
+  --case-id orbstack-smoke \
+  --load-type bulk \
+  --workflow-count 2 \
+  --branch-count 4 \
+  --ramp-seconds 0 \
+  --steady-state-seconds 0 \
+  --one-shot
+```
+
+The adapter uses `https://tracecat.k8s.orb.local/api` by default and loads the
+OrbStack development CA from the macOS keychain for normal TLS verification.
+Pass wrapper options before `--` (for example, `--context` or `--namespace`)
+and runner options after it. Supply credentials for a synthetic user that
+already has permission to create or use the selected workspace. This mode
+exercises the public API and writes scenario, execution, and latency artifacts.
+Its scenario records
+`"evidence_mode": "runner_only"`: it does not claim the PostgreSQL, Temporal,
+container, SQLAlchemy, or direct row-correctness evidence produced by the
+Compose-only collector.
+
 ## Scatter burst matrix
 
 `tracecat_benchmark/examples/scatter-burst.csv` defines a two-by-two burst

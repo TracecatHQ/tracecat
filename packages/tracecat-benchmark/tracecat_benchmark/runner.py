@@ -18,6 +18,11 @@ available for harness development and diagnosis:
         --workflow-count 8 --branch-count 64 \\
         --ramp-seconds 30 --steady-state-seconds 120
 
+Use ``--existing-deployment`` to exercise an already-running deployment such
+as a Kubernetes cluster. That mode deliberately emits runner evidence only;
+the Compose collector and its PostgreSQL, Temporal, and container metrics are
+not available.
+
 The PostgreSQL scatter plan is the first experiment built on this runner.
 """
 
@@ -32,6 +37,7 @@ import math
 import os
 import re
 import signal
+import ssl
 import subprocess
 import sys
 import time
@@ -863,6 +869,17 @@ def render_summary(scenario: ScenarioConfig, summary: RunSummary) -> str:
     def fmt(value: float | None) -> str:
         return f"{value:.3f}s" if value is not None else "n/a"
 
+    row_evidence_lines = (
+        [
+            "  actual row counts are recorded by the metric collector, which holds the",
+            "  direct PostgreSQL connection.",
+        ]
+        if scenario.evidence_mode == "compose_collector"
+        else [
+            "  actual row correctness is unavailable in runner-only evidence;",
+            "  completed workflow status is not a direct PostgreSQL row count.",
+        ]
+    )
     lines = [
         "=== Tracecat workflow load test ===",
         f"run id                 {summary.run_id}",
@@ -892,8 +909,7 @@ def render_summary(scenario: ScenarioConfig, summary: RunSummary) -> str:
         f"(from {summary.completed} completed workflows)",
         f"submitted-row target   {summary.submitted_row_target} "
         f"(if all {summary.submitted} submitted workflows succeed)",
-        "  actual row counts are recorded by the metric collector, which holds the",
-        "  direct PostgreSQL connection.",
+        *row_evidence_lines,
         "",
         f"first failure at       {fmt(summary.first_failure_at)}",
         f"aborted by signal      {summary.aborted_by_signal}",
@@ -926,6 +942,19 @@ def build_parser() -> argparse.ArgumentParser:
             "Number of the cluster selected for this run. Required outside "
             "--bootstrap-workspace and matched against collector readiness."
         ),
+    )
+    parser.add_argument(
+        "--existing-deployment",
+        action="store_true",
+        help=(
+            "Target an already-running deployment through its public API. "
+            "Skips Compose collector readiness and emits runner-only evidence."
+        ),
+    )
+    parser.add_argument(
+        "--tls-ca-file",
+        default=None,
+        help="PEM CA bundle used to verify the selected deployment's HTTPS API.",
     )
     parser.add_argument(
         "--email",
@@ -1042,6 +1071,17 @@ async def amain(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
     repo_root = resolve_repository_root()
 
+    tls_verify: ssl.SSLContext | bool = True
+    if args.tls_ca_file is not None:
+        tls_ca_file = Path(args.tls_ca_file)
+        if not tls_ca_file.is_file():
+            print("--tls-ca-file must name a readable file", file=sys.stderr)
+            return 2
+        try:
+            tls_verify = ssl.create_default_context(cafile=tls_ca_file)
+        except (OSError, ssl.SSLError) as exc:
+            print(f"--tls-ca-file could not be loaded: {exc}", file=sys.stderr)
+            return 2
     if args.max_connections <= 0:
         print("--max-connections must be positive", file=sys.stderr)
         return 2
@@ -1053,6 +1093,7 @@ async def amain(argv: list[str]) -> int:
                 args.base_url,
                 api_key=api_key,
                 max_connections=args.max_connections,
+                verify=tls_verify,
             ) as client:
                 if api_key is None:
                     await client.login(args.email, password)
@@ -1061,7 +1102,7 @@ async def amain(argv: list[str]) -> int:
                     args.workspace_id,
                     args.workspace_name,
                 )
-        except ApiError as exc:
+        except (ApiError, httpx.HTTPError) as exc:
             print(f"Workspace bootstrap API error: {exc}", file=sys.stderr)
             return 2
         print(workspace_id)
@@ -1086,11 +1127,12 @@ async def amain(argv: list[str]) -> int:
                 args.base_url,
                 api_key=api_key,
                 max_connections=args.max_connections,
+                verify=tls_verify,
             ) as client:
                 if api_key is None:
                     await client.login(args.email, password)
                 table_name = await reset_fixture_table(client, workspace_id)
-        except (ApiError, FixtureError) as exc:
+        except (ApiError, FixtureError, httpx.HTTPError) as exc:
             print(f"Fixture reset error: {exc}", file=sys.stderr)
             return 2
         print(
@@ -1149,10 +1191,18 @@ async def amain(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.cluster_num is None or not 1 <= args.cluster_num <= 99:
+    if args.existing_deployment and args.cluster_num is not None:
+        print(
+            "--cluster-num cannot be used with --existing-deployment",
+            file=sys.stderr,
+        )
+        return 2
+    if not args.existing_deployment and (
+        args.cluster_num is None or not 1 <= args.cluster_num <= 99
+    ):
         print(
             "--cluster-num must be between 1 and 99 unless "
-            "--bootstrap-workspace is used",
+            "--bootstrap-workspace or --existing-deployment is used",
             file=sys.stderr,
         )
         return 2
@@ -1174,6 +1224,13 @@ async def amain(argv: list[str]) -> int:
         if args.activity_metrics_handoff is not None
         else None
     )
+    if args.existing_deployment and activity_metrics_handoff is not None:
+        print(
+            "--activity-metrics-handoff cannot be used with "
+            "--existing-deployment because no collector is running",
+            file=sys.stderr,
+        )
+        return 2
     if activity_metrics_handoff is not None and activity_metrics_handoff.exists():
         print(
             "Activity metrics handoff already exists; refusing to overwrite it",
@@ -1208,14 +1265,22 @@ async def amain(argv: list[str]) -> int:
         installed_signals.append(sig)
 
     try:
-        await _wait_for_collector_ready(
-            artifact_dir,
-            run_id,
-            args.collector_ready_timeout_seconds,
-            cluster_num=args.cluster_num,
-            public_api_url=public_api_url,
-            workspace_id=expected_workspace_id,
-        )
+        if args.existing_deployment:
+            print(
+                "Existing-deployment mode: Compose collector disabled; "
+                "artifacts contain runner evidence only.",
+                file=sys.stderr,
+            )
+        else:
+            assert args.cluster_num is not None
+            await _wait_for_collector_ready(
+                artifact_dir,
+                run_id,
+                args.collector_ready_timeout_seconds,
+                cluster_num=args.cluster_num,
+                public_api_url=public_api_url,
+                workspace_id=expected_workspace_id,
+            )
 
         api_key = os.environ.get(args.api_key_env) or None
         password = os.environ.get(args.password_env) or DEFAULT_PASSWORD
@@ -1230,6 +1295,7 @@ async def amain(argv: list[str]) -> int:
             api_key=auth.api_key,
             max_connections=args.max_connections,
             execution_poll_interval_seconds=args.poll_interval_seconds,
+            verify=tls_verify,
         ) as client:
             if auth.api_key is None:
                 if auth.password is None:
@@ -1271,6 +1337,9 @@ async def amain(argv: list[str]) -> int:
                 started_at=_utc_now_iso(),
                 auth_mode="api_key" if auth.api_key else "password",
                 abort_stops_polling=args.abort_stops_polling,
+                evidence_mode=(
+                    "runner_only" if args.existing_deployment else "compose_collector"
+                ),
                 case_id=args.case_id,
             )
 
@@ -1354,6 +1423,9 @@ async def amain(argv: list[str]) -> int:
         return 2
     except ApiError as exc:
         print(f"API error: {exc}", file=sys.stderr)
+        return 2
+    except httpx.HTTPError as exc:
+        print(f"API transport error: {exc}", file=sys.stderr)
         return 2
     finally:
         writer.close()

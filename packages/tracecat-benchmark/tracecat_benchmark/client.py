@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import ssl
 import time
 from typing import Any, Final, Self, TypedDict
 
@@ -116,6 +117,7 @@ class TracecatClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         max_connections: int = 200,
         execution_poll_interval_seconds: float = 1.0,
+        verify: ssl.SSLContext | bool = True,
     ) -> None:
         if (
             not math.isfinite(execution_poll_interval_seconds)
@@ -135,6 +137,7 @@ class TracecatClient:
                 keepalive_expiry=30.0,
             ),
             follow_redirects=True,
+            verify=verify,
         )
         # Shared execution-status snapshot so N concurrent pollers cost one
         # paginated search per interval instead of N per-execution reads. The

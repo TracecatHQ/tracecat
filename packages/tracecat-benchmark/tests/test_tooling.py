@@ -24,6 +24,7 @@ from temporalio.api.workflowservice.v1 import (
 from temporalio.client import Client as TemporalClient
 from tracecat_benchmark import collector as collector_module
 from tracecat_benchmark import fixtures as fixtures_module
+from tracecat_benchmark import kubernetes as kubernetes_module
 from tracecat_benchmark import matrix as matrix_module
 from tracecat_benchmark import provision_monitor as provision_monitor_module
 from tracecat_benchmark import runner as runner_module
@@ -1319,6 +1320,32 @@ def test_sustained_summary_targets_actual_submissions(tmp_path: Path) -> None:
     assert "target 1 at full success" not in rendered
 
 
+def test_runner_only_summary_does_not_claim_row_correctness(tmp_path: Path) -> None:
+    writer = JsonLinesWriter(tmp_path / "runner.jsonl")
+    runner = LoadRunner(
+        cast(TracecatClient, object()),
+        replace(
+            _scenario_config(
+                tmp_path,
+                warmup=False,
+                workflow_count=1,
+                one_shot=True,
+            ),
+            evidence_mode="runner_only",
+        ),
+        "workflow-1",
+        writer,
+    )
+    runner._started_monotonic = time.monotonic()
+    try:
+        rendered = render_summary(runner._scenario, runner.summarize())
+    finally:
+        writer.close()
+
+    assert "actual row correctness is unavailable in runner-only evidence" in rendered
+    assert "actual row counts are recorded by the metric collector" not in rendered
+
+
 def test_noop_summary_expects_no_fixture_rows(tmp_path: Path) -> None:
     writer = JsonLinesWriter(tmp_path / "runner.jsonl")
     runner = LoadRunner(
@@ -2527,6 +2554,80 @@ def test_runner_requires_target_binding_arguments(
     assert not (tmp_path / "scatter-test").exists()
 
 
+def test_runner_existing_deployment_does_not_require_cluster_number(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = asyncio.run(
+        runner_module.amain(
+            [
+                "--base-url",
+                "http://localhost/api",
+                "--run-id",
+                "scatter-test",
+                "--existing-deployment",
+                "--workspace-id",
+                "invalid",
+                "--artifact-root",
+                str(tmp_path),
+            ]
+        )
+    )
+
+    assert exit_code == 2
+    error = capsys.readouterr().err
+    assert "--workspace-id must be a valid workspace ID" in error
+    assert "--cluster-num must be between" not in error
+
+
+def test_runner_existing_deployment_rejects_collector_options(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = asyncio.run(
+        runner_module.amain(
+            [
+                "--base-url",
+                "http://localhost/api",
+                "--run-id",
+                "scatter-test",
+                "--existing-deployment",
+                "--workspace-id",
+                "00000000-0000-4000-8000-000000000000",
+                "--activity-metrics-handoff",
+                str(tmp_path / "handoff.json"),
+                "--artifact-root",
+                str(tmp_path),
+            ]
+        )
+    )
+
+    assert exit_code == 2
+    assert "no collector is running" in capsys.readouterr().err
+    assert not (tmp_path / run_id_fingerprint("scatter-test")).exists()
+
+
+def test_runner_existing_deployment_rejects_cluster_number(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = asyncio.run(
+        runner_module.amain(
+            [
+                "--base-url",
+                "http://localhost/api",
+                "--run-id",
+                "scatter-test",
+                "--existing-deployment",
+                "--cluster-num",
+                "1",
+            ]
+        )
+    )
+
+    assert exit_code == 2
+    assert "cannot be used with --existing-deployment" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("interval", ["0", "-0.1", "nan", "inf"])
 def test_runner_rejects_nonpositive_or_nonfinite_poll_interval(
     interval: str,
@@ -2669,6 +2770,84 @@ def test_scenario_artifacts_exclude_authentication_and_workspace_id(
         f"{ARTIFACT_ROOT_PLACEHOLDER}/{run_id_fingerprint('scatter-test')}"
     )
     assert str(tmp_path) not in json.dumps(payload)
+
+
+def test_existing_deployment_scenario_identifies_runner_only_evidence(
+    tmp_path: Path,
+) -> None:
+    scenario = replace(
+        _scenario_config(
+            tmp_path,
+            warmup=False,
+            workflow_count=1,
+            one_shot=True,
+        ),
+        cluster_num=None,
+        evidence_mode="runner_only",
+    )
+
+    payload = _scenario_artifact_payload(scenario)
+
+    assert payload["cluster_num"] is None
+    assert payload["evidence_mode"] == "runner_only"
+
+
+def test_kubernetes_adapter_defaults_to_orbstack_public_api() -> None:
+    arguments = kubernetes_module._prepare_runner_args(["--run-id", "orbstack-smoke"])
+
+    assert arguments[:2] == [
+        "--base-url",
+        "https://tracecat.k8s.orb.local/api",
+    ]
+    assert arguments[-1] == "--existing-deployment"
+
+
+def test_kubernetes_adapter_requires_url_for_another_context() -> None:
+    with pytest.raises(
+        kubernetes_module.KubernetesPreflightError,
+        match="--base-url is required",
+    ):
+        kubernetes_module._prepare_runner_args(
+            ["--run-id", "remote-smoke"],
+            default_api_url=None,
+        )
+
+
+def test_kubernetes_adapter_requires_exact_current_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        kubernetes_module,
+        "_run_kubectl",
+        lambda _arguments: "another-context",
+    )
+
+    with pytest.raises(
+        kubernetes_module.KubernetesPreflightError,
+        match="expected 'orbstack'",
+    ):
+        kubernetes_module.verify_kubernetes_target("orbstack", "tracecat")
+
+
+def test_kubernetes_adapter_checks_core_deployments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_kubectl(arguments: tuple[str, ...]) -> str:
+        calls.append(arguments)
+        return "orbstack" if arguments == ("config", "current-context") else ""
+
+    monkeypatch.setattr(kubernetes_module, "_run_kubectl", fake_kubectl)
+
+    kubernetes_module.verify_kubernetes_target("orbstack", "tracecat")
+
+    assert calls[0] == ("config", "current-context")
+    assert [call[-2] for call in calls[1:]] == [
+        "deployment/tracecat-api",
+        "deployment/tracecat-worker",
+        "deployment/tracecat-executor",
+    ]
 
 
 def test_artifact_references_redact_paths_outside_the_run_directory(

@@ -257,7 +257,7 @@ class ScenarioConfig:
 
     run_id: str
     base_url: str
-    cluster_num: int
+    cluster_num: int | None
     workspace_id: str
     load_type: LoadType
     workflow_count: int
@@ -277,6 +277,7 @@ class ScenarioConfig:
     started_at: str
     auth_mode: Literal["password", "api_key"]
     abort_stops_polling: bool
+    evidence_mode: Literal["compose_collector", "runner_only"] = "compose_collector"
     case_id: str | None = None
 
 

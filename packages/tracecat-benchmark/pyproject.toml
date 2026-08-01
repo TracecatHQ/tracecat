@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 tracecat-benchmark = "tracecat_benchmark.matrix:main"
+tracecat-benchmark-kubernetes = "tracecat_benchmark.kubernetes:main"
 tracecat-benchmark-viewer = "tracecat_benchmark.viewer:main"
 
 [tool.uv.sources]
