@@ -481,6 +481,9 @@ class TestRegistryArtifactMaterialization:
             assert cleanup_finished.is_set()
             assert first_cancellation_propagated_early is False
             assert second_cancellation_propagated_early is False
+            assert not cache.staging_dir.exists() or not any(
+                cache.staging_dir.iterdir()
+            )
 
         async def fail_tarball_extract(self, tarball_path, target_dir):
             del self, tarball_path

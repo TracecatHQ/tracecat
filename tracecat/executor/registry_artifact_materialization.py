@@ -584,8 +584,9 @@ class TarballArtifact(RegistryArtifact):
                 else:
                     raise
         finally:
-            await _remove_tree_rejoin_on_cancel(temp_dir)
-            if temp_tarball.exists():
+            try:
+                await _remove_tree_rejoin_on_cancel(temp_dir)
+            finally:
                 temp_tarball.unlink(missing_ok=True)
 
         return [target_dir]
