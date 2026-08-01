@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -891,6 +892,7 @@ class TestRegistryArtifactCacheBudget:
         mounted = {paths.squashfs_mount_dir}
 
         process = AsyncMock()
+        process.pid = 999_999_999
         process.communicate.return_value = (b"", b"")
         process.returncode = 0
 
@@ -910,6 +912,7 @@ class TestRegistryArtifactCacheBudget:
                 "create_subprocess_exec",
                 side_effect=mock_umount,
             ),
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             async with cache.lease([artifact_uri]) as registry_paths:
                 assert registry_paths == [paths.squashfs_mount_dir]
@@ -918,6 +921,7 @@ class TestRegistryArtifactCacheBudget:
             assert paths.squashfs_mount_dir not in mounted
 
         assert paths.squashfs_image_path.read_bytes() == b"squashfs"
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
         assert paths.squashfs_mount_dir.is_dir()
 
     @pytest.mark.anyio
