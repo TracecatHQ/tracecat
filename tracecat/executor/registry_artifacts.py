@@ -246,6 +246,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             except Exception as e:
                 if index == len(candidates) - 1:
                     raise
+                artifact.discard_failed_materialization(ctx)
                 logger.warning(
                     "Failed to materialize registry artifact candidate, trying fallback",
                     cache_key=cache_key,

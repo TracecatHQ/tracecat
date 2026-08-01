@@ -189,6 +189,57 @@ class TestRegistryArtifactCacheBudget:
         assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
 
     @pytest.mark.anyio
+    async def test_failed_squashfs_bytes_do_not_block_tarball_fallback(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """An unusable image cannot consume the tarball fallback's budget."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/site-packages.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        payload = tarball_payload(size=32)
+        max_bytes = len(payload) + 32
+
+        async def fail_after_squashfs_download(
+            self: SquashfsArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+        ) -> list[Path]:
+            del self
+            assert ctx.admission is not None
+            await ctx.admission.ensure_capacity(max_bytes)
+            ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
+            ctx.paths.squashfs_image_path.write_bytes(b"x" * max_bytes)
+            raise RuntimeError("unusable SquashFS image")
+
+        async def download_tarball(
+            self: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+            path: Path,
+        ) -> None:
+            del self
+            assert ctx.admission is not None
+            await ctx.admission.ensure_capacity(len(payload))
+            path.write_bytes(payload)
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 0),
+            patch(MAX_BYTES_CONFIG, max_bytes),
+            patch.object(
+                SquashfsArtifact,
+                "materialize",
+                fail_after_squashfs_download,
+            ),
+            patch.object(TarballArtifact, "download", download_tarball),
+        ):
+            async with cache.lease([artifact_uri]) as registry_paths:
+                assert registry_paths == [
+                    cache._paths_for(cache_key).tarball_target_dir
+                ]
+
+        paths = cache._paths_for(cache_key)
+        assert not paths.squashfs_image_path.exists()
+        assert (paths.tarball_target_dir / "module.py").read_bytes() == b"x" * 32
+
+    @pytest.mark.anyio
     async def test_squashfs_expansion_is_rejected_before_extraction(
         self, temp_cache_dir: Path
     ) -> None:

@@ -119,6 +119,12 @@ class RegistryArtifact(ABC):
     ) -> list[Path]:
         """Return importable Python paths, materializing the artifact if needed."""
 
+    def discard_failed_materialization(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> None:
+        """Discard canonical bytes that cannot serve a fallback candidate."""
+        del ctx
+
     def _temp_path(
         self,
         ctx: RegistryArtifactMaterializationContext,
@@ -203,6 +209,40 @@ class SquashfsArtifact(RegistryArtifact):
             )
             return [ctx.paths.squashfs_extract_dir]
         return None
+
+    def discard_failed_materialization(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> None:
+        """Remove an unusable image before admitting a tarball fallback."""
+        try:
+            if self.cached_path(ctx) is not None:
+                return
+        except OSError as e:
+            logger.warning(
+                "Cannot determine whether failed SquashFS candidate is reusable",
+                cache_key=ctx.cache_key,
+                artifact_uri=self.uri,
+                error=str(e),
+            )
+            return
+
+        try:
+            ctx.paths.squashfs_image_path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning(
+                "Failed to discard unusable SquashFS candidate",
+                cache_key=ctx.cache_key,
+                artifact_uri=self.uri,
+                error=str(e),
+            )
+
+        for directory in (
+            ctx.paths.squashfs_extract_dir,
+            ctx.paths.squashfs_mount_dir,
+            ctx.paths.entry_dir,
+        ):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
 
     async def materialize(
         self, ctx: RegistryArtifactMaterializationContext
