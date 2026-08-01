@@ -3710,11 +3710,16 @@ async def amain(argv: list[str]) -> int:
         (
             SdkMetricsEndpoint(
                 service="worker",
+                replica_index=1,
                 url=args.temporal_worker_metrics_url,
             ),
             *(
-                SdkMetricsEndpoint(service="executor", url=url)
-                for url in executor_metrics_urls
+                SdkMetricsEndpoint(
+                    service="executor",
+                    replica_index=replica_index,
+                    url=url,
+                )
+                for replica_index, url in enumerate(executor_metrics_urls, start=1)
             ),
         )
         if args.temporal_worker_metrics_url is not None and executor_metrics_urls

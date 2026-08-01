@@ -579,6 +579,7 @@ class SdkMetricsEndpoint:
     """One load-test-only Temporal SDK Prometheus endpoint."""
 
     service: Literal["worker", "executor"]
+    replica_index: int
     url: str
 
 

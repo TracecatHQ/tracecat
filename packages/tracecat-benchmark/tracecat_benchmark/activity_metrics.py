@@ -326,23 +326,6 @@ class PrometheusSnapshot:
     samples: dict[tuple[str, tuple[tuple[str, str], ...]], float]
 
 
-def _aggregate_prometheus_snapshots(
-    snapshots: Iterable[tuple[str, PrometheusSnapshot]],
-) -> dict[str, PrometheusSnapshot]:
-    """Sum process-local samples so scaled replicas remain one service series."""
-    aggregated: defaultdict[
-        str,
-        defaultdict[tuple[str, tuple[tuple[str, str], ...]], float],
-    ] = defaultdict(lambda: defaultdict(float))
-    for service, snapshot in snapshots:
-        for sample, value in snapshot.samples.items():
-            aggregated[service][sample] += value
-    return {
-        service: PrometheusSnapshot(samples=dict(samples))
-        for service, samples in aggregated.items()
-    }
-
-
 @dataclass(slots=True)
 class HistogramDeltaAccumulator:
     """Prometheus histogram components after baseline subtraction."""
@@ -350,6 +333,14 @@ class HistogramDeltaAccumulator:
     count: float = 0.0
     sum_value: float = 0.0
     buckets: dict[float, float] = field(default_factory=dict)
+    counter_reset_detected: bool = False
+
+
+@dataclass(slots=True)
+class CounterDeltaAccumulator:
+    """Prometheus counter delta summed after process-local subtraction."""
+
+    count: float = 0.0
     counter_reset_detected: bool = False
 
 
@@ -846,8 +837,8 @@ def _labels_without_bucket(
 
 
 def build_temporal_sdk_metrics(
-    baseline: dict[str, PrometheusSnapshot],
-    final: dict[str, PrometheusSnapshot],
+    baseline: dict[SdkMetricsEndpoint, PrometheusSnapshot],
+    final: dict[SdkMetricsEndpoint, PrometheusSnapshot],
     *,
     measurement_window_seconds: float,
 ) -> TemporalSdkMetrics:
@@ -861,31 +852,32 @@ def build_temporal_sdk_metrics(
         tuple[str, str, tuple[tuple[str, str], ...]],
         HistogramDeltaAccumulator,
     ] = {}
-    counters: list[SdkCounterDelta] = []
-    for service, final_snapshot in final.items():
-        baseline_samples = baseline.get(service, PrometheusSnapshot(samples={})).samples
+    counter_accumulators: dict[
+        tuple[str, str, tuple[tuple[str, str], ...]],
+        CounterDeltaAccumulator,
+    ] = {}
+    for endpoint, final_snapshot in final.items():
+        baseline_samples = baseline.get(
+            endpoint, PrometheusSnapshot(samples={})
+        ).samples
         for (metric, labels), final_value in final_snapshot.samples.items():
             base_metric = _base_metric_name(metric)
             baseline_value = baseline_samples.get((metric, labels), 0.0)
             delta, reset = _subtract_monotonic(final_value, baseline_value)
             if base_metric in SDK_ACTIVITY_COUNTERS:
                 if metric.endswith("_total") or metric == base_metric:
-                    counters.append(
-                        SdkCounterDelta(
-                            service=cast(Literal["worker", "executor"], service),
-                            metric=base_metric,
-                            labels=_sanitize_prometheus_labels(labels),
-                            count=delta,
-                            rate_per_second=delta / measurement_window_seconds,
-                            counter_reset_detected=reset,
-                        )
+                    key = (endpoint.service, base_metric, labels)
+                    accumulator = counter_accumulators.setdefault(
+                        key, CounterDeltaAccumulator()
                     )
+                    accumulator.count += delta
+                    accumulator.counter_reset_detected |= reset
                 continue
             if base_metric not in SDK_ACTIVITY_HISTOGRAMS:
                 continue
 
             group_labels = _labels_without_bucket(labels)
-            key = (service, base_metric, group_labels)
+            key = (endpoint.service, base_metric, group_labels)
             accumulator = histograms.setdefault(key, HistogramDeltaAccumulator())
             accumulator.counter_reset_detected |= reset
             if metric.endswith("_bucket"):
@@ -896,11 +888,27 @@ def build_temporal_sdk_metrics(
                     upper_bound = float(raw_bound)
                 except ValueError:
                     continue
-                accumulator.buckets[upper_bound] = delta
+                accumulator.buckets[upper_bound] = (
+                    accumulator.buckets.get(upper_bound, 0.0) + delta
+                )
             elif metric.endswith("_count"):
-                accumulator.count = delta
+                accumulator.count += delta
             elif metric.endswith("_sum"):
-                accumulator.sum_value = delta
+                accumulator.sum_value += delta
+
+    counters = [
+        SdkCounterDelta(
+            service=cast(Literal["worker", "executor"], service),
+            metric=metric,
+            labels=_sanitize_prometheus_labels(labels),
+            count=accumulator.count,
+            rate_per_second=accumulator.count / measurement_window_seconds,
+            counter_reset_detected=accumulator.counter_reset_detected,
+        )
+        for (service, metric, labels), accumulator in sorted(
+            counter_accumulators.items()
+        )
+    ]
 
     histogram_rows = [
         SdkHistogramDelta(
@@ -953,13 +961,13 @@ class TemporalSdkMetricsCapture:
 
     def __init__(self, endpoints: tuple[SdkMetricsEndpoint, ...]) -> None:
         self._endpoints = endpoints
-        self._baseline: dict[str, PrometheusSnapshot] | None = None
-        self._final: dict[str, PrometheusSnapshot] | None = None
+        self._baseline: dict[SdkMetricsEndpoint, PrometheusSnapshot] | None = None
+        self._final: dict[SdkMetricsEndpoint, PrometheusSnapshot] | None = None
 
     async def _fetch_endpoint(
         self,
         endpoint: SdkMetricsEndpoint,
-    ) -> tuple[str, PrometheusSnapshot]:
+    ) -> tuple[SdkMetricsEndpoint, PrometheusSnapshot]:
         try:
             async with httpx.AsyncClient(timeout=PROMETHEUS_TIMEOUT_SECONDS) as client:
                 response = await client.get(endpoint.url)
@@ -968,7 +976,7 @@ class TemporalSdkMetricsCapture:
             raise ActivityMetricsCaptureError(
                 f"Temporal SDK metrics endpoint for {endpoint.service} is unavailable"
             ) from exc
-        return endpoint.service, parse_temporal_sdk_metrics(response.text)
+        return endpoint, parse_temporal_sdk_metrics(response.text)
 
     async def validate(
         self,
@@ -1007,7 +1015,7 @@ class TemporalSdkMetricsCapture:
         snapshots = await asyncio.gather(
             *(self._fetch_endpoint(endpoint) for endpoint in self._endpoints)
         )
-        self._baseline = _aggregate_prometheus_snapshots(snapshots)
+        self._baseline = dict(snapshots)
 
     async def capture_final(self) -> None:
         if not self._endpoints:
@@ -1016,7 +1024,7 @@ class TemporalSdkMetricsCapture:
         snapshots = await asyncio.gather(
             *(self._fetch_endpoint(endpoint) for endpoint in self._endpoints)
         )
-        self._final = _aggregate_prometheus_snapshots(snapshots)
+        self._final = dict(snapshots)
 
     async def capture_delta(
         self,

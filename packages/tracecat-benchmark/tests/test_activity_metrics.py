@@ -25,13 +25,13 @@ from temporalio.api.history.v1 import (
 from temporalio.api.taskqueue.v1 import TaskQueue
 from temporalio.client import Client as TemporalClient
 from tracecat_benchmark.activity_metrics import (
-    _aggregate_prometheus_snapshots,
     build_temporal_sdk_metrics,
     collect_activity_history_metrics,
     parse_temporal_sdk_metrics,
 )
 from tracecat_benchmark.models import (
     ActivityMetricsHandoff,
+    SdkMetricsEndpoint,
     deployment_value_fingerprint,
     run_id_fingerprint,
 )
@@ -313,8 +313,8 @@ def test_sdk_metric_delta_reports_retry_aware_histograms_without_raw_queues() ->
     )
 
     report = build_temporal_sdk_metrics(
-        {"executor": baseline},
-        {"executor": final},
+        {SdkMetricsEndpoint("executor", 1, "http://executor-1/metrics"): baseline},
+        {SdkMetricsEndpoint("executor", 1, "http://executor-1/metrics"): final},
         measurement_window_seconds=10.0,
     )
 
@@ -331,20 +331,37 @@ def test_sdk_metric_delta_reports_retry_aware_histograms_without_raw_queues() ->
     assert deployment_value_fingerprint("executor-queue") in serialized
 
 
-def test_sdk_metric_snapshots_sum_scaled_service_replicas() -> None:
-    first = parse_temporal_sdk_metrics(
-        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 2'
+def test_sdk_metric_deltas_subtract_before_summing_scaled_replicas() -> None:
+    first_baseline = parse_temporal_sdk_metrics(
+        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 100'
     )
-    second = parse_temporal_sdk_metrics(
-        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 3'
+    first_final = parse_temporal_sdk_metrics(
+        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 20'
+    )
+    second_baseline = parse_temporal_sdk_metrics(
+        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 100'
+    )
+    second_final = parse_temporal_sdk_metrics(
+        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 190'
+    )
+    first_endpoint = SdkMetricsEndpoint("executor", 1, "http://executor-1/metrics")
+    second_endpoint = SdkMetricsEndpoint("executor", 2, "http://executor-2/metrics")
+
+    report = build_temporal_sdk_metrics(
+        {
+            first_endpoint: first_baseline,
+            second_endpoint: second_baseline,
+        },
+        {
+            first_endpoint: first_final,
+            second_endpoint: second_final,
+        },
+        measurement_window_seconds=10.0,
     )
 
-    snapshots = _aggregate_prometheus_snapshots(
-        (("executor", first), ("executor", second))
-    )
-
-    assert len(snapshots) == 1
-    assert tuple(snapshots["executor"].samples.values()) == (5.0,)
+    assert len(report["counters"]) == 1
+    assert report["counters"][0]["count"] == 110
+    assert report["counters"][0]["counter_reset_detected"] is True
 
 
 def test_measurement_boundary_waits_for_collector_acknowledgement(
