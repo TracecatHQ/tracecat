@@ -105,8 +105,8 @@ def _directory_footprint(
         directory: Cache directory to measure.
 
     Returns:
-        Total allocated bytes of contained inodes, or zero when the directory is
-        missing.
+        Total allocated bytes of unique contained inodes, or zero when the
+        directory is missing.
     """
 
     def raise_walk_error(error: OSError) -> None:
@@ -116,21 +116,29 @@ def _directory_footprint(
         allocation_unit = _filesystem_allocation_unit(directory)
 
     total_bytes = 0
+    seen_inodes: set[tuple[int, int]] = set()
+
+    def allocated_inode_size(file_stat: os.stat_result) -> int:
+        inode_key = (file_stat.st_dev, file_stat.st_ino)
+        if inode_key in seen_inodes:
+            return 0
+        seen_inodes.add(inode_key)
+        return _allocated_stat_size(
+            file_stat,
+            allocation_unit=allocation_unit,
+        )
+
     try:
         walker = os.walk(directory, onerror=raise_walk_error)
         for root, dirs, files in walker:
             try:
-                total_bytes += _allocated_stat_size(
-                    os.lstat(root),
-                    allocation_unit=allocation_unit,
-                )
+                total_bytes += allocated_inode_size(os.lstat(root))
             except FileNotFoundError:
                 continue
             for file_name in files:
                 try:
-                    total_bytes += _allocated_stat_size(
-                        os.lstat(os.path.join(root, file_name)),
-                        allocation_unit=allocation_unit,
+                    total_bytes += allocated_inode_size(
+                        os.lstat(os.path.join(root, file_name))
                     )
                 except FileNotFoundError:
                     continue
@@ -140,10 +148,7 @@ def _directory_footprint(
                 except FileNotFoundError:
                     continue
                 if stat.S_ISLNK(directory_stat.st_mode):
-                    total_bytes += _allocated_stat_size(
-                        directory_stat,
-                        allocation_unit=allocation_unit,
-                    )
+                    total_bytes += allocated_inode_size(directory_stat)
     except FileNotFoundError:
         return 0
     return total_bytes

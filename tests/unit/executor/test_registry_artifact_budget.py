@@ -69,6 +69,22 @@ class TestRegistryArtifactCacheBudget:
 
         assert allocated_size.call_count == 3
 
+    def test_directory_footprint_counts_hard_linked_inode_once(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        payload = temp_cache_dir / "payload"
+        payload.write_text("x")
+        os.link(payload, temp_cache_dir / "payload-link")
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._allocated_stat_size",
+            return_value=4096,
+        ) as allocated_size:
+            assert _directory_footprint(temp_cache_dir) == 2 * 4096
+
+        assert allocated_size.call_count == 2
+
     @pytest.mark.anyio
     async def test_admission_rounds_download_reservation_to_allocation_unit(
         self,
