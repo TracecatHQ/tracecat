@@ -68,3 +68,36 @@ async def test_repeated_cancellation_rejoins_process_group_cleanup() -> None:
 
     assert termination_finished.is_set()
     assert fake_process.communicate_finished.is_set()
+
+
+@pytest.mark.anyio
+async def test_cleanup_failure_preserves_caller_cancellation() -> None:
+    """A failed process cleanup remains context for the caller cancellation."""
+    fake_process = _BlockingProcess()
+    process = cast(asyncio.subprocess.Process, fake_process)
+    termination_started = asyncio.Event()
+    finish_termination = asyncio.Event()
+
+    async def failing_termination(
+        requested_process: asyncio.subprocess.Process,
+    ) -> None:
+        assert requested_process is process
+        termination_started.set()
+        await finish_termination.wait()
+        raise RuntimeError("process cleanup failed")
+
+    with patch(
+        "tracecat.sandbox.utils.terminate_process_group",
+        side_effect=failing_termination,
+    ):
+        communication = asyncio.create_task(communicate_process_group(process))
+        await fake_process.communicate_started.wait()
+        communication.cancel()
+        await termination_started.wait()
+        finish_termination.set()
+
+        with pytest.raises(asyncio.CancelledError) as raised:
+            await communication
+
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert fake_process.communicate_finished.is_set()

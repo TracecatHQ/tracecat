@@ -71,8 +71,12 @@ async def _rejoin_cleanup_through_cancellation(
                 raise
             pending_cancellation = e
 
-    if not cleanup_task.cancelled():
+    try:
         cleanup_task.result()
+    except BaseException as cleanup_error:
+        if pending_cancellation is not None:
+            raise pending_cancellation from cleanup_error
+        raise
     if pending_cancellation is not None:
         raise pending_cancellation
 
@@ -95,6 +99,7 @@ async def communicate_process_group(
     """
     communicate_task = asyncio.create_task(process.communicate(input=input))
     termination_task: asyncio.Task[None] | None = None
+    operation_error: BaseException | None = None
     try:
         async with asyncio.timeout(timeout):
             while process.returncode is None:
@@ -102,6 +107,9 @@ async def communicate_process_group(
             termination_task = asyncio.create_task(terminate_process_group(process))
             await asyncio.shield(termination_task)
             stdout, stderr = await communicate_task
+    except BaseException as e:
+        operation_error = e
+        raise
     finally:
         cleanup_task = asyncio.create_task(
             _finish_process_group_cleanup(
@@ -110,7 +118,12 @@ async def communicate_process_group(
                 termination_task,
             )
         )
-        await _rejoin_cleanup_through_cancellation(cleanup_task)
+        try:
+            await _rejoin_cleanup_through_cancellation(cleanup_task)
+        except BaseException as cleanup_error:
+            if operation_error is not None:
+                raise operation_error from cleanup_error
+            raise
 
     if stdout is None or stderr is None:
         raise RuntimeError("Captured stdout and stderr are required")
