@@ -42,6 +42,7 @@ from tracecat_benchmark.collector import (
     MetricCollector,
     PgSampler,
     TemporalSampler,
+    _application_name_artifact_label,
     _redact_compose_config,
     _resolve_log_services,
     _workspace_schema_name,
@@ -116,6 +117,24 @@ def test_warmup_uses_distinct_run_id() -> None:
     assert _run_id_for_phase(run_id, Phase.WARMUP) == "scatter-test-warmup"
     assert _run_id_for_phase(run_id, Phase.RAMP) == run_id
     assert _run_id_for_phase(run_id, Phase.SUSTAIN) == run_id
+
+
+@pytest.mark.parametrize(
+    "application_name",
+    ["api", "worker-auth", "load-test-collector", "unknown"],
+)
+def test_fixed_postgres_application_names_remain_attributable(
+    application_name: str,
+) -> None:
+    assert _application_name_artifact_label(application_name) == application_name
+
+
+def test_unrecognized_postgres_application_names_are_fingerprinted() -> None:
+    application_name = "customer-derived-client-label"
+
+    assert _application_name_artifact_label(
+        application_name
+    ) == deployment_value_fingerprint(application_name)
 
 
 @pytest.mark.parametrize(

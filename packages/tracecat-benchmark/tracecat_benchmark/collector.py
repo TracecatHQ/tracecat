@@ -138,6 +138,27 @@ SANDBOX_COMPOSE_FILE: Final = "docker-compose.sandbox.yml"
 REDACTED_ENV_VALUE: Final = "[REDACTED]"
 REDACTED_PATH_VALUE: Final = "[REDACTED_PATH]"
 RUN_CLAIM_FILENAME: Final = "collector_claim.json"
+_TRACECAT_APPLICATION_NAMES: Final = frozenset(
+    {
+        "api",
+        "worker",
+        "executor",
+        "agent-worker",
+        "litellm",
+        "agent-executor",
+        "mcp",
+    }
+)
+KNOWN_APPLICATION_NAMES: Final = frozenset(
+    {
+        "unknown",
+        "load-test-collector",
+        "load-test-monitor-provisioner",
+        "load-test-probe",
+        *_TRACECAT_APPLICATION_NAMES,
+        *(f"{name}-auth" for name in _TRACECAT_APPLICATION_NAMES),
+    }
+)
 # A real ``docker stats --no-stream`` snapshot routinely takes just over two
 # seconds on Docker Desktop. Keep resource sampling independent from the
 # requested PostgreSQL/Temporal cadence and retain enough headroom to
@@ -385,6 +406,14 @@ FROM pg_stat_activity
 WHERE backend_type = 'client backend'
 GROUP BY 1
 """
+
+
+def _application_name_artifact_label(application_name: str) -> str:
+    """Retain fixed harness labels and fingerprint every other client label."""
+    if application_name in KNOWN_APPLICATION_NAMES:
+        return application_name
+    return deployment_value_fingerprint(application_name)
+
 
 DATABASE_COUNTERS_SQL: Final = """
 SELECT
@@ -1024,7 +1053,10 @@ class PgSampler:
             waiting=int(activity["waiting"]),
             wait_events={str(r["event"]): int(r["sessions"]) for r in wait_rows},
             application_names={
-                str(r["application_name"]): int(r["sessions"]) for r in app_rows
+                _application_name_artifact_label(str(r["application_name"])): int(
+                    r["sessions"]
+                )
+                for r in app_rows
             },
             longest_transaction_seconds=(
                 float(activity["longest_txn"])
