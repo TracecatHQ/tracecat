@@ -204,13 +204,14 @@ services:
     mem_limit: ${TRACECAT__LOADTEST_EXECUTOR_MEMORY:-0}
     memswap_limit: ${TRACECAT__LOADTEST_EXECUTOR_MEMORY:-0}
     volumes:
-      # This is a runtime cache, so image copy-up is unnecessary. Disabling it
-      # also prevents scaled executors from racing to populate the new volume.
+      # Preserve the image directory's apiuser ownership when Docker creates
+      # the shared cache volume. A nocopy volume is root-owned and prevents the
+      # executor from creating its package and uv cache directories.
       - type: volume
         source: sandbox-cache
         target: /var/lib/tracecat/sandbox-cache
         volume:
-          nocopy: true
+          nocopy: false
     ports:
       # Compose assigns one port from this range to each scaled executor.
       # The matrix resolves every mapping with `docker compose port --index`.
@@ -278,7 +279,7 @@ services:
         source: sandbox-cache
         target: /var/lib/tracecat/sandbox-cache
         volume:
-          nocopy: true
+          nocopy: false
     environment:
       TRACECAT__DB_POOL_SIZE: ${TRACECAT__LOADTEST_AGENT_EXECUTOR_DB_POOL_SIZE:-2}
       TRACECAT__DB_MAX_OVERFLOW: ${TRACECAT__LOADTEST_AGENT_EXECUTOR_DB_MAX_OVERFLOW:-0}

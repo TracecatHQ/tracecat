@@ -46,7 +46,7 @@ def test_loadtest_override_bounds_executor_database_fanout() -> None:
     for service_name in ("executor", "agent-executor"):
         sandbox_cache = compose["services"][service_name]["volumes"][0]
         assert sandbox_cache["target"] == "/var/lib/tracecat/sandbox-cache"
-        assert sandbox_cache["volume"]["nocopy"] is True
+        assert sandbox_cache["volume"]["nocopy"] is False
 
 
 def test_pgdog_override_routes_long_lived_services_through_transaction_pool() -> None:
