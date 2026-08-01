@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import tarfile
 import threading
 from pathlib import Path
@@ -442,6 +443,105 @@ class TestRegistryArtifactMaterialization:
         assert first_cancellation_propagated_early is False
         assert second_cancellation_propagated_early is False
         extract.assert_not_awaited()
+
+    @pytest.mark.parametrize("artifact_format", ["squashfs", "tarball"])
+    @pytest.mark.anyio
+    async def test_repeatedly_cancelled_partial_cleanup_rejoins_thread(
+        self,
+        temp_cache_dir,
+        artifact_format: str,
+    ):
+        """Large partial environments are deleted off-loop before cancellation."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cleanup_started = threading.Event()
+        cleanup_release = threading.Event()
+        cleanup_finished = threading.Event()
+        real_rmtree = shutil.rmtree
+
+        def blocking_rmtree(path: Path, *, ignore_errors: bool = False) -> None:
+            cleanup_started.set()
+            cleanup_release.wait()
+            real_rmtree(path, ignore_errors=ignore_errors)
+            cleanup_finished.set()
+
+        async def assert_cleanup(task: asyncio.Task[list[Path]]) -> None:
+            assert await asyncio.to_thread(cleanup_started.wait, 1)
+            task.cancel()
+            done, _ = await asyncio.wait({task}, timeout=0.05)
+            first_cancellation_propagated_early = bool(done)
+
+            task.cancel()
+            done, _ = await asyncio.wait({task}, timeout=0.05)
+            second_cancellation_propagated_early = bool(done)
+            cleanup_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            assert cleanup_finished.is_set()
+            assert first_cancellation_propagated_early is False
+            assert second_cancellation_propagated_early is False
+
+        async def fail_tarball_extract(self, tarball_path, target_dir):
+            del self, tarball_path
+            target_dir.mkdir(parents=True)
+            (target_dir / "partial.py").write_text("partial")
+            raise RuntimeError("tarball extraction failed")
+
+        async def download_tarball(self, ctx, path):
+            del self, ctx
+            path.write_bytes(tarball_payload(size=1))
+
+        async def download_squashfs(self, ctx, image_path):
+            del self, ctx
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(b"image")
+            return 0.0
+
+        async def fail_squashfs_extract(self, image_path, target_dir):
+            del self, image_path
+            target_dir.mkdir(parents=True)
+            (target_dir / "partial.py").write_text("partial")
+            raise RuntimeError("SquashFS extraction failed")
+
+        with patch(
+            "tracecat.executor.registry_artifact_materialization.shutil.rmtree",
+            side_effect=blocking_rmtree,
+        ):
+            if artifact_format == "tarball":
+                with (
+                    patch(SQUASHFS_ENABLED_CONFIG, False),
+                    patch.object(TarballArtifact, "download", download_tarball),
+                    patch.object(TarballArtifact, "extract", fail_tarball_extract),
+                ):
+                    task = asyncio.create_task(
+                        lease_paths(cache, "s3://bucket/partial.tar.gz")
+                    )
+                    await assert_cleanup(task)
+            else:
+                with (
+                    patch.object(
+                        RegistryArtifactMaterializationContext,
+                        "can_mount_squashfs",
+                        return_value=False,
+                    ),
+                    patch.object(SquashfsArtifact, "download", download_squashfs),
+                    patch.object(
+                        SquashfsArtifact,
+                        "_squashfs_extracted_size",
+                        new_callable=AsyncMock,
+                        return_value=1,
+                    ),
+                    patch.object(
+                        SquashfsArtifact,
+                        "_extract_image",
+                        fail_squashfs_extract,
+                    ),
+                ):
+                    task = asyncio.create_task(
+                        lease_paths(cache, "s3://bucket/partial.squashfs")
+                    )
+                    await assert_cleanup(task)
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):

@@ -157,6 +157,15 @@ async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
         raise
 
 
+async def _remove_tree_rejoin_on_cancel(path: Path) -> None:
+    """Remove a directory off-loop without abandoning cleanup on cancellation."""
+    if not path.exists():
+        return
+    await _run_blocking_rejoin_on_cancel(
+        lambda: shutil.rmtree(path, ignore_errors=True)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinArtifact(RegistryArtifact):
     """Current builtin registry package already installed in the executor image."""
@@ -392,8 +401,7 @@ class SquashfsArtifact(RegistryArtifact):
                 else:
                     raise
         finally:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+            await _remove_tree_rejoin_on_cancel(temp_dir)
 
         return target_dir
 
@@ -576,8 +584,7 @@ class TarballArtifact(RegistryArtifact):
                 else:
                     raise
         finally:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+            await _remove_tree_rejoin_on_cancel(temp_dir)
             if temp_tarball.exists():
                 temp_tarball.unlink(missing_ok=True)
 
