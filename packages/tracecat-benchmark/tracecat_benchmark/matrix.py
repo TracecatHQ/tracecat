@@ -705,6 +705,28 @@ def _process_start_failure(
     )
 
 
+def _selected_cluster_number(log_path: Path, *, start_offset: int) -> int | None:
+    """Read the selected cluster number from one logged startup invocation."""
+    try:
+        with log_path.open(encoding="utf-8", errors="replace") as handle:
+            handle.seek(start_offset)
+            for line in handle:
+                if match := CLUSTER_NUMBER_RE.match(line):
+                    return int(match.group(1))
+    except OSError:
+        return None
+    return None
+
+
+def _possibly_running_cluster_detail(cluster_num: int | None) -> str:
+    if cluster_num is None:
+        return ""
+    return (
+        f"\nCluster {cluster_num} may remain running; stop it with: "
+        f"just cluster {cluster_num} down"
+    )
+
+
 def _run_capture(
     args: list[str],
     *,
@@ -797,33 +819,44 @@ def _start_new_cluster(
 
     with output:
         _write_command_log_header(output, label="cluster startup", args=args)
+        start_offset = output.tell()
         try:
             process = subprocess.Popen(
                 args,
                 cwd=REPO_ROOT,
                 env=env,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
+                stdout=output,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,
             )
         except OSError as exc:
             raise _process_start_failure("cluster startup", log_path, exc) from exc
 
-        cluster_num: int | None = None
-        assert process.stdout is not None
         try:
-            with process.stdout:
-                for line in process.stdout:
-                    output.write(line)
-                    output.flush()
-                    match = CLUSTER_NUMBER_RE.match(line)
-                    if match:
-                        cluster_num = int(match.group(1))
-            returncode = process.wait()
+            returncode = process.wait(timeout=options.startup_timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _interrupt_process(process)
+            output.flush()
+            cluster_num = _selected_cluster_number(
+                log_path,
+                start_offset=start_offset,
+            )
+            error = _logged_failure(
+                "cluster startup timed out after "
+                f"{options.startup_timeout_seconds:g} seconds",
+                log_path,
+            )
+            raise MatrixExecutionError(
+                f"{error}{_possibly_running_cluster_detail(cluster_num)}"
+            ) from exc
         except KeyboardInterrupt:
             _interrupt_process(process)
+            output.flush()
+            cluster_num = _selected_cluster_number(
+                log_path,
+                start_offset=start_offset,
+            )
             if cluster_num is not None:
                 print(
                     f"\nCluster {cluster_num} may remain running; stop it with: "
@@ -840,15 +873,12 @@ def _start_new_cluster(
             _interrupt_process(process)
             raise
 
+    cluster_num = _selected_cluster_number(log_path, start_offset=start_offset)
     if returncode != 0:
         error = _logged_process_failure("cluster startup", returncode, log_path)
-        cluster_detail = (
-            f"\nCluster {cluster_num} may remain running; stop it with: "
-            f"just cluster {cluster_num} down"
-            if cluster_num is not None
-            else ""
+        raise MatrixExecutionError(
+            f"{error}{_possibly_running_cluster_detail(cluster_num)}"
         )
-        raise MatrixExecutionError(f"{error}{cluster_detail}")
     if cluster_num is None:
         raise MatrixExecutionError(
             "cluster startup succeeded but did not report its selected number\n"

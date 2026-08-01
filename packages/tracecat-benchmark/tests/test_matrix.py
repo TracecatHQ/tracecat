@@ -709,6 +709,51 @@ def test_cluster_start_output_is_logged_without_replaying_to_tty(
     assert "arg:executor=3" in logged
 
 
+def test_cluster_startup_timeout_interrupts_process_and_retains_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StalledProcess:
+        def __init__(self) -> None:
+            self.interrupted = False
+
+        def poll(self) -> int | None:
+            return 130 if self.interrupted else None
+
+        def send_signal(self, _signal: int) -> None:
+            self.interrupted = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            if not self.interrupted:
+                raise subprocess.TimeoutExpired("cluster", timeout or 0.0)
+            return 130
+
+        def terminate(self) -> None:
+            self.interrupted = True
+
+        def kill(self) -> None:
+            self.interrupted = True
+
+    process = StalledProcess()
+    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    options = replace(
+        _options(tmp_path, tmp_path / "matrix.csv"),
+        startup_timeout_seconds=0.25,
+    )
+    orchestration_log = tmp_path / "orchestration.log"
+    orchestration_log.touch()
+
+    with pytest.raises(MatrixExecutionError, match="timed out after 0.25 seconds"):
+        matrix_module._start_new_cluster(
+            options,
+            env=dict(os.environ),
+            log_path=orchestration_log,
+        )
+
+    assert process.interrupted
+    assert "cluster startup" in orchestration_log.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     ("replica_count", "expected_urls"),
     [
