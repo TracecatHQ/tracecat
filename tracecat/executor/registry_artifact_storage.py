@@ -347,7 +347,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             raise ValueError("additional_bytes must be non-negative")
 
         async with self._budget_lock:
-            await asyncio.gather(
+            trash_clean, startup_clean = await asyncio.gather(
                 asyncio.to_thread(self._clear_work_dir, self.trash_dir),
                 asyncio.to_thread(self._retry_failed_startup_cleanup),
             )
@@ -361,6 +361,15 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 + staging_bytes
                 + trash_bytes
             )
+            if (
+                not (trash_clean and startup_clean)
+                and total_bytes + additional_bytes > max_bytes
+            ):
+                raise RegistryArtifactCacheCapacityError(
+                    current_bytes=total_bytes,
+                    additional_bytes=additional_bytes,
+                    max_bytes=max_bytes,
+                )
             skipped = {protected_key}
 
             while total_bytes + additional_bytes > max_bytes:

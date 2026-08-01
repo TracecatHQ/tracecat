@@ -420,6 +420,39 @@ class TestRegistryArtifactCacheBudget:
         assert not any(cache.trash_dir.iterdir())
 
     @pytest.mark.anyio
+    async def test_undeletable_trash_does_not_evict_warm_entries_for_admission(
+        self, temp_cache_dir
+    ):
+        """Unreclaimed trash blocks an oversized write without extra eviction."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        warm = write_image_entry(temp_cache_dir, "warm", size=32, mtime=100.0)
+        stale_trash = cache.trash_dir / "stale"
+        stale_trash.mkdir(parents=True)
+        (stale_trash / "image.squashfs").write_bytes(b"x" * 32)
+        real_delete = _delete_cache_path
+
+        def fail_stale_trash(path: Path) -> bool:
+            if path == stale_trash:
+                return False
+            return real_delete(path)
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._delete_cache_path",
+            side_effect=fail_stale_trash,
+        ):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                await cache._ensure_cache_capacity(
+                    additional_bytes=16,
+                    protected_key="new",
+                    max_bytes=64,
+                )
+
+        assert raised.value.current_bytes == 64
+        assert warm.exists()
+        assert stale_trash.exists()
+
+    @pytest.mark.anyio
     async def test_rename_failure_does_not_block_materialization(self, temp_cache_dir):
         """A failed atomic retirement keeps the old entry and admits new work."""
         cache = RegistryArtifactCache(temp_cache_dir)
