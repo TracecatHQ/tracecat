@@ -138,26 +138,28 @@ class RegistryArtifact(ABC):
         return ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{unique_id}{suffix}"
 
 
-async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
-    """Run blocking work without abandoning its thread on cancellation."""
-    worker = asyncio.ensure_future(asyncio.to_thread(operation))
+async def _rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:
+    """Shield a future and rejoin it through repeated caller cancellation."""
     try:
-        return await asyncio.shield(worker)
+        return await asyncio.shield(future)
     except asyncio.CancelledError:
-        # A thread cannot be killed. Rejoin it before callers remove its input
-        # or output paths. Repeated cancellation can interrupt shield without
-        # stopping the thread, so keep waiting for a terminal state.
-        while not worker.done():
+        while not future.done():
             try:
-                await asyncio.shield(worker)
+                await asyncio.shield(future)
             except asyncio.CancelledError:
                 continue
             except Exception:
                 break
-        if not worker.cancelled():
+        if not future.cancelled():
             with contextlib.suppress(Exception):
-                worker.result()
+                future.result()
         raise
+
+
+async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
+    """Run blocking work without abandoning its thread on cancellation."""
+    worker = asyncio.ensure_future(asyncio.to_thread(operation))
+    return await _rejoin_future_on_cancel(worker)
 
 
 async def _remove_tree_rejoin_on_cancel(

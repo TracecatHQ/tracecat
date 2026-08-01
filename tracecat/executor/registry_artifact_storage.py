@@ -18,6 +18,7 @@ from tracecat.executor.registry_artifact_cache_state import (
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
     _allocated_size_bound,
+    _rejoin_future_on_cancel,
     _run_blocking_rejoin_on_cancel,
 )
 from tracecat.logger import logger
@@ -340,10 +341,11 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         protected_key: str | None,
     ) -> bool:
         """Enforce entry and byte limits while both cache-wide locks are held."""
-        trash_clean, startup_clean = await asyncio.gather(
+        cleanup = asyncio.gather(
             asyncio.to_thread(self._clear_work_dir, self.trash_dir),
             asyncio.to_thread(self._retry_deferred_staging_cleanup),
         )
+        trash_clean, startup_clean = await _rejoin_future_on_cancel(cleanup)
         cleanup_complete = trash_clean and startup_clean
         if not cleanup_complete:
             return False
@@ -404,10 +406,11 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             raise ValueError("additional_bytes must be non-negative")
 
         async with self._budget_lock:
-            trash_clean, startup_clean = await asyncio.gather(
+            cleanup = asyncio.gather(
                 asyncio.to_thread(self._clear_work_dir, self.trash_dir),
                 asyncio.to_thread(self._retry_deferred_staging_cleanup),
             )
+            trash_clean, startup_clean = await _rejoin_future_on_cancel(cleanup)
             entries = await asyncio.to_thread(self._scan_cache_entries)
             staging_bytes, trash_bytes = await asyncio.gather(
                 asyncio.to_thread(_directory_footprint, self.staging_dir),

@@ -763,6 +763,65 @@ class TestRegistryArtifactCacheBudget:
 
         assert cache._budget_dirty is True
 
+    @pytest.mark.parametrize("operation", ["budget", "admission"])
+    @pytest.mark.anyio
+    async def test_cancelled_cleanup_rejoins_workers_before_releasing_locks(
+        self,
+        temp_cache_dir: Path,
+        operation: Literal["budget", "admission"],
+    ) -> None:
+        """Cache-wide locks outlive repeatedly cancelled cleanup workers."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cleanup_started = threading.Event()
+        cleanup_release = threading.Event()
+        cleanup_finished = threading.Event()
+
+        def blocking_clear(work_dir: Path) -> bool:
+            assert work_dir == cache.trash_dir
+            cleanup_started.set()
+            cleanup_release.wait(timeout=5)
+            cleanup_finished.set()
+            return True
+
+        async def run_operation() -> object:
+            if operation == "budget":
+                return await cache._enforce_cache_budget()
+            await cache._ensure_cache_capacity(
+                additional_bytes=0,
+                protected_key="pending",
+                max_bytes=1,
+            )
+            return None
+
+        with (
+            patch.object(cache, "_clear_work_dir", side_effect=blocking_clear),
+            patch.object(
+                cache,
+                "_retry_deferred_staging_cleanup",
+                return_value=True,
+            ),
+        ):
+            running = asyncio.create_task(run_operation())
+            try:
+                assert await asyncio.to_thread(cleanup_started.wait, 1)
+                running.cancel()
+                await asyncio.sleep(0)
+                running.cancel()
+                await asyncio.sleep(0)
+
+                assert not running.done()
+                assert cache._budget_lock.locked()
+                assert cache._admission_lock.locked() is (operation == "budget")
+            finally:
+                cleanup_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await running
+
+        assert cleanup_finished.is_set()
+        assert not cache._budget_lock.locked()
+        assert not cache._admission_lock.locked()
+
     @pytest.mark.parametrize(
         "oldest_has_tarball",
         [False, True],
