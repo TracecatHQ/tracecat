@@ -527,6 +527,10 @@ class CollectorPreflightTimeoutError(CollectorConfigurationError):
     """Cluster validation exceeded the collector's shared readiness deadline."""
 
 
+class CollectorStartupInterruptedError(RuntimeError):
+    """The collector received a stop signal during synchronous preflight."""
+
+
 def _run_command(
     args: list[str],
     *,
@@ -3750,65 +3754,12 @@ async def amain(argv: list[str]) -> int:
         return 2
 
     compose_project: str | None = None
-    try:
-        compose_project = resolve_compose_project(
-            repo_root,
-            args.cluster_num,
-            compose_files,
-            ee_multi_tenant,
-            args.public_api_url,
-            deadline=startup_deadline,
-        )
-        compose_public_urls = validate_running_compose_project(
-            repo_root,
-            args.cluster_num,
-            compose_files,
-            ee_multi_tenant,
-            compose_project,
-            deadline=startup_deadline,
-        )
-        cluster_ports = resolve_cluster_ports(
-            repo_root,
-            args.cluster_num,
-            compose_files,
-            ee_multi_tenant,
-            deadline=startup_deadline,
-        )
-        validate_public_api_url(args.public_api_url, cluster_ports)
-        validate_monitor_dsn_target(dsn, cluster_ports)
-        if args.temporal_worker_metrics_url is not None and executor_metrics_urls:
-            validate_temporal_sdk_metrics_urls(
-                args.temporal_worker_metrics_url,
-                executor_metrics_urls,
-                cluster_ports,
-            )
-        if (
-            args.api_db_pool_metrics_url is not None
-            and args.worker_db_pool_metrics_url is not None
-            and executor_db_pool_metrics_urls
-        ):
-            validate_db_pool_metrics_urls(
-                args.api_db_pool_metrics_url,
-                args.worker_db_pool_metrics_url,
-                executor_db_pool_metrics_urls,
-                cluster_ports,
-            )
-        if args.pgdog_metrics_url is not None:
-            validate_pgdog_metrics_url(args.pgdog_metrics_url, cluster_ports)
-        validate_temporal_context(
-            args.temporal_target,
-            args.temporal_namespace,
-            workflow_task_queues,
-            activity_task_queues,
-            cluster_ports,
-            repo_root,
-            args.cluster_num,
-            compose_files,
-            ee_multi_tenant,
-            args.public_api_url,
-            deadline=startup_deadline,
-        )
-    except CollectorConfigurationError as exc:
+    startup_abort_requested = False
+    loop = asyncio.get_running_loop()
+    current_task = asyncio.current_task()
+    installed_signals: list[signal.Signals] = []
+
+    def write_preflight_failure(failure_name: str) -> None:
         _write_preflight_failure_manifest(
             artifact_dir=artifact_dir,
             claim_path=claim_path,
@@ -3816,7 +3767,7 @@ async def amain(argv: list[str]) -> int:
             case_id=args.case_id,
             workspace_id=workspace_id,
             started_at=started_at,
-            failure_name=type(exc).__name__,
+            failure_name=failure_name,
             sample_interval_seconds=args.sample_interval_seconds,
             readiness_timeout_seconds=args.readiness_timeout_seconds,
             cluster_num=args.cluster_num,
@@ -3827,58 +3778,149 @@ async def amain(argv: list[str]) -> int:
             temporal_workflow_task_queues=workflow_task_queues,
             temporal_activity_task_queues=activity_task_queues,
         )
-        print(f"Invalid cluster context: {exc}", file=sys.stderr)
-        return 2
 
-    if compose_project is None:
-        raise AssertionError("validated Compose project is unavailable")
-    config = CollectorConfig(
-        run_id=args.run_id,
-        workspace_id=workspace_id,
-        artifact_dir=str(artifact_dir),
-        dsn=dsn,
-        sample_interval_seconds=args.sample_interval_seconds,
-        readiness_timeout_seconds=args.readiness_timeout_seconds,
-        cluster_num=args.cluster_num,
-        public_api_url=args.public_api_url.rstrip("/"),
-        compose_public_app_url=compose_public_urls.app,
-        compose_public_api_url=compose_public_urls.api,
-        ee_multi_tenant=ee_multi_tenant,
-        compose_project=compose_project,
-        compose_files=compose_files,
-        log_services=log_services,
-        recovery_seconds=args.recovery_seconds,
-        temporal_target=args.temporal_target,
-        temporal_namespace=args.temporal_namespace,
-        temporal_workflow_task_queues=workflow_task_queues,
-        temporal_activity_task_queues=activity_task_queues,
-        temporal_executor_task_queue=args.temporal_executor_task_queue,
-        execution_id_handoff_path=args.activity_metrics_handoff,
-        temporal_sdk_metrics_endpoints=sdk_metrics_endpoints,
-        db_pool_metrics_endpoints=db_pool_metrics_endpoints,
-        pgdog_metrics_url=args.pgdog_metrics_url,
-        case_id=args.case_id,
-    )
+    def request_startup_abort() -> None:
+        nonlocal startup_abort_requested
+        if startup_abort_requested:
+            return
+        startup_abort_requested = True
+        write_preflight_failure(CollectorStartupInterruptedError.__name__)
+        if current_task is not None:
+            current_task.cancel()
 
-    collector = MetricCollector(config)
-    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        with contextlib.suppress(NotImplementedError):
-            loop.add_signal_handler(sig, collector.request_stop)
+        try:
+            loop.add_signal_handler(sig, request_startup_abort)
+        except NotImplementedError:
+            continue
+        installed_signals.append(sig)
 
     try:
-        manifest = await collector.run(
-            repo_root,
-            claim_path=claim_path,
-            startup_deadline=startup_deadline,
+        try:
+            compose_project = resolve_compose_project(
+                repo_root,
+                args.cluster_num,
+                compose_files,
+                ee_multi_tenant,
+                args.public_api_url,
+                deadline=startup_deadline,
+            )
+            compose_public_urls = validate_running_compose_project(
+                repo_root,
+                args.cluster_num,
+                compose_files,
+                ee_multi_tenant,
+                compose_project,
+                deadline=startup_deadline,
+            )
+            cluster_ports = resolve_cluster_ports(
+                repo_root,
+                args.cluster_num,
+                compose_files,
+                ee_multi_tenant,
+                deadline=startup_deadline,
+            )
+            validate_public_api_url(args.public_api_url, cluster_ports)
+            validate_monitor_dsn_target(dsn, cluster_ports)
+            if args.temporal_worker_metrics_url is not None and executor_metrics_urls:
+                validate_temporal_sdk_metrics_urls(
+                    args.temporal_worker_metrics_url,
+                    executor_metrics_urls,
+                    cluster_ports,
+                )
+            if (
+                args.api_db_pool_metrics_url is not None
+                and args.worker_db_pool_metrics_url is not None
+                and executor_db_pool_metrics_urls
+            ):
+                validate_db_pool_metrics_urls(
+                    args.api_db_pool_metrics_url,
+                    args.worker_db_pool_metrics_url,
+                    executor_db_pool_metrics_urls,
+                    cluster_ports,
+                )
+            if args.pgdog_metrics_url is not None:
+                validate_pgdog_metrics_url(args.pgdog_metrics_url, cluster_ports)
+            validate_temporal_context(
+                args.temporal_target,
+                args.temporal_namespace,
+                workflow_task_queues,
+                activity_task_queues,
+                cluster_ports,
+                repo_root,
+                args.cluster_num,
+                compose_files,
+                ee_multi_tenant,
+                args.public_api_url,
+                deadline=startup_deadline,
+            )
+        except CollectorConfigurationError as exc:
+            write_preflight_failure(type(exc).__name__)
+            print(f"Invalid cluster context: {exc}", file=sys.stderr)
+            return 2
+
+        # Run a queued startup signal before installing the steady-state handler.
+        await asyncio.sleep(0)
+
+        if compose_project is None:
+            raise AssertionError("validated Compose project is unavailable")
+        config = CollectorConfig(
+            run_id=args.run_id,
+            workspace_id=workspace_id,
+            artifact_dir=str(artifact_dir),
+            dsn=dsn,
+            sample_interval_seconds=args.sample_interval_seconds,
+            readiness_timeout_seconds=args.readiness_timeout_seconds,
+            cluster_num=args.cluster_num,
+            public_api_url=args.public_api_url.rstrip("/"),
+            compose_public_app_url=compose_public_urls.app,
+            compose_public_api_url=compose_public_urls.api,
+            ee_multi_tenant=ee_multi_tenant,
+            compose_project=compose_project,
+            compose_files=compose_files,
+            log_services=log_services,
+            recovery_seconds=args.recovery_seconds,
+            temporal_target=args.temporal_target,
+            temporal_namespace=args.temporal_namespace,
+            temporal_workflow_task_queues=workflow_task_queues,
+            temporal_activity_task_queues=activity_task_queues,
+            temporal_executor_task_queue=args.temporal_executor_task_queue,
+            execution_id_handoff_path=args.activity_metrics_handoff,
+            temporal_sdk_metrics_endpoints=sdk_metrics_endpoints,
+            db_pool_metrics_endpoints=db_pool_metrics_endpoints,
+            pgdog_metrics_url=args.pgdog_metrics_url,
+            case_id=args.case_id,
         )
-    except ArtifactDirectoryReuseError as exc:
-        print(f"Artifact directory error: {exc}", file=sys.stderr)
-        return 2
-    print(f"status: {manifest['status']}")
-    print(f"samples: {manifest['sample_count']}")
-    print(f"artifacts: {config.artifact_dir}")
-    return 0 if manifest["status"] == "completed" else 1
+
+        collector = MetricCollector(config)
+        for sig in installed_signals:
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, collector.request_stop)
+
+        try:
+            manifest = await collector.run(
+                repo_root,
+                claim_path=claim_path,
+                startup_deadline=startup_deadline,
+            )
+        except ArtifactDirectoryReuseError as exc:
+            print(f"Artifact directory error: {exc}", file=sys.stderr)
+            return 2
+        print(f"status: {manifest['status']}")
+        print(f"samples: {manifest['sample_count']}")
+        print(f"artifacts: {config.artifact_dir}")
+        return 0 if manifest["status"] == "completed" else 1
+    except asyncio.CancelledError:
+        if not startup_abort_requested:
+            raise
+        if current_task is not None:
+            current_task.uncancel()
+        print("Metric collector interrupted during startup", file=sys.stderr)
+        return 1
+    finally:
+        for sig in installed_signals:
+            with contextlib.suppress(NotImplementedError):
+                loop.remove_signal_handler(sig)
 
 
 def main() -> None:

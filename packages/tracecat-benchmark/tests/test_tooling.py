@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -38,6 +39,7 @@ from tracecat_benchmark.collector import (
     REDACTED_PATH_VALUE,
     WORKSPACE_RLS_CONTEXT_SQL,
     ClusterPorts,
+    ComposePublicUrls,
     DockerResourceSampler,
     MetricCollector,
     PgSampler,
@@ -2249,6 +2251,119 @@ def test_collector_preflight_timeout_publishes_failed_manifest(
     assert temporal_queue not in retained_manifest
     assert (artifact_dir / collector_module.RUN_CLAIM_FILENAME).is_file()
     assert not (artifact_dir / "collector_ready.json").exists()
+
+
+def test_collector_startup_signal_publishes_failed_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    callbacks: dict[signal.Signals, object] = {}
+    removed_signals: list[signal.Signals] = []
+
+    async def exercise() -> int:
+        loop = asyncio.get_running_loop()
+
+        def add_signal_handler(
+            sig: signal.Signals, callback: object, *_args: object
+        ) -> None:
+            callbacks[sig] = callback
+
+        def remove_signal_handler(sig: signal.Signals) -> bool:
+            removed_signals.append(sig)
+            return True
+
+        monkeypatch.setattr(loop, "add_signal_handler", add_signal_handler)
+        monkeypatch.setattr(loop, "remove_signal_handler", remove_signal_handler)
+
+        def interrupt_preflight(*_args: object, **_kwargs: object) -> str:
+            callback = cast(Callable[[], None], callbacks[signal.SIGTERM])
+            callback()
+            return "tracecat-1"
+
+        monkeypatch.setattr(
+            collector_module,
+            "resolve_compose_project",
+            interrupt_preflight,
+        )
+        monkeypatch.setattr(
+            collector_module,
+            "validate_running_compose_project",
+            lambda *_args, **_kwargs: ComposePublicUrls(
+                app="http://localhost",
+                api="http://localhost/api",
+            ),
+        )
+        monkeypatch.setattr(
+            collector_module,
+            "resolve_cluster_ports",
+            lambda *_args, **_kwargs: ClusterPorts(
+                public_api_url="http://localhost:80/api",
+                postgres_host="localhost",
+                postgres_port=5432,
+                temporal_host="localhost",
+                temporal_port=7233,
+                temporal_worker_metrics_url="http://localhost:9464/metrics",
+                temporal_executor_metrics_url="http://localhost:9465/metrics",
+                api_db_pool_metrics_url="http://localhost:9480/db-pool-metrics",
+                worker_db_pool_metrics_url="http://localhost:9481/db-pool-metrics",
+                executor_db_pool_metrics_url="http://localhost:9482/db-pool-metrics",
+                pgdog_metrics_url="http://localhost:9090/metrics",
+            ),
+        )
+        monkeypatch.setattr(
+            collector_module,
+            "validate_public_api_url",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            collector_module,
+            "validate_monitor_dsn_target",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            collector_module,
+            "validate_temporal_context",
+            lambda *_args, **_kwargs: None,
+        )
+        return await collector_amain(
+            [
+                "--run-id",
+                "scatter-preflight-signal",
+                "--workspace-id",
+                "00000000-0000-4000-8000-000000000000",
+                "--artifact-root",
+                str(tmp_path),
+                "--dsn",
+                "postgresql://monitor@localhost/tracecat",
+                "--cluster-num",
+                "1",
+                "--public-api-url",
+                "http://localhost:80/api",
+                "--ee-multi-tenant",
+                "true",
+                "--compose-file",
+                "docker-compose.dev.yml",
+                "--temporal-target",
+                "localhost:7233",
+                "--temporal-namespace",
+                "default",
+                "--temporal-workflow-task-queue",
+                "tracecat-task-queue",
+                "--temporal-activity-task-queue",
+                "shared-action-queue",
+            ]
+        )
+
+    assert asyncio.run(exercise()) == 1
+    assert set(callbacks) == {signal.SIGINT, signal.SIGTERM}
+    assert set(removed_signals) == {signal.SIGINT, signal.SIGTERM}
+    artifact_dir = tmp_path / run_id_fingerprint("scatter-preflight-signal")
+    manifest = json.loads((artifact_dir / "manifest.json").read_text())
+    assert manifest["status"] == "observability_failed"
+    assert manifest["observability_failure"] == "CollectorStartupInterruptedError"
+    assert not (artifact_dir / "collector_ready.json").exists()
+    assert "interrupted during startup" in capsys.readouterr().err
 
 
 def test_collector_fixture_table_is_not_customizable() -> None:
