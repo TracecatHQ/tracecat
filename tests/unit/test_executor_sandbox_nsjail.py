@@ -757,7 +757,7 @@ async def test_cancelled_nsjail_operation_kills_process_group(
                 )
 
         try:
-            await process_started.wait()
+            await asyncio.wait_for(process_started.wait(), timeout=5)
             for _ in range(100):
                 try:
                     descendant_pid = int(descendant_pid_path.read_text())
@@ -784,6 +784,10 @@ async def test_cancelled_nsjail_operation_kills_process_group(
             else:
                 pytest.fail("nsjail descendant survived process-group cleanup")
         finally:
+            if not execution.done():
+                execution.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await execution
             if process is not None and process.returncode is None:
                 process.kill()
                 await process.wait()
