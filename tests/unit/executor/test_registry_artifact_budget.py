@@ -86,6 +86,28 @@ class TestRegistryArtifactCacheBudget:
 
         assert allocated_size.call_count == 2
 
+    def test_directory_footprint_prunes_directory_contents(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        mounted = temp_cache_dir / "mount"
+        mounted.mkdir()
+        (mounted / "module.py").write_text("x")
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._allocated_stat_size",
+            return_value=4096,
+        ) as allocated_size:
+            assert (
+                _directory_footprint(
+                    temp_cache_dir,
+                    pruned_directories=(mounted,),
+                )
+                == 2 * 4096
+            )
+
+        assert allocated_size.call_count == 2
+
     @pytest.mark.anyio
     async def test_admission_rounds_download_reservation_to_allocation_unit(
         self,
@@ -661,21 +683,23 @@ class TestRegistryArtifactCacheBudget:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
-    async def test_releasing_a_mutable_cache_hit_rescans_post_admission_growth(
+    async def test_releasing_a_mutable_cache_hit_counts_unknown_entry_growth(
         self,
         temp_cache_dir: Path,
     ) -> None:
-        """Direct consumers cannot grow a warm entry outside budget accounting."""
+        """Direct consumers cannot grow unknown entry paths outside the budget."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         artifact_uri = "s3://bucket/mutable-cached.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         target_dir = write_tarball_entry(temp_cache_dir, cache_key)
+        entry_dir = target_dir.parent
+        initial_size = cache._measure_entry(cache_key).size_bytes
         cache._budget_dirty = False
 
         with (
             patch(MAX_ENTRIES_CONFIG, 10),
-            patch(MAX_BYTES_CONFIG, 1_000_000),
+            patch(MAX_BYTES_CONFIG, initial_size),
             patch.object(
                 cache,
                 "_scan_cache_entries",
@@ -687,9 +711,10 @@ class TestRegistryArtifactCacheBudget:
                 paths_may_be_modified=True,
             ) as registry_paths:
                 assert registry_paths == [target_dir]
-                (target_dir / "action-output.bin").write_bytes(b"x" * 4096)
+                (entry_dir / "action-output.bin").write_bytes(b"x" * 4096)
 
         assert scan_cache_entries.call_count == 1
+        assert not entry_dir.exists()
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio

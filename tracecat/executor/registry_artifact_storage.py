@@ -113,11 +113,14 @@ def _directory_footprint(
     directory: Path,
     *,
     allocation_unit: int | None = None,
+    pruned_directories: Iterable[Path] = (),
 ) -> int:
     """Return the allocated footprint of a cache directory tree.
 
     Args:
         directory: Cache directory to measure.
+        pruned_directories: Directories whose own inodes are counted without
+            descending into their contents.
 
     Returns:
         Total allocated bytes of unique contained inodes, or zero when the
@@ -132,6 +135,7 @@ def _directory_footprint(
 
     total_bytes = 0
     seen_inodes: set[tuple[int, int]] = set()
+    pruned_paths = frozenset(pruned_directories)
 
     def allocated_inode_size(file_stat: os.stat_result) -> int:
         inode_key = (file_stat.st_dev, file_stat.st_ino)
@@ -146,6 +150,7 @@ def _directory_footprint(
     try:
         walker = os.walk(directory, onerror=raise_walk_error)
         for root, dirs, files in walker:
+            root_path = Path(root)
             try:
                 total_bytes += allocated_inode_size(os.lstat(root))
             except FileNotFoundError:
@@ -157,13 +162,18 @@ def _directory_footprint(
                     )
                 except FileNotFoundError:
                     continue
+            traversed_directories: list[str] = []
             for directory_name in dirs:
+                child_path = root_path / directory_name
                 try:
-                    directory_stat = os.lstat(os.path.join(root, directory_name))
+                    directory_stat = child_path.lstat()
                 except FileNotFoundError:
                     continue
-                if stat.S_ISLNK(directory_stat.st_mode):
+                if stat.S_ISLNK(directory_stat.st_mode) or child_path in pruned_paths:
                     total_bytes += allocated_inode_size(directory_stat)
+                    continue
+                traversed_directories.append(directory_name)
+            dirs[:] = traversed_directories
     except FileNotFoundError:
         return 0
     return total_bytes
@@ -736,32 +746,24 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
     def _measure_entry(self, cache_key: str) -> RegistryArtifactCacheEntry:
         """Measure the on-disk footprint and recency of one cache entry.
 
-        Mounted contents are excluded because the image already accounts for
-        their backing bytes. The entry root, mount-point inode, and image are
-        measured individually so a concurrent eviction cannot fail the scan.
+        Every entry-owned inode is included, including paths created by mutable
+        consumers. Active mounted contents are pruned because the image already
+        accounts for their backing bytes.
         """
         paths = self._paths_for(cache_key)
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-        size_bytes = 0
-
-        for path in (
-            paths.entry_dir,
-            paths.squashfs_image_path,
-            paths.squashfs_mount_dir,
-        ):
-            try:
-                size_bytes += _allocated_stat_size(
-                    path.lstat(),
-                    allocation_unit=allocation_unit,
-                )
-            except FileNotFoundError:
-                continue
-
-        for directory in (paths.squashfs_extract_dir, paths.tarball_target_dir):
-            size_bytes += _directory_footprint(
-                directory,
-                allocation_unit=allocation_unit,
+        try:
+            mount_is_active = registry_artifact_mounts.is_mount(
+                paths.squashfs_mount_dir
             )
+        except FileNotFoundError:
+            mount_is_active = False
+        pruned_directories = (paths.squashfs_mount_dir,) if mount_is_active else ()
+        size_bytes = _directory_footprint(
+            paths.entry_dir,
+            allocation_unit=allocation_unit,
+            pruned_directories=pruned_directories,
+        )
 
         try:
             last_used = paths.entry_dir.stat().st_mtime
