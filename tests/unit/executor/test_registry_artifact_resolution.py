@@ -72,6 +72,15 @@ class TestRegistryArtifactResolution:
 
         assert key1 != key2
 
+    def test_compute_registry_artifact_cache_key_whitespace_sensitive(self):
+        """Cache identity preserves whitespace that can belong to an S3 key."""
+        key = compute_registry_artifact_cache_key("s3://bucket/path/file.tar.gz")
+        whitespace_key = compute_registry_artifact_cache_key(
+            "s3://bucket/path/file.tar.gz "
+        )
+
+        assert key != whitespace_key
+
     def test_compute_registry_artifact_cache_key_empty(self):
         """Test that empty URI returns the base cache key."""
         assert compute_registry_artifact_cache_key("") == "base"

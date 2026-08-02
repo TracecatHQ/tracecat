@@ -716,9 +716,8 @@ def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
     """Compute the local cache key for a registry artifact URI."""
     if not artifact_uri:
         return "base"
-    # S3 keys are case-sensitive, so preserve URI case when hashing.
-    content = artifact_uri.strip()
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+    # S3 keys are byte-sensitive, so hash the exact URI used for retrieval.
+    return hashlib.sha256(artifact_uri.encode()).hexdigest()[:16]
 
 
 def bundled_builtin_registry_uri(version: str) -> str:
