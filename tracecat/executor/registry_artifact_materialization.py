@@ -228,6 +228,19 @@ def _remove_file_or_defer(
         )
 
 
+def _is_reusable_extraction_dir(
+    path: Path,
+    *,
+    defer_cleanup: Callable[[Path], None],
+) -> bool:
+    """Accept canonical directories and reclaim malformed file or symlink targets."""
+    if path.is_dir() and not path.is_symlink():
+        return True
+    if os.path.lexists(path):
+        _remove_file_or_defer(path, defer_cleanup=defer_cleanup)
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinArtifact(RegistryArtifact):
     """Current builtin registry package already installed in the executor image."""
@@ -273,7 +286,10 @@ class SquashfsArtifact(RegistryArtifact):
                 cache_key=ctx.cache_key,
             )
             return [ctx.paths.squashfs_mount_dir]
-        if ctx.paths.squashfs_extract_dir.is_dir():
+        if _is_reusable_extraction_dir(
+            ctx.paths.squashfs_extract_dir,
+            defer_cleanup=ctx.defer_cleanup,
+        ):
             logger.debug(
                 "Using cached SquashFS registry extraction",
                 cache_key=ctx.cache_key,
@@ -415,7 +431,10 @@ class SquashfsArtifact(RegistryArtifact):
         image_path: Path,
     ) -> Path:
         target_dir = ctx.paths.squashfs_extract_dir
-        if target_dir.exists():
+        if _is_reusable_extraction_dir(
+            target_dir,
+            defer_cleanup=ctx.defer_cleanup,
+        ):
             return target_dir
 
         ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
@@ -455,7 +474,10 @@ class SquashfsArtifact(RegistryArtifact):
                     total_ms=f"{total_elapsed:.1f}",
                 )
             except OSError:
-                if target_dir.exists():
+                if _is_reusable_extraction_dir(
+                    target_dir,
+                    defer_cleanup=ctx.defer_cleanup,
+                ):
                     logger.debug(
                         "SquashFS already extracted by another process",
                         cache_key=ctx.cache_key,
@@ -577,7 +599,10 @@ class TarballArtifact(RegistryArtifact):
     def cached_path(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path] | None:
-        if ctx.paths.tarball_target_dir.is_dir():
+        if _is_reusable_extraction_dir(
+            ctx.paths.tarball_target_dir,
+            defer_cleanup=ctx.defer_cleanup,
+        ):
             logger.debug(
                 "Using cached tarball extraction",
                 cache_key=ctx.cache_key,
@@ -635,7 +660,10 @@ class TarballArtifact(RegistryArtifact):
                     total_ms=f"{total_elapsed:.1f}",
                 )
             except OSError:
-                if target_dir.exists():
+                if _is_reusable_extraction_dir(
+                    target_dir,
+                    defer_cleanup=ctx.defer_cleanup,
+                ):
                     logger.debug(
                         "Tarball already extracted by another process",
                         cache_key=ctx.cache_key,

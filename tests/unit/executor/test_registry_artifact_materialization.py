@@ -79,6 +79,8 @@ class TestRegistryArtifactMaterialization:
 
         assert squashfs.cached_path(ctx) is None
         assert tarball.cached_path(ctx) is None
+        assert not ctx.paths.squashfs_extract_dir.exists()
+        assert not ctx.paths.tarball_target_dir.exists()
 
     @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
