@@ -33,7 +33,6 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.sandbox import utils as sandbox_utils
 from tracecat.sandbox.types import SandboxResult
 
 
@@ -762,7 +761,7 @@ class TestActionRunner:
         )
 
         real_create_subprocess_exec = asyncio.create_subprocess_exec
-        real_terminate_process_group = sandbox_utils.terminate_process_group
+        real_terminate_supervised_process = action_runner.terminate_supervised_process
         process_started = asyncio.Event()
         termination_started = asyncio.Event()
         finish_termination = asyncio.Event()
@@ -780,7 +779,7 @@ class TestActionRunner:
         ) -> None:
             termination_started.set()
             await finish_termination.wait()
-            await real_terminate_process_group(requested_process)
+            await real_terminate_supervised_process(requested_process)
 
         async def release_mount(mount_dir: Path) -> bool:
             reaped_before_unmount.append(
@@ -790,6 +789,7 @@ class TestActionRunner:
             return True
 
         with (
+            patch.object(action_runner.sys, "platform", "linux"),
             patch(
                 "tracecat.executor.registry_artifact_mounts.is_mount",
                 lambda path: path in mounted,
@@ -804,8 +804,8 @@ class TestActionRunner:
                 side_effect=capture_subprocess,
             ),
             patch.object(
-                sandbox_utils,
-                "terminate_process_group",
+                action_runner,
+                "terminate_supervised_process",
                 side_effect=controlled_termination,
             ),
             patch.object(cache, "_unmount", side_effect=release_mount),
