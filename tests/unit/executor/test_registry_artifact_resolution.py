@@ -352,6 +352,43 @@ class TestRegistryArtifactResolution:
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
 
+    @pytest.mark.anyio
+    async def test_sidecar_lookup_failure_redacts_exception_text(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """SDK exception strings cannot leak registry identifiers into logs."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://sensitive-bucket/org/repo/site-packages.tar.gz"
+        sidecar_uri = "s3://sensitive-bucket/org/repo/site-packages.squashfs"
+        ctx = cache._context_for(compute_registry_artifact_cache_key(artifact_uri))
+        lookup_error = ConnectionError(
+            f"Could not connect to endpoint URL: {sidecar_uri}"
+        )
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                side_effect=lookup_error,
+            ),
+            patch.object(cache, "_can_try_squashfs", return_value=True),
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+        ):
+            candidates = await cache._artifact_candidates(ctx, artifact_uri)
+
+        assert len(candidates) == 1
+        assert isinstance(candidates[0], TarballArtifact)
+        warning.assert_called_once_with(
+            "Failed to check for registry artifact sidecar, falling back",
+            artifact_uri="s3://<redacted>",
+            sidecar_uri="s3://<redacted>",
+            artifact_format=RegistryArtifactFormat.SQUASHFS.value,
+            error_type="ConnectionError",
+        )
+        assert "sensitive-bucket" not in repr(warning.call_args)
+        assert "org/repo" not in repr(warning.call_args)
+
     def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
         """Prefer SquashFS whenever enabled; extraction may work without mounts."""
         cache = RegistryArtifactCache(temp_cache_dir)

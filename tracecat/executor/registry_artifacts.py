@@ -463,7 +463,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                 artifact_uri=_artifact_uri_for_logging(base_uri),
                 sidecar_uri=_artifact_uri_for_logging(sidecar_uri),
                 artifact_format=artifact_format.value,
-                error=str(e),
+                error_type=type(e).__name__,
             )
 
         return False
