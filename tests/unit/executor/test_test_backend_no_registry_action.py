@@ -12,7 +12,7 @@ import asyncio
 import sys
 import threading
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -503,6 +503,7 @@ class TestTestBackendNoRegistryAction:
         artifact_uri = "s3://bucket/sync-timeout.tar.gz"
         worker_started = threading.Event()
         finish_worker = threading.Event()
+        timeout_triggered = asyncio.Event()
 
         class FakeRegistryArtifacts:
             def __init__(self) -> None:
@@ -540,6 +541,21 @@ class TestTestBackendNoRegistryAction:
             assert finish_worker.wait(timeout=5)
             return "finished"
 
+        async def wait_for_after_worker_started[T](
+            awaitable: Awaitable[T],
+            timeout: float | None,
+        ) -> T:
+            """Drive wait_for cancellation only after the UDF thread exists."""
+            del timeout
+            task = asyncio.ensure_future(awaitable)
+            assert await asyncio.to_thread(worker_started.wait, 1)
+            task.cancel()
+            timeout_triggered.set()
+            try:
+                return await task
+            except asyncio.CancelledError as e:
+                raise TimeoutError from e
+
         backend = TestBackend()
         await backend.start()
         execution: asyncio.Task[ExecutorResult] | None = None
@@ -560,17 +576,17 @@ class TestTestBackendNoRegistryAction:
                 "_load_udf_callable",
                 lambda _action_impl: blocking_udf,
             )
+            monkeypatch.setattr(asyncio, "wait_for", wait_for_after_worker_started)
 
             execution = asyncio.create_task(
                 backend.execute(
                     input=test_run_action_input,
                     role=test_role,
                     resolved_context=test_resolved_context,
-                    timeout=0.01,
+                    timeout=30.0,
                 )
             )
-            assert await asyncio.to_thread(worker_started.wait, 1)
-            await asyncio.sleep(0.05)
+            await timeout_triggered.wait()
 
             assert not execution.done()
             assert fake_runner.registry_artifacts.active == 1
