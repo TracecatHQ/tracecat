@@ -20,6 +20,7 @@ import httpx
 import tracecat_registry
 
 from tracecat import config
+from tracecat.executor import registry_artifact_mounts
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -247,7 +248,7 @@ class SquashfsArtifact(RegistryArtifact):
     def cached_path(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path] | None:
-        if ctx.paths.squashfs_mount_dir.is_mount():
+        if registry_artifact_mounts.is_mount(ctx.paths.squashfs_mount_dir):
             logger.debug(
                 "Using cached SquashFS registry mount",
                 cache_key=ctx.cache_key,
@@ -363,7 +364,7 @@ class SquashfsArtifact(RegistryArtifact):
             Exception: The image could not be downloaded or prepared.
         """
         target_dir = ctx.paths.squashfs_mount_dir
-        if target_dir.is_mount():
+        if registry_artifact_mounts.is_mount(target_dir):
             return target_dir
 
         ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
@@ -472,7 +473,7 @@ class SquashfsArtifact(RegistryArtifact):
         Raises:
             SquashfsMountCommandError: The ``mount`` command failed.
         """
-        if target_dir.is_mount():
+        if registry_artifact_mounts.is_mount(target_dir):
             return
 
         proc = await asyncio.create_subprocess_exec(
@@ -489,7 +490,7 @@ class SquashfsArtifact(RegistryArtifact):
         )
         stdout, stderr = await communicate_process_group(proc)
 
-        if proc.returncode == 0 or target_dir.is_mount():
+        if proc.returncode == 0 or registry_artifact_mounts.is_mount(target_dir):
             return
 
         output = (stderr or stdout).decode(errors="replace").strip()

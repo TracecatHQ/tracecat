@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from tracecat import config
+from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_cache_state import (
     BASE_PYTHONPATH_DIR_NAME,
     CACHE_ENTRIES_DIR_NAME,
@@ -353,7 +354,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         """
         paths = ctx.paths
         try:
-            if paths.squashfs_mount_dir.is_mount():
+            if registry_artifact_mounts.is_mount(paths.squashfs_mount_dir):
                 return
         except OSError:
             return

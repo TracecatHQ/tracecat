@@ -936,7 +936,10 @@ class TestRegistryArtifactCacheBudget:
             return process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
@@ -985,7 +988,10 @@ class TestRegistryArtifactCacheBudget:
             return True
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch.object(cache, "_unmount", side_effect=flaky_unmount),
         ):
             async with cache.lease([artifact_uri]):

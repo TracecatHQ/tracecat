@@ -33,6 +33,29 @@ class TestRegistryArtifactCacheEviction:
     """Retire idle cache entries without disrupting live leases."""
 
     @pytest.mark.anyio
+    async def test_eviction_surfaces_unknown_mount_state(self, temp_cache_dir):
+        """Inspection failures cannot be mistaken for an unmounted entry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        paths = cache._paths_for("unknown-mount-state")
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        real_lstat = Path.lstat
+
+        def fail_mount_lstat(path: Path):
+            if path == paths.squashfs_mount_dir:
+                raise PermissionError("mount inspection denied")
+            return real_lstat(path)
+
+        with patch.object(Path, "lstat", fail_mount_lstat):
+            with pytest.raises(PermissionError, match="mount inspection denied"):
+                await cache._evict_entry("unknown-mount-state")
+
+        assert paths.entry_dir.is_dir()
+        assert paths.squashfs_image_path.is_file()
+        assert paths.squashfs_mount_dir.is_dir()
+
+    @pytest.mark.anyio
     async def test_eviction_unmounts_before_deleting_the_image(self, temp_cache_dir):
         """Unlinking a mounted image would strand an open-file zombie."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -55,7 +78,10 @@ class TestRegistryArtifactCacheEviction:
             return process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
@@ -109,7 +135,10 @@ class TestRegistryArtifactCacheEviction:
             return released_process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",
@@ -261,7 +290,10 @@ class TestRegistryArtifactCacheEviction:
         process.returncode = 32
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
                 return_value="/sbin/umount",

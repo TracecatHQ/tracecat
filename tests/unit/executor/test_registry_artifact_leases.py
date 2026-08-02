@@ -338,7 +338,10 @@ class TestRegistryArtifactCacheLease:
                 await releases[index].wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
@@ -400,7 +403,10 @@ class TestRegistryArtifactCacheLease:
                 await releases[index].wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
@@ -569,7 +575,10 @@ class TestRegistryArtifactCacheLease:
                 await release_newcomer.wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch.object(cache, "_unmount", harness.unmount),
             patch.object(
                 cache,
@@ -632,7 +641,10 @@ class TestRegistryArtifactCacheLease:
         converge_cache_budget = AsyncMock()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, False),
             patch.object(TarballArtifact, "download", fail_download),
             patch.object(cache, "_unmount", harness.unmount),
@@ -762,7 +774,10 @@ class TestRegistryArtifactCacheLease:
         harness = SquashfsMountHarness(cache)
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",
@@ -836,7 +851,10 @@ class TestRegistryArtifactCacheLease:
                 leased_path_exists.append(registry_paths[0].is_dir())
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",

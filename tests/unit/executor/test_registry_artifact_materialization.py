@@ -1056,7 +1056,10 @@ class TestSquashfsMountPolicy:
         )
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in harness.mounted,
+            ),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifact_materialization.shutil.which",

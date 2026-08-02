@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tracecat import config
+from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_cache_state import (
     _RegistryArtifactCacheState,
 )
@@ -294,7 +295,9 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
 
         mount_dir = self._paths_for(cache_key).squashfs_mount_dir
         try:
-            retry = self._refcount(cache_key) == 0 and mount_dir.is_mount()
+            retry = self._refcount(
+                cache_key
+            ) == 0 and registry_artifact_mounts.is_mount(mount_dir)
         except OSError as e:
             retry = True
             logger.warning(
@@ -577,7 +580,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 return False
 
             mount_dir = self._paths_for(cache_key).squashfs_mount_dir
-            if not mount_dir.is_mount():
+            if not registry_artifact_mounts.is_mount(mount_dir):
                 return False
             if not await self._unmount(mount_dir):
                 logger.warning(
@@ -626,9 +629,9 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             paths = self._paths_for(cache_key)
             if not paths.entry_dir.exists():
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
-            if paths.squashfs_mount_dir.is_mount() and not await self._unmount(
+            if registry_artifact_mounts.is_mount(
                 paths.squashfs_mount_dir
-            ):
+            ) and not await self._unmount(paths.squashfs_mount_dir):
                 logger.warning(
                     "Failed to unmount registry artifact, skipping eviction",
                     cache_key=cache_key,
@@ -690,7 +693,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             start_new_session=True,
         )
         stdout, stderr = await communicate_process_group(proc)
-        if proc.returncode == 0 or not mount_dir.is_mount():
+        if proc.returncode == 0 or not registry_artifact_mounts.is_mount(mount_dir):
             return True
 
         logger.warning(
@@ -844,7 +847,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         for entry in tuple(entries.values()):
             paths = self._paths_for(entry.cache_key)
             if (
-                paths.squashfs_mount_dir.is_mount()
+                registry_artifact_mounts.is_mount(paths.squashfs_mount_dir)
                 or paths.squashfs_image_path.exists()
                 or paths.squashfs_extract_dir.exists()
                 or paths.tarball_target_dir.exists()
@@ -884,7 +887,9 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             (
                 entry
                 for entry in entries.values()
-                if not self._paths_for(entry.cache_key).squashfs_mount_dir.is_mount()
+                if not registry_artifact_mounts.is_mount(
+                    self._paths_for(entry.cache_key).squashfs_mount_dir
+                )
             ),
             key=lambda entry: entry.last_used,
         )

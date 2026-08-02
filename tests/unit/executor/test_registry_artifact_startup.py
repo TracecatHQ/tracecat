@@ -126,7 +126,10 @@ class TestRegistryArtifactCacheStartupSweep:
         with (
             patch(MAX_ENTRIES_CONFIG, 1),
             patch(MAX_BYTES_CONFIG, 0),
-            patch.object(Path, "is_mount", lambda self: self == mount_dir),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path == mount_dir,
+            ),
         ):
             await cache.ensure_swept()
 
