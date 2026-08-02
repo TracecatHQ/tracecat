@@ -60,6 +60,8 @@ child = subprocess.Popen(
     start_new_session=True,
 )
 pid_file.write_text(f"{os.getpid()} {child.pid}")
+if mode == "failure":
+    raise SystemExit(23)
 if mode == "block":
     time.sleep(30)
 """.lstrip()
@@ -90,15 +92,21 @@ async def _spawn_supervised_action(
 
 
 @pytest.mark.anyio
-async def test_supervisor_reaps_detached_descendant_after_success(
+@pytest.mark.parametrize(
+    ("mode", "expected_returncode"),
+    [("success", 0), ("failure", 23)],
+)
+async def test_supervisor_propagates_exit_and_reaps_detached_descendant(
     tmp_path: Path,
+    mode: str,
+    expected_returncode: int,
 ) -> None:
-    process, pid_file = await _spawn_supervised_action(tmp_path, mode="success")
+    process, pid_file = await _spawn_supervised_action(tmp_path, mode=mode)
     tracked_pids: tuple[int, ...] = ()
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
 
-        assert process.returncode == 0, stderr.decode()
+        assert process.returncode == expected_returncode, stderr.decode()
         assert stdout == b""
         tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
         _, detached_pid = tracked_pids
