@@ -54,6 +54,15 @@ class RegistryArtifactEviction:
 
 
 @dataclass(frozen=True, slots=True)
+class _RegistryArtifactEvictionPass:
+    """Result of applying one cache limit policy to evictable entries."""
+
+    total_bytes: int
+    fits: bool
+    exhausted_candidates: bool
+
+
+@dataclass(frozen=True, slots=True)
 class RegistryArtifactCacheEntry:
     """Measured on-disk footprint and recency for one registry artifact key."""
 
@@ -375,13 +384,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         protected_key: str | None,
     ) -> bool:
         """Enforce entry and byte limits while both cache-wide locks are held."""
-        cleanup = asyncio.gather(
-            asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-            asyncio.to_thread(self._retry_deferred_staging_cleanup),
-        )
-        trash_clean, startup_clean = await _rejoin_future_on_cancel(cleanup)
-        cleanup_complete = trash_clean and startup_clean
-        if not cleanup_complete:
+        if not await self._cleanup_cache_work_dirs():
             return False
 
         max_entries = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES
@@ -392,36 +395,35 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         entries = await asyncio.to_thread(self._scan_cache_entries)
         total_bytes = sum(entry.size_bytes for entry in entries.values())
         protected = set() if protected_key is None else {protected_key}
-        skipped: set[str] = set()
-
-        while (max_entries > 0 and len(entries) > max_entries) or (
-            max_bytes > 0 and total_bytes > max_bytes
-        ):
-            candidate = self._least_recently_used(
-                entries.values(),
-                excluded=skipped | protected,
-            )
-            if candidate is None:
+        eviction_pass = await self._evict_until_fits(
+            entries,
+            total_bytes=total_bytes,
+            excluded=protected,
+            max_entries=max_entries,
+            max_bytes=max_bytes,
+        )
+        if not eviction_pass.fits:
+            if eviction_pass.exhausted_candidates:
                 logger.warning(
                     "Registry artifact cache is over budget but every entry is in use",
                     cache_dir=str(self.cache_dir),
                     entries=len(entries),
                     max_entries=max_entries,
-                    total_bytes=total_bytes,
+                    total_bytes=eviction_pass.total_bytes,
                     max_bytes=max_bytes,
                 )
-                return False
-
-            eviction = await self._evict_entry(candidate.cache_key)
-            if eviction.retired:
-                del entries[candidate.cache_key]
-                if not eviction.reclaimed:
-                    return False
-                total_bytes -= candidate.size_bytes
-            else:
-                skipped.add(candidate.cache_key)
+            return False
 
         return True
+
+    async def _cleanup_cache_work_dirs(self) -> bool:
+        """Rejoin cache-wide cleanup workers and report complete reclamation."""
+        cleanup = asyncio.gather(
+            asyncio.to_thread(self._clear_work_dir, self.trash_dir),
+            asyncio.to_thread(self._retry_deferred_staging_cleanup),
+        )
+        trash_clean, staging_clean = await _rejoin_future_on_cancel(cleanup)
+        return trash_clean and staging_clean
 
     async def _ensure_cache_capacity(
         self,
@@ -444,11 +446,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             raise ValueError("additional_bytes must be non-negative")
 
         async with self._budget_lock:
-            cleanup = asyncio.gather(
-                asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-                asyncio.to_thread(self._retry_deferred_staging_cleanup),
-            )
-            trash_clean, startup_clean = await _rejoin_future_on_cancel(cleanup)
+            cleanup_complete = await self._cleanup_cache_work_dirs()
             entries = await asyncio.to_thread(self._scan_cache_entries)
             staging_bytes, trash_bytes = await asyncio.gather(
                 asyncio.to_thread(_directory_footprint, self.staging_dir),
@@ -459,43 +457,74 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 + staging_bytes
                 + trash_bytes
             )
-            if (
-                not (trash_clean and startup_clean)
-                and total_bytes + additional_bytes > max_bytes
-            ):
+            if not cleanup_complete and total_bytes + additional_bytes > max_bytes:
                 raise RegistryArtifactCacheCapacityError(
                     current_bytes=total_bytes,
                     additional_bytes=additional_bytes,
                     max_bytes=max_bytes,
                 )
-            skipped = {protected_key}
-
-            while total_bytes + additional_bytes > max_bytes:
-                candidate = self._least_recently_used(
-                    entries.values(),
-                    excluded=skipped,
+            eviction_pass = await self._evict_until_fits(
+                entries,
+                total_bytes=total_bytes,
+                excluded={protected_key},
+                max_entries=0,
+                max_bytes=max_bytes,
+                additional_bytes=additional_bytes,
+            )
+            if not eviction_pass.fits:
+                raise RegistryArtifactCacheCapacityError(
+                    current_bytes=eviction_pass.total_bytes,
+                    additional_bytes=additional_bytes,
+                    max_bytes=max_bytes,
                 )
-                if candidate is None:
-                    raise RegistryArtifactCacheCapacityError(
-                        current_bytes=total_bytes,
-                        additional_bytes=additional_bytes,
-                        max_bytes=max_bytes,
+
+            return max_bytes - eviction_pass.total_bytes - additional_bytes
+
+    async def _evict_until_fits(
+        self,
+        entries: dict[str, RegistryArtifactCacheEntry],
+        *,
+        total_bytes: int,
+        excluded: set[str],
+        max_entries: int,
+        max_bytes: int,
+        additional_bytes: int = 0,
+    ) -> _RegistryArtifactEvictionPass:
+        """Apply shared LRU retirement mechanics until the given limits fit."""
+        skipped = set(excluded)
+
+        while (max_entries > 0 and len(entries) > max_entries) or (
+            max_bytes > 0 and total_bytes + additional_bytes > max_bytes
+        ):
+            candidate = self._least_recently_used(
+                entries.values(),
+                excluded=skipped,
+            )
+            if candidate is None:
+                return _RegistryArtifactEvictionPass(
+                    total_bytes=total_bytes,
+                    fits=False,
+                    exhausted_candidates=True,
+                )
+
+            eviction = await self._evict_entry(candidate.cache_key)
+            if eviction.retired:
+                del entries[candidate.cache_key]
+                if not eviction.reclaimed:
+                    return _RegistryArtifactEvictionPass(
+                        total_bytes=total_bytes,
+                        fits=False,
+                        exhausted_candidates=False,
                     )
+                total_bytes -= candidate.size_bytes
+            else:
+                skipped.add(candidate.cache_key)
 
-                eviction = await self._evict_entry(candidate.cache_key)
-                if eviction.retired:
-                    del entries[candidate.cache_key]
-                    if not eviction.reclaimed:
-                        raise RegistryArtifactCacheCapacityError(
-                            current_bytes=total_bytes,
-                            additional_bytes=additional_bytes,
-                            max_bytes=max_bytes,
-                        )
-                    total_bytes -= candidate.size_bytes
-                else:
-                    skipped.add(candidate.cache_key)
-
-            return max_bytes - total_bytes - additional_bytes
+        return _RegistryArtifactEvictionPass(
+            total_bytes=total_bytes,
+            fits=True,
+            exhausted_candidates=False,
+        )
 
     def _least_recently_used(
         self,
