@@ -309,6 +309,7 @@ class TestBackend(ExecutorBackend):
             return []
 
         registry_artifacts = get_action_runner().registry_artifacts
+        await registry_artifacts.ensure_swept()
         extracted_paths: list[str] = []
 
         for artifact_uri in artifact_uris:

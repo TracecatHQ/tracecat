@@ -13,7 +13,7 @@ import sys
 import threading
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -271,6 +271,9 @@ class TestTestBackendNoRegistryAction:
             def __init__(self) -> None:
                 self.active = 0
 
+            async def ensure_swept(self) -> None:
+                pass
+
             @asynccontextmanager
             async def lease(
                 self, artifact_uris: list[str] | None = None
@@ -335,6 +338,61 @@ class TestTestBackendNoRegistryAction:
             await backend.shutdown()
 
     @pytest.mark.anyio
+    async def test_execute_surfaces_registry_cache_sweep_failure(
+        self,
+        test_role: Role,
+        test_run_action_input: RunActionInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Global cache inspection errors are not treated as one bad artifact."""
+        artifact_uri = "s3://bucket/registry.tar.gz"
+
+        class FakeRegistryArtifacts:
+            def __init__(self) -> None:
+                self.lease_attempted = False
+
+            async def ensure_swept(self) -> None:
+                raise PermissionError("cannot inspect registry cache")
+
+            @asynccontextmanager
+            async def lease(
+                self, artifact_uris: list[str] | None = None
+            ) -> AsyncIterator[list[Path]]:
+                del artifact_uris
+                self.lease_attempted = True
+                yield []
+
+        class FakeActionRunner:
+            def __init__(self) -> None:
+                self.registry_artifacts = FakeRegistryArtifacts()
+
+        fake_runner = FakeActionRunner()
+
+        async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+            return [artifact_uri]
+
+        backend = TestBackend()
+        monkeypatch.setattr(
+            "tracecat.executor.backends.test.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
+            False,
+        )
+        monkeypatch.setattr(
+            "tracecat.executor.backends.test.get_action_runner",
+            lambda: fake_runner,
+        )
+        monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+
+        with pytest.raises(PermissionError, match="cannot inspect registry cache"):
+            async with AsyncExitStack() as leases:
+                await backend._lease_registry_artifacts(
+                    leases,
+                    test_run_action_input,
+                    test_role,
+                )
+
+        assert fake_runner.registry_artifacts.lease_attempted is False
+
+    @pytest.mark.anyio
     async def test_timed_out_sync_udf_keeps_artifact_lease_until_thread_finishes(
         self,
         test_role: Role,
@@ -353,6 +411,9 @@ class TestTestBackendNoRegistryAction:
         class FakeRegistryArtifacts:
             def __init__(self) -> None:
                 self.active = 0
+
+            async def ensure_swept(self) -> None:
+                pass
 
             @asynccontextmanager
             async def lease(
