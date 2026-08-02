@@ -389,6 +389,49 @@ class TestRegistryArtifactResolution:
         assert "sensitive-bucket" not in repr(warning.call_args)
         assert "org/repo" not in repr(warning.call_args)
 
+    @pytest.mark.anyio
+    async def test_materialization_fallback_redacts_malformed_uri_error(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Malformed candidate URIs cannot leak identifiers through errors."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = (
+            "https://tenant-bucket.invalid/org/repository/site-packages.squashfs"
+        )
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        ctx = cache._context_for(cache_key)
+        candidates = await cache._artifact_candidates(ctx, artifact_uri)
+        fallback_path = temp_cache_dir / "fallback"
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization."
+                "config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                False,
+            ),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+                return_value=[fallback_path],
+            ) as materialize_fallback,
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+        ):
+            registry_paths = await cache._materialize_candidates(ctx, candidates)
+
+        assert registry_paths == [fallback_path]
+        materialize_fallback.assert_awaited_once()
+        warning.assert_called_once_with(
+            "Failed to materialize registry artifact candidate, trying fallback",
+            cache_key=cache_key,
+            artifact_uri="https://<redacted>",
+            artifact_format=RegistryArtifactFormat.SQUASHFS.value,
+            error_type="ValueError",
+        )
+        assert "tenant-bucket" not in repr(warning.call_args)
+        assert "org/repository" not in repr(warning.call_args)
+
     def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
         """Prefer SquashFS whenever enabled; extraction may work without mounts."""
         cache = RegistryArtifactCache(temp_cache_dir)

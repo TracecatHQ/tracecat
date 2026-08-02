@@ -312,7 +312,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                     cache_key=cache_key,
                     artifact_uri=_artifact_uri_for_logging(artifact.uri),
                     artifact_format=artifact.format.value,
-                    error=str(e),
+                    error_type=type(e).__name__,
                 )
 
         raise RuntimeError(f"No registry artifact candidates for {ctx.cache_key}")
