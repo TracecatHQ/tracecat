@@ -80,10 +80,9 @@ def _exec(command: Sequence[str], control_fd: int) -> None:
     os.close(control_fd)
     try:
         os.execvpe(command[0], list(command), os.environ)
-    except OSError as e:
-        message = f"Failed to execute supervised action: {e}\n".encode()
+    except OSError:
         with suppress(OSError):
-            os.write(2, message)
+            os.write(2, b"Failed to execute supervised action\n")
         os._exit(127)
 
 
@@ -117,12 +116,11 @@ def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
         if action_status is None:
             raise RuntimeError("Supervised action exited without a wait status")
         return _exit_code(action_status)
-    except BaseException as e:
+    except BaseException:
         with suppress(BaseException):
             _kill_and_reap_children()
-        message = f"Direct action supervisor failed: {type(e).__name__}: {e}\n".encode()
         with suppress(OSError):
-            os.write(2, message)
+            os.write(2, b"Direct action supervisor failed\n")
         return 1
     finally:
         with suppress(OSError):
