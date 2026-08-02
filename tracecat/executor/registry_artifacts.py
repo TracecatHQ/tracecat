@@ -36,6 +36,7 @@ from tracecat.executor.registry_artifact_materialization import (
     _bundled_builtin_registry_version,
     _download_s3_artifact,
     _is_cache_entry_uri,
+    _is_reusable_cache_file,
     _squashfs_listing_size,
     _squashfs_sidecar_uri,
     _tarball_extracted_size,
@@ -401,7 +402,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         if self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
             if squashfs_uri:
-                if ctx.paths.squashfs_image_path.exists():
+                if _is_reusable_cache_file(ctx.paths.squashfs_image_path):
                     candidates.append(
                         SquashfsArtifact(
                             uri=squashfs_uri,

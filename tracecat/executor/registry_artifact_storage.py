@@ -19,6 +19,8 @@ from tracecat.executor.registry_artifact_cache_state import (
 from tracecat.executor.registry_artifact_materialization import (
     RegistryArtifactAdmission,
     _allocated_size_bound,
+    _is_reusable_cache_directory,
+    _is_reusable_cache_file,
     _rejoin_future_on_cancel,
     _run_blocking_rejoin_on_cancel,
 )
@@ -848,9 +850,9 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             paths = self._paths_for(entry.cache_key)
             if (
                 registry_artifact_mounts.is_mount(paths.squashfs_mount_dir)
-                or paths.squashfs_image_path.exists()
-                or paths.squashfs_extract_dir.exists()
-                or paths.tarball_target_dir.exists()
+                or _is_reusable_cache_file(paths.squashfs_image_path)
+                or _is_reusable_cache_directory(paths.squashfs_extract_dir)
+                or _is_reusable_cache_directory(paths.tarball_target_dir)
             ):
                 continue
 

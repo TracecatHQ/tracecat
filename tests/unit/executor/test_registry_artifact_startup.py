@@ -81,6 +81,20 @@ class TestRegistryArtifactCacheStartupSweep:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
+    async def test_sweep_retires_malformed_squashfs_image(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        malformed = cache._paths_for("malformed-image")
+        malformed.squashfs_image_path.mkdir(parents=True)
+        (malformed.squashfs_image_path / "stale").write_bytes(b"stale")
+
+        await cache.ensure_swept()
+
+        assert not malformed.entry_dir.exists()
+        assert not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
     async def test_sweep_tolerates_missing_cache_dir(self, temp_cache_dir):
         """A cache directory that does not exist yet is a no-op."""
         cache_dir = temp_cache_dir / "missing"

@@ -228,13 +228,44 @@ def _remove_file_or_defer(
         )
 
 
+def _is_reusable_cache_file(path: Path) -> bool:
+    """Return whether a canonical cache file is regular and not a symlink."""
+    return path.is_file() and not path.is_symlink()
+
+
+def _is_reusable_cache_directory(path: Path) -> bool:
+    """Return whether a canonical cache directory is real and not a symlink."""
+    return path.is_dir() and not path.is_symlink()
+
+
+async def _reuse_or_reclaim_squashfs_image(
+    path: Path,
+    *,
+    defer_cleanup: Callable[[Path], None],
+) -> bool:
+    """Reuse a safe image or reclaim a malformed target before downloading."""
+    if _is_reusable_cache_file(path):
+        return True
+    if not os.path.lexists(path):
+        return False
+
+    if _is_reusable_cache_directory(path):
+        await _remove_tree_rejoin_on_cancel(path, defer_cleanup=defer_cleanup)
+    else:
+        _remove_file_or_defer(path, defer_cleanup=defer_cleanup)
+
+    if os.path.lexists(path):
+        raise OSError("Failed to reclaim malformed SquashFS image target")
+    return False
+
+
 def _is_reusable_extraction_dir(
     path: Path,
     *,
     defer_cleanup: Callable[[Path], None],
 ) -> bool:
     """Accept canonical directories and reclaim malformed file or symlink targets."""
-    if path.is_dir() and not path.is_symlink():
+    if _is_reusable_cache_directory(path):
         return True
     if os.path.lexists(path):
         _remove_file_or_defer(path, defer_cleanup=defer_cleanup)
@@ -350,7 +381,10 @@ class SquashfsArtifact(RegistryArtifact):
         image_path: Path,
     ) -> float:
         """Ensure the SquashFS image exists locally and return download time."""
-        if image_path.exists():
+        if await _reuse_or_reclaim_squashfs_image(
+            image_path,
+            defer_cleanup=ctx.defer_cleanup,
+        ):
             return 0.0
 
         image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -366,8 +400,11 @@ class SquashfsArtifact(RegistryArtifact):
             try:
                 temp_image.rename(image_path)
             except OSError:
-                if not image_path.exists():
-                    raise
+                if not await _reuse_or_reclaim_squashfs_image(
+                    image_path,
+                    defer_cleanup=ctx.defer_cleanup,
+                ):
+                    temp_image.rename(image_path)
             return (time.monotonic() - download_start) * 1000
         finally:
             _remove_file_or_defer(

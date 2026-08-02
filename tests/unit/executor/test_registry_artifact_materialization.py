@@ -83,6 +83,40 @@ class TestRegistryArtifactMaterialization:
         assert not ctx.paths.tarball_target_dir.exists()
 
     @pytest.mark.anyio
+    async def test_download_reclaims_malformed_squashfs_image(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key="malformed-image",
+        )
+        ctx = cache._context_for(artifact.cache_key)
+        image_path = ctx.paths.squashfs_image_path
+        image_path.mkdir(parents=True)
+        (image_path / "stale").write_bytes(b"stale")
+
+        async def download_image(
+            artifact_uri: str,
+            output_path: Path,
+            *,
+            admission: object,
+            defer_cleanup: object,
+        ) -> None:
+            del artifact_uri, admission, defer_cleanup
+            output_path.write_bytes(b"fresh image")
+
+        with patch(
+            "tracecat.executor.registry_artifact_materialization._download_s3_artifact",
+            download_image,
+        ):
+            await artifact.download(ctx, image_path)
+
+        assert image_path.is_file()
+        assert not image_path.is_symlink()
+        assert image_path.read_bytes() == b"fresh image"
+
+    @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
         self, temp_cache_dir
     ):

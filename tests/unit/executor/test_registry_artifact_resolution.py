@@ -268,6 +268,33 @@ class TestRegistryArtifactResolution:
         )
 
     @pytest.mark.anyio
+    async def test_artifact_candidates_ignore_malformed_local_sidecar(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        ctx = cache._context_for(cache_key)
+        ctx.paths.squashfs_image_path.mkdir(parents=True)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as file_exists,
+            patch.object(cache, "_can_try_squashfs", return_value=True),
+        ):
+            candidates = await cache._artifact_candidates(ctx, artifact_uri)
+
+        assert len(candidates) == 1
+        assert isinstance(candidates[0], TarballArtifact)
+        file_exists.assert_awaited_once_with(
+            key="path/site-packages.squashfs",
+            bucket="bucket",
+        )
+
+    @pytest.mark.anyio
     async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
         self, temp_cache_dir
     ):
