@@ -181,13 +181,23 @@ def supervise(command: Sequence[str]) -> int:
 
     control_read_fd, control_write_fd = os.pipe()
     writer_open = True
+    monitor_pid: int | None = None
 
-    def request_cleanup(_signal: int, _frame: FrameType | None) -> None:
+    def close_control_pipe() -> None:
         nonlocal writer_open
         if writer_open:
             with suppress(OSError):
                 os.close(control_write_fd)
             writer_open = False
+
+    def request_cleanup(_signal: int, _frame: FrameType | None) -> None:
+        close_control_pipe()
+        # The action shares the monitor's UID and can stop it. SIGKILL the
+        # monitor session so the outer subreaper adopts and reaps every member,
+        # including descendants that detached into their own sessions.
+        if monitor_pid is not None:
+            with suppress(ProcessLookupError):
+                os.killpg(monitor_pid, signal.SIGKILL)
 
     signal.signal(signal.SIGTERM, request_cleanup)
     signal.signal(signal.SIGINT, request_cleanup)
@@ -204,7 +214,7 @@ def supervise(command: Sequence[str]) -> int:
         _, monitor_status = _waitpid(monitor_pid)
         return _exit_code(monitor_status)
     finally:
-        request_cleanup(signal.SIGTERM, None)
+        close_control_pipe()
         _kill_and_reap_children()
 
 

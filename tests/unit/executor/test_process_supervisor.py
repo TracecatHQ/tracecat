@@ -65,7 +65,19 @@ if mode == "failure":
     raise SystemExit(23)
 if mode == "kill-monitor":
     os.kill(os.getppid(), signal.SIGKILL)
-if mode in {"block", "kill-monitor"}:
+if mode in {"stop-monitor", "stop-supervisors"}:
+    monitor_pid = os.getppid()
+    outer_pid = int(
+        next(
+            line.removeprefix("PPid:").strip()
+            for line in Path(f"/proc/{monitor_pid}/status").read_text().splitlines()
+            if line.startswith("PPid:")
+        )
+    )
+    os.kill(monitor_pid, signal.SIGSTOP)
+    if mode == "stop-supervisors":
+        os.kill(outer_pid, signal.SIGSTOP)
+if mode in {"block", "kill-monitor", "stop-monitor", "stop-supervisors"}:
     time.sleep(30)
 """.lstrip()
     )
@@ -201,6 +213,40 @@ async def test_supervisor_reaps_action_that_kills_its_monitor(
     finally:
         if not tracked_pids and pid_file.exists():
             tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+        for pid in tracked_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        await process.wait()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["stop-monitor", "stop-supervisors"])
+async def test_termination_recovers_stopped_supervisor_tree(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    process, pid_file = await _spawn_supervised_action(tmp_path, mode=mode)
+    await _wait_for_file(pid_file)
+    tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+    action_pid, detached_pid = tracked_pids
+
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(
+                communicate_process_group(
+                    process,
+                    timeout=0.05,
+                    terminate=terminate_supervised_process,
+                ),
+                timeout=5,
+            )
+
+        assert process.returncode is not None
+        assert not _process_is_running(action_pid)
+        assert not _process_is_running(detached_pid)
+    finally:
         for pid in tracked_pids:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)

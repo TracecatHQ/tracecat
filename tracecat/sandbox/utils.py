@@ -47,6 +47,11 @@ async def terminate_supervised_process(process: asyncio.subprocess.Process) -> N
     if process.returncode is None:
         with suppress(ProcessLookupError):
             os.kill(process.pid, signal.SIGTERM)
+        # An untrusted action runs under the supervisor's UID and can stop the
+        # outer supervisor. SIGTERM remains pending for a stopped process, so
+        # resume it before waiting for its cleanup handler to run.
+        with suppress(ProcessLookupError):
+            os.kill(process.pid, signal.SIGCONT)
     # The supervisor exits only after its detached subreaper has killed and
     # reaped the action's complete descendant tree. Do not impose a shorter
     # wait that could release registry leases while cleanup is still active.
