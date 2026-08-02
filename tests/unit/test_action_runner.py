@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import tempfile
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -102,12 +103,15 @@ class TestActionRunner:
             *,
             input: bytes | None = None,  # noqa: A002
             timeout: float | None = None,
+            terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]]
+            | None = None,
         ) -> tuple[bytes, bytes]:
             if isinstance(process, asyncio.subprocess.Process):
                 return await real_communication(
                     process,
                     input=input,
                     timeout=timeout,
+                    terminate=terminate,
                 )
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=input),
@@ -529,6 +533,7 @@ class TestActionRunner:
         temp_cache_dir,
         mock_run_action_input,
         mock_role,
+        mock_process_group_communication: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
         """Test direct subprocess execution disables new Linux privileges."""
@@ -577,6 +582,14 @@ class TestActionRunner:
         ]
         assert captured_args[-2] == action_runner.sys.executable
         assert captured_args[-1].endswith("minimal_runner.py")
+        assert captured_args[-4] == action_runner.sys.executable
+        assert captured_args[-3].endswith("process_supervisor.py")
+        communication_call = mock_process_group_communication.await_args
+        assert communication_call is not None
+        assert (
+            communication_call.kwargs["terminate"]
+            is action_runner.terminate_supervised_process
+        )
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(

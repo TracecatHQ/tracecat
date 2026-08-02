@@ -1,0 +1,173 @@
+"""Contain descendants of one Linux direct-action subprocess.
+
+The outer process remains the child observed by ``ActionRunner``. A detached
+subreaper monitor owns the actual action process and all descendants orphaned by
+it. Closing the control pipe asks that monitor to kill and reap its complete
+child tree before the outer process exits.
+
+This module intentionally uses only the Python standard library so invoking it
+does not import the Tracecat application in an untrusted action process.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import os
+import select
+import signal
+import sys
+from collections.abc import Sequence
+from contextlib import suppress
+from pathlib import Path
+from types import FrameType
+
+_PR_SET_CHILD_SUBREAPER = 36
+_PARENT_POLL_INTERVAL_MS = 10
+
+
+def _exit_code(wait_status: int) -> int:
+    """Convert a wait status into a shell-compatible non-negative exit code."""
+    code = os.waitstatus_to_exitcode(wait_status)
+    return code if code >= 0 else 128 - code
+
+
+def _set_child_subreaper() -> None:
+    """Make this process the reparenting boundary for orphaned descendants."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    prctl = libc.prctl
+    prctl.argtypes = [
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+    ]
+    prctl.restype = ctypes.c_int
+    if prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+
+
+def _direct_child_pids() -> list[int]:
+    """Return direct child PIDs from procfs for this single-threaded monitor."""
+    children_path = Path(f"/proc/self/task/{os.getpid()}/children")
+    contents = children_path.read_text().strip()
+    return [int(pid) for pid in contents.split()] if contents else []
+
+
+def _waitpid(pid: int, options: int = 0) -> tuple[int, int]:
+    """Wait for a child while tolerating signal interruptions."""
+    while True:
+        try:
+            return os.waitpid(pid, options)
+        except InterruptedError:
+            continue
+
+
+def _kill_and_reap_children() -> None:
+    """Kill every adopted child, including descendants orphaned while reaping."""
+    while child_pids := _direct_child_pids():
+        for child_pid in child_pids:
+            with suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
+        for child_pid in child_pids:
+            with suppress(ChildProcessError):
+                _waitpid(child_pid)
+
+
+def _exec(command: Sequence[str], control_fd: int) -> None:
+    """Replace this child with the actual action command."""
+    os.close(control_fd)
+    try:
+        os.execvpe(command[0], list(command), os.environ)
+    except OSError as e:
+        message = f"Failed to execute supervised action: {e}\n".encode()
+        with suppress(OSError):
+            os.write(2, message)
+        os._exit(127)
+
+
+def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
+    """Run the action below a detached subreaper and contain its descendants."""
+    try:
+        os.setsid()
+        _set_child_subreaper()
+        _direct_child_pids()  # Fail before execution when procfs tracking is absent.
+
+        action_pid = os.fork()
+        if action_pid == 0:
+            _exec(command, control_fd)
+
+        poller = select.poll()
+        poller.register(control_fd, select.POLLIN | select.POLLHUP | select.POLLERR)
+        action_status: int | None = None
+        parent_closed = False
+
+        while action_status is None and not parent_closed:
+            waited_pid, wait_status = _waitpid(action_pid, os.WNOHANG)
+            if waited_pid == action_pid:
+                action_status = wait_status
+                break
+            if poller.poll(_PARENT_POLL_INTERVAL_MS):
+                parent_closed = os.read(control_fd, 1) == b""
+
+        _kill_and_reap_children()
+        if parent_closed:
+            return 128 + signal.SIGTERM
+        if action_status is None:
+            raise RuntimeError("Supervised action exited without a wait status")
+        return _exit_code(action_status)
+    except BaseException as e:
+        with suppress(BaseException):
+            _kill_and_reap_children()
+        message = f"Direct action supervisor failed: {type(e).__name__}: {e}\n".encode()
+        with suppress(OSError):
+            os.write(2, message)
+        return 1
+    finally:
+        with suppress(OSError):
+            os.close(control_fd)
+
+
+def supervise(command: Sequence[str]) -> int:
+    """Run one command and return only after all of its descendants are reaped."""
+    if sys.platform != "linux":
+        raise RuntimeError("The direct action process supervisor requires Linux")
+    if not command:
+        raise ValueError("A supervised command is required")
+
+    control_read_fd, control_write_fd = os.pipe()
+    writer_open = True
+
+    def request_cleanup(_signal: int, _frame: FrameType | None) -> None:
+        nonlocal writer_open
+        if writer_open:
+            with suppress(OSError):
+                os.close(control_write_fd)
+            writer_open = False
+
+    signal.signal(signal.SIGTERM, request_cleanup)
+    signal.signal(signal.SIGINT, request_cleanup)
+
+    monitor_pid = os.fork()
+    if monitor_pid == 0:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        os.close(control_write_fd)
+        os._exit(_run_monitor(control_read_fd, command))
+
+    os.close(control_read_fd)
+    try:
+        _, monitor_status = _waitpid(monitor_pid)
+        return _exit_code(monitor_status)
+    finally:
+        request_cleanup(signal.SIGTERM, None)
+
+
+def main() -> int:
+    """CLI entry point."""
+    return supervise(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

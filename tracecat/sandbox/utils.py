@@ -11,6 +11,7 @@ import os
 import shutil
 import signal
 import subprocess
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -41,14 +42,26 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
     await process.wait()
 
 
+async def terminate_supervised_process(process: asyncio.subprocess.Process) -> None:
+    """Request descendant cleanup from a direct-action process supervisor."""
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            os.kill(process.pid, signal.SIGTERM)
+    # The supervisor exits only after its detached subreaper has killed and
+    # reaped the action's complete descendant tree. Do not impose a shorter
+    # wait that could release registry leases while cleanup is still active.
+    await process.wait()
+
+
 async def _finish_process_group_cleanup(
     process: asyncio.subprocess.Process,
     communicate_task: asyncio.Task[tuple[bytes | None, bytes | None]],
-    termination_task: asyncio.Task[None] | None,
+    termination_task: asyncio.Future[None] | None,
+    terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]],
 ) -> None:
     """Finish process termination and consume the communication task."""
     if termination_task is None:
-        termination_task = asyncio.create_task(terminate_process_group(process))
+        termination_task = asyncio.ensure_future(terminate(process))
     try:
         await termination_task
     finally:
@@ -86,6 +99,7 @@ async def communicate_process_group(
     *,
     input: bytes | None = None,  # noqa: A002
     timeout: float | None = None,
+    terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]] | None = None,
 ) -> tuple[bytes, bytes]:
     """Communicate with a process while containing its process group.
 
@@ -97,14 +111,15 @@ async def communicate_process_group(
     task and is rejoined through repeated cancellation so callers cannot release
     resources while the process group is still alive.
     """
+    terminator = terminate or terminate_process_group
     communicate_task = asyncio.create_task(process.communicate(input=input))
-    termination_task: asyncio.Task[None] | None = None
+    termination_task: asyncio.Future[None] | None = None
     operation_error: BaseException | None = None
     try:
         async with asyncio.timeout(timeout):
             while process.returncode is None:
                 await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
-            termination_task = asyncio.create_task(terminate_process_group(process))
+            termination_task = asyncio.ensure_future(terminator(process))
             await asyncio.shield(termination_task)
             stdout, stderr = await communicate_task
     except BaseException as e:
@@ -116,6 +131,7 @@ async def communicate_process_group(
                 process,
                 communicate_task,
                 termination_task,
+                terminator,
             )
         )
         try:

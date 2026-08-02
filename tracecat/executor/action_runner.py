@@ -45,7 +45,10 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
-from tracecat.sandbox.utils import communicate_process_group
+from tracecat.sandbox.utils import (
+    communicate_process_group,
+    terminate_supervised_process,
+)
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -118,11 +121,14 @@ def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
     if setpriv is None:
         raise RuntimeError("setpriv is required for direct action subprocess isolation")
 
+    supervisor_path = Path(__file__).with_name("process_supervisor.py")
     return [
         setpriv,
         "--no-new-privs",
         "--inh-caps=-all",
         "--ambient-caps=-all",
+        sys.executable,
+        str(supervisor_path),
         *runner_command,
     ]
 
@@ -443,6 +449,9 @@ class ActionRunner:
                 proc,
                 input=input_json,
                 timeout=timeout,
+                terminate=(
+                    terminate_supervised_process if sys.platform == "linux" else None
+                ),
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(
