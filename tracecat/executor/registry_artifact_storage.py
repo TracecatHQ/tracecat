@@ -242,13 +242,20 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
             return None
 
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
+        verified_headroom_bytes = 0
 
         async def ensure_capacity(additional_bytes: int) -> None:
-            await self._ensure_cache_capacity(
-                additional_bytes=_allocated_size_bound(
-                    additional_bytes,
-                    allocation_unit=allocation_unit,
-                ),
+            nonlocal verified_headroom_bytes
+            allocated_bytes = _allocated_size_bound(
+                additional_bytes,
+                allocation_unit=allocation_unit,
+            )
+            if allocated_bytes <= verified_headroom_bytes:
+                verified_headroom_bytes -= allocated_bytes
+                return
+
+            verified_headroom_bytes = await self._ensure_cache_capacity(
+                additional_bytes=allocated_bytes,
                 protected_key=cache_key,
                 max_bytes=max_bytes,
             )
@@ -422,12 +429,16 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         additional_bytes: int,
         protected_key: str,
         max_bytes: int,
-    ) -> None:
+    ) -> int:
         """Reserve peak bytes for a cold writer without exceeding the cap.
 
         The caller holds the admission lock and its key lock. Every normal
         budget pass takes the admission lock first, so acquiring the budget
         lock here cannot deadlock with eviction of the protected key.
+
+        Returns the additional byte headroom proven by the same scan after the
+        requested allocation. The admission callback consumes that headroom
+        before rescanning, which keeps unknown-length chunked downloads cheap.
         """
         if additional_bytes < 0:
             raise ValueError("additional_bytes must be non-negative")
@@ -483,6 +494,8 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                     total_bytes -= candidate.size_bytes
                 else:
                     skipped.add(candidate.cache_key)
+
+            return max_bytes - total_bytes - additional_bytes
 
     def _least_recently_used(
         self,

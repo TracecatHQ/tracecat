@@ -9,7 +9,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -115,6 +115,40 @@ class TestRegistryArtifactCacheBudget:
             protected_key="new",
             max_bytes=8192,
         )
+
+    @pytest.mark.anyio
+    async def test_admission_reuses_verified_capacity_headroom(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Chunked downloads rescan only after consuming known free bytes."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(MAX_BYTES_CONFIG, 100),
+            patch(
+                "tracecat.executor.registry_artifact_storage."
+                "_filesystem_allocation_unit",
+                return_value=1,
+            ),
+            patch.object(
+                cache,
+                "_ensure_cache_capacity",
+                new_callable=AsyncMock,
+                side_effect=[10, 6],
+            ) as ensure_capacity,
+        ):
+            admission = cache._admission_for("new")
+            assert admission is not None
+            await admission.ensure_capacity(4)
+            await admission.ensure_capacity(6)
+            await admission.ensure_capacity(5)
+            await admission.ensure_capacity(2)
+
+        assert ensure_capacity.await_args_list == [
+            call(additional_bytes=4, protected_key="new", max_bytes=100),
+            call(additional_bytes=5, protected_key="new", max_bytes=100),
+        ]
 
     def test_delete_cache_path_reports_directory_failure(self, temp_cache_dir):
         """Physical deletion failures are observable instead of suppressed."""
