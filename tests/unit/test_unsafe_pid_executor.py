@@ -23,8 +23,12 @@ def _process_is_running(pid: int) -> bool:
         return False
 
     stat_path = Path(f"/proc/{pid}/stat")
-    if not stat_path.exists():
-        return True
+    try:
+        if not stat_path.exists():
+            return True
+    except (FileNotFoundError, ProcessLookupError):
+        # Procfs can report ESRCH while resolving a process that just exited.
+        return False
     try:
         stat_fields = stat_path.read_text().split()
     except (FileNotFoundError, ProcessLookupError):
@@ -89,6 +93,18 @@ class TestUnsafePidExecutor:
         monkeypatch.setattr(os, "kill", lambda *_: None)
         monkeypatch.setattr(Path, "exists", lambda _: True)
         monkeypatch.setattr(Path, "read_text", process_disappeared)
+
+        assert not _process_is_running(123)
+
+    def test_process_probe_handles_procfs_stat_exit_race(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def process_disappeared(path: Path) -> bool:
+            del path
+            raise ProcessLookupError
+
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(Path, "exists", process_disappeared)
 
         assert not _process_is_running(123)
 
