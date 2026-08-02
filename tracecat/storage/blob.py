@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import aioboto3
 import aiofiles
@@ -35,6 +35,11 @@ DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_MAX_CONCURRENCY = 4
 DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE = 2
+
+
+class _AsyncWritableFile(Protocol):
+    async def write(self, data: bytes, /) -> int: ...
+
 
 # Shared S3/MinIO client config: explicit standard-mode retries so transient
 # failures (throttling, 5xx, connection resets) are retried with backoff instead
@@ -789,6 +794,53 @@ async def download_file_to_path(
     hasher = hashlib.sha256() if expected_sha256 is not None else None
     bytes_written = 0
 
+    @asynccontextmanager
+    async def open_file_rejoin_on_cancel() -> AsyncIterator[_AsyncWritableFile]:
+        """Keep the aiofiles open/close workers joined through cancellation."""
+        opened: asyncio.Future[_AsyncWritableFile] = (
+            asyncio.get_running_loop().create_future()
+        )
+        close_file = asyncio.Event()
+
+        async def file_lifecycle() -> None:
+            try:
+                async with aiofiles.open(temp_path, "wb", buffering=0) as file:
+                    opened.set_result(file)
+                    await close_file.wait()
+            except BaseException as e:
+                if not opened.done():
+                    opened.set_exception(e)
+                    return
+                raise
+
+        lifecycle = asyncio.create_task(file_lifecycle())
+        operation_error: BaseException | None = None
+        try:
+            file = await asyncio.shield(opened)
+            yield file
+        except BaseException as e:
+            operation_error = e
+            raise
+        finally:
+            close_file.set()
+            pending_cancellation: asyncio.CancelledError | None = None
+            while not lifecycle.done():
+                try:
+                    await asyncio.shield(lifecycle)
+                except asyncio.CancelledError as e:
+                    if lifecycle.cancelled():
+                        raise
+                    pending_cancellation = e
+
+            try:
+                lifecycle.result()
+            except BaseException as cleanup_error:
+                if operation_error is not None:
+                    raise operation_error from cleanup_error
+                raise
+            if pending_cancellation is not None:
+                raise pending_cancellation
+
     async def write_chunk_rejoin_on_cancel(file, chunk: bytes) -> None:
         """Write one chunk without abandoning the aiofiles worker thread."""
         writer = asyncio.ensure_future(file.write(chunk))
@@ -848,7 +900,7 @@ async def download_file_to_path(
 
             # Unbuffered writes keep the partial file's allocated size visible
             # to incremental capacity scans between unknown-length chunks.
-            async with aiofiles.open(temp_path, "wb", buffering=0) as f:
+            async with open_file_rejoin_on_cancel() as f:
                 async for chunk in stream.iter_chunks(chunk_size=chunk_size):
                     if not chunk:
                         continue

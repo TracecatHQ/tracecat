@@ -1078,6 +1078,78 @@ class TestEdgeCases:
         assert not temp_path.exists()
 
     @pytest.mark.anyio
+    async def test_download_file_to_path_cancellation_rejoins_active_open(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Cancellation cannot race cleanup against the aiofiles open worker."""
+        open_started = threading.Event()
+        open_release = threading.Event()
+        open_finished = threading.Event()
+        close_finished = threading.Event()
+        temp_path = tmp_path / "out.bin.part"
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"unused"
+
+        class BlockingFile:
+            async def __aenter__(self):
+                def blocking_open():
+                    open_started.set()
+                    open_release.wait()
+                    temp_path.touch()
+                    open_finished.set()
+                    return self
+
+                return await asyncio.to_thread(blocking_open)
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                del exc_type, exc, traceback
+                close_finished.set()
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), len(b"unused")
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.blob.aiofiles.open",
+            lambda *args, **kwargs: BlockingFile(),
+        )
+
+        out = tmp_path / "out.bin"
+        download = asyncio.create_task(
+            download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+            )
+        )
+        try:
+            assert await asyncio.to_thread(open_started.wait, 1.0)
+
+            download.cancel()
+            await asyncio.sleep(0)
+            assert not download.done()
+
+            download.cancel()
+            await asyncio.sleep(0)
+            assert not download.done()
+        finally:
+            open_release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await download
+
+        assert open_finished.is_set()
+        assert close_finished.is_set()
+        assert not out.exists()
+        assert not temp_path.exists()
+
+    @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
     async def test_ensure_bucket_exists_create_error_propagates(self, mock_get_client):
         """Create-bucket failure after 404 bubbles up."""
