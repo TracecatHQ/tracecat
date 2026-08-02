@@ -94,12 +94,24 @@ async def test_supervisor_reaps_detached_descendant_after_success(
     tmp_path: Path,
 ) -> None:
     process, pid_file = await _spawn_supervised_action(tmp_path, mode="success")
-    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+    tracked_pids: tuple[int, ...] = ()
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
 
-    assert process.returncode == 0, stderr.decode()
-    assert stdout == b""
-    _, detached_pid = (int(pid) for pid in pid_file.read_text().split())
-    assert not _process_is_running(detached_pid)
+        assert process.returncode == 0, stderr.decode()
+        assert stdout == b""
+        tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+        _, detached_pid = tracked_pids
+        assert not _process_is_running(detached_pid)
+    finally:
+        if not tracked_pids and pid_file.exists():
+            tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+        for pid in tracked_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        await process.wait()
 
 
 @pytest.mark.anyio
