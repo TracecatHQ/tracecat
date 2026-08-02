@@ -148,7 +148,9 @@ class RegistryArtifact(ABC):
         ctx: RegistryArtifactMaterializationContext,
         suffix: str,
     ) -> Path:
+        _validate_cache_work_directory(ctx.staging_dir)
         ctx.staging_dir.mkdir(parents=True, exist_ok=True)
+        _validate_cache_work_directory(ctx.staging_dir)
         while True:
             attempt_id = secrets.token_hex(8)
             candidate = (
@@ -236,6 +238,19 @@ def _is_reusable_cache_file(path: Path) -> bool:
 def _is_reusable_cache_directory(path: Path) -> bool:
     """Return whether a canonical cache directory is real and not a symlink."""
     return path.is_dir() and not path.is_symlink()
+
+
+def _validate_cache_work_directory(path: Path) -> None:
+    """Reject a staging or trash root redirected outside its cache root."""
+    if os.path.lexists(path) and not _is_reusable_cache_directory(path):
+        raise OSError("Unsafe symlink or non-directory registry cache work path")
+    if not path.exists():
+        return
+
+    resolved_cache_dir = path.parent.resolve(strict=True)
+    resolved_work_dir = path.resolve(strict=True)
+    if resolved_work_dir.parent != resolved_cache_dir:
+        raise OSError("Unsafe registry cache work path outside the cache directory")
 
 
 def _validate_cache_entry_path(paths: RegistryArtifactPaths) -> None:

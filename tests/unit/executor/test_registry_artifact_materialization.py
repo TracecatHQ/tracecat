@@ -38,6 +38,26 @@ from .registry_artifact_test_helpers import (
 class TestRegistryArtifactMaterialization:
     """Materialize and reuse executor-local artifact formats."""
 
+    def test_temp_path_rejects_symlinked_staging_root(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache_dir = temp_cache_dir / "cache"
+        cache_dir.mkdir()
+        cache = RegistryArtifactCache(cache_dir)
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="symlinked-staging",
+        )
+        ctx = cache._context_for(artifact.cache_key)
+        outside_dir = temp_cache_dir / "outside-staging"
+        outside_dir.mkdir()
+        ctx.staging_dir.symlink_to(outside_dir, target_is_directory=True)
+
+        with pytest.raises(OSError, match="Unsafe .*registry cache work path"):
+            artifact._temp_path(ctx, ".tmp")
+
+        assert not any(outside_dir.iterdir())
+
     def test_temp_path_avoids_deferred_staging_collision(
         self, temp_cache_dir: Path
     ) -> None:

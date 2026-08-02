@@ -23,6 +23,7 @@ from tracecat.executor.registry_artifact_materialization import (
     _is_reusable_cache_file,
     _rejoin_future_on_cancel,
     _run_blocking_rejoin_on_cancel,
+    _validate_cache_work_directory,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.utils import communicate_process_group
@@ -190,7 +191,9 @@ async def _delete_cache_path_off_loop(path: Path) -> bool:
 
 def _unique_work_path(root: Path, cache_key: str) -> Path:
     """Return a unique path beneath a cache work directory."""
+    _validate_cache_work_directory(root)
     root.mkdir(parents=True, exist_ok=True)
+    _validate_cache_work_directory(root)
     unique_id = time.time_ns()
     while True:
         path = root / f"{cache_key}.{os.getpid()}.{unique_id}"
@@ -803,6 +806,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         remember_failures: bool = False,
     ) -> bool:
         """Best-effort remove every child of a staging or trash directory."""
+        _validate_cache_work_directory(work_dir)
         try:
             paths = list(work_dir.iterdir())
         except FileNotFoundError:
@@ -832,6 +836,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
 
     def _retry_deferred_staging_cleanup(self) -> bool:
         """Retry exact failed paths without sweeping live staging work."""
+        _validate_cache_work_directory(self.staging_dir)
         for path in tuple(self._deferred_staging_cleanup):
             if _delete_cache_path(path):
                 self._deferred_staging_cleanup.discard(path)

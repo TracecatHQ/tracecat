@@ -128,6 +128,31 @@ class TestRegistryArtifactCacheStartupSweep:
         assert entry_dir.is_dir()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("work_dir_name", ["staging", "trash"])
+    async def test_sweep_rejects_symlinked_work_directory(
+        self,
+        temp_cache_dir: Path,
+        work_dir_name: str,
+    ) -> None:
+        """Startup cleanup cannot follow a cache work root outside the cache."""
+        cache_dir = temp_cache_dir / "cache"
+        cache_dir.mkdir()
+        cache = RegistryArtifactCache(cache_dir)
+        outside_dir = temp_cache_dir / f"outside-{work_dir_name}"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "keep.txt"
+        outside_file.write_text("keep")
+        getattr(cache, f"{work_dir_name}_dir").symlink_to(
+            outside_dir,
+            target_is_directory=True,
+        )
+
+        with pytest.raises(OSError, match="Unsafe .*registry cache work path"):
+            await cache.ensure_swept()
+
+        assert outside_file.read_text() == "keep"
+
+    @pytest.mark.anyio
     async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
         """A live mountpoint belongs to a running process and must survive."""
         cache = RegistryArtifactCache(temp_cache_dir)
