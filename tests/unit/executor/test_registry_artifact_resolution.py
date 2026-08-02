@@ -390,6 +390,41 @@ class TestRegistryArtifactResolution:
         assert "org/repo" not in repr(warning.call_args)
 
     @pytest.mark.anyio
+    async def test_sidecar_parse_failure_uses_redacted_fallback(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Malformed sidecar URIs cannot escape the redacted fallback path."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = (
+            "https://tenant-bucket.invalid/org/repository/site-packages.tar.gz"
+        )
+        ctx = cache._context_for(compute_registry_artifact_cache_key(artifact_uri))
+
+        with (
+            patch.object(cache, "_can_try_squashfs", return_value=True),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+            ) as file_exists,
+            patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
+        ):
+            candidates = await cache._artifact_candidates(ctx, artifact_uri)
+
+        assert len(candidates) == 1
+        assert isinstance(candidates[0], TarballArtifact)
+        file_exists.assert_not_awaited()
+        warning.assert_called_once_with(
+            "Failed to check for registry artifact sidecar, falling back",
+            artifact_uri="https://<redacted>",
+            sidecar_uri="https://<redacted>",
+            artifact_format=RegistryArtifactFormat.SQUASHFS.value,
+            error_type="ValueError",
+        )
+        assert "tenant-bucket" not in repr(warning.call_args)
+        assert "org/repository" not in repr(warning.call_args)
+
+    @pytest.mark.anyio
     async def test_materialization_fallback_redacts_malformed_uri_error(
         self,
         temp_cache_dir: Path,

@@ -447,8 +447,8 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         artifact_format: RegistryArtifactFormat,
     ) -> bool:
         """Return whether a registry sidecar exists, logging lookup failures."""
-        bucket, key = parse_s3_uri(sidecar_uri)
         try:
+            bucket, key = parse_s3_uri(sidecar_uri)
             if await blob.file_exists(key=key, bucket=bucket):
                 logger.debug(
                     "Using registry artifact sidecar",
