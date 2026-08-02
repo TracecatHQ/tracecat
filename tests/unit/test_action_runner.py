@@ -535,7 +535,7 @@ class TestActionRunner:
         mock_process_group_communication: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test direct subprocess execution disables new Linux privileges."""
+        """Test Linux direct execution isolates and drops supervisor privileges."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -579,10 +579,11 @@ class TestActionRunner:
             "--inh-caps=-all",
             "--ambient-caps=-all",
         ]
+        assert captured_args[-5] == action_runner.sys.executable
+        assert captured_args[-4] == "-I"
+        assert captured_args[-3].endswith("process_supervisor.py")
         assert captured_args[-2] == action_runner.sys.executable
         assert captured_args[-1].endswith("minimal_runner.py")
-        assert captured_args[-4] == action_runner.sys.executable
-        assert captured_args[-3].endswith("process_supervisor.py")
         communication_call = mock_process_group_communication.await_args
         assert communication_call is not None
         assert (

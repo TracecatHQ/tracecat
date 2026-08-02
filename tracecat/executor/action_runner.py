@@ -128,6 +128,9 @@ def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
         "--inh-caps=-all",
         "--ambient-caps=-all",
         sys.executable,
+        # Keep registry-controlled PYTHONPATH out of the supervisor interpreter.
+        # Isolated mode leaves the environment intact for the nested action.
+        "-I",
         str(supervisor_path),
         *runner_command,
     ]
