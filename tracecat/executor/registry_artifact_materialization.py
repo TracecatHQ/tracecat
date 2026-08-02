@@ -717,7 +717,7 @@ async def _download_s3_artifact(
         request = httpx.Request("GET", artifact_uri)
         response = httpx.Response(status_code=404, request=request)
         raise httpx.HTTPStatusError(
-            f"Registry artifact not found: {artifact_uri}",
+            f"Registry artifact not found: {_artifact_uri_for_logging(artifact_uri)}",
             request=request,
             response=response,
         ) from e

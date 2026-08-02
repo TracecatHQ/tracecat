@@ -201,8 +201,12 @@ class TestRegistryArtifactResolution:
     ):
         """Preserve the missing-artifact error contract from presigned downloads."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = (
+            "s3://access:secret@bucket/path/site-packages.tar.gz"
+            "?X-Amz-Signature=signed-secret#fragment"
+        )
         artifact = TarballArtifact(
-            uri="s3://bucket/path/site-packages.tar.gz",
+            uri=artifact_uri,
             cache_key="missing-test",
         )
         ctx = cache._context_for(artifact.cache_key)
@@ -218,6 +222,10 @@ class TestRegistryArtifactResolution:
 
         assert exc_info.value.response.status_code == 404
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+        assert str(exc_info.value) == (
+            "Registry artifact not found: s3://bucket/path/site-packages.tar.gz"
+        )
+        assert "secret" not in str(exc_info.value)
 
     @pytest.mark.anyio
     async def test_artifact_candidates_prefer_squashfs_sidecar(self, temp_cache_dir):
