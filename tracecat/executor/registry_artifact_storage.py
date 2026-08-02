@@ -477,6 +477,26 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 + staging_bytes
                 + trash_bytes
             )
+            non_evictable_bytes = (
+                staging_bytes
+                + trash_bytes
+                + sum(
+                    entry.size_bytes
+                    for entry in entries.values()
+                    if entry.cache_key == protected_key
+                    or self._refcount(entry.cache_key) > 0
+                    or (
+                        (runtime := self._runtime.get(entry.cache_key)) is not None
+                        and runtime.lock.locked()
+                    )
+                )
+            )
+            if non_evictable_bytes + additional_bytes > max_bytes:
+                raise RegistryArtifactCacheCapacityError(
+                    current_bytes=non_evictable_bytes,
+                    additional_bytes=additional_bytes,
+                    max_bytes=max_bytes,
+                )
             if not cleanup_complete and total_bytes + additional_bytes > max_bytes:
                 raise RegistryArtifactCacheCapacityError(
                     current_bytes=total_bytes,

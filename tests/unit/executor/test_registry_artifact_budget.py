@@ -279,11 +279,17 @@ class TestRegistryArtifactCacheBudget:
         assert (registry_paths[0] / "module.py").read_bytes() == b"x" * 32
 
     @pytest.mark.anyio
-    async def test_compression_heavy_tarball_is_rejected_before_extraction(
+    async def test_impossible_tarball_reservation_preserves_warm_entry(
         self, temp_cache_dir: Path
     ) -> None:
-        """Compressed bytes plus declared extraction cannot exceed the cache cap."""
+        """Impossible extraction cannot evict warm entries before rejection."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        warm = write_image_entry(
+            temp_cache_dir,
+            "warm",
+            size=64,
+            mtime=100.0,
+        )
         artifact_uri = "s3://bucket/compression-heavy.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         payload = tarball_payload(size=4096)
@@ -319,6 +325,11 @@ class TestRegistryArtifactCacheBudget:
                 "extract",
                 new_callable=AsyncMock,
             ) as extract,
+            patch.object(
+                cache,
+                "_evict_entry",
+                wraps=cache._evict_entry,
+            ) as evict_entry,
         ):
             with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
                 async with cache.lease([artifact_uri]):
@@ -327,6 +338,8 @@ class TestRegistryArtifactCacheBudget:
         assert raised.value.additional_bytes == 4097
         assert raised.value.max_bytes == max_bytes
         extract.assert_not_awaited()
+        evict_entry.assert_not_awaited()
+        assert warm.is_file()
         assert not cache._paths_for(cache_key).entry_dir.exists()
         assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
 
