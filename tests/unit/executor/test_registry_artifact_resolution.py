@@ -96,6 +96,11 @@ class TestRegistryArtifactResolution:
             _artifact_uri_for_logging(uri) == "s3://bucket/path/site-packages.squashfs"
         )
 
+    def test_artifact_uri_for_logging_redacts_malformed_uri(self):
+        assert _artifact_uri_for_logging("s3://[malformed") == (
+            "<redacted-artifact-uri>"
+        )
+
     @pytest.mark.anyio
     async def test_download_artifact_uses_blob_download_file_to_path(
         self, temp_cache_dir
