@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import tracecat_registry
@@ -28,10 +29,20 @@ from tracecat.sandbox.utils import communicate_process_group
 from tracecat.storage import blob
 
 __all__ = [
+    "_artifact_uri_for_logging",
     "_is_cache_entry_uri",
     "_squashfs_sidecar_uri",
     "_tarball_uri_for_squashfs",
 ]
+
+
+def _artifact_uri_for_logging(artifact_uri: str) -> str:
+    """Remove credentials, query parameters, and fragments from an artifact URI."""
+    parsed = urlsplit(artifact_uri)
+    if not parsed.scheme or not parsed.hostname:
+        return "<redacted-artifact-uri>"
+    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    return urlunsplit((parsed.scheme, hostname, parsed.path, "", ""))
 
 
 class RegistryArtifactFormat(StrEnum):
@@ -273,7 +284,7 @@ class SquashfsArtifact(RegistryArtifact):
             logger.warning(
                 "Cannot determine whether failed SquashFS candidate is reusable",
                 cache_key=ctx.cache_key,
-                artifact_uri=self.uri,
+                artifact_uri=_artifact_uri_for_logging(self.uri),
                 error=str(e),
             )
             return
@@ -302,7 +313,7 @@ class SquashfsArtifact(RegistryArtifact):
                 logger.warning(
                     "Failed to mount SquashFS registry artifact, trying extraction",
                     cache_key=ctx.cache_key,
-                    artifact_uri=self.uri,
+                    artifact_uri=_artifact_uri_for_logging(self.uri),
                     artifact_format=self.format.value,
                     error=str(e),
                 )
@@ -368,7 +379,7 @@ class SquashfsArtifact(RegistryArtifact):
         logger.info(
             "Materializing SquashFS registry artifact",
             cache_key=ctx.cache_key,
-            artifact_uri=self.uri,
+            artifact_uri=_artifact_uri_for_logging(self.uri),
             artifact_format=self.format.value,
         )
         start_time = time.monotonic()
@@ -382,7 +393,7 @@ class SquashfsArtifact(RegistryArtifact):
         logger.info(
             "SquashFS registry artifact mounted",
             cache_key=ctx.cache_key,
-            artifact_uri=self.uri,
+            artifact_uri=_artifact_uri_for_logging(self.uri),
             artifact_format=self.format.value,
             download_ms=f"{download_elapsed:.1f}",
             mount_ms=f"{mount_elapsed:.1f}",
@@ -404,7 +415,7 @@ class SquashfsArtifact(RegistryArtifact):
         logger.info(
             "Extracting SquashFS registry artifact",
             cache_key=ctx.cache_key,
-            artifact_uri=self.uri,
+            artifact_uri=_artifact_uri_for_logging(self.uri),
             artifact_format=self.format.value,
         )
         start_time = time.monotonic()
@@ -429,7 +440,7 @@ class SquashfsArtifact(RegistryArtifact):
                 logger.info(
                     "SquashFS registry artifact extracted",
                     cache_key=ctx.cache_key,
-                    artifact_uri=self.uri,
+                    artifact_uri=_artifact_uri_for_logging(self.uri),
                     artifact_format=self.format.value,
                     download_ms=f"{download_elapsed:.1f}",
                     extract_ms=f"{extract_elapsed:.1f}",
@@ -440,7 +451,7 @@ class SquashfsArtifact(RegistryArtifact):
                     logger.debug(
                         "SquashFS already extracted by another process",
                         cache_key=ctx.cache_key,
-                        artifact_uri=self.uri,
+                        artifact_uri=_artifact_uri_for_logging(self.uri),
                         artifact_format=self.format.value,
                     )
                 else:
@@ -573,7 +584,7 @@ class TarballArtifact(RegistryArtifact):
         logger.info(
             "Materializing tarball registry artifact",
             cache_key=ctx.cache_key,
-            artifact_uri=self.uri,
+            artifact_uri=_artifact_uri_for_logging(self.uri),
             artifact_format=self.format.value,
         )
         start_time = time.monotonic()
@@ -609,7 +620,7 @@ class TarballArtifact(RegistryArtifact):
                 logger.info(
                     "Tarball extracted and cached",
                     cache_key=ctx.cache_key,
-                    artifact_uri=self.uri,
+                    artifact_uri=_artifact_uri_for_logging(self.uri),
                     artifact_format=self.format.value,
                     download_ms=f"{download_elapsed:.1f}",
                     extract_ms=f"{extract_elapsed:.1f}",
@@ -620,7 +631,7 @@ class TarballArtifact(RegistryArtifact):
                     logger.debug(
                         "Tarball already extracted by another process",
                         cache_key=ctx.cache_key,
-                        artifact_uri=self.uri,
+                        artifact_uri=_artifact_uri_for_logging(self.uri),
                         artifact_format=self.format.value,
                     )
                 else:

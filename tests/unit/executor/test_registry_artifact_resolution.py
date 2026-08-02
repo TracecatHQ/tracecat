@@ -15,6 +15,7 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactFormat,
     SquashfsArtifact,
     TarballArtifact,
+    _artifact_uri_for_logging,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
@@ -84,6 +85,16 @@ class TestRegistryArtifactResolution:
     def test_compute_registry_artifact_cache_key_empty(self):
         """Test that empty URI returns the base cache key."""
         assert compute_registry_artifact_cache_key("") == "base"
+
+    def test_artifact_uri_for_logging_removes_credentials_and_signature(self):
+        uri = (
+            "s3://access:secret@bucket/path/site-packages.squashfs"
+            "?X-Amz-Signature=signed-secret#fragment"
+        )
+
+        assert (
+            _artifact_uri_for_logging(uri) == "s3://bucket/path/site-packages.squashfs"
+        )
 
     @pytest.mark.anyio
     async def test_download_artifact_uses_blob_download_file_to_path(

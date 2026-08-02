@@ -31,6 +31,7 @@ from tracecat.executor.registry_artifact_materialization import (
     SquashfsMountCommandError,
     TarballArtifact,
     _artifact_format,
+    _artifact_uri_for_logging,
     _bundled_builtin_registry_import_paths,
     _bundled_builtin_registry_version,
     _download_s3_artifact,
@@ -81,6 +82,7 @@ __all__ = [
     "SquashfsMountCommandError",
     "TarballArtifact",
     "_artifact_format",
+    "_artifact_uri_for_logging",
     "_allocated_stat_size",
     "_bundled_builtin_registry_import_paths",
     "_bundled_builtin_registry_version",
@@ -273,7 +275,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                 logger.info(
                     "Trying registry artifact candidate",
                     cache_key=cache_key,
-                    artifact_uri=artifact.uri,
+                    artifact_uri=_artifact_uri_for_logging(artifact.uri),
                     artifact_format=artifact.format.value,
                     candidate=index + 1,
                     candidates=len(candidates),
@@ -297,7 +299,7 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
                 logger.warning(
                     "Failed to materialize registry artifact candidate, trying fallback",
                     cache_key=cache_key,
-                    artifact_uri=artifact.uri,
+                    artifact_uri=_artifact_uri_for_logging(artifact.uri),
                     artifact_format=artifact.format.value,
                     error=str(e),
                 )
@@ -439,16 +441,16 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             if await blob.file_exists(key=key, bucket=bucket):
                 logger.debug(
                     "Using registry artifact sidecar",
-                    artifact_uri=base_uri,
-                    sidecar_uri=sidecar_uri,
+                    artifact_uri=_artifact_uri_for_logging(base_uri),
+                    sidecar_uri=_artifact_uri_for_logging(sidecar_uri),
                     artifact_format=artifact_format.value,
                 )
                 return True
         except Exception as e:
             logger.warning(
                 "Failed to check for registry artifact sidecar, falling back",
-                artifact_uri=base_uri,
-                sidecar_uri=sidecar_uri,
+                artifact_uri=_artifact_uri_for_logging(base_uri),
+                sidecar_uri=_artifact_uri_for_logging(sidecar_uri),
                 artifact_format=artifact_format.value,
                 error=str(e),
             )

@@ -40,6 +40,7 @@ from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
 from tracecat.executor.registry_artifact_materialization import (
+    _artifact_uri_for_logging,
     _is_cache_entry_uri,
     _run_blocking_rejoin_on_cancel,
 )
@@ -326,7 +327,7 @@ class TestBackend(ExecutorBackend):
             except Exception as e:
                 logger.warning(
                     "Failed to materialize artifact for test execution",
-                    artifact_uri=artifact_uri,
+                    artifact_uri=_artifact_uri_for_logging(artifact_uri),
                     error=str(e),
                 )
                 continue
