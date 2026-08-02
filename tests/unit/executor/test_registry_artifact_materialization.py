@@ -326,12 +326,38 @@ class TestRegistryArtifactMaterialization:
             ]
         )
 
-        assert _squashfs_listing_size(listing, allocation_unit=4096) == 12_288
+        assert _squashfs_listing_size(listing, allocation_unit=4096) == 20_480
 
     def test_squashfs_listing_size_accepts_non_utf8_filenames(self) -> None:
         listing = b"-rw-r--r-- 0/0 123 2026-01-01 00:00 squashfs-root/module-\xff.py"
 
-        assert _squashfs_listing_size(listing, allocation_unit=4096) == 4096
+        assert _squashfs_listing_size(listing, allocation_unit=4096) == 12_288
+
+    def test_squashfs_listing_size_reserves_growing_directory_metadata(
+        self,
+    ) -> None:
+        """Wide extracted directories reserve metadata for every child."""
+        child_count = 1000
+        listing = b"\n".join(
+            [
+                b"drwxr-xr-x 0/0 64 2026-01-01 00:00 squashfs-root",
+                *(
+                    f"-rw-r--r-- 0/0 0 2026-01-01 00:00 "
+                    f"squashfs-root/module-{index:04d}.py".encode()
+                    for index in range(child_count)
+                ),
+            ]
+        )
+
+        inode_bytes = (child_count + 1) * 4096
+        directory_entry_bytes = child_count * 4096
+        assert (
+            _squashfs_listing_size(
+                listing,
+                allocation_unit=4096,
+            )
+            == inode_bytes + directory_entry_bytes
+        )
 
     def test_tarball_size_bounds_each_member_allocation(
         self,

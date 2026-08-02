@@ -1062,21 +1062,66 @@ def _squashfs_listing_size(output: bytes, *, allocation_unit: int = 1) -> int:
     """Bound allocated bytes from ``unsquashfs -lln`` output, failing closed."""
     total_bytes = 0
     parsed_entries = 0
+    root_path = PurePosixPath(".")
+    listing_root: str | None = None
+    required_dirs: set[PurePosixPath] = {root_path}
+    listed_dirs: set[PurePosixPath] = set()
+    directory_children: dict[PurePosixPath, set[str]] = {}
+
+    def record_directory_child(path: PurePosixPath) -> None:
+        if path == root_path:
+            return
+        directory_children.setdefault(path.parent, set()).add(path.name)
+
     for raw_line in output.decode(errors="replace").splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        fields = line.split(maxsplit=4)
+        fields = line.split(maxsplit=5)
         mode = fields[0]
         if len(mode) != 10 or mode[0] not in "bcdlps-":
             continue
-        if len(fields) < 5 or "/" not in fields[1] or not fields[2].isdigit():
-            raise ValueError(f"Could not parse SquashFS listing line: {line}")
+        if len(fields) < 6 or "/" not in fields[1] or not fields[2].isdigit():
+            raise ValueError("Could not parse SquashFS listing line")
+
+        listed_path_text = fields[5]
+        if mode[0] == "l":
+            listed_path_text = listed_path_text.split(" -> ", maxsplit=1)[0]
+        listed_path = PurePosixPath(listed_path_text)
+        if listed_path.is_absolute() or not listed_path.parts:
+            raise ValueError("Could not parse SquashFS listing path")
+        if listing_root is None:
+            listing_root = listed_path.parts[0]
+        elif listed_path.parts[0] != listing_root:
+            raise ValueError("Inconsistent SquashFS listing root")
+
+        relative_parts = listed_path.parts[1:]
+        entry_path = PurePosixPath(*relative_parts) if relative_parts else root_path
+        if entry_path == root_path and mode[0] != "d":
+            raise ValueError("Could not parse SquashFS listing root")
+
         parsed_entries += 1
         total_bytes += _allocated_size_bound(
             int(fields[2]),
             allocation_unit=allocation_unit,
         )
+        record_directory_child(entry_path)
+        if mode[0] == "d":
+            listed_dirs.add(entry_path)
+        for parent in entry_path.parents:
+            required_dirs.add(parent)
+            if parent == root_path:
+                break
+            record_directory_child(parent)
     if parsed_entries == 0:
         raise ValueError("Could not parse any SquashFS listing entries")
+    total_bytes += len(required_dirs - listed_dirs) * allocation_unit
+    total_bytes += sum(
+        _directory_entry_size_bound(
+            child_name,
+            allocation_unit=allocation_unit,
+        )
+        for child_names in directory_children.values()
+        for child_name in child_names
+    )
     return total_bytes
