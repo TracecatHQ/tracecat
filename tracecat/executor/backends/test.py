@@ -40,6 +40,7 @@ from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
 from tracecat.executor.registry_artifact_materialization import (
+    _is_cache_entry_uri,
     _run_blocking_rejoin_on_cancel,
 )
 from tracecat.executor.registry_artifacts import RegistryArtifactCache
@@ -313,7 +314,8 @@ class TestBackend(ExecutorBackend):
             return []
 
         registry_artifacts = self._registry_artifact_cache()
-        await registry_artifacts.ensure_swept()
+        if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
+            await registry_artifacts.ensure_swept()
         extracted_paths: list[str] = []
 
         for artifact_uri in artifact_uris:

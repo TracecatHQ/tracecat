@@ -29,6 +29,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.executor.backends.test import TestBackend
+from tracecat.executor.registry_artifacts import bundled_builtin_registry_uri
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorResult,
@@ -418,6 +419,63 @@ class TestTestBackendNoRegistryAction:
                 )
 
         assert fake_runner.registry_artifacts.lease_attempted is False
+
+    @pytest.mark.anyio
+    async def test_builtin_only_execution_skips_registry_cache_sweep(
+        self,
+        test_role: Role,
+        test_run_action_input: RunActionInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cache-free builtin execution is independent of cache inspection."""
+        artifact_uri = bundled_builtin_registry_uri("1.2.3")
+
+        class FakeRegistryArtifacts:
+            def __init__(self) -> None:
+                self.sweep_attempted = False
+                self.lease_attempted = False
+
+            async def ensure_swept(self) -> None:
+                self.sweep_attempted = True
+                raise PermissionError("cannot inspect registry cache")
+
+            @asynccontextmanager
+            async def lease(
+                self, artifact_uris: list[str] | None = None
+            ) -> AsyncIterator[list[Path]]:
+                assert artifact_uris == [artifact_uri]
+                self.lease_attempted = True
+                yield []
+
+        registry_artifacts = FakeRegistryArtifacts()
+
+        async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+            return [artifact_uri]
+
+        backend = TestBackend()
+        monkeypatch.setattr(
+            "tracecat.executor.backends.test.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
+            False,
+        )
+        monkeypatch.setattr(
+            backend,
+            "_registry_artifact_cache",
+            lambda: registry_artifacts,
+        )
+        monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+
+        async with AsyncExitStack() as leases:
+            assert (
+                await backend._lease_registry_artifacts(
+                    leases,
+                    test_run_action_input,
+                    test_role,
+                )
+                == []
+            )
+
+        assert registry_artifacts.sweep_attempted is False
+        assert registry_artifacts.lease_attempted is True
 
     @pytest.mark.anyio
     async def test_timed_out_sync_udf_keeps_artifact_lease_until_thread_finishes(
