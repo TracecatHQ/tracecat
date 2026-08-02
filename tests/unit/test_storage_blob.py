@@ -706,6 +706,45 @@ class TestEdgeCases:
             assert length == 123
 
     @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_open_download_stream_redacts_sensitive_client_error(
+        self, mock_get_client
+    ):
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.get_object.side_effect = ClientError(
+            error_response={
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": "denied tenant-key/org/repository",
+                }
+            },
+            operation_name="get_object",
+        )
+
+        with (
+            patch("tracecat.storage.blob.logger.error") as log_error,
+            pytest.raises(blob_module.StorageDownloadError) as exc_info,
+        ):
+            async with open_download_stream(
+                key="tenant-key/org/repository",
+                bucket="tenant-bucket",
+                redact_log_identifiers=True,
+            ):
+                pass
+
+        assert str(exc_info.value) == "Storage download failed"
+        assert exc_info.value.error_code == "AccessDenied"
+        assert exc_info.value.__cause__ is None
+        log_error.assert_called_once_with(
+            "Failed to open download stream",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code="AccessDenied",
+            error_type="ClientError",
+        )
+
+    @pytest.mark.anyio
     async def test_download_file_to_path_writes_bytes(
         self, tmp_path: Path, monkeypatch
     ):
@@ -740,6 +779,85 @@ class TestEdgeCases:
 
         assert bytes_written == 11
         assert out.read_bytes() == b"hello world"
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_redacts_sensitive_success_log(
+        self, tmp_path: Path, monkeypatch
+    ):
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"payload"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(
+            *,
+            key: str,
+            bucket: str,
+            redact_log_identifiers: bool,
+        ):
+            assert key == "tenant-key/org/repository"
+            assert bucket == "tenant-bucket"
+            assert redact_log_identifiers is True
+            yield DummyStream(), 7
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+        out = tmp_path / "out.bin"
+
+        with patch("tracecat.storage.blob.logger.debug") as log_debug:
+            await download_file_to_path(
+                key="tenant-key/org/repository",
+                bucket="tenant-bucket",
+                output_path=out,
+                redact_log_identifiers=True,
+            )
+
+        log_debug.assert_called_once_with(
+            "File streamed to disk successfully",
+            key="<redacted>",
+            bucket="<redacted>",
+            output_path=str(out),
+            size=7,
+        )
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_redacts_sensitive_capacity_error(
+        self, tmp_path: Path, monkeypatch
+    ):
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"payload"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(
+            *,
+            key: str,  # noqa: ARG001
+            bucket: str,  # noqa: ARG001
+            redact_log_identifiers: bool,
+        ):
+            assert redact_log_identifiers is True
+            yield DummyStream(), 7
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            await download_file_to_path(
+                key="tenant-key/org/repository",
+                bucket="tenant-bucket",
+                output_path=tmp_path / "out.bin",
+                max_bytes=5,
+                redact_log_identifiers=True,
+            )
+
+        message = str(exc_info.value)
+        assert "tenant-key" not in message
+        assert "tenant-bucket" not in message
+        assert "<redacted>/<redacted>" in message
 
     @pytest.mark.anyio
     async def test_download_file_to_path_max_bytes_refuses(

@@ -776,6 +776,7 @@ async def _download_s3_artifact(
                 bucket=bucket,
                 output_path=output_path,
                 defer_cleanup=defer_cleanup,
+                redact_log_identifiers=True,
             )
         else:
             await blob.download_file_to_path(
@@ -785,6 +786,7 @@ async def _download_s3_artifact(
                 max_bytes=admission.max_bytes,
                 ensure_capacity=admission.ensure_capacity,
                 defer_cleanup=defer_cleanup,
+                redact_log_identifiers=True,
             )
     except FileNotFoundError as e:
         request = httpx.Request("GET", artifact_uri)

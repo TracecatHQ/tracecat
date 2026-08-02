@@ -125,8 +125,10 @@ class TestRegistryArtifactResolution:
             bucket: str,
             output_path: Path,
             defer_cleanup: Callable[[Path], None],
+            redact_log_identifiers: bool,
         ) -> None:
             assert defer_cleanup == ctx.defer_cleanup
+            assert redact_log_identifiers is True
             output_path.write_bytes(b"squashfs")
 
         with patch(

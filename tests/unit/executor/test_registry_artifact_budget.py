@@ -226,8 +226,10 @@ class TestRegistryArtifactCacheBudget:
             max_bytes: int,
             ensure_capacity: Callable[[int], Awaitable[None]],
             defer_cleanup: Callable[[Path], None],
+            redact_log_identifiers: bool,
         ) -> int:
             del key, bucket, defer_cleanup
+            assert redact_log_identifiers is True
             nonlocal capacity_checked
             assert max_bytes == len(payload) + 33
             await ensure_capacity(len(payload))
@@ -273,8 +275,10 @@ class TestRegistryArtifactCacheBudget:
             max_bytes: int,
             ensure_capacity: Callable[[int], Awaitable[None]],
             defer_cleanup: Callable[[Path], None],
+            redact_log_identifiers: bool,
         ) -> int:
             del key, bucket, defer_cleanup
+            assert redact_log_identifiers is True
             assert max_bytes == len(payload) + 256
             await ensure_capacity(len(payload))
             output_path.write_bytes(payload)
