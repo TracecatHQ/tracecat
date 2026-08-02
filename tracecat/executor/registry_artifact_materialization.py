@@ -238,6 +238,30 @@ def _is_reusable_cache_directory(path: Path) -> bool:
     return path.is_dir() and not path.is_symlink()
 
 
+def _validate_squashfs_mount_paths(paths: RegistryArtifactPaths) -> None:
+    """Reject mount paths that can escape their canonical cache entry."""
+    entry_dir = paths.entry_dir
+    mount_dir = paths.squashfs_mount_dir
+    if mount_dir.parent != entry_dir:
+        raise OSError("Unsafe SquashFS mount path outside its cache entry")
+
+    for path in (entry_dir, mount_dir):
+        if os.path.lexists(path) and not _is_reusable_cache_directory(path):
+            raise OSError("Unsafe symlink or non-directory SquashFS mount path")
+
+    if not entry_dir.exists() or not mount_dir.exists():
+        return
+
+    resolved_entries_dir = entry_dir.parent.resolve(strict=True)
+    resolved_entry_dir = entry_dir.resolve(strict=True)
+    resolved_mount_dir = mount_dir.resolve(strict=True)
+    if (
+        resolved_entry_dir.parent != resolved_entries_dir
+        or resolved_mount_dir.parent != resolved_entry_dir
+    ):
+        raise OSError("Unsafe SquashFS mount path outside its cache entry")
+
+
 async def _reuse_or_reclaim_squashfs_image(
     path: Path,
     *,
@@ -311,6 +335,7 @@ class SquashfsArtifact(RegistryArtifact):
     def cached_path(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path] | None:
+        _validate_squashfs_mount_paths(ctx.paths)
         if registry_artifact_mounts.is_mount(ctx.paths.squashfs_mount_dir):
             logger.debug(
                 "Using cached SquashFS registry mount",
@@ -431,11 +456,13 @@ class SquashfsArtifact(RegistryArtifact):
             Exception: The image could not be downloaded or prepared.
         """
         target_dir = ctx.paths.squashfs_mount_dir
+        _validate_squashfs_mount_paths(ctx.paths)
         if registry_artifact_mounts.is_mount(target_dir):
             return target_dir
 
         ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
         target_dir.mkdir(parents=True, exist_ok=True)
+        _validate_squashfs_mount_paths(ctx.paths)
 
         logger.info(
             "Materializing SquashFS registry artifact",
@@ -447,6 +474,7 @@ class SquashfsArtifact(RegistryArtifact):
         download_elapsed = await self.download(ctx, image_path)
 
         mount_start = time.monotonic()
+        _validate_squashfs_mount_paths(ctx.paths)
         await self._mount_image(image_path, target_dir)
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000

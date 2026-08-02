@@ -382,6 +382,51 @@ class TestRegistryArtifactMaterialization:
         )
         terminate_process_group.assert_awaited_once_with(process)
 
+    @pytest.mark.parametrize("symlink_component", ["entry", "mount"])
+    @pytest.mark.anyio
+    async def test_mount_squashfs_rejects_symlinked_cache_paths(
+        self,
+        temp_cache_dir: Path,
+        symlink_component: str,
+    ) -> None:
+        """A privileged mount cannot follow a cache path outside its entry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        ctx = cache._context_for("symlinked-mount")
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=ctx.cache_key,
+        )
+        outside_dir = temp_cache_dir / "outside"
+        outside_dir.mkdir(parents=True)
+
+        if symlink_component == "entry":
+            ctx.paths.entry_dir.parent.mkdir(parents=True)
+            ctx.paths.entry_dir.symlink_to(outside_dir, target_is_directory=True)
+        else:
+            ctx.paths.entry_dir.mkdir(parents=True)
+            ctx.paths.squashfs_mount_dir.symlink_to(
+                outside_dir,
+                target_is_directory=True,
+            )
+
+        with (
+            patch.object(
+                SquashfsArtifact,
+                "download",
+                new_callable=AsyncMock,
+            ) as download,
+            patch.object(
+                SquashfsArtifact,
+                "_mount_image",
+                new_callable=AsyncMock,
+            ) as mount_image,
+            pytest.raises(OSError, match="Unsafe .*SquashFS mount path"),
+        ):
+            await artifact.mount(ctx, ctx.paths.squashfs_image_path)
+
+        download.assert_not_awaited()
+        mount_image.assert_not_awaited()
+
     @pytest.mark.anyio
     async def test_cancelled_mount_kills_and_reaps_subprocess(self, temp_cache_dir):
         """Cancellation cannot leave an orphan mount process after lock release."""
