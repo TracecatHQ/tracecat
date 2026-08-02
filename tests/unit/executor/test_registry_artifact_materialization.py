@@ -152,6 +152,11 @@ class TestRegistryArtifactMaterialization:
 
         assert _squashfs_listing_size(listing, allocation_unit=4096) == 12_288
 
+    def test_squashfs_listing_size_accepts_non_utf8_filenames(self) -> None:
+        listing = b"-rw-r--r-- 0/0 123 2026-01-01 00:00 squashfs-root/module-\xff.py"
+
+        assert _squashfs_listing_size(listing, allocation_unit=4096) == 4096
+
     def test_tarball_size_bounds_each_member_allocation(
         self,
         temp_cache_dir: Path,

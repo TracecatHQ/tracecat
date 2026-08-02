@@ -850,7 +850,7 @@ def _tarball_extracted_size(
 def _squashfs_listing_size(output: bytes, *, allocation_unit: int = 1) -> int:
     """Bound allocated bytes from ``unsquashfs -lln`` output, failing closed."""
     total_bytes = 0
-    for raw_line in output.decode(errors="strict").splitlines():
+    for raw_line in output.decode(errors="replace").splitlines():
         line = raw_line.strip()
         if not line:
             continue
