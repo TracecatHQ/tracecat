@@ -43,7 +43,7 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
 
 
 async def terminate_supervised_process(process: asyncio.subprocess.Process) -> None:
-    """Request descendant cleanup from a direct-action process supervisor."""
+    """Request descendant cleanup from a Linux process supervisor."""
     if process.returncode is None:
         with suppress(ProcessLookupError):
             os.kill(process.pid, signal.SIGTERM)

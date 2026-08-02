@@ -74,6 +74,25 @@ def main(pid_file, wait):
 """
 
 
+def _detached_background_process_script() -> str:
+    return """
+import subprocess
+import sys
+from pathlib import Path
+
+def main(pid_file):
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    Path(pid_file).write_text(str(child.pid))
+    return child.pid
+"""
+
+
 class TestUnsafePidExecutor:
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
@@ -119,10 +138,35 @@ class TestUnsafePidExecutor:
             "tracecat.sandbox.unsafe_pid_executor.pid_namespace_available",
             pid_namespace_available,
         )
-        cmd = await executor._build_execution_cmd(
+        command = await executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
         )
-        assert cmd[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
+        assert command.argv[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
+        assert command.supervised is False
+
+    @pytest.mark.anyio
+    async def test_build_execution_cmd_without_pid_namespace_uses_linux_supervisor(
+        self,
+        executor: UnsafePidExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def pid_namespace_unavailable() -> bool:
+            return False
+
+        monkeypatch.setattr(
+            unsafe_pid_executor,
+            "pid_namespace_available",
+            pid_namespace_unavailable,
+        )
+        monkeypatch.setattr(unsafe_pid_executor.sys, "platform", "linux")
+
+        wrapper_path = executor.cache_dir / "wrapper.py"
+        command = await executor._build_execution_cmd("python3", wrapper_path)
+
+        assert command.argv[:2] == [sys.executable, "-I"]
+        assert Path(command.argv[2]).name == "process_supervisor.py"
+        assert command.argv[-2:] == ["python3", str(wrapper_path)]
+        assert command.supervised is True
 
     @pytest.mark.anyio
     async def test_pid_isolation_warning_logged_once(
@@ -348,6 +392,42 @@ def main():
             executor.execute(
                 script=_background_process_script(),
                 inputs={"pid_file": str(pid_file), "wait": False},
+            ),
+            timeout=5,
+        )
+
+        assert result.success
+        child_pid = int(pid_file.read_text())
+        try:
+            await _wait_for_process_exit(child_pid)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
+
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Detached fallback containment uses the Linux subreaper supervisor",
+    )
+    @pytest.mark.anyio
+    async def test_execute_without_pid_namespace_reaps_detached_descendant(
+        self,
+        executor: UnsafePidExecutor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def pid_namespace_unavailable() -> bool:
+            return False
+
+        monkeypatch.setattr(
+            unsafe_pid_executor,
+            "pid_namespace_available",
+            pid_namespace_unavailable,
+        )
+        pid_file = tmp_path / "detached-child.pid"
+        result = await asyncio.wait_for(
+            executor.execute(
+                script=_detached_background_process_script(),
+                inputs={"pid_file": str(pid_file)},
             ),
             timeout=5,
         )

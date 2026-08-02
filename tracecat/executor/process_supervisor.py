@@ -1,6 +1,6 @@
-"""Contain descendants of one Linux direct-action subprocess.
+"""Contain descendants of one Linux subprocess.
 
-The outer process remains the child observed by ``ActionRunner``. A detached
+The outer process remains the child observed by its caller. A detached
 subreaper monitor owns the actual action process and all descendants orphaned by
 it. Closing the control pipe asks that monitor to kill and reap its complete
 child tree before the outer process exits.
@@ -82,7 +82,7 @@ def _exec(command: Sequence[str], control_fd: int) -> None:
         os.execvpe(command[0], list(command), os.environ)
     except OSError:
         with suppress(OSError):
-            os.write(2, b"Failed to execute supervised action\n")
+            os.write(2, b"Failed to execute supervised process\n")
         os._exit(127)
 
 
@@ -120,7 +120,7 @@ def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
         with suppress(BaseException):
             _kill_and_reap_children()
         with suppress(OSError):
-            os.write(2, b"Direct action supervisor failed\n")
+            os.write(2, b"Process supervisor failed\n")
         return 1
     finally:
         with suppress(OSError):
@@ -130,7 +130,7 @@ def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
 def supervise(command: Sequence[str]) -> int:
     """Run one command and return only after all of its descendants are reaped."""
     if sys.platform != "linux":
-        raise RuntimeError("The direct action process supervisor requires Linux")
+        raise RuntimeError("The process supervisor requires Linux")
     if not command:
         raise ValueError("A supervised command is required")
 

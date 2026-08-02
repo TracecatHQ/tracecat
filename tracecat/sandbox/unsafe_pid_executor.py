@@ -11,8 +11,10 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,7 @@ from tracecat.sandbox.utils import (
     communicate_process_group,
     pid_namespace_available,
     pid_namespace_probe_error,
+    terminate_supervised_process,
 )
 
 module_logger = logging.getLogger(__name__)
@@ -240,6 +243,14 @@ if __name__ == "__main__":
 '''
 
 
+@dataclass(frozen=True, slots=True)
+class _ExecutionCommand:
+    """Command metadata for one unsafe executor subprocess."""
+
+    argv: list[str]
+    supervised: bool
+
+
 class UnsafePidExecutor:
     """Executor for Python scripts without nsjail, using subprocess isolation."""
 
@@ -307,17 +318,31 @@ class UnsafePidExecutor:
 
     async def _build_execution_cmd(
         self, python_path: str, wrapper_path: Path
-    ) -> list[str]:
+    ) -> _ExecutionCommand:
         base_cmd = [python_path, str(wrapper_path)]
         if await pid_namespace_available():
-            return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
+            return _ExecutionCommand(
+                argv=["unshare", "--pid", "--fork", "--kill-child", *base_cmd],
+                supervised=False,
+            )
 
         if not self._pid_isolation_warning_emitted:
             message = "PID namespace isolation unavailable; running script without PID isolation"
             logger.warning(message, reason=pid_namespace_probe_error())
             module_logger.warning(message)
             self._pid_isolation_warning_emitted = True
-        return base_cmd
+
+        if sys.platform == "linux":
+            supervisor_path = (
+                Path(__file__).resolve().parents[1]
+                / "executor"
+                / "process_supervisor.py"
+            )
+            return _ExecutionCommand(
+                argv=[sys.executable, "-I", str(supervisor_path), *base_cmd],
+                supervised=True,
+            )
+        return _ExecutionCommand(argv=base_cmd, supervised=False)
 
     async def _create_venv(self, venv_path: Path) -> None:
         create_cmd = ["uv", "venv", str(venv_path), "--python", "3.12"]
@@ -464,9 +489,12 @@ class UnsafePidExecutor:
             if execution_env_vars:
                 exec_env.update(execution_env_vars)
 
-            cmd = await self._build_execution_cmd(python_path, wrapper_path)
+            execution_command = await self._build_execution_cmd(
+                python_path,
+                wrapper_path,
+            )
             process = await asyncio.create_subprocess_exec(
-                *cmd,
+                *execution_command.argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(work_dir),
@@ -477,6 +505,11 @@ class UnsafePidExecutor:
                 stdout_bytes, stderr_bytes = await communicate_process_group(
                     process,
                     timeout=timeout_seconds,
+                    terminate=(
+                        terminate_supervised_process
+                        if execution_command.supervised
+                        else None
+                    ),
                 )
             except TimeoutError as e:
                 raise SandboxTimeoutError(
