@@ -153,6 +153,27 @@ class TestRegistryArtifactCacheStartupSweep:
         assert outside_file.read_text() == "keep"
 
     @pytest.mark.anyio
+    async def test_sweep_rejects_symlinked_entries_directory(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Startup inspection cannot retire entries outside the configured cache."""
+        cache_dir = temp_cache_dir / "cache"
+        cache_dir.mkdir()
+        cache = RegistryArtifactCache(cache_dir)
+        outside_dir = temp_cache_dir / "outside-entries"
+        outside_entry = write_tarball_entry(outside_dir, "keep")
+        cache.entries_dir.symlink_to(
+            outside_dir / "entries",
+            target_is_directory=True,
+        )
+
+        with pytest.raises(OSError, match="Unsafe .*registry cache entries path"):
+            await cache.ensure_swept()
+
+        assert outside_entry.is_dir()
+
+    @pytest.mark.anyio
     async def test_sweep_keeps_mounted_dirs(self, temp_cache_dir):
         """A live mountpoint belongs to a running process and must survive."""
         cache = RegistryArtifactCache(temp_cache_dir)

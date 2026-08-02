@@ -253,15 +253,30 @@ def _validate_cache_work_directory(path: Path) -> None:
         raise OSError("Unsafe registry cache work path outside the cache directory")
 
 
+def _validate_cache_entries_directory(entries_dir: Path) -> None:
+    """Reject an entries root redirected outside its configured cache root."""
+    if os.path.lexists(entries_dir) and not _is_reusable_cache_directory(entries_dir):
+        raise OSError("Unsafe symlink or non-directory registry cache entries path")
+    if not entries_dir.exists():
+        return
+
+    resolved_cache_dir = entries_dir.parent.resolve(strict=True)
+    resolved_entries_dir = entries_dir.resolve(strict=True)
+    if resolved_entries_dir.parent != resolved_cache_dir:
+        raise OSError("Unsafe registry cache entries path outside the cache directory")
+
+
 def _validate_cache_entry_path(paths: RegistryArtifactPaths) -> None:
     """Reject an entry root redirected outside the configured entries directory."""
     entry_dir = paths.entry_dir
+    entries_dir = entry_dir.parent
+    _validate_cache_entries_directory(entries_dir)
     if os.path.lexists(entry_dir) and not _is_reusable_cache_directory(entry_dir):
         raise OSError("Unsafe symlink or non-directory registry cache entry path")
     if not entry_dir.exists():
         return
 
-    resolved_entries_dir = entry_dir.parent.resolve(strict=True)
+    resolved_entries_dir = entries_dir.resolve(strict=True)
     resolved_entry_dir = entry_dir.resolve(strict=True)
     if resolved_entry_dir.parent != resolved_entries_dir:
         raise OSError("Unsafe registry cache entry path outside the entries directory")

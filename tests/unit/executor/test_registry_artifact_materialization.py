@@ -175,6 +175,46 @@ class TestRegistryArtifactMaterialization:
         extract.assert_not_awaited()
 
     @pytest.mark.anyio
+    async def test_tarball_rejects_symlinked_entries_root_before_creation(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """An absent cache key cannot be created through a redirected entries root."""
+        cache_dir = temp_cache_dir / "cache"
+        cache_dir.mkdir()
+        cache = RegistryArtifactCache(cache_dir)
+        ctx = cache._context_for("symlinked-entries-root")
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key=ctx.cache_key,
+        )
+        outside_dir = temp_cache_dir / "outside-entries"
+        outside_dir.mkdir()
+        cache.entries_dir.symlink_to(outside_dir, target_is_directory=True)
+
+        with pytest.raises(OSError, match="Unsafe .*registry cache entries path"):
+            artifact.cached_path(ctx)
+
+        with (
+            patch.object(
+                TarballArtifact,
+                "download",
+                new_callable=AsyncMock,
+            ) as download,
+            patch.object(
+                TarballArtifact,
+                "extract",
+                new_callable=AsyncMock,
+            ) as extract,
+            pytest.raises(OSError, match="Unsafe .*registry cache entries path"),
+        ):
+            await artifact.materialize(ctx)
+
+        download.assert_not_awaited()
+        extract.assert_not_awaited()
+        assert not any(outside_dir.iterdir())
+
+    @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
         self, temp_cache_dir
     ):

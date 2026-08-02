@@ -23,6 +23,8 @@ from tracecat.executor.registry_artifact_materialization import (
     _is_reusable_cache_file,
     _rejoin_future_on_cancel,
     _run_blocking_rejoin_on_cancel,
+    _validate_cache_entries_directory,
+    _validate_cache_entry_path,
     _validate_cache_work_directory,
 )
 from tracecat.logger import logger
@@ -632,6 +634,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
 
             paths = self._paths_for(cache_key)
+            _validate_cache_entry_path(paths)
             if not paths.entry_dir.exists():
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
             if registry_artifact_mounts.is_mount(
@@ -644,6 +647,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
                 )
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
 
+            _validate_cache_entry_path(paths)
             try:
                 trash_path = _move_entry_to_trash(
                     paths.entry_dir,
@@ -717,6 +721,7 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
 
     def _discover_cache_keys(self) -> set[str]:
         """Return cache keys represented by atomic entry directories."""
+        _validate_cache_entries_directory(self.entries_dir)
         try:
             entries = list(os.scandir(self.entries_dir))
         except FileNotFoundError:
