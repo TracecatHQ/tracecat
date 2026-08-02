@@ -86,14 +86,19 @@ class TestRegistryArtifactResolution:
         """Test that empty URI returns the base cache key."""
         assert compute_registry_artifact_cache_key("") == "base"
 
-    def test_artifact_uri_for_logging_removes_credentials_and_signature(self):
+    def test_artifact_uri_for_logging_removes_identifiers_and_credentials(self):
         uri = (
-            "s3://access:secret@bucket/path/site-packages.squashfs"
+            "s3://access:secret@bucket/org-id/repository-origin/1.2.3/"
+            "site-packages.squashfs"
             "?X-Amz-Signature=signed-secret#fragment"
         )
 
-        assert (
-            _artifact_uri_for_logging(uri) == "s3://bucket/path/site-packages.squashfs"
+        logged_uri = _artifact_uri_for_logging(uri)
+
+        assert logged_uri == "s3://<redacted>"
+        assert all(
+            value not in logged_uri
+            for value in ("secret", "bucket", "org-id", "repository-origin", "1.2.3")
         )
 
     def test_artifact_uri_for_logging_redacts_malformed_uri(self):
@@ -227,9 +232,7 @@ class TestRegistryArtifactResolution:
 
         assert exc_info.value.response.status_code == 404
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
-        assert str(exc_info.value) == (
-            "Registry artifact not found: s3://bucket/path/site-packages.tar.gz"
-        )
+        assert str(exc_info.value) == "Registry artifact not found: s3://<redacted>"
         assert "secret" not in str(exc_info.value)
 
     @pytest.mark.anyio

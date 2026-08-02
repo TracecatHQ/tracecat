@@ -38,15 +38,14 @@ __all__ = [
 
 
 def _artifact_uri_for_logging(artifact_uri: str) -> str:
-    """Remove credentials, query parameters, and fragments from an artifact URI."""
+    """Retain only the non-sensitive scheme of an artifact URI."""
     try:
         parsed = urlsplit(artifact_uri)
     except ValueError:
         return "<redacted-artifact-uri>"
     if not parsed.scheme or not parsed.hostname:
         return "<redacted-artifact-uri>"
-    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-    return urlunsplit((parsed.scheme, hostname, parsed.path, "", ""))
+    return urlunsplit((parsed.scheme, "<redacted>", "", "", ""))
 
 
 class RegistryArtifactFormat(StrEnum):
