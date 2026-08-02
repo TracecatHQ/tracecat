@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
@@ -743,6 +743,42 @@ class TestEdgeCases:
             error_code="AccessDenied",
             error_type="ClientError",
         )
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_open_download_stream_redacts_sensitive_transport_error(
+        self,
+        mock_get_client,
+    ) -> None:
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        sensitive_endpoint = "https://tenant-bucket.invalid/tenant-key/org/repository"
+        mock_client.get_object.side_effect = EndpointConnectionError(
+            endpoint_url=sensitive_endpoint
+        )
+
+        with (
+            patch("tracecat.storage.blob.logger.error") as log_error,
+            pytest.raises(blob_module.StorageDownloadError) as exc_info,
+        ):
+            async with open_download_stream(
+                key="tenant-key/org/repository",
+                bucket="tenant-bucket",
+                redact_log_identifiers=True,
+            ):
+                pass
+
+        assert str(exc_info.value) == "Storage download failed"
+        assert exc_info.value.error_code is None
+        assert exc_info.value.__cause__ is None
+        log_error.assert_called_once_with(
+            "Failed to open download stream",
+            key="<redacted>",
+            bucket="<redacted>",
+            error_code=None,
+            error_type="EndpointConnectionError",
+        )
+        assert sensitive_endpoint not in repr(log_error.call_args)
 
     @pytest.mark.anyio
     async def test_download_file_to_path_writes_bytes(

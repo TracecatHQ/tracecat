@@ -17,7 +17,7 @@ import aioboto3
 import aiofiles
 from aiobotocore.config import AioConfig
 from boto3.s3.transfer import TransferConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from tracecat import config
 from tracecat.logger import logger
@@ -796,6 +796,17 @@ async def open_download_stream(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to open download stream",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageDownloadError(error_code=None) from None
 
 
 async def download_file_to_path(
