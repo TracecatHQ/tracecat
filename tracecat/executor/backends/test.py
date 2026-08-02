@@ -22,6 +22,7 @@ import contextlib
 import sys
 import threading
 from contextlib import AsyncExitStack, contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
@@ -37,9 +38,9 @@ from tracecat.contexts import (
     ctx_session_id,
 )
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
-from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
+from tracecat.executor.registry_artifacts import RegistryArtifactCache
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -106,6 +107,21 @@ def _temporary_sys_path(paths: list[str]) -> Iterator[None]:
 
 class TestBackend(ExecutorBackend):
     """In-process execution backend for tests only."""
+
+    __test__ = False
+
+    def __init__(self) -> None:
+        # Pytest creates a backend inside each function-scoped event loop. Keep
+        # its loop-affine cache on the same lifecycle instead of reusing the
+        # process-global ActionRunner cache across closed test loops.
+        self._owned_registry_artifacts: RegistryArtifactCache | None = None
+
+    def _registry_artifact_cache(self) -> RegistryArtifactCache:
+        if self._owned_registry_artifacts is None:
+            self._owned_registry_artifacts = RegistryArtifactCache(
+                Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
+            )
+        return self._owned_registry_artifacts
 
     async def _execute(
         self,
@@ -308,7 +324,7 @@ class TestBackend(ExecutorBackend):
             logger.debug("No artifact URIs found, using empty paths")
             return []
 
-        registry_artifacts = get_action_runner().registry_artifacts
+        registry_artifacts = self._registry_artifact_cache()
         await registry_artifacts.ensure_swept()
         extracted_paths: list[str] = []
 

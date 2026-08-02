@@ -106,6 +106,31 @@ def test_run_action_input() -> RunActionInput:
 class TestTestBackendNoRegistryAction:
     """Test that TestBackend does not query RegistryActionsService."""
 
+    def test_backend_instances_do_not_share_loop_affine_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Function-scoped backends can run in successive pytest event loops."""
+        monkeypatch.setattr(
+            "tracecat.executor.backends.test.config"
+            ".TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR",
+            str(tmp_path),
+        )
+        first_backend = TestBackend()
+        second_backend = TestBackend()
+
+        async def sweep(backend: TestBackend) -> None:
+            await backend._registry_artifact_cache().ensure_swept()
+
+        asyncio.run(sweep(first_backend))
+        asyncio.run(sweep(second_backend))
+
+        assert (
+            first_backend._registry_artifact_cache()
+            is not second_backend._registry_artifact_cache()
+        )
+
     @pytest.mark.anyio
     async def test_execute_udf_without_db_lookup(
         self,
@@ -306,8 +331,9 @@ class TestTestBackendNoRegistryAction:
                 False,
             )
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.get_action_runner",
-                lambda: fake_runner,
+                backend,
+                "_registry_artifact_cache",
+                lambda: fake_runner.registry_artifacts,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
             monkeypatch.setattr(
@@ -377,8 +403,9 @@ class TestTestBackendNoRegistryAction:
             False,
         )
         monkeypatch.setattr(
-            "tracecat.executor.backends.test.get_action_runner",
-            lambda: fake_runner,
+            backend,
+            "_registry_artifact_cache",
+            lambda: fake_runner.registry_artifacts,
         )
         monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
@@ -450,8 +477,9 @@ class TestTestBackendNoRegistryAction:
                 False,
             )
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.get_action_runner",
-                lambda: fake_runner,
+                backend,
+                "_registry_artifact_cache",
+                lambda: fake_runner.registry_artifacts,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
             monkeypatch.setattr(

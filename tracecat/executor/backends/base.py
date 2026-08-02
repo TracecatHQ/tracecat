@@ -38,6 +38,7 @@ from tracecat.sandbox import (
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
+    from tracecat.executor.registry_artifacts import RegistryArtifactCache
     from tracecat.executor.schemas import ResolvedContext
 
 
@@ -149,7 +150,7 @@ class ExecutorBackend(ABC):
 
         # The lease is held for the whole sandbox run so cache eviction cannot
         # delete a directory the script is still importing from.
-        registry_artifacts = get_action_runner().registry_artifacts
+        registry_artifacts = self._registry_artifact_cache()
         async with registry_artifacts.lease(artifact_uris) as registry_paths:
             return await self._run_python_in_sandbox(
                 script=script,
@@ -158,6 +159,10 @@ class ExecutorBackend(ABC):
                 registry_paths=registry_paths,
                 resolved_context=resolved_context,
             )
+
+    def _registry_artifact_cache(self) -> RegistryArtifactCache:
+        """Return the cache owned by this backend's executor process."""
+        return get_action_runner().registry_artifacts
 
     async def _run_python_in_sandbox(
         self,
