@@ -48,11 +48,50 @@ def _set_child_subreaper() -> None:
         raise OSError(error_number, os.strerror(error_number))
 
 
-def _direct_child_pids() -> list[int]:
-    """Return direct child PIDs from procfs for this single-threaded monitor."""
+def _direct_child_pids_from_children_file() -> list[int]:
+    """Return direct child PIDs using procfs's optional children file."""
     children_path = Path(f"/proc/self/task/{os.getpid()}/children")
     contents = children_path.read_text().strip()
     return [int(pid) for pid in contents.split()] if contents else []
+
+
+def _proc_parent_pid(stat_path: Path) -> int:
+    """Read one process's parent PID from its procfs stat record."""
+    contents = stat_path.read_text()
+    closing_paren = contents.rfind(")")
+    fields = contents[closing_paren + 1 :].split()
+    if closing_paren < 0 or len(fields) < 2:
+        raise RuntimeError("Malformed procfs stat record")
+    return int(fields[1])
+
+
+def _direct_child_pids_from_proc_stat() -> list[int]:
+    """Return direct child PIDs by scanning portable procfs stat records."""
+    parent_pid = os.getpid()
+    _proc_parent_pid(Path("/proc/self/stat"))  # Verify procfs is readable.
+    child_pids: list[int] = []
+
+    with os.scandir("/proc") as entries:
+        for entry in entries:
+            if not entry.name.isdecimal():
+                continue
+            try:
+                candidate_pid = int(entry.name)
+                candidate_parent_pid = _proc_parent_pid(Path(entry.path) / "stat")
+            except (FileNotFoundError, PermissionError, ProcessLookupError):
+                continue
+            if candidate_parent_pid == parent_pid:
+                child_pids.append(candidate_pid)
+
+    return child_pids
+
+
+def _direct_child_pids() -> list[int]:
+    """Return direct child PIDs from either available procfs interface."""
+    try:
+        return _direct_child_pids_from_children_file()
+    except OSError:
+        return _direct_child_pids_from_proc_stat()
 
 
 def _waitpid(pid: int, options: int = 0) -> tuple[int, int]:

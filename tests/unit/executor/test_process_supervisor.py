@@ -71,6 +71,28 @@ if mode in {"block", "kill-monitor"}:
     )
 
 
+def test_direct_child_discovery_falls_back_to_proc_stat(monkeypatch) -> None:
+    child_pid = os.fork()
+    if child_pid == 0:
+        signal.pause()
+        os._exit(0)
+
+    def missing_children_file() -> list[int]:
+        raise FileNotFoundError
+
+    monkeypatch.setattr(
+        process_supervisor,
+        "_direct_child_pids_from_children_file",
+        missing_children_file,
+    )
+    try:
+        assert child_pid in process_supervisor._direct_child_pids()
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(child_pid, signal.SIGKILL)
+        os.waitpid(child_pid, 0)
+
+
 async def _spawn_supervised_action(
     tmp_path: Path,
     *,
