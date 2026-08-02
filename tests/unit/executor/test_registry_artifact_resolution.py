@@ -427,10 +427,28 @@ class TestRegistryArtifactResolution:
             cache_key=cache_key,
             artifact_uri="https://<redacted>",
             artifact_format=RegistryArtifactFormat.SQUASHFS.value,
-            error_type="ValueError",
+            error_type="RegistryArtifactUriError",
         )
         assert "tenant-bucket" not in repr(warning.call_args)
         assert "org/repository" not in repr(warning.call_args)
+
+    @pytest.mark.anyio
+    async def test_final_candidate_malformed_uri_error_is_sanitized(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """A final candidate cannot expose its malformed URI to callers."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "https://tenant-bucket.invalid/org/repository/artifact.tar.gz"
+
+        with pytest.raises(ValueError) as exc_info:
+            async with cache.lease([artifact_uri]):
+                pass
+
+        assert str(exc_info.value) == "Invalid registry artifact URI"
+        assert exc_info.value.__cause__ is None
+        assert "tenant-bucket" not in repr(exc_info.value)
+        assert "org/repository" not in repr(exc_info.value)
 
     def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
         """Prefer SquashFS whenever enabled; extraction may work without mounts."""

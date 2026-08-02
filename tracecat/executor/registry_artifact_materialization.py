@@ -88,6 +88,10 @@ class SquashfsMountCommandError(RuntimeError):
     """
 
 
+class RegistryArtifactUriError(ValueError):
+    """A registry artifact URI is malformed, with identifiers suppressed."""
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactAdmission:
     """Byte-bound admission hook shared by one cold materialization."""
@@ -848,7 +852,10 @@ async def _download_s3_artifact(
     defer_cleanup: Callable[[Path], None],
 ) -> None:
     """Download an S3 registry artifact to a local path."""
-    bucket, key = parse_s3_uri(artifact_uri)
+    try:
+        bucket, key = parse_s3_uri(artifact_uri)
+    except ValueError:
+        raise RegistryArtifactUriError("Invalid registry artifact URI") from None
     try:
         if admission is None:
             await blob.download_file_to_path(
