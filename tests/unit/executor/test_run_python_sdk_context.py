@@ -473,13 +473,18 @@ class _FakeRunPythonRegistryArtifacts:
     def __init__(self, paths: list[Path]) -> None:
         self.paths = paths
         self.artifact_uris: list[str] | None = None
+        self.paths_may_be_modified: bool | None = None
         self.leased = False
 
     @asynccontextmanager
     async def lease(
-        self, artifact_uris: list[str] | None = None
+        self,
+        artifact_uris: list[str] | None = None,
+        *,
+        paths_may_be_modified: bool = False,
     ) -> AsyncIterator[list[Path]]:
         self.artifact_uris = artifact_uris
+        self.paths_may_be_modified = paths_may_be_modified
         self.leased = True
         try:
             yield self.paths
@@ -1232,6 +1237,7 @@ async def test_run_python_backend_holds_registry_lease_for_whole_sandbox_run(
     assert result.type == "success"
     assert leased_during_run == [True]
     assert fake_runner.registry_artifacts.leased is False
+    assert fake_runner.registry_artifacts.paths_may_be_modified is True
 
 
 @pytest.mark.anyio
