@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
+import secrets
 import shutil
 import sysconfig
 import tarfile
@@ -148,9 +149,14 @@ class RegistryArtifact(ABC):
         ctx: RegistryArtifactMaterializationContext,
         suffix: str,
     ) -> Path:
-        unique_id = id(asyncio.current_task())
         ctx.staging_dir.mkdir(parents=True, exist_ok=True)
-        return ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{unique_id}{suffix}"
+        while True:
+            attempt_id = secrets.token_hex(8)
+            candidate = (
+                ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{attempt_id}{suffix}"
+            )
+            if not os.path.lexists(candidate):
+                return candidate
 
 
 async def _rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:

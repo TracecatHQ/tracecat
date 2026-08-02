@@ -38,6 +38,27 @@ from .registry_artifact_test_helpers import (
 class TestRegistryArtifactMaterialization:
     """Materialize and reuse executor-local artifact formats."""
 
+    def test_temp_path_avoids_deferred_staging_collision(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="staging-collision",
+        )
+        ctx = cache._context_for(artifact.cache_key)
+
+        with patch(
+            "tracecat.executor.registry_artifact_materialization.secrets.token_hex",
+            side_effect=["deferred", "deferred", "retry"],
+        ):
+            deferred_path = artifact._temp_path(ctx, ".tmp")
+            deferred_path.mkdir()
+            retry_path = artifact._temp_path(ctx, ".tmp")
+
+        assert retry_path != deferred_path
+        assert retry_path.name.endswith(".retry.tmp")
+
     @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
         self, temp_cache_dir
