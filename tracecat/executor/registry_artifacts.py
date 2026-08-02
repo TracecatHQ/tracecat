@@ -107,7 +107,12 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
     """Materializes and leases executor-local registry artifact paths."""
 
     @asynccontextmanager
-    async def lease(self, artifact_uris: list[str] | None) -> AsyncIterator[list[Path]]:
+    async def lease(
+        self,
+        artifact_uris: list[str] | None,
+        *,
+        paths_may_be_modified: bool = False,
+    ) -> AsyncIterator[list[Path]]:
         """Materialize registry artifacts and pin them for the life of the context.
 
         Leased cache entries are never evicted, so callers may keep importing
@@ -116,6 +121,9 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
         Args:
             artifact_uris: Registry artifact URIs in deterministic PYTHONPATH
                 order, or None to use the base PYTHONPATH directory.
+            paths_may_be_modified: Whether the consumer can write to returned
+                cache paths. Mutable leases re-arm byte-budget convergence when
+                execution ends so post-admission growth is measured.
 
         Yields:
             Importable Python paths for the requested artifacts.
@@ -155,6 +163,8 @@ class RegistryArtifactCache(_RegistryArtifactCacheStorage):
             lease_setup_complete = True
             yield registry_paths
         finally:
+            if paths_may_be_modified and lease_setup_complete and leased_keys:
+                self._budget_dirty = True
             idle_keys = [
                 cache_key for cache_key in leased_keys if self._release_lease(cache_key)
             ]

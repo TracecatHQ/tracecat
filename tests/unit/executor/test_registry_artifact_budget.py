@@ -661,6 +661,38 @@ class TestRegistryArtifactCacheBudget:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
+    async def test_releasing_a_mutable_cache_hit_rescans_post_admission_growth(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Direct consumers cannot grow a warm entry outside budget accounting."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/mutable-cached.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        target_dir = write_tarball_entry(temp_cache_dir, cache_key)
+        cache._budget_dirty = False
+
+        with (
+            patch(MAX_ENTRIES_CONFIG, 10),
+            patch(MAX_BYTES_CONFIG, 1_000_000),
+            patch.object(
+                cache,
+                "_scan_cache_entries",
+                wraps=cache._scan_cache_entries,
+            ) as scan_cache_entries,
+        ):
+            async with cache.lease(
+                [artifact_uri],
+                paths_may_be_modified=True,
+            ) as registry_paths:
+                assert registry_paths == [target_dir]
+                (target_dir / "action-output.bin").write_bytes(b"x" * 4096)
+
+        assert scan_cache_entries.call_count == 1
+        assert cache._budget_dirty is False
+
+    @pytest.mark.anyio
     async def test_successful_cold_admission_skips_release_rescan(self, temp_cache_dir):
         """A successful protected pass consumes the materialization dirty signal."""
         cache = RegistryArtifactCache(temp_cache_dir)

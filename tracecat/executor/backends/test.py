@@ -318,11 +318,18 @@ class TestBackend(ExecutorBackend):
         if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
             await registry_artifacts.ensure_swept()
         extracted_paths: list[str] = []
+        mutable_rescan_registered = False
 
         for artifact_uri in artifact_uris:
+            rescan_on_release = not mutable_rescan_registered and _is_cache_entry_uri(
+                artifact_uri
+            )
             try:
                 artifact_paths = await leases.enter_async_context(
-                    registry_artifacts.lease([artifact_uri])
+                    registry_artifacts.lease(
+                        [artifact_uri],
+                        paths_may_be_modified=rescan_on_release,
+                    )
                 )
             except Exception as e:
                 logger.warning(
@@ -331,6 +338,8 @@ class TestBackend(ExecutorBackend):
                     error=str(e),
                 )
                 continue
+            if rescan_on_release:
+                mutable_rescan_registered = True
             extracted_paths.extend(str(path) for path in artifact_paths)
 
         logger.debug(
