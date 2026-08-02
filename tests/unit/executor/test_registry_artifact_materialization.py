@@ -702,6 +702,53 @@ class TestRegistryArtifactMaterialization:
         assert production_reaped is True
         assert captured.returncode is not None
 
+    @pytest.mark.parametrize("operation", ["extract", "size-command", "size-parse"])
+    @pytest.mark.anyio
+    async def test_squashfs_failures_sanitize_subprocess_output(
+        self,
+        temp_cache_dir: Path,
+        operation: str,
+    ) -> None:
+        sensitive_output = b"synthetic-customer/repository/member.py"
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/custom.squashfs",
+            cache_key="malformed-squashfs",
+        )
+        image_path = temp_cache_dir / "image.squashfs"
+        image_path.write_bytes(b"squashfs")
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        process = AsyncMock()
+        process.returncode = 0 if operation == "size-parse" else 1
+        stdout = sensitive_output if operation == "size-parse" else b""
+        stderr = b"" if operation == "size-parse" else sensitive_output
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization.shutil.which",
+                return_value="/usr/bin/unsquashfs",
+            ),
+            patch(
+                "tracecat.executor.registry_artifact_materialization.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ),
+            patch(
+                "tracecat.executor.registry_artifact_materialization.communicate_process_group",
+                new_callable=AsyncMock,
+                return_value=(stdout, stderr),
+            ),
+            pytest.raises(RegistryArtifactExtractionError) as raised,
+        ):
+            if operation == "extract":
+                await artifact._extract_image(image_path, target_dir)
+            else:
+                await artifact._squashfs_extracted_size(image_path)
+
+        assert str(raised.value) == "Registry artifact extraction failed"
+        assert sensitive_output.decode() not in str(raised.value)
+        assert raised.value.__cause__ is None
+
     @pytest.mark.parametrize("operation", ["mount", "extract", "size"])
     @pytest.mark.anyio
     async def test_repeated_cancellation_reaps_squashfs_subprocess(

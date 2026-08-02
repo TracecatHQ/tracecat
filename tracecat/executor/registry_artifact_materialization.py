@@ -676,13 +676,12 @@ class SquashfsArtifact(RegistryArtifact):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await communicate_process_group(proc)
+        await communicate_process_group(proc)
 
         if proc.returncode == 0:
             return
 
-        output = (stderr or stdout).decode(errors="replace").strip()
-        raise RuntimeError(output or "unsquashfs command failed")
+        raise RegistryArtifactExtractionError()
 
     async def _squashfs_extracted_size(
         self,
@@ -703,12 +702,14 @@ class SquashfsArtifact(RegistryArtifact):
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
-        stdout, stderr = await communicate_process_group(proc)
+        stdout, _ = await communicate_process_group(proc)
 
         if proc.returncode != 0:
-            output = (stderr or stdout).decode(errors="replace").strip()
-            raise RuntimeError(output or "unsquashfs listing failed")
-        return _squashfs_listing_size(stdout, allocation_unit=allocation_unit)
+            raise RegistryArtifactExtractionError()
+        try:
+            return _squashfs_listing_size(stdout, allocation_unit=allocation_unit)
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
 
 
 @dataclass(frozen=True, slots=True)
