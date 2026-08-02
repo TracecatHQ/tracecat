@@ -108,6 +108,75 @@ class TestRegistryArtifactCacheBudget:
 
         assert allocated_size.call_count == 2
 
+    def test_directory_footprint_can_exclude_root_inode(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        nested = temp_cache_dir / "nested"
+        nested.mkdir()
+        (nested / "module.py").write_text("x")
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._allocated_stat_size",
+            return_value=4096,
+        ) as allocated_size:
+            assert _directory_footprint(temp_cache_dir, include_root=False) == 2 * 4096
+
+        assert allocated_size.call_count == 2
+
+    def test_cache_structure_counts_roots_without_subtree_contents(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        for root in (cache.entries_dir, cache.staging_dir, cache.trash_dir):
+            child = root / "child"
+            child.mkdir(parents=True)
+            (child / "payload").write_text("x")
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        (base_dir / "payload").write_text("x")
+
+        with patch(
+            "tracecat.executor.registry_artifact_storage._allocated_stat_size",
+            return_value=4096,
+        ) as allocated_size:
+            assert cache._cache_structural_footprint() == 6 * 4096
+
+        # Cache, entries, staging, and trash roots plus the unpruned base tree.
+        assert allocated_size.call_count == 6
+
+    @pytest.mark.anyio
+    async def test_admission_counts_non_evictable_cache_structure(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with patch.object(cache, "_cache_structural_footprint", return_value=5):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                await cache._ensure_cache_capacity(
+                    additional_bytes=0,
+                    protected_key="new",
+                    max_bytes=4,
+                )
+
+        assert raised.value.current_bytes == 5
+        assert raised.value.additional_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_enforcement_counts_cache_structure(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(MAX_BYTES_CONFIG, 4),
+            patch.object(cache, "_cache_structural_footprint", return_value=5),
+        ):
+            assert await cache._enforce_cache_budget() is False
+
     @pytest.mark.anyio
     async def test_admission_rounds_download_reservation_to_allocation_unit(
         self,

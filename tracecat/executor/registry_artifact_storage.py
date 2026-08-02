@@ -114,6 +114,7 @@ def _directory_footprint(
     *,
     allocation_unit: int | None = None,
     pruned_directories: Iterable[Path] = (),
+    include_root: bool = True,
 ) -> int:
     """Return the allocated footprint of a cache directory tree.
 
@@ -121,6 +122,8 @@ def _directory_footprint(
         directory: Cache directory to measure.
         pruned_directories: Directories whose own inodes are counted without
             descending into their contents.
+        include_root: Whether to count the root directory's inode. Disable this
+            when a separate structural scan already owns that inode.
 
     Returns:
         Total allocated bytes of unique contained inodes, or zero when the
@@ -151,10 +154,11 @@ def _directory_footprint(
         walker = os.walk(directory, onerror=raise_walk_error)
         for root, dirs, files in walker:
             root_path = Path(root)
-            try:
-                total_bytes += allocated_inode_size(os.lstat(root))
-            except FileNotFoundError:
-                continue
+            if include_root or root_path != directory:
+                try:
+                    total_bytes += allocated_inode_size(os.lstat(root))
+                except FileNotFoundError:
+                    continue
             for file_name in files:
                 try:
                     total_bytes += allocated_inode_size(
@@ -223,6 +227,22 @@ def _move_entry_to_trash(entry_dir: Path, trash_dir: Path, cache_key: str) -> Pa
 
 class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
     """Adds startup recovery, eviction, and byte-budget enforcement."""
+
+    def _cache_structural_footprint(self) -> int:
+        """Measure cache roots and non-entry data exactly once.
+
+        Entry, staging, and trash contents are measured separately. Pruning
+        those trees here retains their root-directory blocks, including growth
+        caused by child names, while avoiding double-counting their contents.
+        """
+        return _directory_footprint(
+            self.cache_dir,
+            pruned_directories=(
+                self.entries_dir,
+                self.staging_dir,
+                self.trash_dir,
+            ),
+        )
 
     async def ensure_swept(self) -> None:
         """Run the startup sweep exactly once successfully, off the event loop.
@@ -412,8 +432,26 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         if max_entries <= 0 and max_bytes <= 0:
             return True
 
-        entries = await asyncio.to_thread(self._scan_cache_entries)
-        total_bytes = sum(entry.size_bytes for entry in entries.values())
+        entries, structural_bytes, staging_bytes, trash_bytes = await asyncio.gather(
+            asyncio.to_thread(self._scan_cache_entries),
+            asyncio.to_thread(self._cache_structural_footprint),
+            asyncio.to_thread(
+                _directory_footprint,
+                self.staging_dir,
+                include_root=False,
+            ),
+            asyncio.to_thread(
+                _directory_footprint,
+                self.trash_dir,
+                include_root=False,
+            ),
+        )
+        total_bytes = (
+            structural_bytes
+            + staging_bytes
+            + trash_bytes
+            + sum(entry.size_bytes for entry in entries.values())
+        )
         protected = set() if protected_key is None else {protected_key}
         eviction_pass = await self._evict_until_fits(
             entries,
@@ -467,18 +505,34 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
 
         async with self._budget_lock:
             cleanup_complete = await self._cleanup_cache_work_dirs()
-            entries = await asyncio.to_thread(self._scan_cache_entries)
-            staging_bytes, trash_bytes = await asyncio.gather(
-                asyncio.to_thread(_directory_footprint, self.staging_dir),
-                asyncio.to_thread(_directory_footprint, self.trash_dir),
+            (
+                entries,
+                structural_bytes,
+                staging_bytes,
+                trash_bytes,
+            ) = await asyncio.gather(
+                asyncio.to_thread(self._scan_cache_entries),
+                asyncio.to_thread(self._cache_structural_footprint),
+                asyncio.to_thread(
+                    _directory_footprint,
+                    self.staging_dir,
+                    include_root=False,
+                ),
+                asyncio.to_thread(
+                    _directory_footprint,
+                    self.trash_dir,
+                    include_root=False,
+                ),
             )
             total_bytes = (
-                sum(entry.size_bytes for entry in entries.values())
+                structural_bytes
                 + staging_bytes
                 + trash_bytes
+                + sum(entry.size_bytes for entry in entries.values())
             )
             non_evictable_bytes = (
-                staging_bytes
+                structural_bytes
+                + staging_bytes
                 + trash_bytes
                 + sum(
                     entry.size_bytes
@@ -915,7 +969,9 @@ class _RegistryArtifactCacheStorage(_RegistryArtifactCacheState):
         if max_entries <= 0 and max_bytes <= 0:
             return True
 
-        total_bytes = sum(entry.size_bytes for entry in entries.values())
+        total_bytes = self._cache_structural_footprint() + sum(
+            entry.size_bytes for entry in entries.values()
+        )
         # Mounted entries belong to a live process sharing this cache directory.
         candidates = sorted(
             (
