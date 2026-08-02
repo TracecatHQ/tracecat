@@ -344,7 +344,7 @@ class TestRegistryArtifactMaterialization:
                 member.size = 1
                 tar.addfile(member, io.BytesIO(b"x"))
 
-        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 16_384
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 28_672
 
     def test_tarball_size_includes_extraction_root(
         self,
@@ -357,7 +357,7 @@ class TestRegistryArtifactMaterialization:
             member.size = 0
             tar.addfile(member, io.BytesIO())
 
-        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 8192
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 12_288
 
     def test_tarball_size_does_not_duplicate_explicit_root(
         self,
@@ -382,7 +382,31 @@ class TestRegistryArtifactMaterialization:
             member.size = 0
             tar.addfile(member, io.BytesIO())
 
-        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 20_480
+        assert _tarball_extracted_size(tarball_path, allocation_unit=4096) == 36_864
+
+    def test_tarball_size_reserves_growing_directory_metadata(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Many child entries reserve more than one directory block."""
+        tarball_path = temp_cache_dir / "wide-directory.tar.gz"
+        child_count = 1000
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            for index in range(child_count):
+                member = tarfile.TarInfo(f"module-{index:04d}.py")
+                member.size = 0
+                tar.addfile(member, io.BytesIO())
+
+        file_bytes = child_count * 4096
+        root_bytes = 4096
+        directory_entry_bytes = child_count * 4096
+        assert (
+            _tarball_extracted_size(
+                tarball_path,
+                allocation_unit=4096,
+            )
+            == file_bytes + root_bytes + directory_entry_bytes
+        )
 
     def test_squashfs_listing_size_rejects_unparseable_files(self) -> None:
         with pytest.raises(ValueError, match="Could not parse SquashFS listing"):

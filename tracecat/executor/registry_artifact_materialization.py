@@ -983,6 +983,27 @@ def _allocated_size_bound(size_bytes: int, *, allocation_unit: int) -> int:
     )
 
 
+_DIRECTORY_ENTRY_OVERHEAD_BYTES = 32
+"""Conservative per-child filesystem directory-record overhead."""
+
+
+def _directory_entry_size_bound(
+    child_name: str,
+    *,
+    allocation_unit: int,
+) -> int:
+    """Reserve directory storage for one unique child name.
+
+    Each child receives at least one allocation unit. This intentionally
+    overbounds filesystem-specific records and index blocks without assuming a
+    particular executor filesystem layout.
+    """
+    return _allocated_size_bound(
+        _DIRECTORY_ENTRY_OVERHEAD_BYTES + len(os.fsencode(child_name)),
+        allocation_unit=allocation_unit,
+    )
+
+
 def _tarball_extracted_size(
     tarball_path: Path,
     *,
@@ -994,6 +1015,13 @@ def _tarball_extracted_size(
     has_explicit_root_directory = False
     required_parent_dirs: set[PurePosixPath] = set()
     explicit_dirs: set[PurePosixPath] = set()
+    directory_children: dict[PurePosixPath, set[str]] = {}
+
+    def record_directory_child(path: PurePosixPath) -> None:
+        if path == root_path:
+            return
+        directory_children.setdefault(path.parent, set()).add(path.name)
+
     with tarfile.open(tarball_path, "r:gz") as tar:
         for member in tar:
             if member.size < 0:
@@ -1005,6 +1033,7 @@ def _tarball_extracted_size(
                 allocation_unit=allocation_unit,
             )
             member_path = PurePosixPath(member.name)
+            record_directory_child(member_path)
             if member.isdir():
                 explicit_dirs.add(member_path)
                 has_explicit_root_directory |= member_path == root_path
@@ -1012,11 +1041,20 @@ def _tarball_extracted_size(
                 if parent == root_path:
                     break
                 required_parent_dirs.add(parent)
+                record_directory_child(parent)
     # Extraction creates a target root even when the tar manifest omits it.
     if not has_explicit_root_directory:
         total_bytes += _allocated_size_bound(0, allocation_unit=allocation_unit)
     implicit_parent_dirs = required_parent_dirs - explicit_dirs
     total_bytes += len(implicit_parent_dirs) * allocation_unit
+    total_bytes += sum(
+        _directory_entry_size_bound(
+            child_name,
+            allocation_unit=allocation_unit,
+        )
+        for child_names in directory_children.values()
+        for child_name in child_names
+    )
     return total_bytes
 
 
