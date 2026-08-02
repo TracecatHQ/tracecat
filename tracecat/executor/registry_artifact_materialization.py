@@ -238,27 +238,37 @@ def _is_reusable_cache_directory(path: Path) -> bool:
     return path.is_dir() and not path.is_symlink()
 
 
-def _validate_squashfs_mount_paths(paths: RegistryArtifactPaths) -> None:
-    """Reject mount paths that can escape their canonical cache entry."""
+def _validate_cache_entry_path(paths: RegistryArtifactPaths) -> None:
+    """Reject an entry root redirected outside the configured entries directory."""
     entry_dir = paths.entry_dir
-    mount_dir = paths.squashfs_mount_dir
-    if mount_dir.parent != entry_dir:
-        raise OSError("Unsafe SquashFS mount path outside its cache entry")
-
-    for path in (entry_dir, mount_dir):
-        if os.path.lexists(path) and not _is_reusable_cache_directory(path):
-            raise OSError("Unsafe symlink or non-directory SquashFS mount path")
-
-    if not entry_dir.exists() or not mount_dir.exists():
+    if os.path.lexists(entry_dir) and not _is_reusable_cache_directory(entry_dir):
+        raise OSError("Unsafe symlink or non-directory registry cache entry path")
+    if not entry_dir.exists():
         return
 
     resolved_entries_dir = entry_dir.parent.resolve(strict=True)
     resolved_entry_dir = entry_dir.resolve(strict=True)
+    if resolved_entry_dir.parent != resolved_entries_dir:
+        raise OSError("Unsafe registry cache entry path outside the entries directory")
+
+
+def _validate_squashfs_mount_paths(paths: RegistryArtifactPaths) -> None:
+    """Reject mount paths that can escape their canonical cache entry."""
+    entry_dir = paths.entry_dir
+    mount_dir = paths.squashfs_mount_dir
+    _validate_cache_entry_path(paths)
+    if mount_dir.parent != entry_dir:
+        raise OSError("Unsafe SquashFS mount path outside its cache entry")
+
+    if os.path.lexists(mount_dir) and not _is_reusable_cache_directory(mount_dir):
+        raise OSError("Unsafe symlink or non-directory SquashFS mount path")
+
+    if not entry_dir.exists() or not mount_dir.exists():
+        return
+
+    resolved_entry_dir = entry_dir.resolve(strict=True)
     resolved_mount_dir = mount_dir.resolve(strict=True)
-    if (
-        resolved_entry_dir.parent != resolved_entries_dir
-        or resolved_mount_dir.parent != resolved_entry_dir
-    ):
+    if resolved_mount_dir.parent != resolved_entry_dir:
         raise OSError("Unsafe SquashFS mount path outside its cache entry")
 
 
@@ -406,6 +416,7 @@ class SquashfsArtifact(RegistryArtifact):
         image_path: Path,
     ) -> float:
         """Ensure the SquashFS image exists locally and return download time."""
+        _validate_cache_entry_path(ctx.paths)
         if await _reuse_or_reclaim_squashfs_image(
             image_path,
             defer_cleanup=ctx.defer_cleanup,
@@ -422,9 +433,11 @@ class SquashfsArtifact(RegistryArtifact):
                 admission=ctx.admission,
                 defer_cleanup=ctx.defer_cleanup,
             )
+            _validate_cache_entry_path(ctx.paths)
             try:
                 temp_image.rename(image_path)
             except OSError:
+                _validate_cache_entry_path(ctx.paths)
                 if not await _reuse_or_reclaim_squashfs_image(
                     image_path,
                     defer_cleanup=ctx.defer_cleanup,
@@ -496,6 +509,7 @@ class SquashfsArtifact(RegistryArtifact):
         image_path: Path,
     ) -> Path:
         target_dir = ctx.paths.squashfs_extract_dir
+        _validate_cache_entry_path(ctx.paths)
         if _is_reusable_extraction_dir(
             target_dir,
             defer_cleanup=ctx.defer_cleanup,
@@ -503,6 +517,7 @@ class SquashfsArtifact(RegistryArtifact):
             return target_dir
 
         ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
+        _validate_cache_entry_path(ctx.paths)
 
         logger.info(
             "Extracting SquashFS registry artifact",
@@ -526,6 +541,7 @@ class SquashfsArtifact(RegistryArtifact):
             await self._extract_image(image_path, temp_dir)
             extract_elapsed = (time.monotonic() - extract_start) * 1000
 
+            _validate_cache_entry_path(ctx.paths)
             try:
                 temp_dir.rename(target_dir)
                 total_elapsed = (time.monotonic() - start_time) * 1000
@@ -539,6 +555,7 @@ class SquashfsArtifact(RegistryArtifact):
                     total_ms=f"{total_elapsed:.1f}",
                 )
             except OSError:
+                _validate_cache_entry_path(ctx.paths)
                 if _is_reusable_extraction_dir(
                     target_dir,
                     defer_cleanup=ctx.defer_cleanup,
@@ -664,6 +681,7 @@ class TarballArtifact(RegistryArtifact):
     def cached_path(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path] | None:
+        _validate_cache_entry_path(ctx.paths)
         if _is_reusable_extraction_dir(
             ctx.paths.tarball_target_dir,
             defer_cleanup=ctx.defer_cleanup,
@@ -679,6 +697,7 @@ class TarballArtifact(RegistryArtifact):
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path]:
         target_dir = ctx.paths.tarball_target_dir
+        _validate_cache_entry_path(ctx.paths)
         logger.info(
             "Materializing tarball registry artifact",
             cache_key=ctx.cache_key,
@@ -692,6 +711,7 @@ class TarballArtifact(RegistryArtifact):
 
         try:
             ctx.paths.entry_dir.mkdir(parents=True, exist_ok=True)
+            _validate_cache_entry_path(ctx.paths)
 
             download_start = time.monotonic()
             await self.download(ctx, temp_tarball)
@@ -712,6 +732,7 @@ class TarballArtifact(RegistryArtifact):
             await self.extract(temp_tarball, temp_dir)
             extract_elapsed = (time.monotonic() - extract_start) * 1000
 
+            _validate_cache_entry_path(ctx.paths)
             try:
                 temp_dir.rename(target_dir)
                 total_elapsed = (time.monotonic() - start_time) * 1000
@@ -725,6 +746,7 @@ class TarballArtifact(RegistryArtifact):
                     total_ms=f"{total_elapsed:.1f}",
                 )
             except OSError:
+                _validate_cache_entry_path(ctx.paths)
                 if _is_reusable_extraction_dir(
                     target_dir,
                     defer_cleanup=ctx.defer_cleanup,

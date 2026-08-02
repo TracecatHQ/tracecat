@@ -117,6 +117,44 @@ class TestRegistryArtifactMaterialization:
         assert image_path.read_bytes() == b"fresh image"
 
     @pytest.mark.anyio
+    async def test_tarball_rejects_symlinked_cache_entry_for_reuse_and_publish(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """Tarball paths cannot escape through a symlinked cache entry root."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        ctx = cache._context_for("symlinked-tarball-entry")
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key=ctx.cache_key,
+        )
+        outside_dir = temp_cache_dir / "outside-tarball-entry"
+        (outside_dir / "tarball").mkdir(parents=True)
+        ctx.paths.entry_dir.parent.mkdir(parents=True)
+        ctx.paths.entry_dir.symlink_to(outside_dir, target_is_directory=True)
+
+        with pytest.raises(OSError, match="Unsafe .*registry cache entry path"):
+            artifact.cached_path(ctx)
+
+        with (
+            patch.object(
+                TarballArtifact,
+                "download",
+                new_callable=AsyncMock,
+            ) as download,
+            patch.object(
+                TarballArtifact,
+                "extract",
+                new_callable=AsyncMock,
+            ) as extract,
+            pytest.raises(OSError, match="Unsafe .*registry cache entry path"),
+        ):
+            await artifact.materialize(ctx)
+
+        download.assert_not_awaited()
+        extract.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
         self, temp_cache_dir
     ):
@@ -437,7 +475,7 @@ class TestRegistryArtifactMaterialization:
                 "_mount_image",
                 new_callable=AsyncMock,
             ) as mount_image,
-            pytest.raises(OSError, match="Unsafe .*SquashFS mount path"),
+            pytest.raises(OSError, match="Unsafe .* path"),
         ):
             await artifact.mount(ctx, ctx.paths.squashfs_image_path)
 
