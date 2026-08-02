@@ -134,6 +134,12 @@ def supervise(command: Sequence[str]) -> int:
     if not command:
         raise ValueError("A supervised command is required")
 
+    # The monitor is intentionally visible as the action's parent. Make this
+    # outer process a second subreaper so killing that monitor only reparents
+    # the action tree here, where it is still killed and reaped before return.
+    _set_child_subreaper()
+    _direct_child_pids()  # Fail before execution when procfs tracking is absent.
+
     control_read_fd, control_write_fd = os.pipe()
     writer_open = True
 
@@ -160,6 +166,7 @@ def supervise(command: Sequence[str]) -> int:
         return _exit_code(monitor_status)
     finally:
         request_cleanup(signal.SIGTERM, None)
+        _kill_and_reap_children()
 
 
 def main() -> int:

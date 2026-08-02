@@ -45,6 +45,7 @@ def _write_action_script(path: Path) -> None:
     path.write_text(
         """
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -62,7 +63,9 @@ child = subprocess.Popen(
 pid_file.write_text(f"{os.getpid()} {child.pid}")
 if mode == "failure":
     raise SystemExit(23)
-if mode == "block":
+if mode == "kill-monitor":
+    os.kill(os.getppid(), signal.SIGKILL)
+if mode in {"block", "kill-monitor"}:
     time.sleep(30)
 """.lstrip()
     )
@@ -148,6 +151,35 @@ async def test_supervisor_reaps_detached_descendant_before_cancellation_returns(
         assert not _process_is_running(detached_pid)
     finally:
         for pid in (action_pid, detached_pid):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        await process.wait()
+
+
+@pytest.mark.anyio
+async def test_supervisor_reaps_action_that_kills_its_monitor(
+    tmp_path: Path,
+) -> None:
+    process, pid_file = await _spawn_supervised_action(
+        tmp_path,
+        mode="kill-monitor",
+    )
+    tracked_pids: tuple[int, ...] = ()
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+
+        assert process.returncode == 128 + signal.SIGKILL, stderr.decode()
+        assert stdout == b""
+        tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+        action_pid, detached_pid = tracked_pids
+        assert not _process_is_running(action_pid)
+        assert not _process_is_running(detached_pid)
+    finally:
+        if not tracked_pids and pid_file.exists():
+            tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+        for pid in tracked_pids:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)
         with contextlib.suppress(ProcessLookupError):
