@@ -92,6 +92,13 @@ class RegistryArtifactUriError(ValueError):
     """A registry artifact URI is malformed, with identifiers suppressed."""
 
 
+class RegistryArtifactExtractionError(RuntimeError):
+    """A registry archive could not be inspected or extracted safely."""
+
+    def __init__(self) -> None:
+        super().__init__("Registry artifact extraction failed")
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactAdmission:
     """Byte-bound admission hook shared by one cold materialization."""
@@ -753,12 +760,15 @@ class TarballArtifact(RegistryArtifact):
 
             admission = ctx.admission
             if admission is not None:
-                extracted_size = await _run_blocking_rejoin_on_cancel(
-                    lambda: _tarball_extracted_size(
-                        temp_tarball,
-                        allocation_unit=admission.allocation_unit,
+                try:
+                    extracted_size = await _run_blocking_rejoin_on_cancel(
+                        lambda: _tarball_extracted_size(
+                            temp_tarball,
+                            allocation_unit=admission.allocation_unit,
+                        )
                     )
-                )
+                except Exception:
+                    raise RegistryArtifactExtractionError() from None
                 await admission.ensure_capacity(extracted_size)
 
             extract_start = time.monotonic()
@@ -835,7 +845,10 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        await _run_blocking_rejoin_on_cancel(_do_extract)
+        try:
+            await _run_blocking_rejoin_on_cancel(_do_extract)
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
 
         logger.debug(
             "Tarball extracted",

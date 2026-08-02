@@ -16,6 +16,7 @@ import pytest
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
+    RegistryArtifactExtractionError,
     RegistryArtifactMaterializationContext,
     SquashfsArtifact,
     SquashfsMountCommandError,
@@ -810,6 +811,31 @@ class TestRegistryArtifactMaterialization:
         assert extraction_finished.is_set()
         assert first_cancellation_propagated_early is False
         assert second_cancellation_propagated_early is False
+
+    @pytest.mark.anyio
+    async def test_tarball_extract_sanitizes_member_failures(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        sensitive_member = "../../synthetic-customer/repository/module.py"
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="malformed-tarball",
+        )
+        tarball_path = temp_cache_dir / "artifact.tar.gz"
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            member = tarfile.TarInfo(sensitive_member)
+            member.size = 1
+            tar.addfile(member, io.BytesIO(b"x"))
+
+        with pytest.raises(RegistryArtifactExtractionError) as raised:
+            await artifact.extract(tarball_path, target_dir)
+
+        assert str(raised.value) == "Registry artifact extraction failed"
+        assert sensitive_member not in str(raised.value)
+        assert raised.value.__cause__ is None
 
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_tarball_size_scan_rejoins_thread(
