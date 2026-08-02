@@ -964,6 +964,7 @@ def _tarball_extracted_size(
 def _squashfs_listing_size(output: bytes, *, allocation_unit: int = 1) -> int:
     """Bound allocated bytes from ``unsquashfs -lln`` output, failing closed."""
     total_bytes = 0
+    parsed_entries = 0
     for raw_line in output.decode(errors="replace").splitlines():
         line = raw_line.strip()
         if not line:
@@ -974,8 +975,11 @@ def _squashfs_listing_size(output: bytes, *, allocation_unit: int = 1) -> int:
             continue
         if len(fields) < 5 or "/" not in fields[1] or not fields[2].isdigit():
             raise ValueError(f"Could not parse SquashFS listing line: {line}")
+        parsed_entries += 1
         total_bytes += _allocated_size_bound(
             int(fields[2]),
             allocation_unit=allocation_unit,
         )
+    if parsed_entries == 0:
+        raise ValueError("Could not parse any SquashFS listing entries")
     return total_bytes

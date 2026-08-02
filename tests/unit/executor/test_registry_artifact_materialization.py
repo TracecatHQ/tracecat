@@ -290,6 +290,23 @@ class TestRegistryArtifactMaterialization:
         with pytest.raises(ValueError, match="Could not parse SquashFS listing"):
             _squashfs_listing_size(b"-rw-r--r-- malformed")
 
+    @pytest.mark.parametrize(
+        "listing",
+        [
+            b"",
+            b"Parallel unsquashfs: Using 4 processors",
+        ],
+    )
+    def test_squashfs_listing_size_rejects_listing_without_entries(
+        self,
+        listing: bytes,
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match="Could not parse any SquashFS listing entries",
+        ):
+            _squashfs_listing_size(listing)
+
     @pytest.mark.anyio
     async def test_materialize_mounts_squashfs_sidecar(self, temp_cache_dir):
         """Test that a SquashFS sidecar is mounted instead of extracting tarballs."""
