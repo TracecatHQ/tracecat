@@ -339,7 +339,10 @@ class SquashfsArtifact(RegistryArtifact):
                     raise
             return (time.monotonic() - download_start) * 1000
         finally:
-            temp_image.unlink(missing_ok=True)
+            _remove_file_or_defer(
+                temp_image,
+                defer_cleanup=ctx.defer_cleanup,
+            )
 
     async def mount(
         self,

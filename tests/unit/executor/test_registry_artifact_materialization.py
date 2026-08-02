@@ -672,6 +672,65 @@ class TestRegistryArtifactMaterialization:
         assert cache._deferred_staging_cleanup == set()
         assert not deferred_path.exists()
 
+    @pytest.mark.anyio
+    async def test_failed_squashfs_unlink_is_deferred_after_concurrent_publish(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        """A losing SquashFS staging file remains retryable without masking success."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/concurrent.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        artifact = SquashfsArtifact(uri=artifact_uri, cache_key=cache_key)
+        ctx = cache._context_for(cache_key)
+        image_path = ctx.paths.squashfs_image_path
+        staging_paths: list[Path] = []
+        real_rename = Path.rename
+        real_unlink = Path.unlink
+
+        async def download(
+            artifact_uri: str,
+            output_path: Path,
+            *,
+            admission: object,
+            defer_cleanup: object,
+        ) -> None:
+            del artifact_uri, admission, defer_cleanup
+            output_path.write_bytes(b"loser")
+            staging_paths.append(output_path)
+
+        def publish_concurrently(path: Path, target: Path) -> Path:
+            if path in staging_paths:
+                target.write_bytes(b"winner")
+                raise FileExistsError("published by another process")
+            return real_rename(path, target)
+
+        def fail_staging_unlink(path: Path, missing_ok: bool = False) -> None:
+            if path in staging_paths:
+                raise PermissionError("cleanup denied")
+            real_unlink(path, missing_ok=missing_ok)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_materialization."
+                "_download_s3_artifact",
+                side_effect=download,
+            ),
+            patch.object(Path, "rename", publish_concurrently),
+            patch.object(Path, "unlink", fail_staging_unlink),
+        ):
+            await artifact.download(ctx, image_path)
+
+        assert image_path.read_bytes() == b"winner"
+        assert len(staging_paths) == 1
+        deferred_path = staging_paths[0]
+        assert deferred_path.exists()
+        assert cache._deferred_staging_cleanup == {deferred_path}
+
+        assert cache._retry_deferred_staging_cleanup() is True
+        assert cache._deferred_staging_cleanup == set()
+        assert not deferred_path.exists()
+
     @pytest.mark.parametrize("artifact_format", ["squashfs", "tarball"])
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_partial_cleanup_rejoins_thread(
