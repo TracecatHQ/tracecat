@@ -22,6 +22,7 @@ from pathlib import Path
 from types import FrameType
 
 _PR_SET_CHILD_SUBREAPER = 36
+_PR_SET_PDEATHSIG = 1
 _PARENT_POLL_INTERVAL_MS = 10
 
 
@@ -44,6 +45,23 @@ def _set_child_subreaper() -> None:
     ]
     prctl.restype = ctypes.c_int
     if prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
+
+
+def _set_parent_death_signal(signal_number: int) -> None:
+    """Ask Linux to signal this process when its current parent exits."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    prctl = libc.prctl
+    prctl.argtypes = [
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+    ]
+    prctl.restype = ctypes.c_int
+    if prctl(_PR_SET_PDEATHSIG, signal_number, 0, 0, 0) != 0:
         error_number = ctypes.get_errno()
         raise OSError(error_number, os.strerror(error_number))
 
@@ -125,9 +143,31 @@ def _exec(command: Sequence[str], control_fd: int) -> None:
         os._exit(127)
 
 
-def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
+def _run_monitor(
+    control_fd: int,
+    command: Sequence[str],
+    *,
+    supervisor_pid: int,
+) -> int:
     """Run the action below a detached subreaper and contain its descendants."""
     try:
+        parent_cleanup_requested = False
+
+        def request_parent_cleanup(
+            _signal: int,
+            _frame: FrameType | None,
+        ) -> None:
+            nonlocal parent_cleanup_requested
+            parent_cleanup_requested = True
+
+        # The action can stop this same-UID monitor and kill its outer parent.
+        # SIGCONT both resumes the monitor and records that it must clean up.
+        signal.signal(signal.SIGCONT, request_parent_cleanup)
+        _set_parent_death_signal(signal.SIGCONT)
+        # Close the fork-to-prctl race before any untrusted command is started.
+        if os.getppid() != supervisor_pid or parent_cleanup_requested:
+            return 128 + signal.SIGTERM
+
         os.setsid()
         _set_child_subreaper()
         _direct_child_pids()  # Fail before execution when procfs tracking is absent.
@@ -141,7 +181,9 @@ def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
         action_status: int | None = None
         parent_closed = False
 
-        while action_status is None and not parent_closed:
+        while (
+            action_status is None and not parent_closed and not parent_cleanup_requested
+        ):
             waited_pid, wait_status = _waitpid(action_pid, os.WNOHANG)
             if waited_pid == action_pid:
                 action_status = wait_status
@@ -150,7 +192,7 @@ def _run_monitor(control_fd: int, command: Sequence[str]) -> int:
                 parent_closed = os.read(control_fd, 1) == b""
 
         _kill_and_reap_children()
-        if parent_closed:
+        if parent_closed or parent_cleanup_requested:
             return 128 + signal.SIGTERM
         if action_status is None:
             raise RuntimeError("Supervised action exited without a wait status")
@@ -202,12 +244,19 @@ def supervise(command: Sequence[str]) -> int:
     signal.signal(signal.SIGTERM, request_cleanup)
     signal.signal(signal.SIGINT, request_cleanup)
 
+    supervisor_pid = os.getpid()
     monitor_pid = os.fork()
     if monitor_pid == 0:
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         os.close(control_write_fd)
-        os._exit(_run_monitor(control_read_fd, command))
+        os._exit(
+            _run_monitor(
+                control_read_fd,
+                command,
+                supervisor_pid=supervisor_pid,
+            )
+        )
 
     os.close(control_read_fd)
     try:

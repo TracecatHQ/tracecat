@@ -60,24 +60,36 @@ child = subprocess.Popen(
     stderr=subprocess.DEVNULL,
     start_new_session=True,
 )
-pid_file.write_text(f"{os.getpid()} {child.pid}")
+monitor_pid = os.getppid()
+outer_pid = int(
+    next(
+        line.removeprefix("PPid:").strip()
+        for line in Path(f"/proc/{monitor_pid}/status").read_text().splitlines()
+        if line.startswith("PPid:")
+    )
+)
+if mode == "stop-monitor-kill-supervisor":
+    pid_file.write_text(f"{os.getpid()} {child.pid} {monitor_pid} {outer_pid}")
+else:
+    pid_file.write_text(f"{os.getpid()} {child.pid}")
 if mode == "failure":
     raise SystemExit(23)
 if mode == "kill-monitor":
-    os.kill(os.getppid(), signal.SIGKILL)
+    os.kill(monitor_pid, signal.SIGKILL)
 if mode in {"stop-monitor", "stop-supervisors"}:
-    monitor_pid = os.getppid()
-    outer_pid = int(
-        next(
-            line.removeprefix("PPid:").strip()
-            for line in Path(f"/proc/{monitor_pid}/status").read_text().splitlines()
-            if line.startswith("PPid:")
-        )
-    )
     os.kill(monitor_pid, signal.SIGSTOP)
     if mode == "stop-supervisors":
         os.kill(outer_pid, signal.SIGSTOP)
-if mode in {"block", "kill-monitor", "stop-monitor", "stop-supervisors"}:
+if mode == "stop-monitor-kill-supervisor":
+    os.kill(monitor_pid, signal.SIGSTOP)
+    os.kill(outer_pid, signal.SIGKILL)
+if mode in {
+    "block",
+    "kill-monitor",
+    "stop-monitor",
+    "stop-supervisors",
+    "stop-monitor-kill-supervisor",
+}:
     time.sleep(30)
 """.lstrip()
     )
@@ -248,6 +260,44 @@ async def test_termination_recovers_stopped_supervisor_tree(
         assert not _process_is_running(detached_pid)
     finally:
         for pid in tracked_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        await process.wait()
+
+
+@pytest.mark.anyio
+async def test_parent_death_resumes_monitor_and_reaps_action_tree(
+    tmp_path: Path,
+) -> None:
+    process, pid_file = await _spawn_supervised_action(
+        tmp_path,
+        mode="stop-monitor-kill-supervisor",
+    )
+    await _wait_for_file(pid_file)
+    action_pid, detached_pid, monitor_pid, outer_pid = (
+        int(pid) for pid in pid_file.read_text().split()
+    )
+    assert outer_pid == process.pid
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            communicate_process_group(
+                process,
+                timeout=2,
+                terminate=terminate_supervised_process,
+            ),
+            timeout=5,
+        )
+
+        assert process.returncode == -signal.SIGKILL, stderr.decode()
+        assert stdout == b""
+        assert not _process_is_running(monitor_pid)
+        assert not _process_is_running(action_pid)
+        assert not _process_is_running(detached_pid)
+    finally:
+        for pid in (monitor_pid, action_pid, detached_pid):
             with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)
         with contextlib.suppress(ProcessLookupError):
