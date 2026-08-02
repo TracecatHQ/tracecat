@@ -197,13 +197,13 @@ def _remove_file_or_defer(
     *,
     defer_cleanup: Callable[[Path], None],
 ) -> None:
-    """Remove one staging file without masking the materialization outcome."""
+    """Remove one artifact file without masking the materialization outcome."""
     try:
         path.unlink(missing_ok=True)
     except OSError as e:
         defer_cleanup(path)
         logger.warning(
-            "Deferred failed registry artifact staging cleanup",
+            "Deferred failed registry artifact file cleanup",
             path=str(path),
             error=str(e),
         )
@@ -278,15 +278,10 @@ class SquashfsArtifact(RegistryArtifact):
             )
             return
 
-        try:
-            ctx.paths.squashfs_image_path.unlink(missing_ok=True)
-        except OSError as e:
-            logger.warning(
-                "Failed to discard unusable SquashFS candidate",
-                cache_key=ctx.cache_key,
-                artifact_uri=self.uri,
-                error=str(e),
-            )
+        _remove_file_or_defer(
+            ctx.paths.squashfs_image_path,
+            defer_cleanup=ctx.defer_cleanup,
+        )
 
         for directory in (
             ctx.paths.squashfs_extract_dir,
