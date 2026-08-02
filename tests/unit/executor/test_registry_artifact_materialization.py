@@ -59,6 +59,27 @@ class TestRegistryArtifactMaterialization:
         assert retry_path != deferred_path
         assert retry_path.name.endswith(".retry.tmp")
 
+    def test_cached_path_rejects_non_directory_extractions(
+        self, temp_cache_dir: Path
+    ) -> None:
+        cache = RegistryArtifactCache(temp_cache_dir)
+        ctx = cache._context_for("malformed-extractions")
+        ctx.paths.entry_dir.mkdir(parents=True)
+        ctx.paths.squashfs_extract_dir.write_bytes(b"not a directory")
+        ctx.paths.tarball_target_dir.write_bytes(b"not a directory")
+
+        squashfs = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=ctx.cache_key,
+        )
+        tarball = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key=ctx.cache_key,
+        )
+
+        assert squashfs.cached_path(ctx) is None
+        assert tarball.cached_path(ctx) is None
+
     @pytest.mark.anyio
     async def test_same_key_cold_fan_in_materializes_and_enforces_once(
         self, temp_cache_dir

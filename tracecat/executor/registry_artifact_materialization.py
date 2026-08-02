@@ -273,7 +273,7 @@ class SquashfsArtifact(RegistryArtifact):
                 cache_key=ctx.cache_key,
             )
             return [ctx.paths.squashfs_mount_dir]
-        if ctx.paths.squashfs_extract_dir.exists():
+        if ctx.paths.squashfs_extract_dir.is_dir():
             logger.debug(
                 "Using cached SquashFS registry extraction",
                 cache_key=ctx.cache_key,
@@ -577,7 +577,7 @@ class TarballArtifact(RegistryArtifact):
     def cached_path(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path] | None:
-        if ctx.paths.tarball_target_dir.exists():
+        if ctx.paths.tarball_target_dir.is_dir():
             logger.debug(
                 "Using cached tarball extraction",
                 cache_key=ctx.cache_key,
