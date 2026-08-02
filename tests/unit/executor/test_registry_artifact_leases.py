@@ -513,23 +513,23 @@ class TestRegistryArtifactCacheLease:
             converge: bool,
         ) -> None:
             del idle_keys, converge
-            raise RuntimeError("cleanup failed")
+            raise RuntimeError(
+                "cleanup failed for s3://access:secret@bucket/path?signature=secret"
+            )
 
         with (
             patch.object(cache, "_finish_lease_cleanup", fail_cleanup),
-            patch(
-                "tracecat.executor.registry_artifacts.logger.exception"
-            ) as log_exception,
+            patch("tracecat.executor.registry_artifacts.logger.error") as log_error,
         ):
             async with cache.lease([artifact_uri]) as registry_paths:
                 result = registry_paths
 
         assert result == [target_dir]
         assert cache._refcount(cache_key) == 0
-        log_exception.assert_called_once_with(
+        log_error.assert_called_once_with(
             "Registry artifact lease cleanup failed; preserving caller outcome",
             cache_dir=str(temp_cache_dir),
-            error="cleanup failed",
+            error_type="RuntimeError",
         )
 
     @pytest.mark.anyio
