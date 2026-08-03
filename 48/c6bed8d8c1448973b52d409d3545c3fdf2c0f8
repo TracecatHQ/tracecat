@@ -1,0 +1,21 @@
+pyproject.toml
+  s_d274b6742342ad::t_3c83940b355242 109
+uv.lock
+  s_d274b6742342ad::t_85c70a7692b20b 21,764-790
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "48c6bed8d8c1448973b52d409d3545c3fdf2c0f8",
+  "prompts": {},
+  "sessions": {
+    "s_d274b6742342ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc5c7-c33e-77d0-aee0-30687f0f55cd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
