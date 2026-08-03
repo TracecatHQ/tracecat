@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List code scanning alert instances
+  description: 'List code scanning alert instances. Calls GET /repos/{owner}/{repo}/code-scanning/alerts/{alert_number}/instances directly. Accepted OAuth scopes: security_events plus repo for private repository access.'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_code_scanning_alert_instances
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    alert_number:
+      type: str
+      description: GitHub API path value for alert_number.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/code-scanning/alerts/${{ FN.url_encode_component(inputs.alert_number) }}/instances
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}
