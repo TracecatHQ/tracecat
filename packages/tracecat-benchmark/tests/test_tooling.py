@@ -2828,6 +2828,48 @@ def test_noop_runner_omits_runtime_branch_count_input(tmp_path: Path) -> None:
     assert "branch_count" not in submitted_inputs[0]
 
 
+def test_static_warmup_uses_its_small_fixture_workflow(tmp_path: Path) -> None:
+    submitted_workflow_ids: list[str] = []
+
+    class RejectingClient:
+        async def submit_execution(
+            self,
+            _workspace_id: str,
+            workflow_id: str,
+            _inputs: dict[str, object],
+        ) -> dict[str, int | None]:
+            submitted_workflow_ids.append(workflow_id)
+            return {"status_code": 429, "wf_exec_id": None}
+
+    async def exercise() -> None:
+        writer = JsonLinesWriter(tmp_path / "runner.jsonl")
+        runner = LoadRunner(
+            cast(TracecatClient, RejectingClient()),
+            replace(
+                _scenario_config(
+                    tmp_path,
+                    warmup=True,
+                    workflow_count=4,
+                    one_shot=True,
+                ),
+                load_type=LoadType.NOOP,
+                branch_count=256,
+            ),
+            "measured-workflow",
+            writer,
+            warmup_workflow_id="warmup-workflow",
+        )
+        try:
+            await runner._run_one(Phase.WARMUP, branch_count=2)
+            await runner._run_one(Phase.RAMP, branch_count=256)
+        finally:
+            writer.close()
+
+    asyncio.run(exercise())
+
+    assert submitted_workflow_ids == ["warmup-workflow", "measured-workflow"]
+
+
 def test_scenario_artifacts_exclude_authentication_and_workspace_id(
     tmp_path: Path,
 ) -> None:
@@ -3397,6 +3439,56 @@ def test_scatter_fixture_materializes_static_actions_without_for_each() -> None:
         assert row_data["branch_seq"] == branch_seq
         assert str(row_data["dedupe_key"]).endswith(f":{branch_seq}")
     assert "returns" not in definition
+
+
+def test_static_fixture_setup_materializes_a_dedicated_small_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ensured_workflows: list[WorkflowFixture] = []
+
+    async def fake_ensure_table(
+        _client: TracecatClient, _workspace_id: str, _fixture: object
+    ) -> tuple[str, str]:
+        return "table-1", "scatter_load_rows"
+
+    async def fake_ensure_workflow(
+        _client: TracecatClient,
+        _workspace_id: str,
+        fixture: WorkflowFixture,
+    ) -> str:
+        ensured_workflows.append(fixture)
+        return f"workflow-{len(ensured_workflows)}"
+
+    monkeypatch.setattr(fixtures_module, "_ensure_table", fake_ensure_table)
+    monkeypatch.setattr(fixtures_module, "_ensure_workflow", fake_ensure_workflow)
+
+    handles = asyncio.run(
+        fixtures_module.ensure_fixtures(
+            cast(TracecatClient, object()),
+            "workspace-1",
+            (LoadType.SCATTER,),
+            branch_count=256,
+            warmup_branch_count=2,
+        )
+    )
+
+    assert [fixture.alias for fixture in ensured_workflows] == [
+        "scatter_load_insert_row_fixture",
+        "scatter_load_insert_row_fixture_warmup",
+    ]
+    action_counts: list[int] = []
+    for fixture in ensured_workflows:
+        assert fixture.content is not None
+        loaded: object = yaml.safe_load(fixture.content)
+        assert isinstance(loaded, dict)
+        definition = loaded.get("definition")
+        assert isinstance(definition, dict)
+        actions = definition.get("actions")
+        assert isinstance(actions, list)
+        action_counts.append(len(actions))
+    assert action_counts == [256, 2]
+    assert handles.workflow_ids[LoadType.SCATTER] == "workflow-1"
+    assert handles.warmup_workflow_ids[LoadType.SCATTER] == "workflow-2"
 
 
 def test_bulk_fixture_does_not_pass_row_payloads_between_actions() -> None:

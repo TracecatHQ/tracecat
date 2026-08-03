@@ -231,6 +231,7 @@ class FixtureHandles:
     table_name: str
     unique_index_column: str
     workflow_ids: dict[LoadType, str]
+    warmup_workflow_ids: dict[LoadType, str]
 
 
 @dataclass(slots=True, frozen=True)

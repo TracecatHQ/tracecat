@@ -68,6 +68,11 @@ LOAD_TYPE_FIXTURES: Final[dict[LoadType, LoadTypeFixtureSpec]] = {
 ALL_WORKFLOW_FIXTURE_ALIASES: Final = (
     *(spec.workflow_alias for spec in LOAD_TYPE_FIXTURES.values()),
     *(
+        f"{spec.workflow_alias}_warmup"
+        for load_type, spec in LOAD_TYPE_FIXTURES.items()
+        if load_type.materializes_static_actions
+    ),
+    *(
         alias
         for spec in LOAD_TYPE_FIXTURES.values()
         for alias, _path in spec.child_workflows
@@ -171,7 +176,10 @@ def _static_action_workflow_content(
 
 
 def load_workflow_fixture(
-    load_type: LoadType, *, branch_count: int = 1
+    load_type: LoadType,
+    *,
+    branch_count: int = 1,
+    alias: str | None = None,
 ) -> WorkflowFixture:
     """Load one fixture workflow and materialize its configured static shape."""
     spec = LOAD_TYPE_FIXTURES[load_type]
@@ -180,7 +188,7 @@ def load_workflow_fixture(
         load_type=load_type,
         path=str(path),
         title=_read_workflow_title(path),
-        alias=spec.workflow_alias,
+        alias=alias or spec.workflow_alias,
         content=(
             _static_action_workflow_content(path, load_type, branch_count)
             if load_type.materializes_static_actions
@@ -376,20 +384,37 @@ async def ensure_fixtures(
     load_types: tuple[LoadType, ...] = (LoadType.SCATTER, LoadType.BULK),
     *,
     branch_count: int = 1,
+    warmup_branch_count: int | None = None,
 ) -> FixtureHandles:
     """Create/reuse the table and replace fixture workflows from source YAML."""
     table_fixture = load_table_fixture()
     table_id, table_name = await _ensure_table(client, workspace_id, table_fixture)
 
     workflow_ids: dict[LoadType, str] = {}
+    warmup_workflow_ids: dict[LoadType, str] = {}
     for load_type in load_types:
         # Children first: the parent resolves them by their committed alias.
         for child_fixture in load_child_workflow_fixtures(load_type):
             await _ensure_workflow(client, workspace_id, child_fixture)
         workflow_fixture = load_workflow_fixture(load_type, branch_count=branch_count)
-        workflow_ids[load_type] = await _ensure_workflow(
-            client, workspace_id, workflow_fixture
-        )
+        workflow_id = await _ensure_workflow(client, workspace_id, workflow_fixture)
+        workflow_ids[load_type] = workflow_id
+
+        warmup_workflow_id = workflow_id
+        if (
+            warmup_branch_count is not None
+            and load_type.materializes_static_actions
+            and warmup_branch_count != branch_count
+        ):
+            warmup_fixture = load_workflow_fixture(
+                load_type,
+                branch_count=warmup_branch_count,
+                alias=f"{LOAD_TYPE_FIXTURES[load_type].workflow_alias}_warmup",
+            )
+            warmup_workflow_id = await _ensure_workflow(
+                client, workspace_id, warmup_fixture
+            )
+        warmup_workflow_ids[load_type] = warmup_workflow_id
 
     return FixtureHandles(
         workspace_id=workspace_id,
@@ -397,6 +422,7 @@ async def ensure_fixtures(
         table_name=table_name,
         unique_index_column=table_fixture.unique_index_column,
         workflow_ids=workflow_ids,
+        warmup_workflow_ids=warmup_workflow_ids,
     )
 
 

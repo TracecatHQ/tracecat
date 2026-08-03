@@ -474,10 +474,13 @@ class LoadRunner:
         scenario: ScenarioConfig,
         workflow_id: str,
         writer: JsonLinesWriter,
+        *,
+        warmup_workflow_id: str | None = None,
     ) -> None:
         self._client = client
         self._scenario = scenario
         self._workflow_id = workflow_id
+        self._warmup_workflow_id = warmup_workflow_id or workflow_id
         self._writer = writer
         self._abort = asyncio.Event()
         self._records: list[ExecutionRecord] = []
@@ -615,8 +618,13 @@ class LoadRunner:
 
         try:
             async with asyncio.timeout(deadline - time.monotonic()):
+                workflow_id = (
+                    self._warmup_workflow_id
+                    if phase is Phase.WARMUP
+                    else self._workflow_id
+                )
                 result = await self._client.submit_execution(
-                    self._scenario.workspace_id, self._workflow_id, inputs
+                    self._scenario.workspace_id, workflow_id, inputs
                 )
         except TimeoutError:
             record.failure_mode = FailureMode.SUBMIT_TIMEOUT
@@ -1322,6 +1330,9 @@ async def amain(argv: list[str]) -> int:
                 workspace_id,
                 (load_type,),
                 branch_count=args.branch_count,
+                warmup_branch_count=(
+                    WARMUP_BRANCH_COUNT if not args.no_warmup else None
+                ),
             )
 
             scenario = ScenarioConfig(
@@ -1357,6 +1368,9 @@ async def amain(argv: list[str]) -> int:
             scenario_payload["table_name"] = handles.table_name
             scenario_payload["unique_index_column"] = handles.unique_index_column
             scenario_payload["workflow_id"] = handles.workflow_ids[load_type]
+            scenario_payload["warmup_workflow_id"] = (
+                handles.warmup_workflow_ids[load_type] if scenario.warmup else None
+            )
             scenario_payload["warmup_run_id"] = (
                 run_id_fingerprint(_run_id_for_phase(run_id, Phase.WARMUP))
                 if scenario.warmup
@@ -1368,7 +1382,11 @@ async def amain(argv: list[str]) -> int:
             await writer.write("scenario", scenario_payload)
 
             runner = LoadRunner(
-                client, scenario, handles.workflow_ids[load_type], writer
+                client,
+                scenario,
+                handles.workflow_ids[load_type],
+                writer,
+                warmup_workflow_id=handles.warmup_workflow_ids[load_type],
             )
 
             for sig in installed_signals:
