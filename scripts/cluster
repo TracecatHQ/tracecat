@@ -285,7 +285,8 @@ get_running_clusters() {
 
 # Get every cluster number retained by this worktree, whether its containers
 # are running, stopped, or removed while named volumes remain. Ordinary `up`
-# reuses this state; only `up --new` allocates around it.
+# falls back to this state when nothing is running; only `up --new` allocates
+# around it.
 get_worktree_cluster_nums() {
     local prefix="tracecat-${WORKTREE_ID}-"
     local projects project
@@ -310,6 +311,18 @@ get_worktree_cluster_nums() {
             fi
         fi
     done | sort -n | uniq
+}
+
+# Prefer live projects for implicit reuse. Retained stopped state is relevant
+# only when this worktree has no running cluster.
+get_reusable_worktree_cluster_nums() {
+    local running
+    running=$(get_running_clusters)
+    if [[ -n "$running" ]]; then
+        echo "$running"
+        return
+    fi
+    get_worktree_cluster_nums
 }
 
 # Get every occupied cluster number across all worktrees. A stopped Compose
@@ -1010,9 +1023,9 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
             CLUSTER_NUM=$(get_next_cluster_num)
             echo "Auto-selected new cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
         else
-            # Reuse this worktree's existing cluster, including a stopped
-            # project whose volumes were deliberately retained by `down`.
-            running=$(get_worktree_cluster_nums)
+            # Prefer a live cluster. Fall back to stopped state whose volumes
+            # were deliberately retained by `down` only when nothing is live.
+            running=$(get_reusable_worktree_cluster_nums)
             count=0
             if [[ -n "$running" ]]; then
                 count=$(echo "$running" | wc -l | tr -d ' ')
@@ -1025,7 +1038,7 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
                 CLUSTER_NUM="$running"
                 echo "Reusing existing cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
             else
-                echo "Multiple clusters running — select one:" >&2
+                echo "Multiple existing clusters — select one:" >&2
                 CLUSTER_NUM=$(echo "$running" | select_cluster_interactive)
             fi
         fi
@@ -1033,7 +1046,7 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
         # Resolve an existing cluster when possible so the printed project can
         # be passed directly to collectors. Fall back to the next free number
         # only for a true pre-start dry run.
-        compose_running=$(get_worktree_cluster_nums)
+        compose_running=$(get_reusable_worktree_cluster_nums)
         compose_count=0
         if [[ -n "$compose_running" ]]; then
             compose_count=$(echo "$compose_running" | wc -l | tr -d ' ')
@@ -1044,7 +1057,7 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
         elif [[ "$compose_count" -eq 1 ]]; then
             CLUSTER_NUM="$compose_running"
         else
-            echo "Multiple clusters running — select one:" >&2
+            echo "Multiple existing clusters — select one:" >&2
             CLUSTER_NUM=$(echo "$compose_running" | select_cluster_interactive)
         fi
     elif [[ "$COMMAND" == "nuke" ]]; then

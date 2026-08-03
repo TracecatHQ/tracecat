@@ -3676,6 +3676,58 @@ def test_compose_files_reuses_running_project(
     assert project_line in automatic.stdout
 
 
+def test_compose_files_prefers_running_project_over_retained_stopped_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cluster_script = REPO_ROOT / "scripts/cluster"
+
+    def project_for(cluster_num: int) -> str:
+        result = subprocess.run(
+            [cluster_script, str(cluster_num), "--loadtest", "compose-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        project_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("Project:")
+        )
+        return project_line.partition(":")[2].strip()
+
+    running_project = project_for(7)
+    stopped_project = project_for(8)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        f"""#!/bin/sh
+if [ "$1" = "compose" ] && [ "$3" = "--all" ]; then
+  printf '%s\\n' '[{{"Name":"{running_project}"}},{{"Name":"{stopped_project}"}}]'
+elif [ "$1" = "compose" ]; then
+  printf '%s\\n' '[{{"Name":"{running_project}"}}]'
+elif [ "$1" = "volume" ]; then
+  printf '%s\\n' '{stopped_project}'
+fi
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+
+    automatic = subprocess.run(
+        [cluster_script, "--loadtest", "compose-files"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    project_line = next(
+        line for line in automatic.stdout.splitlines() if line.startswith("Project:")
+    )
+    assert project_line.partition(":")[2].strip() == running_project
+
+
 def test_compose_files_reuses_project_retained_only_by_volume(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
