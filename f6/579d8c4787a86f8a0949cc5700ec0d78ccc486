@@ -1,0 +1,41 @@
+docs/audit-logs/platform.mdx
+  s_4b9afcbd518739::t_97c99bb232f012 14
+  s_4b9afcbd518739::t_7f0d7a82905cff 18
+  s_4b9afcbd518739::t_9f47e652bc1a8a 38,40-66
+  s_4b9afcbd518739::t_fe84442cd8e331 16
+  s_4b9afcbd518739::t_0420c299eba988 9
+  s_4b9afcbd518739::t_45191fdac726b1 28,34,36
+docs/security/architecture.mdx
+  s_4b9afcbd518739::t_de2643035858d8 463-470
+docs/audit-logs/organization.mdx
+  s_4b9afcbd518739::t_d580f27dd73c7c 36-38,41
+  s_4b9afcbd518739::t_b62c0c5a9bdd60 32
+  s_4b9afcbd518739::t_c79c39140bc8ee 17
+  s_4b9afcbd518739::t_5665b440bb3db3 15
+  s_4b9afcbd518739::t_8c2ff0cfea0e77 191
+  s_4b9afcbd518739::t_24af2cad32c957 43,45-145
+  s_4b9afcbd518739::t_ca5d6e83aa0364 9
+  s_4b9afcbd518739::t_67ad67e55b82e8 4
+  s_4b9afcbd518739::t_7c308506075573 42
+docs/snippets/audit-delivery-behavior.mdx
+  s_4b9afcbd518739::t_c8ad1f5a95cf53 9
+docs/snippets/audit-request-options.mdx
+  s_4b9afcbd518739::t_0a97feb2c21886 10-25
+  s_4b9afcbd518739::t_4b113555678727 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "f6579d8c4787a86f8a0949cc5700ec0d78ccc486",
+  "prompts": {},
+  "sessions": {
+    "s_4b9afcbd518739": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd74f36a-dc94-4f3c-9dea-994069c26541",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
