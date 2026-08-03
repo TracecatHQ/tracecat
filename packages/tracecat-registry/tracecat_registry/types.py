@@ -723,3 +723,70 @@ class AgentPresetRead(TypedDict):
     current_version_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+# ============================================================================
+# Workflow Execution Types
+# ============================================================================
+
+
+class WorkflowExecutionSummaryRead(TypedDict):
+    """Summary of a single workflow execution."""
+
+    id: str
+    run_id: str
+    status: str | None
+    start_time: str
+    close_time: str | None
+    trigger_type: str | None
+    execution_type: str | None
+
+
+class WorkflowExecutionPageRead(TypedDict):
+    """Cursor-paginated page of workflow execution summaries."""
+
+    items: list[WorkflowExecutionSummaryRead]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+
+
+class WorkflowExecutionEventErrorRead(TypedDict):
+    """Action-level error in a workflow execution event."""
+
+    message: str
+    cause: Any | None
+
+
+class WorkflowExecutionEventRead(TypedDict):
+    """Compact per-action event in a workflow execution timeline."""
+
+    action_ref: str | None
+    action_name: str | None
+    status: str
+    schedule_time: str
+    start_time: str | None
+    close_time: str | None
+    error: WorkflowExecutionEventErrorRead | None
+    result: Any | None
+    result_truncated: str | None
+
+
+class WorkflowExecutionStatusRead(TypedDict):
+    """Status of a workflow execution.
+
+    The event-timeline fields are non-null only when requested with
+    ``include_events=True``.
+    """
+
+    workflow_execution_id: str
+    status: str
+    start_time: str | None
+    close_time: str | None
+    result: Any | None
+    error: str | None
+    trigger_type: str | None
+    execution_type: str | None
+    history_length: int | None
+    events: list[WorkflowExecutionEventRead] | None

@@ -104,8 +104,10 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.workflow.execute",
         "core.workflow.get_authoring_context",
         "core.workflow.get_case_trigger",
+        "core.workflow.get_status",
         "core.workflow.get_webhook",
         "core.workflow.get_workflow",
+        "core.workflow.list_executions",
         "core.workflow.publish",
         "core.workflow.run",
         "core.workflow.update_case_trigger",
@@ -121,7 +123,9 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     expect(workflows?.tools).toContain("core.workflow.execute")
     expect(workflows?.tools).toContain("core.workflow.publish")
     expect(workflows?.tools).toContain("core.workflow.run")
-    expect(workflows?.tools.length).toBe(11)
+    expect(workflows?.tools).toContain("core.workflow.list_executions")
+    expect(workflows?.tools).toContain("core.workflow.get_status")
+    expect(workflows?.tools.length).toBe(13)
   })
 })
 

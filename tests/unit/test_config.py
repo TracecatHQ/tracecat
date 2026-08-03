@@ -220,6 +220,22 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+def test_executor_concurrency_uses_bounded_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.delenv("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", raising=False)
+            env.delenv("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS", raising=False)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES == 16
+            assert reloaded_config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS == 16
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_bound_env_rejects_invalid_numeric_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

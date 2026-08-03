@@ -175,6 +175,74 @@ class TestWorkflowsClientGetStatus:
         )
 
 
+class TestWorkflowsClientListExecutions:
+    """Tests for WorkflowsClient.list_executions()."""
+
+    @pytest.mark.anyio
+    async def test_list_executions_defaults_omit_cursor(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """Test list_executions hits the workflow executions route."""
+        mock_tracecat_client.get.return_value = {
+            "items": [],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+        }
+
+        result = await workflows_client.list_executions(workflow_id="wf_abc")
+
+        assert result["items"] == []
+        mock_tracecat_client.get.assert_called_once_with(
+            "/workflows/wf_abc/executions",
+            params={"limit": 20},
+        )
+
+    @pytest.mark.anyio
+    async def test_list_executions_passes_limit_and_cursor(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """Test list_executions forwards pagination params."""
+        mock_tracecat_client.get.return_value = {"items": []}
+
+        await workflows_client.list_executions(
+            workflow_id="wf_abc", limit=5, cursor="opaque-cursor"
+        )
+
+        mock_tracecat_client.get.assert_called_once_with(
+            "/workflows/wf_abc/executions",
+            params={"limit": 5, "cursor": "opaque-cursor"},
+        )
+
+
+class TestWorkflowsClientGetStatusWithEvents:
+    """Tests for WorkflowsClient.get_status(include_events=True)."""
+
+    @pytest.mark.anyio
+    async def test_get_status_requests_events(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """Test include_events hits the status route with the events param."""
+        mock_tracecat_client.get.return_value = {
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
+            "status": "COMPLETED",
+            "history_length": 12,
+            "events": [],
+        }
+
+        result = await workflows_client.get_status(
+            "wf-00000000000000000000000000000123/exec-456",
+            include_events=True,
+        )
+
+        assert result.get("history_length") == 12
+        mock_tracecat_client.get.assert_called_once_with(
+            "/workflows/executions/wf-00000000000000000000000000000123/exec-456",
+            params={"include_events": True},
+        )
+
+
 class TestWorkflowsClientCreate:
     """Tests for WorkflowsClient.create_workflow()."""
 
@@ -423,3 +491,15 @@ class TestDefaultConstants:
     def test_default_max_wait_time(self):
         """Test default max wait time is 5 minutes."""
         assert DEFAULT_MAX_WAIT_TIME == 300.0
+
+
+class TestWorkflowExecutionIDPattern:
+    """Pin the registry's execution ID pattern to the tracecat source of truth."""
+
+    def test_pattern_matches_tracecat_schema_pattern(self):
+        """The registry copy must stay byte-identical to WF_EXEC_ID_SCHEMA_PATTERN."""
+        from tracecat_registry._internal.models import WF_EXEC_ID_PATTERN
+
+        from tracecat.identifiers.workflow import WF_EXEC_ID_SCHEMA_PATTERN
+
+        assert WF_EXEC_ID_PATTERN == WF_EXEC_ID_SCHEMA_PATTERN

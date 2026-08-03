@@ -1,0 +1,3 @@
+# Runtime users and independent logical database pools come from
+# PGDOG_DATABASE_URL_1 through PGDOG_DATABASE_URL_3. Keeping this required file
+# empty avoids committing or duplicating the development database password.

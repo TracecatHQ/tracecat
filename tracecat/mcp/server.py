@@ -47,7 +47,6 @@ from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from temporalio.client import WorkflowExecutionStatus
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -152,11 +151,7 @@ from tracecat.db.models import (
     Workflow,
     WorkflowDefinition,
 )
-from tracecat.dsl.common import (
-    DSLInput,
-    get_execution_type_from_search_attr,
-    get_trigger_type_from_search_attr,
-)
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -258,7 +253,15 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionDetailResponse,
+    WorkflowExecutionSummaryResponse,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.shaping import (
+    build_execution_events,
+    build_execution_summary,
+)
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
@@ -981,46 +984,6 @@ class ActionCatalogResponse(BaseModel):
     workspace_id: uuid.UUID
     total_actions: int
     namespaces: dict[str, ActionCatalogNamespace]
-
-
-class WorkflowExecutionSummaryResponse(BaseModel):
-    """Workflow execution summary."""
-
-    id: WorkflowExecutionID
-    run_id: uuid.UUID | str
-    status: str | None = None
-    start_time: str
-    close_time: str | None = None
-    trigger_type: str | None = None
-    execution_type: str | None = None
-
-
-class WorkflowExecutionEventError(BaseModel):
-    """Action-level workflow execution error payload."""
-
-    message: str
-    cause: Any | None = None
-
-
-class WorkflowExecutionEventResponse(BaseModel):
-    """Compact workflow execution event payload."""
-
-    action_ref: str | None = None
-    action_name: str | None = None
-    status: str
-    schedule_time: str
-    start_time: str | None = None
-    close_time: str | None = None
-    error: WorkflowExecutionEventError | None = None
-    result: Any | None = None
-    result_truncated: str | None = None
-
-
-class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
-    """Detailed workflow execution response."""
-
-    history_length: int
-    events: list[WorkflowExecutionEventResponse] = Field(default_factory=list)
 
 
 class WorkflowRunStartedResponse(BaseModel):
@@ -3085,22 +3048,6 @@ def _case_field_payload(
     )
 
 
-def _format_temporal_status(status: Any) -> str | None:
-    """Return a stable workflow status string for MCP responses."""
-    if status is None:
-        return None
-    if isinstance(status, WorkflowExecutionStatus):
-        return status.name
-    if isinstance(status, int):
-        try:
-            return WorkflowExecutionStatus(status).name
-        except ValueError:
-            return str(status)
-    if hasattr(status, "name"):
-        return str(status.name)
-    return str(status)
-
-
 def _parse_sql_type_arg(raw_value: str, field_name: str = "type") -> SqlType:
     """Parse an uppercase SqlType string argument."""
     try:
@@ -4674,32 +4621,7 @@ async def list_workflow_executions(
             pagination=CursorPaginationParams(limit=limit, cursor=cursor),
             workflow_id=workflow_id,
         )
-        items: list[WorkflowExecutionSummaryResponse] = []
-        for execution in executions.items:
-            trigger_type = None
-            execution_type = None
-            try:
-                trigger_type = get_trigger_type_from_search_attr(
-                    execution.typed_search_attributes, execution.id
-                )
-                execution_type = get_execution_type_from_search_attr(
-                    execution.typed_search_attributes
-                )
-            except Exception:
-                pass
-            items.append(
-                WorkflowExecutionSummaryResponse(
-                    id=execution.id,
-                    run_id=execution.run_id,
-                    status=_format_temporal_status(execution.status),
-                    start_time=str(execution.start_time),
-                    close_time=(
-                        str(execution.close_time) if execution.close_time else None
-                    ),
-                    trigger_type=str(trigger_type) if trigger_type else None,
-                    execution_type=str(execution_type) if execution_type else None,
-                )
-            )
+        items = [build_execution_summary(execution) for execution in executions.items]
         return MCPPaginatedResponse[WorkflowExecutionSummaryResponse](
             items=items,
             next_cursor=executions.next_cursor,
@@ -4755,59 +4677,16 @@ async def get_workflow_execution(
         if execution is None:
             raise ToolError(f"Execution {execution_id} not found")
 
-        trigger_type = None
-        execution_type = None
-        try:
-            trigger_type = get_trigger_type_from_search_attr(
-                execution.typed_search_attributes, execution.id
-            )
-            execution_type = get_execution_type_from_search_attr(
-                execution.typed_search_attributes
-            )
-        except Exception:
-            pass
-
         # Get compact event history for action-level details
         compact_events = await exec_service.list_workflow_execution_events_compact(
             execution_id
         )
 
-        events_payload: list[WorkflowExecutionEventResponse] = []
-        for event in compact_events:
-            event_data = WorkflowExecutionEventResponse(
-                action_ref=event.action_ref,
-                action_name=event.action_name,
-                status=str(event.status),
-                schedule_time=str(event.schedule_time),
-                start_time=str(event.start_time) if event.start_time else None,
-                close_time=str(event.close_time) if event.close_time else None,
-            )
-            if event.action_error is not None:
-                event_data.error = WorkflowExecutionEventError(
-                    message=event.action_error.message,
-                    cause=event.action_error.cause,
-                )
-            if event.action_result is not None:
-                try:
-                    result_str = json.dumps(event.action_result, default=str)
-                    if len(result_str) > 2000:
-                        event_data.result_truncated = result_str[:2000] + "..."
-                    else:
-                        event_data.result = event.action_result
-                except (TypeError, ValueError):
-                    event_data.result = str(event.action_result)[:2000]
-            events_payload.append(event_data)
-
+        summary = build_execution_summary(execution)
         return WorkflowExecutionDetailResponse(
-            id=execution.id,
-            run_id=execution.run_id,
-            status=_format_temporal_status(execution.status),
-            start_time=str(execution.start_time),
-            close_time=str(execution.close_time) if execution.close_time else None,
-            trigger_type=str(trigger_type) if trigger_type else None,
-            execution_type=str(execution_type) if execution_type else None,
+            **summary.model_dump(),
             history_length=execution.history_length,
-            events=events_payload,
+            events=build_execution_events(compact_events),
         )
     except ToolError:
         raise

@@ -97,13 +97,6 @@
             ]
           },
           {
-            "group": "Security",
-            "icon": "shield-check",
-            "pages": [
-              "security/architecture"
-            ]
-          },
-          {
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [
@@ -136,10 +129,14 @@
             ]
           },
           {
-            "group": "Audit logs",
-            "icon": "logs",
+            "group": "Security",
+            "icon": "shield-check",
             "pages": [
-              "audit-logs/organization"
+              "security/architecture",
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
             ]
           }
         ]

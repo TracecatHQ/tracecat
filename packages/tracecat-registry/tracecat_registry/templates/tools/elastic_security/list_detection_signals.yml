@@ -1,11 +1,12 @@
 type: action
 definition:
-  title: List detection alerts
-  description: Query for Elastic Security detection alerts.
+  title: (Deprecated) List detection alerts
+  description: Deprecated compatibility action. Use `tools.elastic_security.search_detection_alerts` for API-native alert searches.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/v8/operation/operation-searchalerts
   namespace: tools.elastic_security
   name: list_detection_signals
+  deprecated: Use `tools.elastic_security.search_detection_alerts` for API-native alert searches.
   secrets:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]

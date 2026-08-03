@@ -8,6 +8,7 @@ from uuid import UUID
 
 from tracecat_registry import types
 from tracecat_registry import types as registry_types
+from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.sdk.agents import AgentConfig, CursorPage, RankableItem
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
@@ -1228,8 +1229,10 @@ class _WorkflowsAsync:
     ) -> dict[str, Any]: ...
     async def get_status(
         self,
-        workflow_execution_id: str,
-    ) -> dict[str, Any]: ...
+        workflow_execution_id: WorkflowExecutionID,
+        *,
+        include_events: bool = ...,
+    ) -> types.WorkflowExecutionStatusRead: ...
     async def create_workflow(
         self,
         *,
@@ -1293,6 +1296,13 @@ class _WorkflowsAsync:
         use_draft: bool = ...,
         version: int | None = ...,
     ) -> dict[str, Any]: ...
+    async def list_executions(
+        self,
+        *,
+        workflow_id: str,
+        limit: int = ...,
+        cursor: str | None = ...,
+    ) -> types.WorkflowExecutionPageRead: ...
 
 class _Workflows:
     @property
@@ -1311,8 +1321,10 @@ class _Workflows:
     ) -> dict[str, Any]: ...
     def get_status(
         self,
-        workflow_execution_id: str,
-    ) -> dict[str, Any]: ...
+        workflow_execution_id: WorkflowExecutionID,
+        *,
+        include_events: bool = ...,
+    ) -> types.WorkflowExecutionStatusRead: ...
     def create_workflow(
         self,
         *,
@@ -1376,6 +1388,13 @@ class _Workflows:
         use_draft: bool = ...,
         version: int | None = ...,
     ) -> dict[str, Any]: ...
+    def list_executions(
+        self,
+        *,
+        workflow_id: str,
+        limit: int = ...,
+        cursor: str | None = ...,
+    ) -> types.WorkflowExecutionPageRead: ...
 
 agents: _Agents
 cases: _Cases

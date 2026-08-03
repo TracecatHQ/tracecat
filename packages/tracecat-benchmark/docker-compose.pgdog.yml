@@ -1,0 +1,82 @@
+# Optional PgDog transaction-pooling layer for workflow load tests.
+#
+# This file is selected by `just cluster loadtest --pgdog`. It deliberately
+# leaves the API, migrations, and the out-of-process metric collector connected
+# directly to PostgreSQL so executor/worker pooling can be measured without
+# changing the API admission path in the same experiment.
+
+x-pgdog-worker-environment: &pgdog-worker-environment
+  TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@pgdog:6432/tracecat_worker
+
+x-pgdog-executor-environment: &pgdog-executor-environment
+  TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@pgdog:6432/tracecat_executor
+
+x-pgdog-aux-environment: &pgdog-aux-environment
+  TRACECAT__DB_URI: postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@pgdog:6432/tracecat_aux
+
+x-pgdog-dependency: &pgdog-dependency
+  pgdog:
+    condition: service_healthy
+
+services:
+  pgdog:
+    image: ghcr.io/pgdogdev/pgdog:v0.1.51@sha256:f1787473b62d0a5cfd18a67477dda24a549eeca9a81f5fa7ee670a1699299419
+    restart: unless-stopped
+    cpus: "${TRACECAT__LOADTEST_PGDOG_CPUS:-1}"
+    mem_limit: ${TRACECAT__LOADTEST_PGDOG_MEMORY:-512m}
+    memswap_limit: ${TRACECAT__LOADTEST_PGDOG_MEMORY:-512m}
+    ports:
+      - "127.0.0.1:${PGDOG_METRICS_PORT:-9492}:9090"
+    command:
+      - /usr/local/bin/pgdog
+      - run
+      - --pool-size
+      - ${TRACECAT__LOADTEST_PGDOG_POOL_SIZE:-16}
+      - --min-pool-size
+      - ${TRACECAT__LOADTEST_PGDOG_MIN_POOL_SIZE:-1}
+      - --session-mode
+      - "false"
+    environment:
+      # PgDog pools by user/database pair. Three logical database names provide
+      # service-class bulkheads while database_name keeps every connection on
+      # the same physical PostgreSQL database and reuses its runtime password.
+      PGDOG_DATABASE_URL_1: "postgresql://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/tracecat_worker?database_name=postgres&pool_size=${TRACECAT__LOADTEST_PGDOG_WORKER_POOL_SIZE:-6}&min_pool_size=1"
+      PGDOG_DATABASE_URL_2: "postgresql://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/tracecat_executor?database_name=postgres&pool_size=${TRACECAT__LOADTEST_PGDOG_EXECUTOR_POOL_SIZE:-16}&min_pool_size=1"
+      PGDOG_DATABASE_URL_3: "postgresql://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/tracecat_aux?database_name=postgres&pool_size=${TRACECAT__LOADTEST_PGDOG_AUX_POOL_SIZE:-2}&min_pool_size=1"
+      RUST_LOG: ${TRACECAT__LOADTEST_PGDOG_LOG_LEVEL:-info}
+    volumes:
+      - ./packages/tracecat-benchmark/tracecat_benchmark/pgdog/pgdog.toml:/pgdog/pgdog.toml:ro
+      - ./packages/tracecat-benchmark/tracecat_benchmark/pgdog/users.toml:/pgdog/users.toml:ro
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  worker:
+    environment: *pgdog-worker-environment
+    depends_on: *pgdog-dependency
+
+  executor:
+    environment: *pgdog-executor-environment
+    depends_on: *pgdog-dependency
+
+  agent-worker:
+    environment: *pgdog-aux-environment
+    depends_on: *pgdog-dependency
+
+  mcp:
+    environment: *pgdog-aux-environment
+    depends_on: *pgdog-dependency
+
+  litellm:
+    environment: *pgdog-aux-environment
+    depends_on: *pgdog-dependency
+
+  agent-executor:
+    environment: *pgdog-aux-environment
+    depends_on: *pgdog-dependency
