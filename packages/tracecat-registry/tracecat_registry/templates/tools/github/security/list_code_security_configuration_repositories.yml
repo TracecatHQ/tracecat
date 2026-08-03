@@ -15,7 +15,7 @@ definition:
       type: str
       description: GitHub API path value for org.
     configuration_id:
-      type: str
+      type: int
       description: GitHub API path value for configuration_id.
     params:
       type: dict[str, Any] | None
@@ -29,7 +29,7 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url }}/orgs/${{ FN.url_encode_component(inputs.org) }}/code-security/configurations/${{ FN.url_encode_component(inputs.configuration_id) }}/repositories
+      url: ${{ inputs.base_url }}/orgs/${{ FN.url_encode(inputs.org) }}/code-security/configurations/${{ FN.url_encode(inputs.configuration_id) }}/repositories
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

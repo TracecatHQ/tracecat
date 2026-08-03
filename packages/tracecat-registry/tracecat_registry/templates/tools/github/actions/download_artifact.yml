@@ -18,7 +18,7 @@ definition:
       type: str
       description: GitHub API path value for repo.
     artifact_id:
-      type: str
+      type: int
       description: GitHub API path value for artifact_id.
     archive_format:
       type: str
@@ -35,7 +35,7 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/actions/artifacts/${{ FN.url_encode_component(inputs.artifact_id) }}/${{ FN.url_encode_component(inputs.archive_format) }}
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/actions/artifacts/${{ FN.url_encode(inputs.artifact_id) }}/${{ FN.url_encode(inputs.archive_format) }}
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

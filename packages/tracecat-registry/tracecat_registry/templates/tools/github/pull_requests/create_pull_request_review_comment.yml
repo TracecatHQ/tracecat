@@ -18,7 +18,7 @@ definition:
       type: str
       description: GitHub API path value for repo.
     pull_number:
-      type: str
+      type: int
       description: GitHub API path value for pull_number.
     params:
       type: dict[str, Any] | None
@@ -36,7 +36,7 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/pulls/${{ FN.url_encode_component(inputs.pull_number) }}/comments
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/pulls/${{ FN.url_encode(inputs.pull_number) }}/comments
       method: POST
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

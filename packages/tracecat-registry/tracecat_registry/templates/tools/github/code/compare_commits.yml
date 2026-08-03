@@ -32,7 +32,7 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/compare/${{ FN.url_encode_component(inputs.basehead) }}
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/compare/${{ FN.url_encode(inputs.basehead) }}
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

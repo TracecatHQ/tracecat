@@ -26,7 +26,7 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url }}/orgs/${{ FN.url_encode_component(inputs.org) }}/dependabot/secrets/public-key
+      url: ${{ inputs.base_url }}/orgs/${{ FN.url_encode(inputs.org) }}/dependabot/secrets/public-key
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
