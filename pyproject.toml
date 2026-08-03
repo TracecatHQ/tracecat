@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -68,8 +68,8 @@ dependencies = [
     "temporalio==1.20.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
-    "tracecat-ee",
-    "tracecat-registry",
+    "tracecat-ee==0.1.0",
+    "tracecat-registry==1.0.0b50",
     "uv==0.11.15",
     "uvicorn==0.35.0",
     "uvloop==0.21.0",
@@ -91,8 +91,7 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
-# Override dependency pins to resolve conflicts between packages:
-# - chardet 7.0 removed chardet.universaldetector, breaking polyfile 0.5.6
+# Override dependency pins to resolve conflicts between packages.
 override-dependencies = [
     "pyasn1==0.6.3",
     "requests==2.33.0",
@@ -107,7 +106,7 @@ override-dependencies = [
     "mako==1.3.12",
     "fastapi-sso==0.19.0",
     "PyJWT==2.13.0",
-    "chardet<7",
+    "chardet==7.4.3",
     "fickling==0.1.12",
     "anthropic==0.87.0",
     "python-dotenv==1.2.2",
@@ -118,7 +117,7 @@ override-dependencies = [
 ]
 
 [dependency-groups]
-admin = ["tracecat-admin"]
+admin = ["tracecat-admin==0.1.0"]
 lint = [
     "basedpyright==1.37.1",
     "types-aioboto3[sts,s3,secretsmanager]==15.5.0",
@@ -131,9 +130,9 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest-xdist==3.8.0",
-    "pytest==8.3.2",  # pytest 9 breaks registry tests via autouse async fixture handling; dismiss alert for now
+    "pytest==8.4.2",  # pytest 9 breaks registry tests via autouse async fixture handling; dismiss alert for now
     "python-dotenv==1.2.2",
-    "respx==0.22.0",
+    "respx==0.23.1",
     "ruff==0.15.0",
     {include-group = "lint"},
 ]

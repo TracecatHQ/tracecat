@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -30,11 +30,11 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 bootstrap = [
-    "tracecat",
+    "tracecat==1.0.0b50",
 ]
 dev = [
-    "pytest>=8.0.0",
-    "respx>=0.22.0",
+    "pytest==8.4.2",
+    "respx==0.23.1",
 ]
 
 [project.scripts]
