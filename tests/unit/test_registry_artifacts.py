@@ -1467,7 +1467,7 @@ class TestRegistryArtifactCacheLease:
 
         # A rejected caller must not poison the owning loop's cache.
         async with cache.lease(None) as registry_paths:
-            assert registry_paths == [temp_cache_dir / "base"]
+            assert registry_paths == []
 
     def test_touch_entry_refreshes_tarball_root_mtime(self, temp_cache_dir):
         """Touching a tarball-only entry persists its restart-safe recency."""
@@ -1670,22 +1670,36 @@ class TestRegistryArtifactCacheLease:
                     cache._release_lease(cache_key)
 
     @pytest.mark.anyio
-    async def test_lease_without_uris_returns_base_pythonpath_dir(self, temp_cache_dir):
-        """No artifact URIs still yields the base PYTHONPATH directory."""
+    async def test_mutable_lease_without_uris_returns_no_paths(self, temp_cache_dir):
+        """An empty mutable lease exposes no unaccounted cache directory."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        cache._budget_dirty = False
 
-        with patch.object(
-            cache,
-            "ensure_swept",
-            new_callable=AsyncMock,
-            side_effect=AssertionError("cache-free leases must not sweep"),
-        ) as ensure_swept:
-            async with cache.lease(None) as registry_paths:
-                assert registry_paths == [temp_cache_dir / "base"]
-                assert registry_paths[0].is_dir()
+        with (
+            patch.object(
+                cache,
+                "ensure_swept",
+                new_callable=AsyncMock,
+                side_effect=AssertionError("cache-free leases must not sweep"),
+            ) as ensure_swept,
+            patch.object(
+                cache,
+                "_converge_cache_budget",
+                new_callable=AsyncMock,
+                side_effect=AssertionError("empty leases must not converge"),
+            ) as converge_cache_budget,
+        ):
+            async with cache.lease(
+                None,
+                paths_may_be_modified=True,
+            ) as registry_paths:
+                assert registry_paths == []
 
         ensure_swept.assert_not_awaited()
+        converge_cache_budget.assert_not_awaited()
+        assert cache._budget_dirty is False
         assert cache._runtime == {}
+        assert not (temp_cache_dir / "base").exists()
 
     @pytest.mark.anyio
     async def test_lease_preserves_uri_order(self, temp_cache_dir):

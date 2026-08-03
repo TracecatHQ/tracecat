@@ -31,7 +31,6 @@ from tracecat.logger import logger
 from tracecat.sandbox.utils import communicate_process_group
 
 __all__ = (
-    "BASE_PYTHONPATH_DIR_NAME",
     "CACHE_ENTRIES_DIR_NAME",
     "CACHE_STAGING_DIR_NAME",
     "CACHE_TRASH_DIR_NAME",
@@ -54,9 +53,6 @@ __all__ = (
     "unique_work_path",
     "validate_cache_entry_path",
 )
-
-BASE_PYTHONPATH_DIR_NAME = "base"
-"""Cache subdirectory used when no registry artifact is requested."""
 
 CACHE_ENTRIES_DIR_NAME = "entries"
 """Directory containing one atomic subdirectory per cache key."""
@@ -576,15 +572,6 @@ class RegistryArtifactCacheStorage:
             allocation_unit=allocation_unit,
             ensure_capacity=ensure_capacity,
         )
-
-    def _base_pythonpath_dir(self) -> Path:
-        """Return the base PYTHONPATH directory for an artifact-free action."""
-        base_dir = self.cache_dir / BASE_PYTHONPATH_DIR_NAME
-        _validate_cache_root(self.cache_dir)
-        ensure_real_directory(self.cache_dir)
-        _validate_cache_child_directory(base_dir)
-        ensure_real_directory(base_dir)
-        return base_dir
 
     def _acquire_lease(self, cache_key: str) -> None:
         """Pin a cache entry against eviction and mark it recently used."""

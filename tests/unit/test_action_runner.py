@@ -148,15 +148,19 @@ class TestActionRunner:
         return communication
 
     @pytest.mark.anyio
-    async def test_lease_without_artifacts_yields_base_pythonpath(self, temp_cache_dir):
-        """Test that the base PYTHONPATH directory is used without artifacts."""
+    async def test_lease_without_artifacts_yields_no_registry_paths(
+        self, temp_cache_dir
+    ):
+        """An artifact-free action receives no extra registry import paths."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
         async with runner.registry_artifacts.lease(None) as registry_paths:
-            assert registry_paths == [temp_cache_dir / "base"]
+            assert registry_paths == []
 
         async with runner.registry_artifacts.lease([]) as registry_paths:
-            assert registry_paths == [temp_cache_dir / "base"]
+            assert registry_paths == []
+
+        assert not (temp_cache_dir / "base").exists()
 
     @pytest.mark.anyio
     async def test_execute_action_timeout(

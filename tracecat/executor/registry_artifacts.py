@@ -1053,7 +1053,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
         Args:
             artifact_uris: Registry artifact URIs in deterministic PYTHONPATH
-                order, or None to use the base PYTHONPATH directory.
+                order. Empty input requests no additional import paths.
             paths_may_be_modified: Whether the consumer can write to returned
                 paths. Mutable leases re-arm budget convergence after use.
 
@@ -1061,8 +1061,8 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             Importable Python paths for the requested artifacts.
         """
         if not artifact_uris:
-            logger.info("No registry artifact URIs provided, using base PYTHONPATH")
-            yield [self._base_pythonpath_dir()]
+            logger.info("No registry artifact URIs provided")
+            yield []
             return
 
         if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
