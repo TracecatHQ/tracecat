@@ -106,7 +106,7 @@ async def provision_monitor_role(
     role: str,
     password: str,
 ) -> str:
-    """Create/update the schema and monitor with current plus future table access."""
+    """Create the schema and monitor with current plus future table access."""
     if IDENTIFIER_RE.fullmatch(role) is None:
         raise MonitorProvisioningError("monitor role must be a SQL identifier")
     schema = _workspace_schema_name(workspace_id)
@@ -124,13 +124,14 @@ async def provision_monitor_role(
         schema_identifier = await _quoted_identifier(conn, schema)
         database_identifier = await _quoted_identifier(conn, database)
         password_literal = await _quoted_literal(conn, password)
-        existing = await conn.fetchrow(
-            "SELECT rolsuper FROM pg_roles WHERE rolname = $1",
+        existing = await conn.fetchval(
+            "SELECT 1 FROM pg_roles WHERE rolname = $1",
             role,
         )
-        if existing is not None and bool(existing["rolsuper"]):
+        if existing is not None:
             raise MonitorProvisioningError(
-                "refusing to reuse a superuser as the load-test monitor"
+                "refusing to alter an existing PostgreSQL role; use a fresh "
+                "benchmark cluster or a new monitor role"
             )
 
         async with conn.transaction():
@@ -138,14 +139,9 @@ async def provision_monitor_role(
             # Provision it earlier so the collector can become ready before the
             # runner creates the synthetic fixture table.
             await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_identifier}")
-            if existing is None:
-                await conn.execute(
-                    f"CREATE ROLE {role_identifier} LOGIN PASSWORD {password_literal}"
-                )
-            else:
-                await conn.execute(
-                    f"ALTER ROLE {role_identifier} LOGIN PASSWORD {password_literal}"
-                )
+            await conn.execute(
+                f"CREATE ROLE {role_identifier} LOGIN PASSWORD {password_literal}"
+            )
             await conn.execute(f"GRANT pg_read_all_stats TO {role_identifier}")
             await conn.execute(
                 f"GRANT CONNECT ON DATABASE {database_identifier} TO {role_identifier}"

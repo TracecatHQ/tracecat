@@ -266,11 +266,9 @@ def test_monitor_provisioning_grants_current_and_future_fixture_access(
                 return f'"{args[0]}"'
             if query.startswith("SELECT quote_literal"):
                 return "'synthetic password/?'"
+            if query.startswith("SELECT 1 FROM pg_roles"):
+                return None
             raise AssertionError(f"unexpected query: {query}")
-
-        async def fetchrow(self, query: str, *_args: object) -> None:
-            assert query.startswith("SELECT rolsuper FROM pg_roles")
-            return None
 
         def transaction(self) -> FakeTransaction:
             return FakeTransaction()
@@ -322,6 +320,60 @@ def test_monitor_provisioning_grants_current_and_future_fixture_access(
     assert 'GRANT pg_read_all_stats TO "scatter_load_monitor"' in executed
     assert any("GRANT SELECT ON ALL TABLES IN SCHEMA" in sql for sql in executed)
     assert any("ALTER DEFAULT PRIVILEGES IN SCHEMA" in sql for sql in executed)
+    assert connection.closed
+
+
+def test_monitor_provisioning_refuses_to_alter_an_existing_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConnection:
+        closed = False
+
+        async def fetchval(self, query: str, *args: object) -> object:
+            if query == "SELECT current_database()":
+                return "postgres"
+            if query.startswith("SELECT quote_ident"):
+                return f'"{args[0]}"'
+            if query.startswith("SELECT quote_literal"):
+                return "'synthetic-password'"
+            if query.startswith("SELECT 1 FROM pg_roles"):
+                return 1
+            raise AssertionError(f"unexpected query: {query}")
+
+        def transaction(self) -> object:
+            raise AssertionError("existing roles must be rejected before mutation")
+
+        async def execute(self, query: str) -> None:
+            raise AssertionError(f"unexpected mutation: {query}")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    connection = FakeConnection()
+
+    async def fake_connect(
+        _dsn: str,
+        *,
+        server_settings: dict[str, str],
+    ) -> FakeConnection:
+        assert server_settings == {"application_name": "load-test-monitor-provisioner"}
+        return connection
+
+    monkeypatch.setattr(asyncpg, "connect", fake_connect)
+
+    with pytest.raises(
+        provision_monitor_module.MonitorProvisioningError,
+        match="refusing to alter an existing PostgreSQL role",
+    ):
+        asyncio.run(
+            provision_monitor_role(
+                "postgresql://provisioner:secret@localhost:5532/postgres",
+                "00000000-0000-4000-8000-000000000000",
+                "shared_role",
+                "replacement-password",
+            )
+        )
+
     assert connection.closed
 
 
