@@ -460,7 +460,14 @@ Tracecat separates audit signals by administrative scope and runtime source.
 | [Organization agent logs](/audit-logs/agents) | Agent runs inside the sandbox | OTLP export through the trusted gateway | Which models, tools, and approvals did the agent use? |
 | [MCP access logs](/audit-logs/mcp-access) | External MCP clients calling Tracecat as a user | Workspace MCP access page | Which client invoked which tool as which user, and did it succeed? |
 
-Audit events record operations, not content. They exclude prompts, tool arguments, tool outputs, and credentials.
+<Info>
+  Audit events record operations, not content.
+
+  - `data` carries only stable identifiers, changed-field names, boolean state flags, counts, and a small set of operation discriminators. Tracecat drops unrecognized keys, and drops an allowed field when its value matches a credential pattern.
+  - Prompts, tool arguments, tool outputs, credentials, and resource contents never appear in an audit event.
+  - `actor_label`, `ip_address`, and `user_agent` are modeled as separate fields, so you can apply your own retention policy to them.
+  - Use [Organization agent logs](/audit-logs/agents) when you need prompt, tool, or model-level detail.
+</Info>
 
 ## Change management
 

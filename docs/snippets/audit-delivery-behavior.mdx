@@ -6,4 +6,4 @@ Tracecat posts each event as a JSON `POST` request and does not block the audite
 - A retry after a lost response can deliver a duplicate. Events carry no event ID and a retried event is byte-identical, so deduplicate on the full event body if you need exact counts.
 - Under sustained backpressure Tracecat sheds events rather than buffering without bound.
 
-Delivery is best-effort, so treat the stream as a detection source rather than a guaranteed-complete ledger.
+Delivery is best-effort, so do not treat the stream as a guaranteed-complete ledger.

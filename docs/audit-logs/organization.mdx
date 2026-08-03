@@ -1,19 +1,20 @@
 ---
 title: "Organization audit logs"
 description: "Stream organization audit events to an HTTPS webhook and shape each request for your log collector."
-keywords: ["organization audit", "detection", "audit webhook", "SIEM", "approval"]
+keywords: ["organization audit", "audit webhook", "SIEM"]
 ---
 
 import AuditDeliveryBehavior from "/snippets/audit-delivery-behavior.mdx";
 import AuditEventFields from "/snippets/audit-event-fields.mdx";
+import AuditRequestOptions from "/snippets/audit-request-options.mdx";
 
 Send organization audit events to an external log collector over HTTPS.
 You must be an organization administrator to configure the endpoint.
 
 Each event answers one question: which identity changed which resource, from where, and did it work.
-Use the stream to detect privilege changes, credential changes, agent configuration drift, and approval decisions on agent tool calls.
+The stream covers privilege changes, credential changes, agent configuration changes, and automation changes.
 
-## Connect a log collector
+## Configure audit logs
 
 <Steps>
   <Step title="Open organization settings">
@@ -28,24 +29,120 @@ Use the stream to detect privilege changes, credential changes, agent configurat
     </Frame>
   </Step>
   <Step title="Configure the request">
-    Add any headers your collector requires. You can also merge custom JSON into
-    every event, wrap the payload under a key such as `event`, and control TLS
-    certificate verification, then click **Save changes**.
+    Set the request options your collector needs, then click **Save changes**.
   </Step>
 </Steps>
 
+Changing the endpoint is itself an audited `organization_setting` update, so your existing collector records the change before the stream moves.
+Events can continue to reach the old endpoint for up to 30 seconds after the change while cached settings expire.
+
 ## Request options
 
-| Option | Behavior |
-| --- | --- |
-| Audit webhook URL | Receives each event as a JSON `POST` request. |
-| Custom headers | Adds static headers to every request. Header names are case-insensitive. |
-| Custom payload | Merges a JSON object into every event. Custom keys replace matching default keys. |
-| Payload attribute | Wraps the complete payload under the configured key. |
-| Verify SSL certificate | Verifies the endpoint certificate. Disable this only for a trusted endpoint that uses a private or self-signed certificate. |
+<AuditRequestOptions />
 
-Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
-Choose custom payload keys that do not overlap default fields unless you intend to replace them.
+## Logged events
+
+| Resource type | Action | Description |
+| --- | --- | --- |
+| `agent_catalog` | `create` | A model was added to the organization's agent catalog. |
+| `agent_catalog` | `delete` | A model was removed from the organization's agent catalog. |
+| `agent_catalog` | `update` | An agent catalog entry was updated. |
+| `agent_custom_provider` | `create` | A custom model provider was configured. |
+| `agent_custom_provider` | `delete` | A custom model provider was removed. |
+| `agent_custom_provider` | `update` | A custom model provider was reconfigured. |
+| `agent_model_access` | `create` | A catalog model was enabled for an organization or workspace. |
+| `agent_model_access` | `delete` | A catalog model was disabled for an organization or workspace. |
+| `agent_preset` | `create` | An agent preset was created. |
+| `agent_preset` | `delete` | An agent preset was deleted. |
+| `agent_preset` | `update` | An agent preset was updated or restored to an earlier version. |
+| `agent_session` | `delete` | An agent session and its history were deleted. |
+| `agent_session` | `update` | An agent session's title, preset, or MCP integrations changed. |
+| `auth` | `sign_in` | A user signed in. |
+| `case` | `create` | A case was created. |
+| `case` | `delete` | A case was deleted. |
+| `case` | `update` | A case was updated. |
+| `case_comment` | `create` | A comment was added to a case. |
+| `case_comment` | `delete` | A case comment was deleted. |
+| `case_comment` | `update` | A case comment was edited. |
+| `case_trigger` | `update` | Part of a workflow's case trigger configuration changed. |
+| `case_trigger` | `upsert` | A workflow's case trigger configuration was created or replaced. |
+| `mcp_personal_access_token` | `create` | An MCP personal access token was issued. |
+| `mcp_personal_access_token` | `revoke` | An MCP personal access token was revoked. |
+| `organization` | `delete` | An organization was deleted. |
+| `organization_invitation` | `accept` | An organization invitation was accepted. |
+| `organization_invitation` | `create` | An organization invitation was sent. |
+| `organization_invitation` | `revoke` | An organization invitation was revoked. |
+| `organization_member` | `create` | A user was added to the organization. |
+| `organization_member` | `delete` | A user was removed from the organization. |
+| `organization_member` | `update` | An organization member's details changed. |
+| `organization_secret` | `create` | An organization secret was created. |
+| `organization_secret` | `delete` | An organization secret was deleted. |
+| `organization_secret` | `update` | An organization secret was updated. |
+| `organization_session` | `delete` | A member's active login session was revoked. |
+| `organization_setting` | `create` | An organization setting was created. |
+| `organization_setting` | `delete` | An organization setting was deleted. |
+| `organization_setting` | `update` | An organization setting changed, including this audit sink. |
+| `rbac_assignment` | `create` | A role was assigned to a group. |
+| `rbac_assignment` | `delete` | A group's role assignment was removed. |
+| `rbac_assignment` | `update` | A group's role assignment changed. |
+| `rbac_group` | `create` | A group was created. |
+| `rbac_group` | `delete` | A group was deleted. |
+| `rbac_group` | `update` | A group was updated. |
+| `rbac_group_member` | `create` | A user was added to a group. |
+| `rbac_group_member` | `delete` | A user was removed from a group. |
+| `rbac_role` | `create` | A custom role was created. |
+| `rbac_role` | `delete` | A custom role was deleted. |
+| `rbac_role` | `update` | A role's scopes changed. |
+| `rbac_scope` | `create` | A custom permission scope was created. |
+| `rbac_scope` | `delete` | A custom permission scope was deleted. |
+| `rbac_user_assignment` | `create` | A role was assigned directly to a user. |
+| `rbac_user_assignment` | `delete` | A user's role assignment was removed. |
+| `rbac_user_assignment` | `update` | A user's role assignment changed. |
+| `schedule` | `create` | A workflow schedule was created. |
+| `schedule` | `delete` | A workflow schedule was deleted. |
+| `schedule` | `update` | A workflow schedule was updated. |
+| `secret` | `create` | A workspace secret was created. |
+| `secret` | `delete` | A workspace secret was deleted. |
+| `secret` | `update` | A workspace secret was updated. |
+| `service_account` | `create` | A service account was created. |
+| `service_account` | `update` | A service account was renamed, re-scoped, disabled, or enabled. |
+| `service_account_api_key` | `create` | An API key was issued for a service account. |
+| `service_account_api_key` | `revoke` | A service account API key was revoked. |
+| `table` | `create` | A lookup table was created. |
+| `table` | `delete` | A lookup table was deleted. |
+| `table` | `update` | A lookup table was updated. |
+| `table_column` | `create` | A column was added to a lookup table. |
+| `table_column` | `delete` | A column was removed from a lookup table. |
+| `table_column` | `update` | A lookup table column was updated. |
+| `tag` | `create` | A workflow tag was created. |
+| `tag` | `delete` | A workflow tag was deleted. |
+| `tag` | `update` | A workflow tag was updated. |
+| `webhook` | `create` | A workflow webhook trigger was created. |
+| `webhook` | `update` | A workflow webhook trigger was updated. |
+| `webhook_api_key` | `create` | The first API key was issued for a webhook. |
+| `webhook_api_key` | `delete` | A webhook API key was deleted. |
+| `webhook_api_key` | `revoke` | A webhook API key was revoked and kept on record. |
+| `webhook_api_key` | `rotate` | An existing webhook API key was replaced. |
+| `workflow` | `create` | A workflow was created. |
+| `workflow` | `delete` | A workflow was deleted. |
+| `workflow` | `publish` | A workflow definition was published. |
+| `workflow` | `update` | A workflow was updated. |
+| `workflow_execution` | `cancel` | A workflow execution was cancelled and allowed to clean up. |
+| `workflow_execution` | `create` | A workflow execution was started. |
+| `workflow_execution` | `reset` | A workflow execution was replayed from an earlier event. |
+| `workflow_execution` | `terminate` | A workflow execution was stopped immediately. |
+| `workspace` | `create` | A workspace was created. |
+| `workspace` | `delete` | A workspace was deleted. |
+| `workspace` | `update` | A workspace was updated. |
+| `workspace_invitation` | `accept` | A workspace invitation was accepted. |
+| `workspace_invitation` | `create` | A workspace invitation was sent. |
+| `workspace_invitation` | `revoke` | A workspace invitation was revoked. |
+| `workspace_variable` | `create` | A workspace variable was created. |
+| `workspace_variable` | `delete` | A workspace variable was deleted. |
+| `workspace_variable` | `update` | A workspace variable was updated. |
+
+An organization-scoped sign-in emits `auth` `sign_in` to this sink and to the platform sink.
+A superuser login that carries no organization context reaches the platform sink only.
 
 ## Event payload
 
@@ -78,7 +175,6 @@ An audit event contains the actor, affected resource, action, result, and scope.
 `actor_type` distinguishes a human from automation.
 `USER` events carry the account's email in `actor_label`, and `SERVICE_ACCOUNT` events carry the service account's name.
 
-Alert on service accounts performing actions that only humans should perform, such as `create` on `rbac_user_assignment` or on `service_account_api_key`.
 Treat `actor_id` as the stable join key; `actor_label` is a display value that changes when a user's email changes.
 
 ### Scope
@@ -92,77 +188,11 @@ If you index platform and organization events together, filter on `organization_
 
 Most audited changes emit an `ATTEMPT` event followed by `SUCCESS` or `FAILURE`.
 
-A burst of `FAILURE` events from one `actor_id` or `ip_address` is a probing signal worth alerting on. An `ATTEMPT` with no matching terminal event is a weaker signal — the terminal event may have been shed or lost in delivery rather than the request failing.
-
-## Approval decisions
-
-Accepting or rejecting an agent tool call emits one `agent_approval` event per tool decision.
-Only authenticated Tracecat UI and API decisions are attributed this way.
-
-Each event records the approver as the actor, along with the decision time, the decision source, the tool identifiers, the outcome, whether the arguments were overridden, and an optional sanitized denial reason.
-
-These events tell you who authorized a side effect and when.
-Alert on approvals of high-impact tools, on a single approver clearing an unusual volume of calls, and on overridden arguments.
-
-## Event categories for detections
-
-| Category | Representative resource types | Why it matters |
-| --- | --- | --- |
-| Identity and access | `user`, `auth`, `organization_member`, `organization_session`, `organization_invitation` | Account lifecycle, sign-in, and membership changes. |
-| Privilege | `rbac_role`, `rbac_group`, `rbac_group_member`, `rbac_assignment`, `rbac_user_assignment`, `rbac_scope` | Grants and revocations that change what an identity can do. |
-| Non-human identity | `service_account`, `service_account_api_key`, `mcp_personal_access_token`, `webhook_api_key` | Credentials that act without a human session. |
-| Secrets | `secret`, `organization_secret`, `workspace_variable` | Creation, rotation, and deletion of stored credentials. |
-| Agent configuration | `agent_preset`, `agent_catalog`, `agent_model_access`, `agent_custom_provider`, `agent_session` | Changes to what agents may call and which models they reach. |
-| Automation | `workflow`, `workflow_execution`, `schedule`, `webhook`, `case_trigger` | Changes to what runs, when, and on whose behalf. |
-| Configuration | `organization_setting`, `organization_domain`, `organization_tier` | Tenant-wide settings, including this audit sink. |
-| Case data | `case`, `case_comment`, `table`, `table_column` | Access to and modification of investigation data. |
-
-Start with two detections: privilege grants outside a change window and non-human credential creation.
-
-## Privacy boundaries
-
-Audit events describe operations, not content.
-Tracecat drops unrecognized metadata keys and also drops an otherwise allowed field when its value matches a credential pattern.
-
-Audit events never include:
-
-- Prompts or agent instructions.
-- Tool call arguments, override values, or tool outputs.
-- Credentials, tokens, or secret values.
-- Arbitrary resource contents, names, or descriptions.
-- Request or response bodies, headers, or before-and-after snapshots.
-
-The `data` object carries only stable `*_id` and `*_ids` identifiers, `changed_fields` names, boolean state flags, numeric counts, and a small set of operation discriminators.
-This means you can tell that a secret was rotated and which fields changed, but not what the value was.
-
-`actor_label`, `ip_address`, and `user_agent` are the fields that carry PII and client metadata.
-They are modeled separately from `data` so you can reason about them under your own retention policy.
-
-If you need prompt, tool, or model-level detail, use [Organization agent logs](/audit-logs/agents) instead.
-That signal is disabled by default and has its own privacy controls.
+An `ATTEMPT` with no matching terminal event does not always mean the request failed — the terminal event may have been shed or lost in delivery.
 
 ## Delivery behavior
 
 <AuditDeliveryBehavior />
-
-## Ingest into a SIEM
-
-Point the webhook directly at an HTTPS ingest endpoint, or at a collector you control.
-
-Send directly when your SIEM accepts authenticated JSON over HTTPS and you do not need transformation.
-Set the vendor's auth header as a custom header, and use the payload attribute when the vendor expects a wrapper key such as `event`.
-
-Put a collector in front when you need queuing and replay across SIEM outages, field normalization to a schema such as OCSF or ECS, routing to more than one destination, or an audit trail of what was forwarded.
-
-Tag the source with a custom payload when several Tracecat streams land in one index, for example `{"tracecat_sink": "organization"}`.
-
-## Update or disconnect the endpoint
-
-Return to **Organization → Audit Logs** to update the request settings.
-Click the disconnect button to stop sending new organization audit events.
-
-Changing the endpoint is itself an audited `organization_setting` update, so your existing collector records the change before the stream moves.
-Events can continue to reach the old endpoint for up to 30 seconds after the change while cached settings expire.
 
 ## Related pages
 

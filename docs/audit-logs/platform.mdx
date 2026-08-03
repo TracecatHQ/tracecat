@@ -6,15 +6,16 @@ keywords: ["platform audit", "superuser", "audit webhook", "SIEM"]
 
 import AuditDeliveryBehavior from "/snippets/audit-delivery-behavior.mdx";
 import AuditEventFields from "/snippets/audit-event-fields.mdx";
+import AuditRequestOptions from "/snippets/audit-request-options.mdx";
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
 Platform audit logs record what platform administrators do above the organization boundary.
-Use them to detect changes that no organization audit stream can see, such as a new organization, a promoted superuser, or a rewritten platform setting.
+They cover changes that no organization audit stream can see, such as a new organization, a promoted superuser, or a rewritten platform setting.
 
-You must be a platform superuser to configure the endpoint. These events go to their own sink, separate from every organization webhook.
+You must be a platform superuser to configure the endpoint. These events go to their own sink, separate from every organization webhook, and organization administrators cannot read, change, or receive them.
 
-## Connect a log collector
+## Configure audit logs
 
 <Steps>
   <Step title="Open platform administration">
@@ -24,29 +25,45 @@ You must be a platform superuser to configure the endpoint. These events go to t
     Click **Connect** and enter the HTTPS URL that accepts your audit events.
   </Step>
   <Step title="Configure the request">
-    Add any headers your collector requires. You can also merge custom JSON into every event, wrap the payload under a key such as `event`, and control TLS certificate verification, then click **Save changes**.
+    Set the request options your collector needs, then click **Save changes**.
   </Step>
 </Steps>
 
-Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
-
 Events can continue to reach the old endpoint for up to 30 seconds after an endpoint change while cached settings expire.
 
-## Covered actions
+## Request options
 
-Platform events cover administration performed through the platform boundary.
+<AuditRequestOptions />
 
-| Resource type | Actions | What it tells you |
+## Logged events
+
+| Resource type | Action | Description |
 | --- | --- | --- |
-| `platform_setting` | `update` | A platform-wide setting changed, including the audit sink itself. |
-| `user` | `create`, `delete`, `promote`, `demote` | A platform account was created or removed, or superuser access was granted or withdrawn. |
-| `organization` | `create`, `update`, `delete` | A tenant was provisioned, reconfigured, or removed. |
-| `organization_tier` | `update` | An organization's tier assignment changed. |
-| `tier` | `create`, `update`, `delete` | A tier definition changed, altering limits for every organization on it. |
-| `platform_registry` | `sync` | Registry content was synchronized, which changes the integration code available to tenants. |
+| `auth` | `sign_in` | A user signed in. |
+| `organization` | `create` | An organization was provisioned. |
+| `organization` | `delete` | An organization was deleted. |
+| `organization` | `update` | An organization was reconfigured. |
+| `organization_domain` | `create` | A domain was assigned to an organization. |
+| `organization_domain` | `delete` | A domain was removed from an organization. |
+| `organization_domain` | `update` | An organization domain was updated. |
+| `organization_invitation` | `create` | An organization invitation was sent from platform administration. |
+| `organization_invitation` | `revoke` | An organization invitation was revoked from platform administration. |
+| `organization_tier` | `update` | An organization's tier assignment or per-organization overrides changed. |
+| `platform_registry` | `sync` | Every platform registry repository was synchronized. |
+| `platform_registry_repository` | `sync` | One platform registry repository was synchronized. |
+| `platform_registry_version` | `delete` | A non-current platform registry version was deleted. |
+| `platform_registry_version` | `promote` | A platform registry version became the current version for its repository. |
+| `platform_setting` | `update` | A platform-wide setting changed, including this audit sink. |
+| `tier` | `create` | A tier definition was created. |
+| `tier` | `delete` | A tier definition was deleted. |
+| `tier` | `update` | A tier definition changed, altering limits for every organization on it. |
+| `user` | `create` | A platform user account was created. |
+| `user` | `delete` | A platform user account was deleted. |
+| `user` | `demote` | Superuser access was withdrawn from a user. |
+| `user` | `promote` | A user was granted superuser access. |
 
-Treat `user` `promote` and `platform_setting` `update` as your highest-signal events.
-Promotion grants access above every tenant boundary, and a settings update can redirect this audit stream.
+An organization-scoped sign-in emits `auth` `sign_in` to this sink and to that organization's sink.
+A superuser login that carries no organization context reaches this sink only.
 
 ## Event payload
 
@@ -83,25 +100,6 @@ Tag each stream with a custom payload instead when both reach the same index.
 ## Delivery behavior
 
 <AuditDeliveryBehavior />
-
-## Send events to a SIEM
-
-Point the webhook at an HTTPS ingest endpoint and authenticate with custom headers.
-
-- Splunk HTTP Event Collector: set `Authorization: Splunk <token>` and wrap the payload under `event`.
-- Elastic and OpenSearch: post to a data-stream ingest endpoint and set `Authorization` to your API key.
-- Datadog: set `DD-API-KEY` and post to the logs intake endpoint.
-- Collector in front of a SIEM: post to your own HTTPS listener when you need queuing, replay, or enrichment that a direct sink cannot provide.
-
-Use a custom payload to tag the source when several Tracecat streams land in one index, for example `{"tracecat_sink": "platform"}`.
-
-## Keep the platform sink separate
-
-The platform sink is configured independently and is never derived from an organization's settings.
-Organization administrators cannot read it, change it, or receive its events.
-
-Keep the two streams separate in your SIEM as well.
-Platform events describe changes to the tenancy boundary itself, so an organization administrator who could see or alter them would gain visibility above their own tenant.
 
 ## Related pages
 
