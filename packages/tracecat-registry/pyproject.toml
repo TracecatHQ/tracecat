@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "aioboto3==15.5.0",
-    "ansible-core>=2.18.0,<3.0.0",
+    "ansible-core==2.20.4",
     "ansible-runner==2.4.0",
     "boto3==1.40.61",
     "cloudflare==5.2.0",
@@ -35,8 +35,8 @@ dependencies = [
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
     "hatchling==1.27.0",
-    "httpx>=0.27.0",
-    "jsonpath_ng>=1.7.0,<1.8.0",
+    "httpx==0.28.1",
+    "jsonpath_ng==1.7.0",
     "kubernetes==36.0.2",
     "ldap3==2.9.1",
     "marshmallow==3.26.2",
@@ -44,12 +44,12 @@ dependencies = [
     "orjson==3.11.7",
     "okta==3.4.3",
     "paramiko==3.5.0",
-    "pydantic>=2.11.7,<3.0.0",
+    "pydantic==2.12.5",
     "pymongo==4.8.0",
     "pyyaml==6.0.3",
     "redis[hiredis]==7.1.0",
     "slack-sdk==3.42.0",
-    "sqlalchemy>=2.0.0,<3.0.0",
+    "sqlalchemy==2.0.45",
     "tavily-python==0.7.6",
     "tenacity==8.3.0",
 ]

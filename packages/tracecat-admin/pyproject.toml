@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -33,8 +33,8 @@ bootstrap = [
     "tracecat",
 ]
 dev = [
-    "pytest>=8.0.0",
-    "respx>=0.22.0",
+    "pytest==8.3.2",
+    "respx==0.22.0",
 ]
 
 [project.scripts]
