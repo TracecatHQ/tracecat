@@ -166,10 +166,13 @@ async def _materialize(
 class _BlockingSubprocess:
     """Fake subprocess that blocks in communicate until it is cancelled."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, block_wait: bool = False) -> None:
         self.communicate_started = asyncio.Event()
+        self.wait_started = asyncio.Event()
+        self.release_wait = asyncio.Event()
         self.cleanup_calls: list[str] = []
         self.returncode: int | None = None
+        self._block_wait = block_wait
 
     async def communicate(self) -> tuple[bytes, bytes]:
         """Block until the task awaiting subprocess completion is cancelled."""
@@ -185,6 +188,9 @@ class _BlockingSubprocess:
     async def wait(self) -> int:
         """Record that the killed subprocess was reaped."""
         self.cleanup_calls.append("wait")
+        self.wait_started.set()
+        if self._block_wait:
+            await self.release_wait.wait()
         return -9
 
 
@@ -733,8 +739,8 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
-    async def test_cancelled_mount_kills_and_reaps_subprocess(self, temp_cache_dir):
-        """Cancellation cannot leave an orphan mount process after lock release."""
+    async def test_repeatedly_cancelled_mount_reaps_subprocess(self, temp_cache_dir):
+        """Repeated cancellation cannot abandon a killed mount process."""
         cache_key = "cancelled-mount"
         cache = RegistryArtifactCache(temp_cache_dir)
         ctx = cache._context_for(cache_key)
@@ -747,7 +753,7 @@ class TestRegistryArtifactCache:
         ctx.paths.entry_dir.mkdir(parents=True)
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
-        process = _BlockingSubprocess()
+        process = _BlockingSubprocess(block_wait=True)
 
         with patch(
             "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
@@ -759,7 +765,12 @@ class TestRegistryArtifactCache:
             )
             await process.communicate_started.wait()
             mounting.cancel()
+            await process.wait_started.wait()
 
+            mounting.cancel()
+            done, _ = await asyncio.wait({mounting}, timeout=0.05)
+            assert not done
+            process.release_wait.set()
             with pytest.raises(asyncio.CancelledError):
                 await mounting
 
@@ -879,6 +890,55 @@ class TestRegistryArtifactCache:
         assert extraction_finished.is_set()
         assert first_cancellation_propagated_early is False
         assert second_cancellation_propagated_early is False
+
+    @pytest.mark.anyio
+    async def test_repeatedly_cancelled_tarball_size_scan_rejoins_thread(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Cancellation cannot unlink a tarball under an active size scan."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/path/slow-size-scan.tar.gz"
+        scan_started = threading.Event()
+        scan_release = threading.Event()
+        input_present_at_finish: list[bool] = []
+        downloaded_paths: list[Path] = []
+
+        async def mock_download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(_tarball_payload(size=1))
+            downloaded_paths.append(path)
+
+        def blocking_size_scan(path: Path) -> int:
+            scan_started.set()
+            scan_release.wait()
+            input_present_at_finish.append(path.exists())
+            return 1
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                side_effect=blocking_size_scan,
+            ),
+            patch.object(TarballArtifact, "extract", new_callable=AsyncMock) as extract,
+        ):
+            materializing = asyncio.create_task(cache._lease_artifact(artifact_uri))
+            assert await asyncio.to_thread(scan_started.wait, 1)
+            materializing.cancel()
+            await asyncio.sleep(0)
+            materializing.cancel()
+            await asyncio.sleep(0)
+            assert not materializing.done()
+            assert downloaded_paths[0].exists()
+            scan_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await materializing
+
+        assert input_present_at_finish == [True]
+        assert not downloaded_paths[0].exists()
+        extract.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
@@ -1249,6 +1309,49 @@ class TestRegistryArtifactCacheLease:
 
         assert cache._refcount(cache_key) == 0
         assert not cache._paths_for(cache_key).entry_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_repeated_cancellation_finishes_acquisition_rollback(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A second cancellation cannot abandon final rollback cleanup."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        lookup_started = asyncio.Event()
+        rollback_started = asyncio.Event()
+        finish_rollback = asyncio.Event()
+
+        async def blocked_sidecar_lookup(**kwargs):
+            del kwargs
+            lookup_started.set()
+            await asyncio.Event().wait()
+
+        async def blocked_unmount(requested_key: str) -> None:
+            assert requested_key == cache_key
+            rollback_started.set()
+            await finish_rollback.wait()
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch.object(cache, "_sidecar_exists", blocked_sidecar_lookup),
+            patch.object(cache, "_unmount_idle_entry", blocked_unmount),
+        ):
+            acquisition = asyncio.create_task(cache._lease_artifact(artifact_uri))
+            await lookup_started.wait()
+            acquisition.cancel()
+            await rollback_started.wait()
+
+            acquisition.cancel()
+            await asyncio.sleep(0)
+            assert not acquisition.done()
+            finish_rollback.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await acquisition
+
+        assert cache._refcount(cache_key) == 0
 
     @pytest.mark.anyio
     async def test_cancelled_waiter_preserves_existing_same_key_lease(
@@ -2709,10 +2812,10 @@ class TestRegistryArtifactCacheEviction:
         )
 
     @pytest.mark.anyio
-    async def test_cancelled_unmount_kills_and_reaps_before_releasing_key_lock(
+    async def test_repeatedly_cancelled_unmount_reaps_before_releasing_key_lock(
         self, temp_cache_dir
     ):
-        """Cancellation leaves a consistent entry for the next admission."""
+        """Repeated cancellation leaves a consistent entry for next admission."""
         cache = RegistryArtifactCache(temp_cache_dir)
         artifact_uri = "s3://bucket/path/cancelled-unmount.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
@@ -2722,7 +2825,7 @@ class TestRegistryArtifactCacheEviction:
         paths.squashfs_mount_dir.mkdir()
         (paths.squashfs_mount_dir / "module.py").write_text("VALUE = 1")
         mounted = {paths.squashfs_mount_dir}
-        blocked_process = _BlockingSubprocess()
+        blocked_process = _BlockingSubprocess(block_wait=True)
         released_process = AsyncMock()
         released_process.communicate.return_value = (b"", b"")
         released_process.returncode = 0
@@ -2750,7 +2853,12 @@ class TestRegistryArtifactCacheEviction:
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await blocked_process.communicate_started.wait()
             eviction.cancel()
+            await blocked_process.wait_started.wait()
 
+            eviction.cancel()
+            done, _ = await asyncio.wait({eviction}, timeout=0.05)
+            assert not done
+            blocked_process.release_wait.set()
             with pytest.raises(asyncio.CancelledError):
                 await eviction
 
@@ -2829,6 +2937,58 @@ class TestRegistryArtifactCacheEviction:
                 assert (original_target / "module.py").read_text() == "VALUE = 2"
 
         assert original_target.is_dir()
+
+    @pytest.mark.parametrize("operation", ["budget", "admission"])
+    @pytest.mark.anyio
+    async def test_cancelled_cleanup_rejoins_workers_before_releasing_locks(
+        self, temp_cache_dir: Path, operation: str
+    ) -> None:
+        """Cache locks outlive repeatedly cancelled cleanup workers."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cleanup_started = threading.Event()
+        cleanup_release = threading.Event()
+        cleanup_finished = threading.Event()
+
+        def blocking_clear(work_dir: Path) -> bool:
+            assert work_dir == cache.trash_dir
+            cleanup_started.set()
+            cleanup_release.wait(timeout=5)
+            cleanup_finished.set()
+            return True
+
+        async def run_operation() -> None:
+            if operation == "budget":
+                await cache._enforce_cache_budget()
+            else:
+                await cache._ensure_cache_capacity(
+                    additional_bytes=0,
+                    protected_key="pending",
+                    max_bytes=1,
+                )
+
+        with (
+            patch.object(cache, "_clear_work_dir", side_effect=blocking_clear),
+            patch.object(cache, "_retry_failed_startup_cleanup", return_value=True),
+        ):
+            running = asyncio.create_task(run_operation())
+            try:
+                assert await asyncio.to_thread(cleanup_started.wait, 1)
+                running.cancel()
+                await asyncio.sleep(0)
+                running.cancel()
+                await asyncio.sleep(0)
+                assert not running.done()
+                assert cache._budget_lock.locked()
+                assert cache._admission_lock.locked() is (operation == "budget")
+            finally:
+                cleanup_release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await running
+
+        assert cleanup_finished.is_set()
+        assert not cache._budget_lock.locked()
+        assert not cache._admission_lock.locked()
 
     @pytest.mark.anyio
     async def test_doomed_eviction_names_are_startup_scratch(self, temp_cache_dir):

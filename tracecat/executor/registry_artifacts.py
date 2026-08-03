@@ -187,6 +187,61 @@ class RegistryArtifact(ABC):
         return ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{unique_id}{suffix}"
 
 
+async def _drain_future_through_cancellation[T](
+    future: asyncio.Future[T],
+) -> None:
+    """Wait for a future to finish despite repeated caller cancellation."""
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            break
+    if not future.cancelled():
+        with contextlib.suppress(Exception):
+            future.result()
+
+
+async def _rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:
+    """Shield a future and rejoin it before propagating cancellation."""
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        await _drain_future_through_cancellation(future)
+        raise
+
+
+async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
+    """Run blocking work without abandoning its worker thread."""
+    return await _rejoin_future_on_cancel(
+        asyncio.ensure_future(asyncio.to_thread(operation))
+    )
+
+
+async def _kill_and_reap_subprocess(process: asyncio.subprocess.Process) -> None:
+    """Kill a subprocess and wait until its child state is reaped."""
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    await process.wait()
+
+
+async def _communicate_rejoin_on_cancel(
+    process: asyncio.subprocess.Process,
+) -> tuple[bytes, bytes]:
+    """Communicate without allowing cancellation to abandon child cleanup."""
+    try:
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        reaper = asyncio.ensure_future(_kill_and_reap_subprocess(process))
+        await _drain_future_through_cancellation(reaper)
+        raise
+
+    if stdout is None or stderr is None:
+        raise RuntimeError("Captured subprocess output is required")
+    return stdout, stderr
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinArtifact(RegistryArtifact):
     """Current builtin registry package already installed in the executor image."""
@@ -422,13 +477,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode == 0 or target_dir.is_mount():
             return
@@ -456,13 +505,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode == 0:
             return
@@ -483,13 +526,7 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
 
         if proc.returncode != 0:
             output = (stderr or stdout).decode(errors="replace").strip()
@@ -539,9 +576,8 @@ class TarballArtifact(RegistryArtifact):
             download_elapsed = (time.monotonic() - download_start) * 1000
 
             if ctx.admission is not None:
-                extracted_size = await asyncio.to_thread(
-                    _tarball_extracted_size,
-                    temp_tarball,
+                extracted_size = await _run_blocking_rejoin_on_cancel(
+                    lambda: _tarball_extracted_size(temp_tarball)
                 )
                 await ctx.admission.ensure_capacity(extracted_size)
 
@@ -607,25 +643,7 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        extraction = asyncio.ensure_future(asyncio.to_thread(_do_extract))
-        try:
-            await asyncio.shield(extraction)
-        except asyncio.CancelledError:
-            # A thread cannot be killed. Rejoin it before materialize removes
-            # scratch. Each cancellation can interrupt shield without stopping
-            # the thread, so keep waiting until extraction reaches a terminal
-            # state before propagating the original cancellation.
-            while not extraction.done():
-                try:
-                    await asyncio.shield(extraction)
-                except asyncio.CancelledError:
-                    continue
-                except Exception:
-                    break
-            if not extraction.cancelled():
-                with contextlib.suppress(Exception):
-                    extraction.result()
-            raise
+        await _run_blocking_rejoin_on_cancel(_do_extract)
 
         logger.debug(
             "Tarball extracted",
@@ -1072,7 +1090,8 @@ class RegistryArtifactCache:
             return cache_key, paths
         except BaseException:
             if lease_acquired and self._release_lease(cache_key):
-                await self._unmount_idle_entry(cache_key)
+                rollback = asyncio.ensure_future(self._unmount_idle_entry(cache_key))
+                await _drain_future_through_cancellation(rollback)
             raise
 
     async def _materialize_candidates(
@@ -1447,9 +1466,11 @@ class RegistryArtifactCache:
         protected_key: str | None,
     ) -> bool:
         """Enforce entry and byte limits while both cache-wide locks are held."""
-        trash_clean, startup_clean = await asyncio.gather(
-            asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-            asyncio.to_thread(self._retry_failed_startup_cleanup),
+        trash_clean, startup_clean = await _rejoin_future_on_cancel(
+            asyncio.gather(
+                asyncio.to_thread(self._clear_work_dir, self.trash_dir),
+                asyncio.to_thread(self._retry_failed_startup_cleanup),
+            )
         )
         cleanup_complete = trash_clean and startup_clean
         if not cleanup_complete:
@@ -1511,9 +1532,11 @@ class RegistryArtifactCache:
             raise ValueError("additional_bytes must be non-negative")
 
         async with self._budget_lock:
-            await asyncio.gather(
-                asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-                asyncio.to_thread(self._retry_failed_startup_cleanup),
+            await _rejoin_future_on_cancel(
+                asyncio.gather(
+                    asyncio.to_thread(self._clear_work_dir, self.trash_dir),
+                    asyncio.to_thread(self._retry_failed_startup_cleanup),
+                )
             )
             entries = await asyncio.to_thread(self._scan_cache_entries)
             staging_bytes, trash_bytes = await asyncio.gather(
@@ -1714,13 +1737,7 @@ class RegistryArtifactCache:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            raise
+        stdout, stderr = await _communicate_rejoin_on_cancel(proc)
         if proc.returncode == 0 or not mount_dir.is_mount():
             return True
 

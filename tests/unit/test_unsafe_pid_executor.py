@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -73,6 +74,49 @@ class TestUnsafePidExecutor:
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
         return UnsafePidExecutor(cache_dir=str(tmp_path))
+
+    @pytest.mark.parametrize(
+        ("operation", "timeout"),
+        [("create-venv", 60), ("install-packages", 300)],
+    )
+    @pytest.mark.anyio
+    async def test_dependency_setup_uses_process_group_cleanup(
+        self,
+        executor: UnsafePidExecutor,
+        tmp_path: Path,
+        operation: str,
+        timeout: int,
+    ) -> None:
+        """Dependency setup descendants stay inside a terminated process group."""
+        process = AsyncMock()
+        process.returncode = 0
+        create_process = AsyncMock(return_value=process)
+        communicate = AsyncMock(return_value=(b"", b""))
+
+        with (
+            patch.object(
+                unsafe_pid_executor.asyncio,
+                "create_subprocess_exec",
+                create_process,
+            ),
+            patch.object(
+                unsafe_pid_executor,
+                "communicate_process_group",
+                communicate,
+            ),
+        ):
+            if operation == "create-venv":
+                await executor._create_venv(tmp_path / "venv")
+            else:
+                await executor._install_packages(
+                    tmp_path / "venv",
+                    ["synthetic-package"],
+                )
+
+        await_args = create_process.await_args
+        assert await_args is not None
+        assert await_args.kwargs["start_new_session"] is True
+        communicate.assert_awaited_once_with(process, timeout=timeout)
 
     def test_process_probe_handles_procfs_exit_race(
         self, monkeypatch: pytest.MonkeyPatch

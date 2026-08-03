@@ -41,6 +41,46 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
     await process.wait()
 
 
+async def _finish_process_group_cleanup(
+    process: asyncio.subprocess.Process,
+    communicate_task: asyncio.Task[tuple[bytes | None, bytes | None]],
+    termination_task: asyncio.Task[None] | None,
+) -> None:
+    """Finish process termination and consume the communication task."""
+    if termination_task is None:
+        termination_task = asyncio.create_task(terminate_process_group(process))
+    try:
+        await termination_task
+    finally:
+        if not communicate_task.done():
+            communicate_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await communicate_task
+
+
+async def _rejoin_cleanup_through_cancellation(
+    cleanup_task: asyncio.Task[None],
+) -> None:
+    """Wait for cleanup despite repeated caller cancellation."""
+    pending_cancellation: asyncio.CancelledError | None = None
+    while not cleanup_task.done():
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError as e:
+            if cleanup_task.cancelled():
+                raise
+            pending_cancellation = e
+
+    try:
+        cleanup_task.result()
+    except BaseException as cleanup_error:
+        if pending_cancellation is not None:
+            raise pending_cancellation from cleanup_error
+        raise
+    if pending_cancellation is not None:
+        raise pending_cancellation
+
+
 async def communicate_process_group(
     process: asyncio.subprocess.Process,
     *,
@@ -56,21 +96,32 @@ async def communicate_process_group(
     terminates the group before it propagates.
     """
     communicate_task = asyncio.create_task(process.communicate(input=input))
-    group_terminated = False
+    termination_task: asyncio.Task[None] | None = None
+    operation_error: BaseException | None = None
     try:
         async with asyncio.timeout(timeout):
             while process.returncode is None:
                 await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
-            await terminate_process_group(process)
-            group_terminated = True
+            termination_task = asyncio.create_task(terminate_process_group(process))
+            await asyncio.shield(termination_task)
             stdout, stderr = await communicate_task
+    except BaseException as e:
+        operation_error = e
+        raise
     finally:
-        if not group_terminated:
-            await terminate_process_group(process)
-        if not communicate_task.done():
-            communicate_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await communicate_task
+        cleanup_task = asyncio.create_task(
+            _finish_process_group_cleanup(
+                process,
+                communicate_task,
+                termination_task,
+            )
+        )
+        try:
+            await _rejoin_cleanup_through_cancellation(cleanup_task)
+        except BaseException as cleanup_error:
+            if operation_error is not None:
+                raise operation_error from cleanup_error
+            raise
 
     if stdout is None or stderr is None:
         raise RuntimeError("Captured stdout and stderr are required")

@@ -6,6 +6,7 @@ These tests cover tarball caching, cache key computation, and execution logic.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox import utils as sandbox_utils
 from tracecat.sandbox.types import SandboxResult
 
 
@@ -747,7 +749,10 @@ class TestActionRunner:
         )
 
         real_create_subprocess_exec = asyncio.create_subprocess_exec
+        real_terminate_process_group = sandbox_utils.terminate_process_group
         process_started = asyncio.Event()
+        termination_started = asyncio.Event()
+        finish_termination = asyncio.Event()
         process: asyncio.subprocess.Process | None = None
         reaped_before_unmount: list[bool] = []
 
@@ -756,6 +761,13 @@ class TestActionRunner:
             process = await real_create_subprocess_exec(*args, **kwargs)
             process_started.set()
             return process
+
+        async def controlled_termination(
+            requested_process: asyncio.subprocess.Process,
+        ) -> None:
+            termination_started.set()
+            await finish_termination.wait()
+            await real_terminate_process_group(requested_process)
 
         async def release_mount(mount_dir: Path) -> bool:
             reaped_before_unmount.append(
@@ -775,6 +787,11 @@ class TestActionRunner:
                 "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
                 side_effect=capture_subprocess,
             ),
+            patch.object(
+                sandbox_utils,
+                "terminate_process_group",
+                side_effect=controlled_termination,
+            ),
             patch.object(cache, "_unmount", side_effect=release_mount),
         ):
             execution = asyncio.create_task(
@@ -787,13 +804,26 @@ class TestActionRunner:
                 )
             )
             try:
-                await process_started.wait()
+                await asyncio.wait_for(process_started.wait(), timeout=5)
                 assert cache._refcount(cache_key) == 1
                 execution.cancel()
+                await termination_started.wait()
 
+                execution.cancel()
+                await asyncio.sleep(0)
+                assert not execution.done()
+                assert cache._refcount(cache_key) == 1
+                assert paths.squashfs_mount_dir in mounted
+
+                finish_termination.set()
                 with pytest.raises(asyncio.CancelledError):
                     await execution
             finally:
+                finish_termination.set()
+                if not execution.done():
+                    execution.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await execution
                 if process is not None and process.returncode is None:
                     process.kill()
                     await process.wait()
