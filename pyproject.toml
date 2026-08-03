@@ -51,7 +51,7 @@ dependencies = [
     "loguru==0.7.3",
     "minio==7.2.18",
     "orjson==3.11.7",
-    "paramiko==3.5.0",
+    "paramiko==5.0.0",
     "polyfile==0.5.6",
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",

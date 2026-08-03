@@ -3076,16 +3076,17 @@ wheels = [
 
 [[package]]
 name = "paramiko"
-version = "3.5.0"
+version = "5.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bcrypt" },
     { name = "cryptography" },
+    { name = "invoke" },
     { name = "pynacl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/0f/c00296e36ff7485935b83d466c4f2cf5934b84b0ad14e81796e1d9d3609b/paramiko-3.5.0.tar.gz", hash = "sha256:ad11e540da4f55cedda52931f1a3f812a8238a7af7f62a60de538cd80bb28124", size = 1704305, upload-time = "2024-09-15T23:58:11.704Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/93/dcc25d52f49022ae6175d15e6bd751f1acc99b98bc61fc55e5155a7be2e7/paramiko-5.0.0.tar.gz", hash = "sha256:36763b5b95c2a0dcfdf1abc48e48156ee425b21efe2f0e787c2dd5a95c0e5e79", size = 1548586, upload-time = "2026-05-09T18:28:52.256Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/66/14b2c030fcce69cba482d205c2d1462ca5c77303a263260dcb1192801c85/paramiko-3.5.0-py3-none-any.whl", hash = "sha256:1fedf06b085359051cd7d0d270cebe19e755a8a921cc2ddbfa647fb0cd7d68f9", size = 227143, upload-time = "2024-09-15T23:58:09.23Z" },
+    { url = "https://files.pythonhosted.org/packages/82/5b/eadf6d45de38d30ab603f49393b6cd2cbe7e233af8cf90197e32782b68a9/paramiko-5.0.0-py3-none-any.whl", hash = "sha256:b7044611c30140d9a75261653210e2002977b71a0497ff3ba0d98d7edbf62f7c", size = 208919, upload-time = "2026-05-09T18:28:50.295Z" },
 ]
 
 [[package]]
@@ -4942,7 +4943,7 @@ requires-dist = [
     { name = "loguru", specifier = "==0.7.3" },
     { name = "minio", specifier = "==7.2.18" },
     { name = "orjson", specifier = "==3.11.7" },
-    { name = "paramiko", specifier = "==3.5.0" },
+    { name = "paramiko", specifier = "==5.0.0" },
     { name = "polyfile", specifier = "==0.5.6" },
     { name = "protobuf", specifier = "==6.33.5" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
@@ -5093,7 +5094,7 @@ requires-dist = [
     { name = "nh3", specifier = "==0.2.18" },
     { name = "okta", specifier = "==3.4.3" },
     { name = "orjson", specifier = "==3.11.7" },
-    { name = "paramiko", specifier = "==3.5.0" },
+    { name = "paramiko", specifier = "==5.0.0" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "pymongo", specifier = "==4.8.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
