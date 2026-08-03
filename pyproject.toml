@@ -68,8 +68,8 @@ dependencies = [
     "temporalio==1.20.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
-    "tracecat-ee==0.1.0",
-    "tracecat-registry==1.0.0b50",
+    "tracecat-ee",
+    "tracecat-registry",
     "uv==0.11.15",
     "uvicorn==0.35.0",
     "uvloop==0.21.0",
@@ -117,7 +117,7 @@ override-dependencies = [
 ]
 
 [dependency-groups]
-admin = ["tracecat-admin==0.1.0"]
+admin = ["tracecat-admin"]
 lint = [
     "basedpyright==1.37.1",
     "types-aioboto3[sts,s3,secretsmanager]==15.5.0",

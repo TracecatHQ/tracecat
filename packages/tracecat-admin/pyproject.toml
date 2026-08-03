@@ -30,7 +30,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 bootstrap = [
-    "tracecat==1.0.0b50",
+    "tracecat",
 ]
 dev = [
     "pytest==8.4.2",
