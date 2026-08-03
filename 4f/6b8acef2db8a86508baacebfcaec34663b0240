@@ -1,0 +1,21 @@
+docs/self-hosting/security.mdx
+  s_4b9afcbd518739::t_315cbbf8b9b9bd 84
+docs/self-hosting/tls.mdx
+  s_4b9afcbd518739::t_91300ca62b835f 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "4f6b8acef2db8a86508baacebfcaec34663b0240",
+  "prompts": {},
+  "sessions": {
+    "s_4b9afcbd518739": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd74f36a-dc94-4f3c-9dea-994069c26541",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
