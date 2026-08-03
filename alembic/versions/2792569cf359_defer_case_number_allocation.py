@@ -176,5 +176,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    _install_immediate_allocator()
     _replace_case_number_constraint(deferred=False)
+    _install_immediate_allocator()

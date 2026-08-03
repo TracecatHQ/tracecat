@@ -7,12 +7,18 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import selectinload as sa_selectinload
+from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
@@ -47,7 +53,7 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseComment, Workspace
+from tracecat.db.models import Case, CaseComment, Organization, Workspace
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -486,18 +492,29 @@ class TestCasesService:
 
     async def test_slow_related_writes_do_not_hold_case_number_counter_lock(
         self,
-        cases_service: CasesService,
-        session: AsyncSession,
-        svc_role: Role,
     ) -> None:
         """A stalled case should not block another case before final allocation."""
-        await cases_service.fields._ensure_schema_ready()
-        await cases_service.session.commit()
-        assert session.bind is not None
-        session_factory = async_sessionmaker(bind=session.bind, expire_on_commit=False)
+        organization_id = uuid.uuid4()
+        workspace_id = uuid.uuid4()
+        role = Role(
+            type="service",
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
+        )
+        concurrent_engine = create_async_engine(
+            TEST_DB_CONFIG.test_url,
+            poolclass=NullPool,
+        )
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
         slow_write_started = asyncio.Event()
         release_slow_write = asyncio.Event()
         original_upsert = CaseFieldsService.upsert_field_values
+        backend_pids: set[int] = set()
 
         async def pause_slow_case(
             fields_service: CaseFieldsService,
@@ -511,9 +528,14 @@ class TestCasesService:
 
         async def create_case(summary: str) -> int:
             async with session_factory() as concurrent_session:
+                backend_pid = await concurrent_session.scalar(
+                    text("SELECT pg_backend_pid()")
+                )
+                assert backend_pid is not None
+                backend_pids.add(backend_pid)
                 service = CasesService(
                     session=concurrent_session,
-                    role=svc_role.model_copy(deep=True),
+                    role=role.model_copy(deep=True),
                 )
                 case = await service.create_case(
                     CaseCreate(
@@ -526,29 +548,65 @@ class TestCasesService:
                 )
                 return case.case_number
 
-        with (
-            patch.object(
-                CaseFieldsService,
-                "_ensure_schema_ready",
-                new=AsyncMock(return_value=None),
-            ),
-            patch.object(
-                CaseFieldsService,
-                "upsert_field_values",
-                new=pause_slow_case,
-            ),
-        ):
-            slow_task = asyncio.create_task(create_case("Slow case"))
-            try:
+        slow_task: asyncio.Task[int] | None = None
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add_all(
+                    [
+                        Organization(
+                            id=organization_id,
+                            name="Case contention test organization",
+                            slug=f"case-contention-{organization_id.hex[:8]}",
+                            is_active=True,
+                        ),
+                        Workspace(
+                            id=workspace_id,
+                            name=f"case-contention-{workspace_id.hex[:8]}",
+                            organization_id=organization_id,
+                        ),
+                    ]
+                )
+                await seed_session.commit()
+                seed_service = CasesService(session=seed_session, role=role)
+                await seed_service.fields._ensure_schema_ready()
+                await seed_session.commit()
+
+            with (
+                patch.object(
+                    CaseFieldsService,
+                    "_ensure_schema_ready",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch.object(
+                    CaseFieldsService,
+                    "upsert_field_values",
+                    new=pause_slow_case,
+                ),
+            ):
+                slow_task = asyncio.create_task(create_case("Slow case"))
                 await asyncio.wait_for(slow_write_started.wait(), timeout=5)
                 fast_case_number = await asyncio.wait_for(
                     create_case("Fast case"), timeout=5
                 )
-            finally:
                 release_slow_write.set()
+                slow_case_number = await asyncio.wait_for(slow_task, timeout=5)
+        finally:
+            release_slow_write.set()
+            if slow_task is not None:
+                if not slow_task.done():
+                    slow_task.cancel()
+                await asyncio.gather(slow_task, return_exceptions=True)
+            async with session_factory() as cleanup_session:
+                await cleanup_session.execute(
+                    delete(Workspace).where(Workspace.id == workspace_id)
+                )
+                await cleanup_session.execute(
+                    delete(Organization).where(Organization.id == organization_id)
+                )
+                await cleanup_session.commit()
+            await concurrent_engine.dispose()
 
-            slow_case_number = await asyncio.wait_for(slow_task, timeout=5)
-
+        assert len(backend_pids) == 2
         assert fast_case_number == 1
         assert slow_case_number == 2
 
