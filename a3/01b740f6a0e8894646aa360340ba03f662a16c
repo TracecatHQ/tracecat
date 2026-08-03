@@ -1,0 +1,30 @@
+packages/tracecat-ee/pyproject.toml
+  s_d274b6742342ad::t_bdd460c92ba3bd 2
+packages/tracecat-admin/pyproject.toml
+  s_d274b6742342ad::t_bdd460c92ba3bd 2,36-37
+.github/dependabot.yml
+  s_d274b6742342ad::t_bdd460c92ba3bd 1-3,5-17
+  s_d274b6742342ad::t_c926e63ec206cd 4
+pyproject.toml
+  s_d274b6742342ad::t_bdd460c92ba3bd 2,110
+packages/tracecat-registry/pyproject.toml
+  s_d274b6742342ad::t_bdd460c92ba3bd 2,25,38-39,47,52
+uv.lock
+  s_d274b6742342ad::t_d2546a04706f4c 21,5017-5018,5075,5088-5089,5097,5102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "a301b740f6a0e8894646aa360340ba03f662a16c",
+  "prompts": {},
+  "sessions": {
+    "s_d274b6742342ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc5c7-c33e-77d0-aee0-30687f0f55cd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
