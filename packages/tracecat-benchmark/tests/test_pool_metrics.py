@@ -4,13 +4,16 @@ import asyncio
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 import sqlalchemy.ext.asyncio as sqlalchemy_asyncio
+from sqlalchemy.util.concurrency import greenlet_spawn
 from tracecat_benchmark import pool_metrics
 from tracecat_benchmark.pool_metrics import (
     InstrumentedAsyncAdaptedQueuePool,
+    PoolMetricsSnapshot,
     _create_instrumented_async_engine,
     install_pool_metrics_instrumentation,
     pool_metrics_document,
@@ -42,6 +45,55 @@ def test_instrumented_engine_preserves_pool_settings_and_detects_auth_pool() -> 
             await engine.dispose()
 
     asyncio.run(exercise())
+
+
+def test_physical_reconnect_is_recorded_on_the_checkout_that_opens_it() -> None:
+    class FakeConnection:
+        def rollback(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    pool = InstrumentedAsyncAdaptedQueuePool(
+        lambda: FakeConnection(),
+        pool_size=1,
+        max_overflow=0,
+        pool_metrics_name="reconnect-test",
+    )
+
+    async def exercise() -> tuple[PoolMetricsSnapshot, PoolMetricsSnapshot]:
+        first = await greenlet_spawn(pool.connect)
+        await greenlet_spawn(first.close)
+        pool._invalidate_time = time.time() + 1
+
+        second = await greenlet_spawn(pool.connect)
+        await greenlet_spawn(second.close)
+        after_reconnect = next(
+            item
+            for item in pool_metrics_document()["pools"]
+            if item["pool"] == "reconnect-test"
+        )
+        pool._invalidate_time = 0
+
+        third = await greenlet_spawn(pool.connect)
+        await greenlet_spawn(third.close)
+        final = next(
+            item
+            for item in pool_metrics_document()["pools"]
+            if item["pool"] == "reconnect-test"
+        )
+        await greenlet_spawn(pool.dispose)
+        return after_reconnect, final
+
+    after_reconnect, final = asyncio.run(exercise())
+
+    assert after_reconnect["connections_created_total"] == 2
+    assert after_reconnect["connection_open"]["count"] == 2
+    assert final["connections_created_total"] == 2
+    assert final["connection_open"]["count"] == 2
+    assert final["checkouts_total"] == 3
+    assert final["checkout_wait"]["count"] == 3
 
 
 def test_sitecustomize_requires_private_benchmark_opt_in() -> None:

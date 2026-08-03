@@ -19,13 +19,18 @@ from typing import Any, Final, TypedDict
 
 import sqlalchemy.ext.asyncio as sqlalchemy_asyncio
 from sqlalchemy.engine import URL
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy.pool import AsyncAdaptedQueuePool, ConnectionPoolEntry
+from sqlalchemy.pool import (
+    AsyncAdaptedQueuePool,
+    ConnectionPoolEntry,
+    PoolProxiedConnection,
+)
 
 POOL_METRICS_PATH: Final = "/db-pool-metrics"
 HOLD_STARTED_AT_KEY: Final = "tracecat_benchmark_pool_hold_started_at"
-CONNECTION_SEEN_KEY: Final = "tracecat_benchmark_pool_connection_seen"
+CONNECTION_OPEN_SECONDS_KEY: Final = "tracecat_benchmark_pool_connection_open_seconds"
 _POOL_METRICS_PORT_ENV: Final = "TRACECAT_BENCHMARK_INTERNAL_DB_POOL_METRICS_PORT"
 _EAGER_METRICS_SERVICES: Final = frozenset({"worker", "executor"})
 LATENCY_BUCKETS_SECONDS: Final = (
@@ -144,14 +149,10 @@ class PoolMetricsRecorder:
         self._connection_open = _LatencyDistribution()
         self._connection_hold = _LatencyDistribution()
 
-    def record_checkout(self, acquisition_seconds: float, *, created: bool) -> None:
+    def record_checkout(self, wait_seconds: float) -> None:
         with self._lock:
             self._checkouts_total += 1
-            if created:
-                self._connections_created_total += 1
-                self._connection_open.observe(acquisition_seconds)
-            else:
-                self._checkout_wait.observe(acquisition_seconds)
+            self._checkout_wait.observe(wait_seconds)
             self._checked_out_high_water = max(
                 self._checked_out_high_water,
                 self._pool.checkedout(),
@@ -160,6 +161,11 @@ class PoolMetricsRecorder:
                 self._overflow_high_water,
                 max(0, self._pool.overflow()),
             )
+
+    def record_connection_open(self, open_seconds: float) -> None:
+        with self._lock:
+            self._connections_created_total += 1
+            self._connection_open.observe(open_seconds)
 
     def record_checkout_timeout(self, wait_seconds: float) -> None:
         with self._lock:
@@ -222,24 +228,41 @@ class InstrumentedAsyncAdaptedQueuePool(AsyncAdaptedQueuePool):
             **kwargs,
         )
         self._metrics = PoolMetricsRecorder(pool_metrics_name, self)
+        original_creator = self._invoke_creator
+
+        def instrumented_creator(rec: ConnectionPoolEntry) -> DBAPIConnection:
+            started_at = time.monotonic()
+            connection = original_creator(rec)
+            open_seconds = time.monotonic() - started_at
+            self._metrics.record_connection_open(open_seconds)
+            record_info = rec.record_info
+            if record_info is not None:
+                record_info[CONNECTION_OPEN_SECONDS_KEY] = open_seconds
+            return connection
+
+        # SQLAlchemy calls this adapter for every physical open, including
+        # reconnects caused by recycle, invalidation, or failed pre-ping.
+        self._invoke_creator = instrumented_creator
         with _registry_lock:
             _recorders[pool_metrics_name] = self._metrics
 
-    def _do_get(self) -> ConnectionPoolEntry:
+    def connect(self) -> PoolProxiedConnection:
         started_at = time.monotonic()
         try:
-            record = super()._do_get()
+            connection = super().connect()
         except SQLAlchemyTimeoutError:
             self._metrics.record_checkout_timeout(time.monotonic() - started_at)
             raise
-        created = not bool(record.info.get(CONNECTION_SEEN_KEY))
-        record.info[CONNECTION_SEEN_KEY] = True
-        self._metrics.record_checkout(
-            time.monotonic() - started_at,
-            created=created,
+        acquisition_seconds = time.monotonic() - started_at
+        record_info = connection.record_info
+        open_seconds = (
+            record_info.pop(CONNECTION_OPEN_SECONDS_KEY, 0.0)
+            if record_info is not None
+            else 0.0
         )
-        record.info[HOLD_STARTED_AT_KEY] = time.monotonic()
-        return record
+        self._metrics.record_checkout(max(0.0, acquisition_seconds - open_seconds))
+        connection.info[HOLD_STARTED_AT_KEY] = time.monotonic()
+        return connection
 
     def _do_return_conn(self, record: ConnectionPoolEntry) -> None:
         started_at = record.info.pop(HOLD_STARTED_AT_KEY, None)
