@@ -1,0 +1,23 @@
+frontend/tests/chat-session-pane.test.tsx
+  s_af4167ee9cee2c::t_881a23c4f6b1e2 1683
+frontend/package.json
+  s_af4167ee9cee2c::t_881a23c4f6b1e2 27,93
+frontend/pnpm-lock.yaml
+  s_af4167ee9cee2c::t_fa6d35b9a97bad 52-53,250-251,490-491,496-497,502-503,506-507,510-514,3090-3091,5966,5968-5969,5972,5974,5979,5983,5985-5986,5990-5991,8751,8753-8755
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "f2e67a648ea506a43ccbcac169bd2521472716f9",
+  "prompts": {},
+  "sessions": {
+    "s_af4167ee9cee2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc619-48a8-7dd2-999f-bbd995c79f0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
