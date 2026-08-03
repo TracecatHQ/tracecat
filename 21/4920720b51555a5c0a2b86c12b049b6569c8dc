@@ -1,0 +1,50 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/get_mapping.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/list_security_analytics_findings.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/list_indexes.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-59
+tests/registry/test_opensearch_templates.py
+  s_0b3e5fa1329764::t_0b78fce2d83052 1-9,11-139,144-289
+  s_0b3e5fa1329764::t_7c33366f885ebd 10,140-143
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/get_document.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/multi_get_documents.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/ppl_query.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/acknowledge_monitor_alerts.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/list_security_analytics_alerts.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/acknowledge_security_analytics_alerts.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-39
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/search_detectors.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/count_events.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-56
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/search_detection_rules.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/list_monitor_alerts.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/multi_search.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-66
+packages/tracecat-registry/tracecat_registry/templates/tools/opensearch/search_events.yml
+  s_0b3e5fa1329764::t_3b0bf4647699fa 1-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "214920720b51555a5c0a2b86c12b049b6569c8dc",
+  "prompts": {},
+  "sessions": {
+    "s_0b3e5fa1329764": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc6a4-d846-78f1-af85-ddf79ad99f63",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
