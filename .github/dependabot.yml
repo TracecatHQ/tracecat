@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "uv"
-    directory: "/"
+    directories:
+      - "/"
+      - "/packages/*"
     schedule:
       interval: "daily"
     cooldown:
