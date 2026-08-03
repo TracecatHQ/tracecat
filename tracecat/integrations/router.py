@@ -16,7 +16,6 @@ from tracecat.auth.dependencies import (
 )
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.common import UNSET
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import MCPIntegration, OAuthStateDB
@@ -68,7 +67,6 @@ from tracecat.integrations.service import (
     IntegrationService,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
-    UnsupportedOAuthApiBaseUrlError,
 )
 from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
@@ -535,10 +533,6 @@ async def get_integration(
         configured_authorization=integration.authorization_endpoint,
         configured_token=integration.token_endpoint,
     )
-    api_base_url = svc.determine_api_base_url(
-        provider_info.impl,
-        configured_api_base_url=integration.api_base_url,
-    )
 
     client_id = (
         svc.decrypt_client_credential(integration.encrypted_client_id)
@@ -579,7 +573,6 @@ async def get_integration(
         requested_scopes=requested_scopes,
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
-        api_base_url=api_base_url,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         status=integration.status,
@@ -820,16 +813,11 @@ async def update_integration(
             client_secret=params.client_secret,
             authorization_endpoint=params.authorization_endpoint,
             token_endpoint=params.token_endpoint,
-            api_base_url=(
-                params.api_base_url
-                if "api_base_url" in params.model_fields_set
-                else UNSET
-            ),
             requested_scopes=params.scopes,
         )
-    except (InsecureOAuthEndpointError, UnsupportedOAuthApiBaseUrlError) as exc:
+    except InsecureOAuthEndpointError as exc:
         logger.warning(
-            "Rejected OAuth provider configuration update",
+            "Rejected insecure OAuth endpoint on provider update",
             provider=provider_info.key,
             workspace_id=role.workspace_id,
             error=str(exc),
@@ -971,7 +959,6 @@ async def get_provider(
             impl, "default_authorization_endpoint", None
         ),
         default_token_endpoint=getattr(impl, "default_token_endpoint", None),
-        default_api_base_url=getattr(impl, "default_api_base_url", None),
         authorization_endpoint_help=getattr(impl, "authorization_endpoint_help", None),
         token_endpoint_help=getattr(impl, "token_endpoint_help", None),
         redirect_uri=impl.redirect_uri()

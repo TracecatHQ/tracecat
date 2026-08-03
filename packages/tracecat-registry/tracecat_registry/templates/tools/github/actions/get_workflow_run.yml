@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Get Workflow Run
+  title: Get workflow run
   description: 'Get workflow run. Calls GET /repos/{owner}/{repo}/actions/runs/{run_id} directly. Accepted OAuth scopes: repo (default; omit only for public repository data). GitHub Enterprise Server availability depends on the installed GHES version.'
   display_group: GitHub
   doc_url: https://docs.github.com/en/rest
@@ -24,11 +24,15 @@ definition:
       type: dict[str, Any] | None
       description: API-native query parameters, including pagination and filters.
       default: null
+    base_url:
+      type: str
+      description: GitHub REST API base URL. `VARS.github.base_url` overrides this value.
+      default: https://api.github.com
   steps:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/actions/runs/${{ FN.url_encode_component(inputs.run_id) }}
+      url: ${{ VARS.github.base_url || inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/actions/runs/${{ FN.url_encode_component(inputs.run_id) }}
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

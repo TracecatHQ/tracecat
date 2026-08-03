@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: List Organization Github App Installations
+  title: List organization github app installations
   description: 'List organization github app installations. Calls GET /orgs/{org}/installations directly. Accepted OAuth scopes: admin:read. GitHub Enterprise Server availability depends on the installed GHES version.'
   display_group: GitHub
   doc_url: https://docs.github.com/en/rest
@@ -18,11 +18,15 @@ definition:
       type: dict[str, Any] | None
       description: API-native query parameters, including pagination and filters.
       default: null
+    base_url:
+      type: str
+      description: GitHub REST API base URL. `VARS.github.base_url` overrides this value.
+      default: https://api.github.com
   steps:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}/orgs/${{ FN.url_encode_component(inputs.org) }}/installations
+      url: ${{ VARS.github.base_url || inputs.base_url }}/orgs/${{ FN.url_encode_component(inputs.org) }}/installations
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

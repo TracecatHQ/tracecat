@@ -26,10 +26,6 @@ def test_oauth_callback_redirect_url_uses_integrations_for_oauth_provider(
     )
 
 
-def test_github_oauth_provider_defines_public_api_base_url() -> None:
-    assert GitHubOAuthProvider.default_api_base_url == "https://api.github.com"
-
-
 def test_oauth_callback_redirect_url_uses_mcp_servers_for_mcp_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,8 +1,8 @@
 type: action
 definition:
-  title: Semantic Code Search
+  title: Semantic code search
   description: >-
-    Semantic Code Search. Calls GET /projects/{project_id}/search/semantic directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. Requires GitLab Duo and a GitLab version that supports the REST semantic search endpoint.
+    Semantic code search. Calls GET /projects/{project_id}/search/semantic directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. Requires GitLab Duo and a GitLab version that supports the REST semantic search endpoint.
   display_group: GitLab
   doc_url: https://docs.gitlab.com/api/api_resources/
   namespace: tools.gitlab
@@ -20,14 +20,14 @@ definition:
       description: API-native query parameters, including pagination and filters.
       default: null
     base_url:
-      type: str | None
-      description: GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`.
-      default: null
+      type: str
+      description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
+      default: https://gitlab.com/api/v4
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/search/semantic
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/search/semantic
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}

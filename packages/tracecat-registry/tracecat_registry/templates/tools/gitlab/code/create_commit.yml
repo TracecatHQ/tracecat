@@ -1,8 +1,8 @@
 type: action
 definition:
-  title: Create Commit
+  title: Create commit
   description: >-
-    Create Commit. Calls POST /projects/{project_id}/repository/commits directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+    Create commit. Calls POST /projects/{project_id}/repository/commits directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
   display_group: GitLab
   doc_url: https://docs.gitlab.com/api/api_resources/
   namespace: tools.gitlab
@@ -24,14 +24,14 @@ definition:
       description: API-native request body passed through without validation.
       default: null
     base_url:
-      type: str | None
-      description: GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`.
-      default: null
+      type: str
+      description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
+      default: https://gitlab.com/api/v4
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/repository/commits
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/repository/commits
         method: POST
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}

@@ -39,7 +39,6 @@ from tracecat.agent.mcp.stdio_probe_types import (
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.common import UNSET, Unset
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -165,10 +164,6 @@ class InsecureOAuthEndpointError(ValueError):
     """Raised when OAuth endpoints are not secured with HTTPS."""
 
 
-class UnsupportedOAuthApiBaseUrlError(ValueError):
-    """Raised when a provider has not opted into configurable API hosts."""
-
-
 class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
 
@@ -245,35 +240,6 @@ class IntegrationService(BaseWorkspaceService):
                 f"{field_name} must include a hostname: {endpoint}"
             )
         return endpoint
-
-    @staticmethod
-    def _validate_api_base_url(api_base_url: str | None) -> str | None:
-        """Validate and normalize an administrator-controlled API base URL."""
-        if api_base_url is None:
-            return None
-        normalized = api_base_url.strip().rstrip("/")
-        if not normalized:
-            return None
-        parsed = urlparse(normalized)
-        if parsed.scheme.lower() != "https":
-            raise InsecureOAuthEndpointError(
-                f"api_base_url must use HTTPS: {normalized}"
-            )
-        if not parsed.hostname:
-            raise InsecureOAuthEndpointError(
-                f"api_base_url must include a hostname: {normalized}"
-            )
-        if (
-            parsed.username
-            or parsed.password
-            or parsed.params
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise InsecureOAuthEndpointError(
-                "api_base_url cannot include credentials, parameters, a query, or a fragment"
-            )
-        return normalized
 
     @staticmethod
     def _normalize_scopes(scopes: list[str] | None) -> list[str]:
@@ -1641,22 +1607,6 @@ class IntegrationService(BaseWorkspaceService):
         )
         return authorization_endpoint, token_endpoint
 
-    @staticmethod
-    def determine_api_base_url(
-        provider_impl: type[BaseOAuthProvider] | None,
-        *,
-        configured_api_base_url: str | None,
-    ) -> str | None:
-        """Determine the trusted API base URL from configuration or provider defaults."""
-        default_api_base_url = (
-            provider_impl.default_api_base_url if provider_impl else None
-        )
-        if default_api_base_url is None:
-            return None
-        return IntegrationService._validate_api_base_url(
-            configured_api_base_url or default_api_base_url
-        )
-
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_integration(
         self,
@@ -2178,26 +2128,12 @@ class IntegrationService(BaseWorkspaceService):
         client_secret: SecretStr | None = None,
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
-        api_base_url: str | None | Unset = UNSET,
         requested_scopes: list[str] | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
 
         provider_impl = await self.resolve_provider_impl(provider_key=provider_key)
-        api_base_url_provided = api_base_url is not UNSET
-        normalized_api_base_url = (
-            self._validate_api_base_url(cast(str | None, api_base_url))
-            if api_base_url_provided
-            else None
-        )
-        if (
-            normalized_api_base_url is not None
-            and getattr(provider_impl, "default_api_base_url", None) is None
-        ):
-            raise UnsupportedOAuthApiBaseUrlError(
-                f"Provider {provider_key.id!r} does not support a configurable API base URL"
-            )
         normalized_scopes = self._normalize_scopes(requested_scopes)
         resolved_authorization, resolved_token = self._determine_endpoints(
             provider_impl,
@@ -2212,7 +2148,6 @@ class IntegrationService(BaseWorkspaceService):
                 and client_secret is None
                 and authorization_endpoint is None
                 and token_endpoint is None
-                and not api_base_url_provided
                 and requested_scopes is None
             ):
                 return integration
@@ -2237,8 +2172,6 @@ class IntegrationService(BaseWorkspaceService):
                 token_endpoint or integration.token_endpoint or resolved_token,
                 field_name="token_endpoint",
             )
-            if api_base_url_provided:
-                integration.api_base_url = normalized_api_base_url
 
             if requested_scopes is not None:
                 integration.requested_scopes = (
@@ -2282,7 +2215,6 @@ class IntegrationService(BaseWorkspaceService):
                     resolved_token,
                     field_name="token_endpoint",
                 ),
-                api_base_url=normalized_api_base_url,
                 requested_scopes=(
                     " ".join(normalized_scopes)
                     if requested_scopes is not None

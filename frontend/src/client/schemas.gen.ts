@@ -15078,18 +15078,6 @@ export const $IntegrationRead = {
       title: "Token Endpoint",
       description: "OAuth token endpoint configured for this integration.",
     },
-    api_base_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Base Url",
-      description: "Trusted API base URL configured for this integration.",
-    },
     token_type: {
       type: "string",
       title: "Token Type",
@@ -15300,20 +15288,6 @@ export const $IntegrationUpdate = {
       title: "Token Endpoint",
       description:
         "OAuth token endpoint URL. Overrides provider defaults when set.",
-    },
-    api_base_url: {
-      anyOf: [
-        {
-          type: "string",
-          minLength: 8,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Base Url",
-      description:
-        "Trusted API base URL. Overrides the provider default when set.",
     },
     scopes: {
       anyOf: [
@@ -19563,17 +19537,6 @@ export const $ProviderRead = {
         },
       ],
       title: "Default Token Endpoint",
-    },
-    default_api_base_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default Api Base Url",
     },
     authorization_endpoint_help: {
       anyOf: [

@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: List Repository Dependabot Alerts
+  title: List repository dependabot alerts
   description: 'List repository dependabot alerts. Calls GET /repos/{owner}/{repo}/dependabot/alerts directly. Accepted OAuth scopes: security_events plus repo for private repository access. GitHub Enterprise Server availability depends on the installed GHES version.'
   display_group: GitHub
   doc_url: https://docs.github.com/en/rest
@@ -21,11 +21,15 @@ definition:
       type: dict[str, Any] | None
       description: API-native query parameters, including pagination and filters.
       default: null
+    base_url:
+      type: str
+      description: GitHub REST API base URL. `VARS.github.base_url` overrides this value.
+      default: https://api.github.com
   steps:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/dependabot/alerts
+      url: ${{ VARS.github.base_url || inputs.base_url }}/repos/${{ FN.url_encode_component(inputs.owner) }}/${{ FN.url_encode_component(inputs.repo) }}/dependabot/alerts
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

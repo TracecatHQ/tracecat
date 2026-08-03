@@ -28,4 +28,3 @@ class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
     default_token_endpoint: ClassVar[str | None] = (
         "https://github.com/login/oauth/access_token"
     )
-    default_api_base_url: ClassVar[str | None] = "https://api.github.com"

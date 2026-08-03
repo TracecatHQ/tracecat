@@ -377,7 +377,7 @@ def load_templates() -> dict[str, RawTemplate]:
 
 
 def normalized_path(url: str) -> str:
-    url = url.removeprefix("${{ inputs.base_url || VARS.gitlab.base_url }}")
+    url = url.removeprefix("${{ VARS.gitlab.base_url || inputs.base_url }}")
     pattern = re.compile(
         r"\$\{\{ FN\.url_encode_component\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
     )
@@ -391,6 +391,10 @@ def test_catalog_contract() -> None:
 
     for name, (method, path, mode) in EXPECTED_ENDPOINTS.items():
         definition = templates[name]["definition"]
+        expected_title = name.replace("_", " ").capitalize()
+        assert definition["title"] == expected_title
+        if ". Calls " in definition["description"]:
+            assert definition["description"].startswith(f"{expected_title}. Calls ")
         assert definition["namespace"] == "tools.gitlab"
         assert definition["display_group"] == "GitLab"
         assert "api-scoped GitLab project access token" in definition["description"]
@@ -402,11 +406,11 @@ def test_catalog_contract() -> None:
             }
         ]
         assert definition["expects"]["base_url"] == {
-            "type": "str | None",
+            "type": "str",
             "description": (
-                "GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`."
+                "GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value."
             ),
-            "default": None,
+            "default": "https://gitlab.com/api/v4",
         }
 
         request = definition["steps"][0]
@@ -414,7 +418,7 @@ def test_catalog_contract() -> None:
         assert request["args"]["method"] == method
         assert normalized_path(request["args"]["url"]) == path
         assert request["args"]["url"].startswith(
-            "${{ inputs.base_url || VARS.gitlab.base_url }}"
+            "${{ VARS.gitlab.base_url || inputs.base_url }}"
         )
         assert request["args"]["headers"]["PRIVATE-TOKEN"] == (
             "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
@@ -450,7 +454,7 @@ def test_catalog_contract() -> None:
             if step["action"] not in {"core.http_request", "core.http_poll"}:
                 continue
             assert step["args"]["url"].startswith(
-                "${{ inputs.base_url || VARS.gitlab.base_url }}"
+                "${{ VARS.gitlab.base_url || inputs.base_url }}"
             )
             assert step["args"]["headers"]["PRIVATE-TOKEN"] == (
                 "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"

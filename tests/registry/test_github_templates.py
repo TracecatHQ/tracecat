@@ -919,7 +919,7 @@ def load_templates() -> dict[str, RawTemplate]:
 
 
 def normalized_path(url: str) -> str:
-    url = url.removeprefix("${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}")
+    url = url.removeprefix("${{ VARS.github.base_url || inputs.base_url }}")
     pattern = re.compile(
         r"\$\{\{ FN\.(?:url_encode_component|url_encode)\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
     )
@@ -931,6 +931,9 @@ def test_catalog_contract() -> None:
     assert set(templates) == set(EXPECTED_ENDPOINTS)
     for name, (method, path, scope_note, mode) in EXPECTED_ENDPOINTS.items():
         definition = templates[name]["definition"]
+        title = definition["title"]
+        assert title == title.capitalize()
+        assert definition["description"].startswith(f"{title}. Calls ")
         assert definition["namespace"] == "tools.github"
         assert scope_note in definition["description"]
         assert "GHES version" in definition["description"]
@@ -941,10 +944,18 @@ def test_catalog_contract() -> None:
                 "grant_type": "authorization_code",
             }
         ]
+        assert definition["expects"]["base_url"] == {
+            "type": "str",
+            "description": (
+                "GitHub REST API base URL. `VARS.github.base_url` overrides this value."
+            ),
+            "default": "https://api.github.com",
+        }
         request = definition["steps"][0]
         assert request["action"] == "core.http_request"
         assert request["args"]["method"] == method
         request_url = request["args"]["url"]
+        assert request_url.startswith("${{ VARS.github.base_url || inputs.base_url }}")
         assert normalized_path(request_url) == path
         for encoder, input_name in re.findall(
             r"FN\.(url_encode_component|url_encode)\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\)",
@@ -972,6 +983,13 @@ def test_catalog_contract() -> None:
         else:
             assert definition["steps"][1]["action"] == "core.http_poll"
             assert definition["returns"] == "${{ steps.poll.result }}"
+
+        for step in definition["steps"]:
+            if step["action"] not in {"core.http_request", "core.http_poll"}:
+                continue
+            assert step["args"]["url"].startswith(
+                "${{ VARS.github.base_url || inputs.base_url }}"
+            )
 
 
 @pytest.mark.parametrize(

@@ -13,8 +13,6 @@ from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor import service as executor_service
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
-from tracecat.integrations.service import IntegrationService
 from tracecat.secrets import secrets_manager
 
 
@@ -131,14 +129,11 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
     delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-    delegated_integration.api_base_url = None
 
     service = mocker.AsyncMock()
     service.list_integrations.return_value = [delegated_integration]
     service.refresh_token_if_needed.return_value = delegated_integration
     service.get_access_token.return_value = SecretStr("user-token")
-    service.resolve_provider_impl.return_value = None
-    service.determine_api_base_url = mocker.Mock(return_value=None)
 
     @asynccontextmanager
     async def service_cm():
@@ -234,12 +229,10 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     delegated_integration = mocker.MagicMock()
     delegated_integration.provider_id = "azure_log_analytics"
     delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-    delegated_integration.api_base_url = None
 
     service_integration = mocker.MagicMock()
     service_integration.provider_id = "azure_log_analytics"
     service_integration.grant_type = OAuthGrantType.CLIENT_CREDENTIALS
-    service_integration.api_base_url = None
 
     service = mocker.AsyncMock()
     service.list_integrations.return_value = [
@@ -247,8 +240,6 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         service_integration,
     ]
     service.refresh_token_if_needed.side_effect = lambda integration: integration
-    service.resolve_provider_impl.return_value = None
-    service.determine_api_base_url = mocker.Mock(return_value=None)
 
     def _get_access_token(integration):
         if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
@@ -279,116 +270,6 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_SERVICE_TOKEN"]
         == "service-token"
     )
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("configured_api_base_url", "expected_api_base_url"),
-    [
-        (None, "https://api.github.com"),
-        (
-            "https://github.enterprise.example/api/v3",
-            "https://github.enterprise.example/api/v3",
-        ),
-    ],
-)
-async def test_get_action_secrets_injects_oauth_api_base_url(
-    mocker,
-    configured_api_base_url: str | None,
-    expected_api_base_url: str,
-):
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="github",
-            grant_type="authorization_code",
-        )
-    }
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    integration = mocker.MagicMock()
-    integration.provider_id = "github"
-    integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-    integration.api_base_url = configured_api_base_url
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = [integration]
-    service.refresh_token_if_needed.return_value = integration
-    service.get_access_token.return_value = SecretStr("github-user-token")
-    service.resolve_provider_impl.return_value = GitHubOAuthProvider
-    service.determine_api_base_url = mocker.Mock(
-        side_effect=IntegrationService.determine_api_base_url
-    )
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
-
-    secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=set(), action_secrets=action_secrets
-    )
-
-    assert secrets["github_oauth"] == {
-        "GITHUB_USER_TOKEN": "github-user-token",
-        "GITHUB_API_BASE_URL": expected_api_base_url,
-    }
-
-
-@pytest.mark.anyio
-async def test_get_action_secrets_rejects_partial_oauth_contract(mocker):
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="github",
-            grant_type="authorization_code",
-        )
-    }
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    integration = mocker.MagicMock()
-    integration.provider_id = "github"
-    integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-    integration.api_base_url = None
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = [integration]
-    service.refresh_token_if_needed.return_value = integration
-    service.get_access_token.return_value = SecretStr("github-user-token")
-    service.resolve_provider_impl.return_value = GitHubOAuthProvider
-    service.determine_api_base_url = mocker.Mock(
-        side_effect=ValueError("invalid API base URL")
-    )
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
-
-    with pytest.raises(TracecatCredentialsError):
-        await secrets_manager.get_action_secrets(
-            secret_exprs=set(), action_secrets=action_secrets
-        )
 
 
 @pytest.mark.anyio

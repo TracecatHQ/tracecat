@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Create Project Dependency List Export And Wait
+  title: Create project dependency list export and wait
   description: >-
     Creates a project dependency list export with POST /projects/{project_id}/dependency_list_exports, then polls GET /dependency_list_exports/{export_id} while GitLab returns 202. Uses an api-scoped GitLab project access token. Required project role, Ultimate tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. Polling is bounded and returns GitLab's terminal response unchanged.
   display_group: GitLab
@@ -32,14 +32,14 @@ definition:
       description: Maximum polling attempts.
       default: 10
     base_url:
-      type: str | None
-      description: GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`.
-      default: null
+      type: str
+      description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
+      default: https://gitlab.com/api/v4
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
         method: POST
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
@@ -49,7 +49,7 @@ definition:
     - ref: poll
       action: core.http_poll
       args:
-        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
