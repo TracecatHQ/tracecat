@@ -848,6 +848,22 @@ def build_temporal_sdk_metrics(
             "Temporal SDK metrics have an invalid measurement window"
         )
 
+    for endpoint, baseline_snapshot in baseline.items():
+        final_snapshot = final.get(endpoint)
+        if final_snapshot is None:
+            raise ActivityMetricsCaptureError(
+                f"Temporal SDK metrics endpoint for {endpoint.service} "
+                "disappeared during measurement"
+            )
+        if baseline_snapshot.samples.keys() - final_snapshot.samples.keys():
+            # Process-local Prometheus series do not survive a worker restart.
+            # Treat their disappearance as lost evidence instead of silently
+            # publishing a counter delta that excludes pre-restart activity.
+            raise ActivityMetricsCaptureError(
+                f"Temporal SDK metric series for {endpoint.service} "
+                "disappeared during measurement"
+            )
+
     histograms: dict[
         tuple[str, str, tuple[tuple[str, str], ...]],
         HistogramDeltaAccumulator,

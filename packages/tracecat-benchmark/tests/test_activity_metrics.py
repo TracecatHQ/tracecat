@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
 from temporalio.api.common.v1 import (
     ActivityType,
@@ -25,6 +26,7 @@ from temporalio.api.history.v1 import (
 from temporalio.api.taskqueue.v1 import TaskQueue
 from temporalio.client import Client as TemporalClient
 from tracecat_benchmark.activity_metrics import (
+    ActivityMetricsCaptureError,
     build_temporal_sdk_metrics,
     collect_activity_history_metrics,
     parse_temporal_sdk_metrics,
@@ -362,6 +364,21 @@ def test_sdk_metric_deltas_subtract_before_summing_scaled_replicas() -> None:
     assert len(report["counters"]) == 1
     assert report["counters"][0]["count"] == 110
     assert report["counters"][0]["counter_reset_detected"] is True
+
+
+def test_sdk_metric_delta_rejects_series_lost_during_measurement() -> None:
+    endpoint = SdkMetricsEndpoint("executor", 1, "http://executor-1/metrics")
+    baseline = parse_temporal_sdk_metrics(
+        'temporal_activity_execution_failed{activity_type="execute_action_activity"} 3'
+    )
+    final = parse_temporal_sdk_metrics("")
+
+    with pytest.raises(ActivityMetricsCaptureError, match="series.*disappeared"):
+        build_temporal_sdk_metrics(
+            {endpoint: baseline},
+            {endpoint: final},
+            measurement_window_seconds=10.0,
+        )
 
 
 def test_measurement_boundary_waits_for_collector_acknowledgement(
