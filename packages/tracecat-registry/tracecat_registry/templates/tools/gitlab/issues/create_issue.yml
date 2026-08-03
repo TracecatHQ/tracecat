@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Create Issue
+  description: >-
+    Create Issue. Calls POST /projects/{project_id}/issues directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. For bug and security reports, pass GitLab-native fields such as issue_type, confidential, labels, assignee_ids, and severity through payload unchanged.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: create_issue
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_BASE_URL
+        - GITLAB_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+    payload:
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/issues
+        method: POST
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

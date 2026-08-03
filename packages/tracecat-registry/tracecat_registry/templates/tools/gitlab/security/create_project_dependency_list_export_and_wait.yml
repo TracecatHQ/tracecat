@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Create Project Dependency List Export And Wait
+  description: >-
+    Creates a project dependency list export with POST /projects/{project_id}/dependency_list_exports, then polls GET /dependency_list_exports/{export_id} while GitLab returns 202. Uses an api-scoped GitLab project access token. Required project role, Ultimate tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. Polling is bounded and returns GitLab's terminal response unchanged.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/dependency_list_export/
+  namespace: tools.gitlab
+  name: create_project_dependency_list_export_and_wait
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_BASE_URL
+        - GITLAB_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: Numeric project ID or namespaced project path.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    payload:
+      type: dict[str, Any] | None
+      description: API-native dependency list export request body.
+      default: null
+    poll_interval:
+      type: float | None
+      description: Seconds between polling attempts; exponential backoff when omitted.
+      default: null
+    poll_max_attempts:
+      type: int
+      description: Maximum polling attempts.
+      default: 10
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
+        method: POST
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+    - ref: poll
+      action: core.http_poll
+      args:
+        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          Accept: application/json
+        poll_condition: "lambda response: response.get('status_code') != 202"
+        poll_interval: ${{ inputs.poll_interval }}
+        poll_max_attempts: ${{ inputs.poll_max_attempts }}
+  returns: ${{ steps.poll.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Get Branch
+  description: >-
+    Get Branch. Calls GET /projects/{project_id}/repository/branches/{branch} directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: get_branch
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_BASE_URL
+        - GITLAB_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    branch:
+      type: str
+      description: GitLab API path value for branch.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/repository/branches/${{ FN.url_encode_component(inputs.branch) }}
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: List Merge Request Pipelines
+  description: >-
+    List Merge Request Pipelines. Calls GET /projects/{project_id}/merge_requests/{merge_request_iid}/pipelines directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_merge_request_pipelines
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_BASE_URL
+        - GITLAB_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    merge_request_iid:
+      type: int
+      description: GitLab API path value for merge_request_iid.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/merge_requests/${{ FN.url_encode_component(inputs.merge_request_iid) }}/pipelines
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}
