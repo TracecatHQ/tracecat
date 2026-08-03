@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get global security advisory
-  description: 'Get global security advisory. Calls GET /advisories/{ghsa_id} directly. Accepted OAuth scope: repo (default). GitHub Enterprise Server availability depends on the installed GHES version.'
+  description: 'Get global security advisory. Calls GET /advisories/{ghsa_id} directly. Accepted OAuth scope: repo (default).'
   display_group: GitHub
   doc_url: https://docs.github.com/en/rest
   namespace: tools.github
@@ -20,13 +20,13 @@ definition:
       default: null
     base_url:
       type: str
-      description: GitHub REST API base URL. `VARS.github.base_url` overrides this value.
+      description: GitHub.com REST API base URL.
       default: https://api.github.com
   steps:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ VARS.github.base_url || inputs.base_url }}/advisories/${{ FN.url_encode_component(inputs.ghsa_id) }}
+      url: ${{ inputs.base_url }}/advisories/${{ FN.url_encode_component(inputs.ghsa_id) }}
       method: GET
       headers:
         Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}

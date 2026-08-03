@@ -919,7 +919,7 @@ def load_templates() -> dict[str, RawTemplate]:
 
 
 def normalized_path(url: str) -> str:
-    url = url.removeprefix("${{ VARS.github.base_url || inputs.base_url }}")
+    url = url.removeprefix("${{ inputs.base_url }}")
     pattern = re.compile(
         r"\$\{\{ FN\.(?:url_encode_component|url_encode)\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
     )
@@ -936,7 +936,14 @@ def test_catalog_contract() -> None:
         assert definition["description"].startswith(f"{title}. Calls ")
         assert definition["namespace"] == "tools.github"
         assert scope_note in definition["description"]
-        assert "GHES version" in definition["description"]
+        serialized_template = yaml.safe_dump(templates[name])
+        for unsupported_reference in (
+            "VARS.github.base_url",
+            "GITHUB_API_BASE_URL",
+            "GHES",
+            "GitHub Enterprise",
+        ):
+            assert unsupported_reference not in serialized_template
         assert definition["secrets"] == [
             {
                 "type": "oauth",
@@ -946,16 +953,14 @@ def test_catalog_contract() -> None:
         ]
         assert definition["expects"]["base_url"] == {
             "type": "str",
-            "description": (
-                "GitHub REST API base URL. `VARS.github.base_url` overrides this value."
-            ),
+            "description": "GitHub.com REST API base URL.",
             "default": "https://api.github.com",
         }
         request = definition["steps"][0]
         assert request["action"] == "core.http_request"
         assert request["args"]["method"] == method
         request_url = request["args"]["url"]
-        assert request_url.startswith("${{ VARS.github.base_url || inputs.base_url }}")
+        assert request_url.startswith("${{ inputs.base_url }}")
         assert normalized_path(request_url) == path
         for encoder, input_name in re.findall(
             r"FN\.(url_encode_component|url_encode)\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\)",
@@ -987,9 +992,7 @@ def test_catalog_contract() -> None:
         for step in definition["steps"]:
             if step["action"] not in {"core.http_request", "core.http_poll"}:
                 continue
-            assert step["args"]["url"].startswith(
-                "${{ VARS.github.base_url || inputs.base_url }}"
-            )
+            assert step["args"]["url"].startswith("${{ inputs.base_url }}")
 
 
 @pytest.mark.parametrize(
@@ -1068,13 +1071,14 @@ def test_private_report_uses_native_payload_and_not_issues() -> None:
     assert "/issues" not in request["url"]
 
 
-def test_bug_issue_payload_and_ghes_fallback_contract() -> None:
+def test_bug_issue_payload_and_label_fallback_contract() -> None:
     definition = load_templates()["create_issue"]["definition"]
     request = definition["steps"][0]["args"]
     assert normalized_path(request["url"]) == "/repos/{owner}/{repo}/issues"
     assert request["payload"] == "${{ inputs.payload }}"
     assert "type: Bug" in definition["description"]
     assert "labels: [bug]" in definition["description"]
+    assert "caller-controlled fallback" in definition["description"]
     for field in ("labels", "assignees", "milestone", "issue_field_values"):
         assert field in definition["description"]
 
