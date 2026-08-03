@@ -161,7 +161,7 @@ services:
     mem_limit: ${TRACECAT__LOADTEST_API_MEMORY:-0}
     memswap_limit: ${TRACECAT__LOADTEST_API_MEMORY:-0}
     ports:
-      - "127.0.0.1:${API_DB_POOL_METRICS_PORT:-9480}:9091"
+      - "127.0.0.1:${API_DB_POOL_METRICS_PORT:-9440}:9091"
     environment:
       # Internal benchmark bootstrap. This is fixed harness wiring, not an
       # application setting or a user-tunable benchmark dimension.
@@ -180,7 +180,7 @@ services:
     memswap_limit: ${TRACECAT__LOADTEST_WORKER_MEMORY:-0}
     ports:
       - "127.0.0.1:${TEMPORAL_WORKER_METRICS_PORT:-9464}:9090"
-      - "127.0.0.1:${WORKER_DB_POOL_METRICS_PORT:-9481}:9091"
+      - "127.0.0.1:${WORKER_DB_POOL_METRICS_PORT:-9441}:9091"
     environment:
       # Internal benchmark bootstrap. This is fixed harness wiring, not an
       # application setting or a user-tunable benchmark dimension.
@@ -216,7 +216,7 @@ services:
       # Compose assigns one port from this range to each scaled executor.
       # The matrix resolves every mapping with `docker compose port --index`.
       - "127.0.0.1:${TEMPORAL_EXECUTOR_METRICS_PORT:-9465}-${TEMPORAL_EXECUTOR_METRICS_PORT_END:-9474}:9090"
-      - "127.0.0.1:${EXECUTOR_DB_POOL_METRICS_PORT:-9482}-${EXECUTOR_DB_POOL_METRICS_PORT_END:-9491}:9091"
+      - "127.0.0.1:${EXECUTOR_DB_POOL_METRICS_PORT:-9442}-${EXECUTOR_DB_POOL_METRICS_PORT_END:-9451}:9091"
     environment:
       # Internal benchmark bootstrap. This is fixed harness wiring, not an
       # application setting or a user-tunable benchmark dimension.

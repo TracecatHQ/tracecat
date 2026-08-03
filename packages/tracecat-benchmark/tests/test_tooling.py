@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -2459,9 +2460,9 @@ def test_collector_startup_signal_publishes_failed_manifest(
                 temporal_port=7233,
                 temporal_worker_metrics_url="http://localhost:9464/metrics",
                 temporal_executor_metrics_url="http://localhost:9465/metrics",
-                api_db_pool_metrics_url="http://localhost:9480/db-pool-metrics",
-                worker_db_pool_metrics_url="http://localhost:9481/db-pool-metrics",
-                executor_db_pool_metrics_url="http://localhost:9482/db-pool-metrics",
+                api_db_pool_metrics_url="http://localhost:9440/db-pool-metrics",
+                worker_db_pool_metrics_url="http://localhost:9441/db-pool-metrics",
+                executor_db_pool_metrics_url="http://localhost:9442/db-pool-metrics",
                 pgdog_metrics_url="http://localhost:9090/metrics",
             ),
         )
@@ -3690,6 +3691,61 @@ fi
         line for line in result.stdout.splitlines() if line.startswith("Project:")
     )
     assert project_line.strip().endswith("-3")
+
+
+def test_loadtest_metrics_ports_do_not_collide_with_numbered_cluster_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PORTLESS", "0")
+    result = subprocess.run(
+        [REPO_ROOT / "scripts/cluster", "1", "ports"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    def port_for(label: str) -> int:
+        match = re.search(
+            rf"^\s*{re.escape(label)}:.*?localhost:(\d+)",
+            result.stdout,
+            flags=re.MULTILINE,
+        )
+        assert match is not None
+        return int(match.group(1))
+
+    api_match = re.search(r"^\s*API:.*\(internal: (\d+)\)$", result.stdout, re.M)
+    assert api_match is not None
+    service_base_ports = {
+        port_for("UI (Caddy)"),
+        int(api_match.group(1)),
+        port_for("PostgreSQL"),
+        port_for("Redis"),
+        port_for("Temporal"),
+        port_for("Temporal UI"),
+        port_for("MinIO"),
+        port_for("MinIO Console"),
+    }
+    executor_metrics_port = port_for("Executor metrics")
+    executor_pool_metrics_port = port_for("Executor DB pool metrics")
+    benchmark_base_ports = {
+        port_for("Worker metrics"),
+        *range(executor_metrics_port, executor_metrics_port + 10),
+        port_for("API DB pool metrics"),
+        port_for("Worker DB pool metrics"),
+        *range(executor_pool_metrics_port, executor_pool_metrics_port + 10),
+        port_for("PgDog metrics"),
+    }
+
+    offsets = range(0, 99 * 100, 100)
+    numbered_service_ports = {
+        base_port + offset for base_port in service_base_ports for offset in offsets
+    }
+    numbered_benchmark_ports = {
+        base_port + offset for base_port in benchmark_base_ports for offset in offsets
+    }
+
+    assert len(numbered_benchmark_ports) == len(benchmark_base_ports) * 99
+    assert numbered_benchmark_ports.isdisjoint(numbered_service_ports)
 
 
 def test_compose_files_reuses_running_project(
@@ -5200,9 +5256,9 @@ def _mock_cluster_context(
                 "  Temporal:        localhost:7333\n"
                 "  Worker metrics:  http://localhost:9564/metrics\n"
                 "  Executor metrics: http://localhost:9565/metrics\n"
-                "  API DB pool metrics: http://localhost:9580/db-pool-metrics\n"
-                "  Worker DB pool metrics: http://localhost:9581/db-pool-metrics\n"
-                "  Executor DB pool metrics: http://localhost:9582/db-pool-metrics\n"
+                "  API DB pool metrics: http://localhost:9540/db-pool-metrics\n"
+                "  Worker DB pool metrics: http://localhost:9541/db-pool-metrics\n"
+                "  Executor DB pool metrics: http://localhost:9542/db-pool-metrics\n"
                 "  PgDog metrics:   http://localhost:9592/metrics\n",
                 "",
             )

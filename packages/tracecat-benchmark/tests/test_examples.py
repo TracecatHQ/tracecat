@@ -33,9 +33,16 @@ def test_loadtest_override_bounds_executor_database_fanout() -> None:
     assert compose["services"]["temporal"]["environment"]["NUM_HISTORY_SHARDS"] == (
         "${TRACECAT__LOADTEST_TEMPORAL_NUM_HISTORY_SHARDS:-512}"
     )
+    assert compose["services"]["api"]["ports"] == [
+        "127.0.0.1:${API_DB_POOL_METRICS_PORT:-9440}:9091"
+    ]
+    assert compose["services"]["worker"]["ports"] == [
+        "127.0.0.1:${TEMPORAL_WORKER_METRICS_PORT:-9464}:9090",
+        "127.0.0.1:${WORKER_DB_POOL_METRICS_PORT:-9441}:9091",
+    ]
     assert compose["services"]["executor"]["ports"] == [
         "127.0.0.1:${TEMPORAL_EXECUTOR_METRICS_PORT:-9465}-${TEMPORAL_EXECUTOR_METRICS_PORT_END:-9474}:9090",
-        "127.0.0.1:${EXECUTOR_DB_POOL_METRICS_PORT:-9482}-${EXECUTOR_DB_POOL_METRICS_PORT_END:-9491}:9091",
+        "127.0.0.1:${EXECUTOR_DB_POOL_METRICS_PORT:-9442}-${EXECUTOR_DB_POOL_METRICS_PORT_END:-9451}:9091",
     ]
     for service_name in ("api", "worker", "executor"):
         environment = compose["services"][service_name]["environment"]
