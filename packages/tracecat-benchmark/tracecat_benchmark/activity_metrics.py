@@ -1040,6 +1040,13 @@ class TemporalSdkMetricsCapture:
         snapshots = await asyncio.gather(
             *(self._fetch_endpoint(endpoint) for endpoint in self._endpoints)
         )
+        for endpoint, snapshot in snapshots:
+            if not snapshot.samples:
+                raise ActivityMetricsCaptureError(
+                    "Temporal SDK metrics endpoint for "
+                    f"{endpoint.service} replica {endpoint.replica_index} returned "
+                    "no supported benchmark metric series"
+                )
         self._final = dict(snapshots)
 
     async def capture_delta(

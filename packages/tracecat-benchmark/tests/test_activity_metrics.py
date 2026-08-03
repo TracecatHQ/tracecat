@@ -8,7 +8,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
+import respx
 from google.protobuf.timestamp_pb2 import Timestamp
 from temporalio.api.common.v1 import (
     ActivityType,
@@ -27,6 +29,7 @@ from temporalio.api.taskqueue.v1 import TaskQueue
 from temporalio.client import Client as TemporalClient
 from tracecat_benchmark.activity_metrics import (
     ActivityMetricsCaptureError,
+    TemporalSdkMetricsCapture,
     build_temporal_sdk_metrics,
     collect_activity_history_metrics,
     parse_temporal_sdk_metrics,
@@ -379,6 +382,21 @@ def test_sdk_metric_delta_rejects_series_lost_during_measurement() -> None:
             {endpoint: final},
             measurement_window_seconds=10.0,
         )
+
+
+def test_sdk_metric_final_rejects_http_200_without_supported_series() -> None:
+    endpoint = SdkMetricsEndpoint("executor", 1, "http://executor-1/metrics")
+    capture = TemporalSdkMetricsCapture((endpoint,))
+
+    with respx.mock:
+        respx.get(endpoint.url).mock(
+            return_value=httpx.Response(200, text="process_cpu_seconds_total 1")
+        )
+        with pytest.raises(
+            ActivityMetricsCaptureError,
+            match="returned no supported benchmark metric series",
+        ):
+            asyncio.run(capture.capture_final())
 
 
 def test_measurement_boundary_waits_for_collector_acknowledgement(
