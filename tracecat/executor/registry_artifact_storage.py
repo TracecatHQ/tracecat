@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import functools
 import os
 import re
@@ -18,7 +17,6 @@ from pathlib import Path
 
 from tracecat import config
 from tracecat.concurrency import (
-    drain_future_through_cancellation,
     rejoin_future_on_cancel,
     run_blocking_rejoin_on_cancel,
 )
@@ -30,6 +28,7 @@ from tracecat.executor.registry_artifact_budget import (
     plan_registry_artifact_evictions,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.utils import communicate_process_group
 
 __all__ = (
     "BASE_PYTHONPATH_DIR_NAME",
@@ -46,7 +45,6 @@ __all__ = (
     "RegistryArtifactPaths",
     "RegistryArtifactRuntimeState",
     "allocated_size_bound",
-    "communicate_rejoin_on_cancel",
     "ensure_cache_entry_directory",
     "ensure_real_directory",
     "is_reusable_cache_directory",
@@ -162,29 +160,6 @@ class RegistryArtifactMaterializationContext:
         return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED and (
             shutil.which("mount") is not None
         )
-
-
-async def _kill_and_reap_subprocess(process: asyncio.subprocess.Process) -> None:
-    """Kill a subprocess and wait until its child state is reaped."""
-    with contextlib.suppress(ProcessLookupError):
-        process.kill()
-    await process.wait()
-
-
-async def communicate_rejoin_on_cancel(
-    process: asyncio.subprocess.Process,
-) -> tuple[bytes, bytes]:
-    """Communicate without allowing cancellation to abandon child cleanup."""
-    try:
-        stdout, stderr = await process.communicate()
-    except asyncio.CancelledError:
-        reaper = asyncio.ensure_future(_kill_and_reap_subprocess(process))
-        await drain_future_through_cancellation(reaper)
-        raise
-
-    if stdout is None or stderr is None:
-        raise RuntimeError("Captured subprocess output is required")
-    return stdout, stderr
 
 
 def is_reusable_cache_directory(path: Path) -> bool:
@@ -942,8 +917,9 @@ class RegistryArtifactCacheStorage:
             str(mount_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        stdout, stderr = await communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
         if proc.returncode == 0 or not registry_artifact_mounts.is_mount(mount_dir):
             return True
         logger.warning(

@@ -36,7 +36,6 @@ from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactEviction,
     RegistryArtifactMaterializationContext,
     allocated_size_bound,
-    communicate_rejoin_on_cancel,
     ensure_cache_entry_directory,
     ensure_real_directory,
     is_reusable_cache_directory,
@@ -49,6 +48,7 @@ from tracecat.executor.registry_artifact_storage import (
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.sandbox.utils import communicate_process_group
 from tracecat.storage import blob
 
 __all__ = (
@@ -426,8 +426,9 @@ class SquashfsArtifact(RegistryArtifact):
             str(target_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        stdout, stderr = await communicate_rejoin_on_cancel(proc)
+        stdout, stderr = await communicate_process_group(proc)
 
         if proc.returncode == 0 or registry_artifact_mounts.is_mount(target_dir):
             return
@@ -454,8 +455,9 @@ class SquashfsArtifact(RegistryArtifact):
             str(image_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        await communicate_rejoin_on_cancel(proc)
+        await communicate_process_group(proc)
 
         if proc.returncode == 0:
             return
@@ -479,8 +481,9 @@ class SquashfsArtifact(RegistryArtifact):
             str(image_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        stdout, _ = await communicate_rejoin_on_cancel(proc)
+        stdout, _ = await communicate_process_group(proc)
 
         if proc.returncode != 0:
             raise RegistryArtifactExtractionError()

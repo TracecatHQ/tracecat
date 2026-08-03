@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import signal
 import tarfile
 import tempfile
 import threading
@@ -170,6 +171,7 @@ class _BlockingSubprocess:
     """Fake subprocess that blocks in communicate until it is cancelled."""
 
     def __init__(self, *, block_wait: bool = False) -> None:
+        self.pid = 999_999_999
         self.communicate_started = asyncio.Event()
         self.wait_started = asyncio.Event()
         self.release_wait = asyncio.Event()
@@ -177,8 +179,12 @@ class _BlockingSubprocess:
         self.returncode: int | None = None
         self._block_wait = block_wait
 
-    async def communicate(self) -> tuple[bytes, bytes]:
+    async def communicate(
+        self,
+        input: bytes | None = None,  # noqa: A002
+    ) -> tuple[bytes, bytes]:
         """Block until the task awaiting subprocess completion is cancelled."""
+        del input
         self.communicate_started.set()
         await asyncio.Event().wait()
         return b"", b""
@@ -210,9 +216,17 @@ class _CapturedSubprocess:
         """Return the wrapped subprocess exit status."""
         return self.process.returncode
 
-    async def communicate(self) -> tuple[bytes, bytes]:
+    @property
+    def pid(self) -> int:
+        """Return the wrapped subprocess process-group identifier."""
+        return self.process.pid
+
+    async def communicate(
+        self,
+        input: bytes | None = None,  # noqa: A002
+    ) -> tuple[bytes, bytes]:
         """Wait for the wrapped subprocess and collect its output."""
-        return await self.process.communicate()
+        return await self.process.communicate(input=input)
 
     def kill(self) -> None:
         """Kill the wrapped subprocess and record the signal."""
@@ -839,14 +853,21 @@ class TestRegistryArtifactCache:
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         process = AsyncMock()
+        process.pid = 1234
         process.communicate.return_value = (b"", b"")
         process.returncode = 0
 
-        with patch(
-            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=process,
-        ) as create_subprocess_exec:
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ) as create_subprocess_exec,
+            patch(
+                "tracecat.sandbox.utils.terminate_process_group",
+                new_callable=AsyncMock,
+            ) as terminate_process_group,
+        ):
             await artifact.mount(ctx, image_path)
 
         create_subprocess_exec.assert_awaited_once_with(
@@ -859,7 +880,9 @@ class TestRegistryArtifactCache:
             str(target_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
+        terminate_process_group.assert_awaited_once_with(process)
 
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_mount_reaps_subprocess(self, temp_cache_dir):
@@ -878,10 +901,13 @@ class TestRegistryArtifactCache:
         target_dir.mkdir()
         process = _BlockingSubprocess(block_wait=True)
 
-        with patch(
-            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=process,
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ) as create_subprocess_exec,
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             mounting = asyncio.create_task(
                 artifact._mount_image(image_path, target_dir)
@@ -898,6 +924,10 @@ class TestRegistryArtifactCache:
                 await mounting
 
         assert process.cleanup_calls == ["kill", "wait"]
+        await_args = create_subprocess_exec.await_args
+        assert await_args is not None
+        assert await_args.kwargs["start_new_session"] is True
+        kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
         assert target_dir.is_dir()
         assert not target_dir.is_mount()
 
@@ -925,12 +955,14 @@ class TestRegistryArtifactCache:
         async def create_sleep_subprocess(
             *args: object, **kwargs: object
         ) -> _CapturedSubprocess:
-            del args, kwargs
+            del args
+            assert kwargs["start_new_session"] is True
             process = await real_create_subprocess_exec(
                 "/bin/sleep",
                 "30",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
             captured = _CapturedSubprocess(process)
             captured_processes.append(captured)
@@ -1044,9 +1076,9 @@ class TestRegistryArtifactCache:
                 "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
-            ),
+            ) as create_subprocess_exec,
             patch(
-                "tracecat.executor.registry_artifacts.communicate_rejoin_on_cancel",
+                "tracecat.executor.registry_artifacts.communicate_process_group",
                 new_callable=AsyncMock,
                 return_value=(stdout, stderr),
             ),
@@ -1061,6 +1093,9 @@ class TestRegistryArtifactCache:
                 )
 
         assert str(raised.value) == "Registry artifact extraction failed"
+        await_args = create_subprocess_exec.await_args
+        assert await_args is not None
+        assert await_args.kwargs["start_new_session"] is True
         assert sensitive_output.decode() not in str(raised.value)
         assert raised.value.__cause__ is None
 
@@ -2165,6 +2200,7 @@ class TestRegistryArtifactCacheLease:
         umount_process.returncode = 0
 
         async def mock_umount(*args, **kwargs):
+            assert kwargs["start_new_session"] is True
             umount_started.set()
             await finish_umount.wait()
             mounted.discard(paths.squashfs_mount_dir)
@@ -2196,6 +2232,10 @@ class TestRegistryArtifactCacheLease:
             patch(
                 "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
+            ),
+            patch(
+                "tracecat.sandbox.utils.terminate_process_group",
+                new_callable=AsyncMock,
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
         ):
@@ -3086,6 +3126,7 @@ class TestRegistryArtifactCacheEviction:
         process.returncode = 0
 
         async def mock_umount(*args, **kwargs):
+            assert kwargs["start_new_session"] is True
             mounted.discard(paths.squashfs_mount_dir)
             return process
 
@@ -3099,6 +3140,10 @@ class TestRegistryArtifactCacheEviction:
                 asyncio,
                 "create_subprocess_exec",
                 side_effect=mock_umount,
+            ),
+            patch(
+                "tracecat.sandbox.utils.terminate_process_group",
+                new_callable=AsyncMock,
             ),
         ):
             async with cache.lease([artifact_uri]) as registry_paths:
@@ -3273,6 +3318,7 @@ class TestRegistryArtifactCacheEviction:
         process.returncode = 0
 
         async def mock_umount(*args, **kwargs):
+            assert kwargs["start_new_session"] is True
             image_present_at_umount.append(paths.squashfs_image_path.exists())
             mounted.discard(paths.squashfs_mount_dir)
             return process
@@ -3287,6 +3333,10 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ) as create_subprocess_exec,
+            patch(
+                "tracecat.sandbox.utils.terminate_process_group",
+                new_callable=AsyncMock,
+            ),
         ):
             evicted = await cache._evict_entry("mounted")
 
@@ -3322,6 +3372,7 @@ class TestRegistryArtifactCacheEviction:
 
         async def mock_umount(*args, **kwargs):
             nonlocal unmount_attempts
+            assert kwargs["start_new_session"] is True
             unmount_attempts += 1
             if unmount_attempts == 1:
                 return blocked_process
@@ -3338,6 +3389,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
                 side_effect=mock_umount,
             ),
+            patch("tracecat.sandbox.utils.os.killpg") as kill_group,
         ):
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
             await blocked_process.communicate_started.wait()
@@ -3352,6 +3404,10 @@ class TestRegistryArtifactCacheEviction:
                 await eviction
 
             assert blocked_process.cleanup_calls == ["kill", "wait"]
+            kill_group.assert_called_once_with(
+                blocked_process.pid,
+                signal.SIGKILL,
+            )
             async with cache.lease([artifact_uri]) as registry_paths:
                 assert registry_paths == [paths.squashfs_mount_dir]
                 assert registry_paths[0].is_dir()
