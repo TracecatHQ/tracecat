@@ -2680,6 +2680,58 @@ def test_runner_existing_deployment_rejects_cluster_number(
     assert "cannot be used with --existing-deployment" in capsys.readouterr().err
 
 
+def test_runner_rejects_deployed_commit_for_local_cluster(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = asyncio.run(
+        runner_module.amain(
+            [
+                "--base-url",
+                "http://localhost/api",
+                "--run-id",
+                "scatter-test",
+                "--deployed-commit",
+                "target-commit",
+            ]
+        )
+    )
+
+    assert exit_code == 2
+    assert "can only be used with --existing-deployment" in capsys.readouterr().err
+
+
+def test_existing_deployment_commit_never_falls_back_to_runner_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner_module, "_git_commit", lambda _repo_root: "local-head")
+
+    assert (
+        runner_module._tracecat_commit_for_target(
+            tmp_path,
+            existing_deployment=True,
+            deployed_commit=None,
+        )
+        == "unknown"
+    )
+    assert (
+        runner_module._tracecat_commit_for_target(
+            tmp_path,
+            existing_deployment=True,
+            deployed_commit="deployed-head",
+        )
+        == "deployed-head"
+    )
+    assert (
+        runner_module._tracecat_commit_for_target(
+            tmp_path,
+            existing_deployment=False,
+            deployed_commit=None,
+        )
+        == "local-head"
+    )
+
+
 @pytest.mark.parametrize("interval", ["0", "-0.1", "nan", "inf"])
 def test_runner_rejects_nonpositive_or_nonfinite_poll_interval(
     interval: str,

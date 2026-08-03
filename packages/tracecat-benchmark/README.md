@@ -70,7 +70,9 @@ exercises the public API and writes scenario, execution, and latency artifacts.
 Its scenario records
 `"evidence_mode": "runner_only"`: it does not claim the PostgreSQL, Temporal,
 container, SQLAlchemy, or direct row-correctness evidence produced by the
-Compose-only collector.
+Compose-only collector. Pass `--deployed-commit <revision>` after `--` when the
+deployed revision is known; otherwise the scenario records it as `unknown`
+instead of attributing the run to the local checkout.
 
 ## Scatter burst matrix
 

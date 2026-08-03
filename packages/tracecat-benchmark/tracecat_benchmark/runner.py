@@ -130,6 +130,22 @@ def _git_commit(repo_root: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
+def _tracecat_commit_for_target(
+    repo_root: Path,
+    *,
+    existing_deployment: bool,
+    deployed_commit: str | None,
+) -> str:
+    """Record target provenance without mistaking the runner checkout for it."""
+    if existing_deployment:
+        return (
+            deployed_commit.strip()
+            if deployed_commit and deployed_commit.strip()
+            else "unknown"
+        )
+    return _git_commit(repo_root)
+
+
 def _scenario_artifact_payload(scenario: ScenarioConfig) -> dict[str, object]:
     """Serialize a scenario without retaining raw workspace or run identifiers."""
     payload = dataclasses.asdict(scenario)
@@ -961,6 +977,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--deployed-commit",
+        default=None,
+        help=(
+            "Revision actually running in an existing deployment. Omit it to "
+            "record unknown rather than the runner checkout's revision."
+        ),
+    )
+    parser.add_argument(
         "--tls-ca-file",
         default=None,
         help="PEM CA bundle used to verify the selected deployment's HTTPS API.",
@@ -1215,6 +1239,12 @@ async def amain(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.deployed_commit is not None and not args.existing_deployment:
+        print(
+            "--deployed-commit can only be used with --existing-deployment",
+            file=sys.stderr,
+        )
+        return 2
     if not args.existing_deployment and (
         args.cluster_num is None or not 1 <= args.cluster_num <= 99
     ):
@@ -1354,7 +1384,11 @@ async def amain(argv: list[str]) -> int:
                 submit_concurrency=args.workflow_count,
                 max_connections=args.max_connections,
                 artifact_dir=str(artifact_dir),
-                tracecat_commit=_git_commit(repo_root),
+                tracecat_commit=_tracecat_commit_for_target(
+                    repo_root,
+                    existing_deployment=args.existing_deployment,
+                    deployed_commit=args.deployed_commit,
+                ),
                 started_at=_utc_now_iso(),
                 auth_mode="api_key" if auth.api_key else "password",
                 abort_stops_polling=args.abort_stops_polling,
