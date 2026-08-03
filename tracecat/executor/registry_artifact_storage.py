@@ -22,6 +22,7 @@ from tracecat.concurrency import (
     rejoin_future_on_cancel,
     run_blocking_rejoin_on_cancel,
 )
+from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_budget import (
     RegistryArtifactCacheBudget,
     RegistryArtifactCacheEntry,
@@ -635,7 +636,7 @@ class RegistryArtifactCacheStorage:
                 return
             mount_dir = self._paths_for(cache_key).squashfs_mount_dir
             try:
-                mounted = mount_dir.is_mount()
+                mounted = registry_artifact_mounts.is_mount(mount_dir)
             except OSError as e:
                 logger.warning(
                     "Failed to inspect registry artifact mount state",
@@ -889,9 +890,9 @@ class RegistryArtifactCacheStorage:
             if not paths.entry_dir.exists():
                 self._request_runtime_retirement(cache_key, runtime)
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
-            if paths.squashfs_mount_dir.is_mount() and not await self._unmount(
+            if registry_artifact_mounts.is_mount(
                 paths.squashfs_mount_dir
-            ):
+            ) and not await self._unmount(paths.squashfs_mount_dir):
                 logger.warning(
                     "Failed to unmount registry artifact, skipping eviction",
                     cache_key=cache_key,
@@ -943,7 +944,7 @@ class RegistryArtifactCacheStorage:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await communicate_rejoin_on_cancel(proc)
-        if proc.returncode == 0 or not mount_dir.is_mount():
+        if proc.returncode == 0 or not registry_artifact_mounts.is_mount(mount_dir):
             return True
         logger.warning(
             "umount command failed",
@@ -1034,7 +1035,9 @@ class RegistryArtifactCacheStorage:
         if allocation_unit is None:
             allocation_unit = _filesystem_allocation_unit(self.cache_dir)
         try:
-            mount_is_active = paths.squashfs_mount_dir.is_mount()
+            mount_is_active = registry_artifact_mounts.is_mount(
+                paths.squashfs_mount_dir
+            )
         except FileNotFoundError:
             mount_is_active = False
         pruned_directories = (paths.squashfs_mount_dir,) if mount_is_active else ()
@@ -1089,7 +1092,9 @@ class RegistryArtifactCacheStorage:
             if _LEGACY_CACHE_PATH_PATTERN.fullmatch(path.name) is None:
                 continue
             try:
-                mounted = is_reusable_cache_directory(path) and path.is_mount()
+                mounted = is_reusable_cache_directory(
+                    path
+                ) and registry_artifact_mounts.is_mount(path)
             except OSError:
                 mounted = True
             if mounted or not _delete_cache_path(path):
@@ -1153,7 +1158,9 @@ class RegistryArtifactCacheStorage:
         mounted_keys = {
             entry.cache_key
             for entry in entries.values()
-            if self._paths_for(entry.cache_key).squashfs_mount_dir.is_mount()
+            if registry_artifact_mounts.is_mount(
+                self._paths_for(entry.cache_key).squashfs_mount_dir
+            )
         }
         plan = plan_registry_artifact_evictions(
             entries,

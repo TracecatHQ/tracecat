@@ -839,9 +839,9 @@ async def download_file_to_path(
         chunk_size: Chunk size for streaming reads (default: 8MB).
         max_bytes: Optional guardrail; raise if the object exceeds this size.
         expected_sha256: Optional integrity check; raise if computed SHA-256 differs.
-        ensure_capacity: Optional callback invoked before the first disk write with
-            the maximum number of bytes the download may occupy. When the server
-            omits ContentLength, max_bytes is required to provide that bound.
+        ensure_capacity: Optional callback invoked before disk writes. When the
+            server omits ContentLength, max_bytes is required and capacity is
+            checked incrementally before each chunk is written.
         defer_cleanup: Optional callback retaining failed partial-file cleanup.
         redact_log_identifiers: Hide the key and bucket in logs and errors.
 
@@ -876,6 +876,7 @@ async def download_file_to_path(
                 )
 
             download_limit = max_bytes
+            grow_reservation_by_chunk = False
             if ensure_capacity is not None:
                 reserved_bytes = content_length
                 if reserved_bytes is None:
@@ -884,11 +885,17 @@ async def download_file_to_path(
                             "Cannot reserve disk capacity for a download without "
                             f"ContentLength or max_bytes: {log_bucket}/{log_key}"
                         )
-                    reserved_bytes = max_bytes
-                await ensure_capacity(reserved_bytes)
-                download_limit = reserved_bytes
+                    grow_reservation_by_chunk = True
+                else:
+                    await ensure_capacity(reserved_bytes)
+                    download_limit = (
+                        reserved_bytes
+                        if download_limit is None
+                        else min(download_limit, reserved_bytes)
+                    )
 
-            async with aiofiles.open(temp_path, "wb") as f:
+            # Unbuffered writes keep prior chunks visible to capacity scans.
+            async with aiofiles.open(temp_path, "wb", buffering=0) as f:
                 async for chunk in stream.iter_chunks(chunk_size=chunk_size):
                     if not chunk:
                         continue
@@ -899,6 +906,8 @@ async def download_file_to_path(
                             f"bytes_written={bytes_written} exceeds "
                             f"max_bytes={download_limit}"
                         )
+                    if grow_reservation_by_chunk and ensure_capacity is not None:
+                        await ensure_capacity(len(chunk))
                     if hasher is not None:
                         hasher.update(chunk)
                     await f.write(chunk)

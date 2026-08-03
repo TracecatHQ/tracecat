@@ -27,6 +27,7 @@ from tracecat.concurrency import (
     rejoin_future_through_cancellation,
     run_blocking_rejoin_on_cancel,
 )
+from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
     RegistryArtifactCacheCapacityError,
@@ -58,6 +59,7 @@ __all__ = (
     "RegistryArtifactAdmission",
     "RegistryArtifactCache",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactExtractionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactEviction",
     "RegistryArtifactFormat",
@@ -102,6 +104,13 @@ class SquashfsMountCommandError(RuntimeError):
 
 class RegistryArtifactUriError(ValueError):
     """A registry artifact URI is malformed, with identifiers suppressed."""
+
+
+class RegistryArtifactExtractionError(RuntimeError):
+    """A registry archive could not be inspected or extracted safely."""
+
+    def __init__(self) -> None:
+        super().__init__("Registry artifact extraction failed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +191,9 @@ class SquashfsArtifact(RegistryArtifact):
                 mount_dir,
                 defer_cleanup=ctx.defer_cleanup,
             )
-        if is_reusable_cache_directory(mount_dir) and mount_dir.is_mount():
+        if is_reusable_cache_directory(mount_dir) and registry_artifact_mounts.is_mount(
+            mount_dir
+        ):
             logger.debug(
                 "Using cached SquashFS registry mount",
                 cache_key=ctx.cache_key,
@@ -280,7 +291,9 @@ class SquashfsArtifact(RegistryArtifact):
             )
         if os.path.lexists(target_dir) and not is_reusable_cache_directory(target_dir):
             raise OSError("Failed to reclaim malformed SquashFS mount target")
-        if is_reusable_cache_directory(target_dir) and target_dir.is_mount():
+        if is_reusable_cache_directory(
+            target_dir
+        ) and registry_artifact_mounts.is_mount(target_dir):
             return target_dir
 
         ensure_cache_entry_directory(ctx.paths)
@@ -400,7 +413,7 @@ class SquashfsArtifact(RegistryArtifact):
         Raises:
             SquashfsMountCommandError: The ``mount`` command failed.
         """
-        if target_dir.is_mount():
+        if registry_artifact_mounts.is_mount(target_dir):
             return
 
         proc = await asyncio.create_subprocess_exec(
@@ -416,7 +429,7 @@ class SquashfsArtifact(RegistryArtifact):
         )
         stdout, stderr = await communicate_rejoin_on_cancel(proc)
 
-        if proc.returncode == 0 or target_dir.is_mount():
+        if proc.returncode == 0 or registry_artifact_mounts.is_mount(target_dir):
             return
 
         output = (stderr or stdout).decode(errors="replace").strip()
@@ -442,13 +455,12 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await communicate_rejoin_on_cancel(proc)
+        await communicate_rejoin_on_cancel(proc)
 
         if proc.returncode == 0:
             return
 
-        output = (stderr or stdout).decode(errors="replace").strip()
-        raise RuntimeError(output or "unsquashfs command failed")
+        raise RegistryArtifactExtractionError()
 
     async def _squashfs_extracted_size(
         self,
@@ -468,12 +480,14 @@ class SquashfsArtifact(RegistryArtifact):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await communicate_rejoin_on_cancel(proc)
+        stdout, _ = await communicate_rejoin_on_cancel(proc)
 
         if proc.returncode != 0:
-            output = (stderr or stdout).decode(errors="replace").strip()
-            raise RuntimeError(output or "unsquashfs listing failed")
-        return _squashfs_listing_size(stdout, allocation_unit=allocation_unit)
+            raise RegistryArtifactExtractionError()
+        try:
+            return _squashfs_listing_size(stdout, allocation_unit=allocation_unit)
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,12 +537,15 @@ class TarballArtifact(RegistryArtifact):
             download_elapsed = (time.monotonic() - download_start) * 1000
 
             if (admission := ctx.admission) is not None:
-                extracted_size = await run_blocking_rejoin_on_cancel(
-                    lambda: _tarball_extracted_size(
-                        temp_tarball,
-                        allocation_unit=admission.allocation_unit,
+                try:
+                    extracted_size = await run_blocking_rejoin_on_cancel(
+                        lambda: _tarball_extracted_size(
+                            temp_tarball,
+                            allocation_unit=admission.allocation_unit,
+                        )
                     )
-                )
+                except Exception:
+                    raise RegistryArtifactExtractionError() from None
                 extracted_size += _directory_records_size_bound(
                     (temp_dir.name, target_dir.name),
                     allocation_unit=admission.allocation_unit,
@@ -607,7 +624,10 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        await run_blocking_rejoin_on_cancel(_do_extract)
+        try:
+            await run_blocking_rejoin_on_cancel(_do_extract)
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
 
         logger.debug(
             "Tarball extracted",
@@ -672,9 +692,8 @@ def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
     """Compute the local cache key for a registry artifact URI."""
     if not artifact_uri:
         return "base"
-    # S3 keys are case-sensitive, so preserve URI case when hashing.
-    content = artifact_uri.strip()
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+    # S3 keys are byte-sensitive, so hash the exact URI used for retrieval.
+    return hashlib.sha256(artifact_uri.encode()).hexdigest()[:16]
 
 
 def bundled_builtin_registry_uri(version: str) -> str:
@@ -981,7 +1000,13 @@ class _RegistryArtifactLease:
         except BaseException as cleanup_error:
             if exc_value is not None:
                 raise exc_value.with_traceback(traceback) from cleanup_error
-            raise
+            if not isinstance(cleanup_error, Exception):
+                raise
+            logger.error(
+                "Registry artifact lease cleanup failed; preserving caller outcome",
+                cache_dir=str(self.cache.cache_dir),
+                error_type=type(cleanup_error).__name__,
+            )
 
     async def aclose(self) -> None:
         """Release the pin exactly once and finish all resulting maintenance."""
@@ -1032,12 +1057,13 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         Yields:
             Importable Python paths for the requested artifacts.
         """
-        await self.ensure_swept()
-
         if not artifact_uris:
             logger.info("No registry artifact URIs provided, using base PYTHONPATH")
             yield [self._base_pythonpath_dir()]
             return
+
+        if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
+            await self.ensure_swept()
 
         async with contextlib.AsyncExitStack() as leases:
             handles: list[_RegistryArtifactLease] = []
@@ -1258,7 +1284,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         paths = ctx.paths
         validate_cache_entry_path(paths)
         try:
-            if paths.squashfs_mount_dir.is_mount():
+            if registry_artifact_mounts.is_mount(paths.squashfs_mount_dir):
                 return
         except OSError:
             return

@@ -879,6 +879,51 @@ class TestEdgeCases:
         assert out.read_bytes() == b"payload"
 
     @pytest.mark.anyio
+    async def test_download_file_to_path_grows_unknown_length_reservation(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Unknown-length downloads reserve each chunk above current usage."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"abc"
+                yield b"defg"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):  # noqa: ARG001
+            yield DummyStream(), None
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        temp_path = tmp_path / "out.bin.part"
+        reservations: list[int] = []
+        partial_sizes: list[int] = []
+
+        async def ensure_capacity(size_bytes: int) -> None:
+            partial_size = temp_path.stat().st_size
+            assert 2 + partial_size + size_bytes <= 10
+            reservations.append(size_bytes)
+            partial_sizes.append(partial_size)
+
+        await download_file_to_path(
+            key="k",
+            bucket="b",
+            output_path=out,
+            max_bytes=10,
+            ensure_capacity=ensure_capacity,
+        )
+
+        assert reservations == [3, 4]
+        assert partial_sizes == [0, 3]
+        assert out.read_bytes() == b"abcdefg"
+
+    @pytest.mark.anyio
     async def test_download_file_to_path_never_exceeds_reserved_length(
         self, tmp_path: Path, monkeypatch
     ):

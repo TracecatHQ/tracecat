@@ -31,6 +31,7 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactEviction,
+    RegistryArtifactExtractionError,
     RegistryArtifactFormat,
     RegistryArtifactUriError,
     SquashfsArtifact,
@@ -54,6 +55,7 @@ SQUASHFS_ENABLED_CONFIG = (
     "tracecat.executor.registry_artifacts.config"
     ".TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"
 )
+MOUNT_CHECK = "tracecat.executor.registry_artifact_mounts.is_mount"
 
 
 def _write_tarball_entry(cache_dir: Path, cache_key: str) -> Path:
@@ -281,6 +283,15 @@ class TestRegistryArtifactCache:
         key2 = compute_registry_artifact_cache_key("s3://bucket/path/file.tar.gz")
 
         assert key1 != key2
+
+    def test_compute_registry_artifact_cache_key_whitespace_sensitive(self):
+        """Cache identity preserves whitespace that can belong to an S3 key."""
+        key = compute_registry_artifact_cache_key("s3://bucket/path/file.tar.gz")
+        whitespace_key = compute_registry_artifact_cache_key(
+            "s3://bucket/path/file.tar.gz "
+        )
+
+        assert key != whitespace_key
 
     def test_compute_registry_artifact_cache_key_empty(self):
         """Test that empty URI returns the base cache key."""
@@ -1003,6 +1014,81 @@ class TestRegistryArtifactCache:
         assert first_cancellation_propagated_early is False
         assert second_cancellation_propagated_early is False
 
+    @pytest.mark.parametrize("operation", ["extract", "size-command", "size-parse"])
+    @pytest.mark.anyio
+    async def test_squashfs_failures_sanitize_subprocess_output(
+        self,
+        temp_cache_dir: Path,
+        operation: str,
+    ) -> None:
+        sensitive_output = b"synthetic-customer/repository/member.py"
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/custom.squashfs",
+            cache_key="malformed-squashfs",
+        )
+        image_path = temp_cache_dir / "image.squashfs"
+        image_path.write_bytes(b"squashfs")
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        process = AsyncMock()
+        process.returncode = 0 if operation == "size-parse" else 1
+        stdout = sensitive_output if operation == "size-parse" else b""
+        stderr = sensitive_output if operation != "size-parse" else b""
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/usr/bin/unsquashfs",
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.communicate_rejoin_on_cancel",
+                new_callable=AsyncMock,
+                return_value=(stdout, stderr),
+            ),
+            pytest.raises(RegistryArtifactExtractionError) as raised,
+        ):
+            if operation == "extract":
+                await artifact._extract_image(image_path, target_dir)
+            else:
+                await artifact._squashfs_extracted_size(
+                    image_path,
+                    allocation_unit=1,
+                )
+
+        assert str(raised.value) == "Registry artifact extraction failed"
+        assert sensitive_output.decode() not in str(raised.value)
+        assert raised.value.__cause__ is None
+
+    @pytest.mark.anyio
+    async def test_tarball_extract_sanitizes_member_failures(
+        self,
+        temp_cache_dir: Path,
+    ) -> None:
+        sensitive_member = "../../synthetic-customer/repository/module.py"
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="malformed-tarball",
+        )
+        tarball_path = temp_cache_dir / "artifact.tar.gz"
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            member = tarfile.TarInfo(sensitive_member)
+            member.size = 1
+            tar.addfile(member, io.BytesIO(b"x"))
+
+        with pytest.raises(RegistryArtifactExtractionError) as raised:
+            await artifact.extract(tarball_path, target_dir)
+
+        assert str(raised.value) == "Registry artifact extraction failed"
+        assert sensitive_member not in str(raised.value)
+        assert raised.value.__cause__ is None
+
     @pytest.mark.anyio
     async def test_repeatedly_cancelled_tarball_size_scan_rejoins_thread(
         self, temp_cache_dir: Path
@@ -1553,10 +1639,17 @@ class TestRegistryArtifactCacheLease:
         """No artifact URIs still yields the base PYTHONPATH directory."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
-        async with cache.lease(None) as registry_paths:
-            assert registry_paths == [temp_cache_dir / "base"]
-            assert registry_paths[0].is_dir()
+        with patch.object(
+            cache,
+            "ensure_swept",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("cache-free leases must not sweep"),
+        ) as ensure_swept:
+            async with cache.lease(None) as registry_paths:
+                assert registry_paths == [temp_cache_dir / "base"]
+                assert registry_paths[0].is_dir()
 
+        ensure_swept.assert_not_awaited()
         assert cache._runtime == {}
 
     @pytest.mark.anyio
@@ -1605,7 +1698,7 @@ class TestRegistryArtifactCacheLease:
                 await releases[index].wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
@@ -1667,7 +1760,7 @@ class TestRegistryArtifactCacheLease:
                 await releases[index].wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
@@ -1764,6 +1857,35 @@ class TestRegistryArtifactCacheLease:
         assert all(cache._refcount(cache_key) == 0 for cache_key in cache_keys)
 
     @pytest.mark.anyio
+    async def test_cleanup_failure_preserves_successful_lease_outcome(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Post-lease maintenance cannot replace a successful caller result."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/cleanup-failure.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        target_dir = _write_tarball_entry(temp_cache_dir, cache_key)
+
+        async def fail_cleanup(idle_keys: list[str]) -> None:
+            del idle_keys
+            raise RuntimeError("cleanup failed with sensitive details")
+
+        with (
+            patch.object(cache, "_finish_lease_cleanup", fail_cleanup),
+            patch("tracecat.executor.registry_artifacts.logger.error") as log_error,
+        ):
+            async with cache.lease([artifact_uri]) as registry_paths:
+                result = registry_paths
+
+        assert result == [target_dir]
+        assert cache._refcount(cache_key) == 0
+        log_error.assert_called_once_with(
+            "Registry artifact lease cleanup failed; preserving caller outcome",
+            cache_dir=str(temp_cache_dir),
+            error_type="RuntimeError",
+        )
+
+    @pytest.mark.anyio
     async def test_new_lease_racing_final_release_prevents_stale_unmount(
         self, temp_cache_dir: Path
     ) -> None:
@@ -1806,7 +1928,7 @@ class TestRegistryArtifactCacheLease:
                 await release_newcomer.wait()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch.object(cache, "_unmount", harness.unmount),
             patch.object(
                 cache,
@@ -1869,7 +1991,7 @@ class TestRegistryArtifactCacheLease:
         converge_cache_budget = AsyncMock()
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, False),
             patch.object(TarballArtifact, "download", fail_download),
             patch.object(cache, "_unmount", harness.unmount),
@@ -2000,7 +2122,7 @@ class TestRegistryArtifactCacheLease:
         harness = _SquashfsMountHarness(cache)
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
@@ -2065,7 +2187,7 @@ class TestRegistryArtifactCacheLease:
                 leased_path_exists.append(registry_paths[0].is_dir())
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(MOUNT_CHECK, lambda path: path in mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
@@ -2113,15 +2235,24 @@ class TestRegistryArtifactCacheLease:
 
         cache = RegistryArtifactCache(temp_cache_dir)
 
-        with patch.object(
-            cache,
-            "_enforce_cache_budget",
-            new_callable=AsyncMock,
-        ) as enforce_cache_budget:
+        with (
+            patch.object(
+                cache,
+                "ensure_swept",
+                new_callable=AsyncMock,
+                side_effect=AssertionError("builtin leases must not sweep"),
+            ) as ensure_swept,
+            patch.object(
+                cache,
+                "_enforce_cache_budget",
+                new_callable=AsyncMock,
+            ) as enforce_cache_budget,
+        ):
             async with cache.lease([bundled_builtin_registry_uri(version)]) as paths:
                 assert paths == [site_packages.resolve()]
                 assert cache._runtime == {}
 
+        ensure_swept.assert_not_awaited()
         enforce_cache_budget.assert_not_awaited()
 
 
@@ -2939,7 +3070,7 @@ class TestRegistryArtifactCacheEviction:
             return process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(MOUNT_CHECK, lambda path: path in mounted),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
                 return_value="/sbin/umount",
@@ -3082,6 +3213,31 @@ class TestRegistryArtifactCacheEviction:
         assert leased.exists()
 
     @pytest.mark.anyio
+    async def test_eviction_fails_closed_when_mount_inspection_fails(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Unknown mount state cannot be mistaken for an unmounted entry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        paths = cache._paths_for("unknown-mount-state")
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+        real_lstat = Path.lstat
+
+        def fail_mount_lstat(path: Path):
+            if path == paths.squashfs_mount_dir:
+                raise PermissionError("mount inspection denied")
+            return real_lstat(path)
+
+        with patch.object(Path, "lstat", fail_mount_lstat):
+            with pytest.raises(PermissionError, match="mount inspection denied"):
+                await cache._evict_entry("unknown-mount-state")
+
+        assert paths.entry_dir.is_dir()
+        assert paths.squashfs_image_path.is_file()
+        assert paths.squashfs_mount_dir.is_dir()
+
+    @pytest.mark.anyio
     async def test_eviction_unmounts_before_deleting_the_image(self, temp_cache_dir):
         """Unlinking a mounted image would strand an open-file zombie."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -3102,7 +3258,7 @@ class TestRegistryArtifactCacheEviction:
             return process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(MOUNT_CHECK, lambda path: path in mounted),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
                 return_value="/sbin/umount",
@@ -3153,7 +3309,7 @@ class TestRegistryArtifactCacheEviction:
             return released_process
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(MOUNT_CHECK, lambda path: path in mounted),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
                 return_value="/sbin/umount",
@@ -3349,7 +3505,7 @@ class TestRegistryArtifactCacheEviction:
         process.returncode = 32
 
         with (
-            patch.object(Path, "is_mount", lambda self: self in mounted),
+            patch(MOUNT_CHECK, lambda path: path in mounted),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
                 return_value="/sbin/umount",
@@ -3506,7 +3662,7 @@ class TestRegistryArtifactCacheStartupSweep:
         mount_dir = paths.squashfs_mount_dir
         mount_dir.mkdir()
 
-        with patch.object(Path, "is_mount", lambda self: self == mount_dir):
+        with patch(MOUNT_CHECK, lambda path: path == mount_dir):
             await cache.ensure_swept()
 
         assert mount_dir.is_dir()
@@ -3576,12 +3732,17 @@ class TestRegistryArtifactCacheStartupSweep:
 
     @pytest.mark.anyio
     async def test_lease_triggers_startup_sweep(self, temp_cache_dir):
-        """Lease admission reclaims startup scratch before yielding paths."""
+        """Cache-backed lease admission reclaims scratch before yielding paths."""
         cache = RegistryArtifactCache(temp_cache_dir)
         orphaned_dir = cache.staging_dir / "abc123.999999.4321"
         orphaned_dir.mkdir(parents=True)
+        artifact_uri = "s3://bucket/cached.tar.gz"
+        _write_tarball_entry(
+            temp_cache_dir,
+            compute_registry_artifact_cache_key(artifact_uri),
+        )
 
-        async with cache.lease(None):
+        async with cache.lease([artifact_uri]):
             assert not orphaned_dir.exists()
 
     @pytest.mark.anyio
@@ -3838,7 +3999,7 @@ class TestSquashfsMountPolicy:
         )
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in harness.mounted),
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
             patch(SQUASHFS_ENABLED_CONFIG, True),
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",

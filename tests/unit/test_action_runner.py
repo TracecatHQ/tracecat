@@ -808,7 +808,10 @@ class TestActionRunner:
             return True
 
         with (
-            patch.object(Path, "is_mount", lambda path: path in mounted),
+            patch(
+                "tracecat.executor.registry_artifact_mounts.is_mount",
+                lambda path: path in mounted,
+            ),
             patch.object(
                 action_runner,
                 "_direct_subprocess_command",
