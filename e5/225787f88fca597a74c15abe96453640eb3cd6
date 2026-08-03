@@ -1,0 +1,19 @@
+frontend/package.json
+  s_af4167ee9cee2c::t_b93447acc24b94 5-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e5225787f88fca597a74c15abe96453640eb3cd6",
+  "prompts": {},
+  "sessions": {
+    "s_af4167ee9cee2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc619-48a8-7dd2-999f-bbd995c79f0d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
