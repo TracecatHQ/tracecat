@@ -1,16 +1,15 @@
 # Child fixture for the phase 8 subflow fan-out follow-on.
 #
 # One child workflow execution per logical branch, each performing exactly one
-# `core.table.insert_row`. Row shape and `dedupe_key` are identical to
-# workflow_scatter_insert_row.yml, so row-correctness accounting and the
-# per-logical-row cost comparison against action scatter stay apples to apples.
+# one-row `core.table.insert_rows`. Row shape and `dedupe_key` are identical to
+# workflow_scatter_insert_row.yml, so row-correctness accounting stays aligned.
 #
 # The compact result is produced by `returns` directly rather than by a
 # `core.transform.reshape` gather action. The platform already runs one activity
 # to resolve `returns`, so a gather action here would add a second action
 # execution *per logical row* and inflate the very number phase 8 measures.
-# The insert action returns only a count, so the payload does not enter either
-# the child's activity result or the parent's gathered history.
+# The one-row batch action returns only a count, so the payload does not enter
+# either the child's activity result or the parent's gathered history.
 #
 # The parent resolves this workflow by alias (`scatter_load_subflow_child`).
 # The external workflow definition format has no `alias` field, so fixtures.py
@@ -24,8 +23,8 @@ version: 1
 definition:
   title: Scatter load - subflow child insert
   description: >-
-    Subflow child: exactly one core.table.insert_row per child workflow
-    execution, returning a compact result.
+    Subflow child: exactly one count-returning table request per child workflow
+    execution.
   entrypoint:
     ref: insert_row
     expects:
@@ -46,16 +45,16 @@ definition:
     timeout: 0
   actions:
     - ref: insert_row
-      action: core.table.insert_row
+      action: core.table.insert_rows
       description: The single database write for this logical branch.
       args:
         table: scatter_load_rows
-        row_data:
-          run_id: ${{ TRIGGER.run_id }}
-          workflow_seq: ${{ TRIGGER.workflow_seq }}
-          branch_seq: ${{ TRIGGER.branch_seq }}
-          payload: ${{ TRIGGER.payload }}
-          dedupe_key: ${{ TRIGGER.run_id }}:${{ TRIGGER.workflow_seq }}:${{ TRIGGER.branch_seq }}
+        rows_data:
+          - run_id: ${{ TRIGGER.run_id }}
+            workflow_seq: ${{ TRIGGER.workflow_seq }}
+            branch_seq: ${{ TRIGGER.branch_seq }}
+            payload: ${{ TRIGGER.payload }}
+            dedupe_key: ${{ TRIGGER.run_id }}:${{ TRIGGER.workflow_seq }}:${{ TRIGGER.branch_seq }}
       retry_policy:
         max_attempts: 1
   returns:

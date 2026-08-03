@@ -3423,6 +3423,35 @@ def test_bulk_fixture_does_not_pass_row_payloads_between_actions() -> None:
     assert definition["returns"] == "${{ ACTIONS.bulk_insert.result }}"
 
 
+def test_subflow_child_fixture_returns_a_compact_one_row_batch_count() -> None:
+    (workflow,) = fixtures_module.load_child_workflow_fixtures(LoadType.SUBFLOW)
+    fixture: object = yaml.safe_load(Path(workflow.path).read_text(encoding="utf-8"))
+    assert isinstance(fixture, dict)
+    definition = fixture.get("definition")
+    assert isinstance(definition, dict)
+
+    actions = definition.get("actions")
+    assert isinstance(actions, list)
+    assert len(actions) == 1
+    action = actions[0]
+    assert isinstance(action, dict)
+    assert action["action"] == "core.table.insert_rows"
+
+    args = action.get("args")
+    assert isinstance(args, dict)
+    rows_data = args.get("rows_data")
+    assert isinstance(rows_data, list)
+    assert len(rows_data) == 1
+    row = rows_data[0]
+    assert isinstance(row, dict)
+    assert row["payload"] == "${{ TRIGGER.payload }}"
+    assert "row_data" not in args
+
+    returns = definition.get("returns")
+    assert isinstance(returns, dict)
+    assert returns["rows_written"] == 1
+
+
 def test_table_fixture_rejects_non_object_columns(tmp_path: Path) -> None:
     fixture_path = tmp_path / "table.json"
     fixture_path.write_text(
