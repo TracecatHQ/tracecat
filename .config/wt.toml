@@ -5,3 +5,9 @@
 # Post-Create: Install dependencies after worktree creation
 [pre-start]
 deps = "UV_LINK_MODE=symlink uv sync --group admin & pnpm -C frontend i & wait"
+
+# Pre-Remove: tear down this worktree's clusters so they are not orphaned.
+# `rm --all` is non-interactive and exits 0 when nothing is running, so it can
+# never block worktree removal.
+[pre-remove]
+cluster = "./scripts/cluster rm --all || true"
