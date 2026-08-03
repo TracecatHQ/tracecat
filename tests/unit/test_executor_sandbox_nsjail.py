@@ -113,6 +113,14 @@ def _skip_smoke(reason: str) -> NoReturn:
 
 
 def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
+    if not smoke_case.force_sandbox:
+        if sys.platform != "linux":
+            return (
+                "direct action subprocesses require Linux (setpriv + subreaper "
+                "process supervisor)"
+            )
+        if shutil.which("setpriv") is None:
+            return "setpriv is unavailable"
     if smoke_case.force_sandbox and not _executor_nsjail_available():
         return "executor nsjail unavailable"
     if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():

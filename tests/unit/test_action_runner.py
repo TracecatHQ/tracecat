@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shutil
 import tempfile
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -91,6 +93,23 @@ class TestActionRunner:
     """Tests for ActionRunner class."""
 
     @pytest.fixture(autouse=True)
+    def resolve_setpriv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Resolve setpriv on non-Linux developer machines.
+
+        The direct runner command is Linux-only in production. These tests mock
+        the spawn, so only the lookup has to succeed for the command to build.
+        """
+        real_which = shutil.which
+
+        def which(cmd: str, *args, **kwargs) -> str | None:
+            resolved = real_which(cmd, *args, **kwargs)
+            if resolved is None and cmd == "setpriv":
+                return "/usr/bin/setpriv"
+            return resolved
+
+        monkeypatch.setattr(action_runner.shutil, "which", which)
+
+    @pytest.fixture(autouse=True)
     def mock_process_group_communication(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> AsyncMock:
@@ -102,12 +121,15 @@ class TestActionRunner:
             *,
             input: bytes | None = None,  # noqa: A002
             timeout: float | None = None,
+            terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]]
+            | None = None,
         ) -> tuple[bytes, bytes]:
             if isinstance(process, asyncio.subprocess.Process):
                 return await real_communication(
                     process,
                     input=input,
                     timeout=timeout,
+                    terminate=terminate,
                 )
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=input),
@@ -529,9 +551,10 @@ class TestActionRunner:
         temp_cache_dir,
         mock_run_action_input,
         mock_role,
+        mock_process_group_communication: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test direct subprocess execution disables new Linux privileges."""
+        """Test direct execution supervises the action and drops privileges."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -549,7 +572,6 @@ class TestActionRunner:
             mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
             return mock_proc
 
-        monkeypatch.setattr(action_runner.sys, "platform", "linux")
         monkeypatch.setattr(
             action_runner.shutil,
             "which",
@@ -575,8 +597,17 @@ class TestActionRunner:
             "--inh-caps=-all",
             "--ambient-caps=-all",
         ]
+        assert captured_args[-5] == action_runner.sys.executable
+        assert captured_args[-4] == "-I"
+        assert captured_args[-3].endswith("process_supervisor.py")
         assert captured_args[-2] == action_runner.sys.executable
         assert captured_args[-1].endswith("minimal_runner.py")
+        communication_call = mock_process_group_communication.await_args
+        assert communication_call is not None
+        assert (
+            communication_call.kwargs["terminate"]
+            is action_runner.terminate_supervised_process
+        )
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(
@@ -749,7 +780,7 @@ class TestActionRunner:
         )
 
         real_create_subprocess_exec = asyncio.create_subprocess_exec
-        real_terminate_process_group = sandbox_utils.terminate_process_group
+        real_terminate = sandbox_utils.terminate_supervised_process
         process_started = asyncio.Event()
         termination_started = asyncio.Event()
         finish_termination = asyncio.Event()
@@ -767,7 +798,7 @@ class TestActionRunner:
         ) -> None:
             termination_started.set()
             await finish_termination.wait()
-            await real_terminate_process_group(requested_process)
+            await real_terminate(requested_process)
 
         async def release_mount(mount_dir: Path) -> bool:
             reaped_before_unmount.append(
@@ -788,8 +819,8 @@ class TestActionRunner:
                 side_effect=capture_subprocess,
             ),
             patch.object(
-                sandbox_utils,
-                "terminate_process_group",
+                action_runner,
+                "terminate_supervised_process",
                 side_effect=controlled_termination,
             ),
             patch.object(cache, "_unmount", side_effect=release_mount),

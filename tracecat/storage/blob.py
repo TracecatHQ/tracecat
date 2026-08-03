@@ -7,7 +7,7 @@ import hashlib
 import os
 import threading
 import weakref
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +17,7 @@ import aioboto3
 import aiofiles
 from aiobotocore.config import AioConfig
 from boto3.s3.transfer import TransferConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from tracecat import config
 from tracecat.logger import logger
@@ -35,6 +35,39 @@ DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_MAX_CONCURRENCY = 4
 DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE = 2
+_REDACTED_STORAGE_IDENTIFIER = "<redacted>"
+
+
+class StorageDownloadError(RuntimeError):
+    """A storage download failed without exposing object identifiers."""
+
+    def __init__(self, *, error_code: str | None) -> None:
+        super().__init__("Storage download failed")
+        self.error_code = error_code
+
+
+def _download_log_identifiers(
+    key: str,
+    bucket: str,
+    *,
+    redact: bool,
+) -> tuple[str, str]:
+    """Return storage identifiers that are safe for logs and errors."""
+    if redact:
+        return _REDACTED_STORAGE_IDENTIFIER, _REDACTED_STORAGE_IDENTIFIER
+    return key, bucket
+
+
+def _safe_storage_error_code(value: object) -> str | None:
+    """Return a bounded machine code, never provider-controlled prose."""
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return None
+    if not value.isascii() or any(
+        not (character.isalnum() or character in "._-") for character in value
+    ):
+        return None
+    return value
+
 
 # Shared S3/MinIO client config: explicit standard-mode retries so transient
 # failures (throttling, 5xx, connection resets) are retried with backoff instead
@@ -205,7 +238,7 @@ async def close_storage_client_cache() -> None:
 
 
 @asynccontextmanager
-async def get_storage_client() -> AsyncIterator[S3Client]:
+async def get_storage_client() -> AsyncGenerator[S3Client]:
     """Get a configured S3 client for either AWS S3.
 
     Yields:
@@ -703,7 +736,9 @@ async def download_file_range(
 async def open_download_stream(
     key: str,
     bucket: str,
-) -> AsyncIterator[tuple[StreamingBody, int | None]]:
+    *,
+    redact_log_identifiers: bool = False,
+) -> AsyncGenerator[tuple[StreamingBody, int | None]]:
     """Open a streaming download for an S3/MinIO object.
 
     This is safer for very large objects because it allows callers to
@@ -718,14 +753,21 @@ async def open_download_stream(
     Args:
         key: The S3 object key.
         bucket: Bucket name (required).
+        redact_log_identifiers: Hide the key and bucket in logs and errors.
 
     Yields:
         Tuple of (streaming body, content_length).
 
     Raises:
         ClientError: If the download fails.
+        StorageDownloadError: If a redacted download fails.
         FileNotFoundError: If the file doesn't exist.
     """
+    log_key, log_bucket = _download_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
     try:
         async with get_storage_client() as s3_client:
             response = await s3_client.get_object(Bucket=bucket, Key=key)
@@ -734,13 +776,25 @@ async def open_download_stream(
             async with body:
                 yield body, content_length
     except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "NoSuchKey":
+        error_code = _safe_storage_error_code(e.response.get("Error", {}).get("Code"))
+        if error_code == "NoSuchKey":
             logger.warning(
                 "File not found in storage",
-                key=key,
-                bucket=bucket,
+                key=log_key,
+                bucket=log_bucket,
             )
+            if redact_log_identifiers:
+                raise FileNotFoundError from None
             raise FileNotFoundError from e
+        if redact_log_identifiers:
+            logger.error(
+                "Failed to open download stream",
+                key=log_key,
+                bucket=log_bucket,
+                error_code=error_code,
+                error_type=type(e).__name__,
+            )
+            raise StorageDownloadError(error_code=error_code) from None
         logger.error(
             "Failed to open download stream",
             key=key,
@@ -748,6 +802,17 @@ async def open_download_stream(
             error=str(e),
         )
         raise
+    except BotoCoreError as e:
+        if not redact_log_identifiers:
+            raise
+        logger.error(
+            "Failed to open download stream",
+            key=log_key,
+            bucket=log_bucket,
+            error_code=None,
+            error_type=type(e).__name__,
+        )
+        raise StorageDownloadError(error_code=None) from None
 
 
 async def download_file_to_path(
@@ -759,6 +824,8 @@ async def download_file_to_path(
     max_bytes: int | None = None,
     expected_sha256: str | None = None,
     ensure_capacity: Callable[[int], Awaitable[None]] | None = None,
+    defer_cleanup: Callable[[Path], None] | None = None,
+    redact_log_identifiers: bool = False,
 ) -> int:
     """Stream an S3/MinIO object to a local file.
 
@@ -775,6 +842,8 @@ async def download_file_to_path(
         ensure_capacity: Optional callback invoked before the first disk write with
             the maximum number of bytes the download may occupy. When the server
             omits ContentLength, max_bytes is required to provide that bound.
+        defer_cleanup: Optional callback retaining failed partial-file cleanup.
+        redact_log_identifiers: Hide the key and bucket in logs and errors.
 
     Returns:
         Total bytes written.
@@ -784,19 +853,25 @@ async def download_file_to_path(
 
     hasher = hashlib.sha256() if expected_sha256 is not None else None
     bytes_written = 0
+    log_key, log_bucket = _download_log_identifiers(
+        key,
+        bucket,
+        redact=redact_log_identifiers,
+    )
 
     try:
-        async with open_download_stream(key=key, bucket=bucket) as (
-            stream,
-            content_length,
-        ):
+        async with open_download_stream(
+            key=key,
+            bucket=bucket,
+            redact_log_identifiers=redact_log_identifiers,
+        ) as (stream, content_length):
             if (
                 max_bytes is not None
                 and content_length is not None
                 and content_length > max_bytes
             ):
                 raise ValueError(
-                    f"Refusing to download {bucket}/{key} to disk: "
+                    f"Refusing to download {log_bucket}/{log_key} to disk: "
                     f"ContentLength={content_length} exceeds max_bytes={max_bytes}"
                 )
 
@@ -807,7 +882,7 @@ async def download_file_to_path(
                     if max_bytes is None:
                         raise ValueError(
                             "Cannot reserve disk capacity for a download without "
-                            f"ContentLength or max_bytes: {bucket}/{key}"
+                            f"ContentLength or max_bytes: {log_bucket}/{log_key}"
                         )
                     reserved_bytes = max_bytes
                 await ensure_capacity(reserved_bytes)
@@ -820,7 +895,7 @@ async def download_file_to_path(
                     bytes_written += len(chunk)
                     if download_limit is not None and bytes_written > download_limit:
                         raise ValueError(
-                            f"Refusing to download {bucket}/{key} to disk: "
+                            f"Refusing to download {log_bucket}/{log_key} to disk: "
                             f"bytes_written={bytes_written} exceeds "
                             f"max_bytes={download_limit}"
                         )
@@ -832,7 +907,7 @@ async def download_file_to_path(
             actual_sha256 = hasher.hexdigest()
             if actual_sha256 != expected_sha256:
                 raise ValueError(
-                    f"Integrity check failed for {bucket}/{key}: "
+                    f"Integrity check failed for {log_bucket}/{log_key}: "
                     f"expected {expected_sha256}, got {actual_sha256}"
                 )
 
@@ -840,17 +915,20 @@ async def download_file_to_path(
     except BaseException:
         try:
             temp_path.unlink(missing_ok=True)
-        except Exception:
+        except Exception as cleanup_error:
+            if defer_cleanup is not None:
+                defer_cleanup(temp_path)
             logger.warning(
                 "Failed to cleanup partial download",
                 temp_path=str(temp_path),
+                error_type=type(cleanup_error).__name__,
             )
         raise
 
     logger.debug(
         "File streamed to disk successfully",
-        key=key,
-        bucket=bucket,
+        key=log_key,
+        bucket=log_bucket,
         output_path=str(output_path),
         size=bytes_written,
     )

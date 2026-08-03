@@ -41,6 +41,9 @@ from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
+from tracecat.executor.registry_artifacts import (
+    compute_registry_artifact_cache_key,
+)
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -301,13 +304,16 @@ class TestBackend(ExecutorBackend):
         for artifact_uri in artifact_uris:
             try:
                 artifact_paths = await leases.enter_async_context(
-                    registry_artifacts.lease([artifact_uri])
+                    registry_artifacts.lease(
+                        [artifact_uri],
+                        paths_may_be_modified=True,
+                    )
                 )
             except Exception as e:
                 logger.warning(
                     "Failed to materialize artifact for test execution",
-                    artifact_uri=artifact_uri,
-                    error=str(e),
+                    cache_key=compute_registry_artifact_cache_key(artifact_uri),
+                    error_type=type(e).__name__,
                 )
                 continue
             extracted_paths.extend(str(path) for path in artifact_paths)

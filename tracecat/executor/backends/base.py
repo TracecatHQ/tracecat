@@ -148,9 +148,14 @@ class ExecutorBackend(ABC):
             )
 
         # The lease is held for the whole sandbox run so cache eviction cannot
-        # delete a directory the script is still importing from.
+        # delete a directory the script is still importing from. The sandbox
+        # service can select UnsafePidExecutor, which exposes host paths writable,
+        # so conservatively rescan their footprint after every run.
         registry_artifacts = get_action_runner().registry_artifacts
-        async with registry_artifacts.lease(artifact_uris) as registry_paths:
+        async with registry_artifacts.lease(
+            artifact_uris,
+            paths_may_be_modified=True,
+        ) as registry_paths:
             return await self._run_python_in_sandbox(
                 script=script,
                 args=args,

@@ -36,6 +36,35 @@ async def rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:
         raise
 
 
+async def rejoin_future_through_cancellation[T](future: asyncio.Future[T]) -> T:
+    """Rejoin a future through repeated cancellation without losing failures.
+
+    A pending caller cancellation is propagated only after ``future`` finishes.
+    If cleanup also fails, cancellation remains the primary exception and the
+    cleanup failure is retained as its cause.
+    """
+    pending_cancellation: asyncio.CancelledError | None = None
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError as e:
+            if future.cancelled():
+                raise
+            pending_cancellation = e
+        except BaseException:
+            break
+
+    try:
+        result = future.result()
+    except BaseException as future_error:
+        if pending_cancellation is not None:
+            raise pending_cancellation from future_error
+        raise
+    if pending_cancellation is not None:
+        raise pending_cancellation
+    return result
+
+
 async def run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
     """Run blocking work without abandoning its worker thread."""
     return await rejoin_future_on_cancel(
