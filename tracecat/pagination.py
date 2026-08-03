@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeVar
+from typing import Any, Literal, TypeVar, overload
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -162,13 +162,47 @@ class CursorData(BaseModel):
                 return v
         return v
 
+    @property
+    def has_sort_value(self) -> bool:
+        """Whether the cursor carries an explicit sort value.
+
+        ``encode_cursor`` always serializes ``sort_value``, so a cursor issued
+        by this server has the key even when the anchor row's sort column is
+        NULL. An absent key means a cursor from before sort-aware pagination
+        (or a hand-built one), which cannot filter anything. Keeping the two
+        apart is what lets a nullable sort follow its own ``sort_value: null``
+        cursor instead of rejecting it as malformed.
+        """
+        return "sort_value" in self.model_fields_set
+
+
+@overload
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = ...,
+    allow_null: Literal[False] = ...,
+) -> str | int | float | datetime: ...
+
+
+@overload
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = ...,
+    allow_null: Literal[True],
+) -> str | int | float | datetime | None: ...
+
 
 def validate_cursor_sort_column(
     cursor: CursorData,
     *,
     sort_column: str,
     expected_type: type | tuple[type, ...] | None = None,
-) -> str | int | float | datetime:
+    allow_null: bool = False,
+) -> str | int | float | datetime | None:
     """Return the cursor's sort value, or raise if it cannot filter this query.
 
     Args:
@@ -177,9 +211,15 @@ def validate_cursor_sort_column(
         expected_type: Type the sort value must have, when the column's cursor
             representation is narrower than the query's column type (enum sorts
             encode a rank, not the enum value).
+        allow_null: Whether the sort column admits NULLs. When set, a cursor
+            anchored on a NULL sort value returns ``None`` instead of raising,
+            and the caller must pair it with a NULL-aware keyset predicate (see
+            ``keyset_filter``). Legacy cursors that omit the field entirely are
+            still rejected.
 
     Raises:
-        InvalidCursorError: The cursor belongs to a different sort.
+        InvalidCursorError: The cursor belongs to a different sort, carries no
+            usable sort value, or carries one of the wrong type.
     """
     if cursor.sort_column != sort_column:
         raise InvalidCursorError(
@@ -188,6 +228,8 @@ def validate_cursor_sort_column(
             "Restart pagination without a cursor after changing the sort."
         )
     if cursor.sort_value is None:
+        if allow_null and cursor.has_sort_value:
+            return None
         raise InvalidCursorError(
             f"Cursor is missing a sort value for column {sort_column!r}. "
             "Restart pagination without a cursor."
@@ -198,6 +240,62 @@ def validate_cursor_sort_column(
             "Restart pagination without a cursor."
         )
     return cursor.sort_value
+
+
+def keyset_filter(
+    sort_col: sa.ColumnElement[Any],
+    id_col: sa.ColumnElement[Any],
+    *,
+    sort_value: str | int | float | datetime | None,
+    id_value: Any,
+    ascending: bool,
+    nullable: bool = True,
+) -> sa.ColumnElement[bool]:
+    """Build the predicate selecting rows strictly after a cursor anchor.
+
+    Args:
+        sort_col: The column (or expression) the query sorts by.
+        id_col: The unique tie-breaker column, sorted alongside ``sort_col``.
+        sort_value: The anchor row's sort value; ``None`` anchors inside the
+            NULL block.
+        id_value: The anchor row's tie-breaker value.
+        ascending: The direction of the *scan*, not of the requested sort.
+            Reverse pagination inverts the scan so ``LIMIT`` keeps the rows
+            nearest the cursor, and this predicate must follow that inversion.
+        nullable: Whether ``sort_col`` can hold NULLs. Pass ``False`` for
+            NOT NULL columns to keep the predicate free of NULL branches; such
+            a column can never produce a ``sort_value`` of ``None``.
+
+    NULL placement follows PostgreSQL's defaults, which invert consistently:
+    ``ASC`` puts NULLs last and ``DESC`` puts them first, so ``ASC NULLS LAST``
+    reversed is exactly ``DESC NULLS FIRST``. An ascending scan therefore
+    treats NULL as greater than every value, a descending scan treats it as
+    less than every value, and inside the NULL block only ``id_col`` orders
+    rows. Callers must order by the matching ``nulls_last()``/``nulls_first()``.
+    """
+    if ascending:
+        if sort_value is None:
+            # NULLs sort last, so nothing outside the NULL block follows.
+            return sa.and_(sort_col.is_(None), id_col > id_value)
+        after = [sort_col > sort_value]
+        if nullable:
+            # NULLs sort after every value, and `>` is unknown against them.
+            after.append(sort_col.is_(None))
+        after.append(sa.and_(sort_col == sort_value, id_col > id_value))
+        return sa.or_(*after)
+
+    if sort_value is None:
+        # NULLs sort first, so every non-NULL row follows the NULL block.
+        return sa.or_(
+            sort_col.is_not(None),
+            sa.and_(sort_col.is_(None), id_col < id_value),
+        )
+    # NULLs sort before every value, so a non-NULL anchor already excludes
+    # them: `<` is unknown against NULL and drops those rows.
+    return sa.or_(
+        sort_col < sort_value,
+        sa.and_(sort_col == sort_value, id_col < id_value),
+    )
 
 
 class BaseCursorPaginator:

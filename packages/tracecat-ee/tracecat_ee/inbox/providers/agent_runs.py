@@ -28,6 +28,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     build_cursor_page,
     take_cursor_page,
+    validate_cursor_sort_column,
 )
 from tracecat_ee.agent.types import AgentWorkflowID
 
@@ -296,8 +297,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             updated_after=updated_after,
         )
 
-        # Determine sort column and direction
-        sort_col = order_by or "created_at"
+        # Determine sort column and direction. Normalize to the two columns the
+        # query can actually order by, so an unrecognized `order_by` cannot mint
+        # a cursor labelled with a column the scan never sorted on.
+        sort_col = "updated_at" if order_by == "updated_at" else "created_at"
         sort_desc = sort != "asc"
         # Scan in the direction that walks toward the rows adjacent to the
         # cursor. Reverse pagination flips the scan so the LIMIT keeps the rows
@@ -317,7 +320,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
-                cursor_value = cursor_data.sort_value
+                # A cursor from a different sort cannot filter this query:
+                # applying a created_at anchor to updated_at skips or duplicates
+                # rows. Reject it instead of silently mis-filtering.
+                cursor_value = validate_cursor_sort_column(
+                    cursor_data, sort_column=sort_col, expected_type=datetime
+                )
                 cursor_id = uuid.UUID(cursor_data.id)
 
                 # Select the correct column based on sort_col
@@ -591,7 +599,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
-                last_key = (cursor_data.sort_value, uuid.UUID(cursor_data.id))
+                # Same cross-sort guard as the ungrouped path: a created_at
+                # anchor applied to an updated_at scan resumes at the wrong
+                # position and skips or repeats sessions.
+                scan_value = validate_cursor_sort_column(
+                    cursor_data, sort_column=sort_col, expected_type=datetime
+                )
+                last_key = (scan_value, uuid.UUID(cursor_data.id))
             except (ValueError, KeyError) as e:
                 # Surface malformed cursors as a client error so the router can
                 # return 400 instead of silently restarting the scan.

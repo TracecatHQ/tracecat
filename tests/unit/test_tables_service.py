@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,7 +17,11 @@ from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginationParams, InvalidCursorError
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginationParams,
+    InvalidCursorError,
+)
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     handle_default_value,
@@ -1493,6 +1497,75 @@ class TestTableRows:
                 order_by="age",
                 sort="asc",
             )
+
+    @pytest.mark.parametrize("sort", ["asc", "desc"])
+    async def test_list_rows_follows_a_null_sort_value_cursor(
+        self,
+        tables_service: TablesService,
+        table: Table,
+        sort: Literal["asc", "desc"],
+    ) -> None:
+        """A page boundary inside the NULL block must stay followable.
+
+        Custom columns are nullable by default, so ``list_rows`` legitimately
+        encodes ``sort_value=None`` whenever a page ends on an unset value.
+        Rejecting that server-issued cursor made every row after the first page
+        unreachable.
+        """
+        unset_ids = set()
+        for i in range(3):
+            row = await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"Unset{i}"})
+            )
+            unset_ids.add(str(row["id"]))
+        # age 0 also guards the NULL check against a falsy-value regression.
+        set_ids = set()
+        for i in range(2):
+            row = await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"Set{i}", "age": i})
+            )
+            set_ids.add(str(row["id"]))
+
+        async def page(cursor: str | None, *, reverse: bool = False):
+            return await tables_service.list_rows(
+                table,
+                params=CursorPaginationParams(limit=2, cursor=cursor, reverse=reverse),
+                order_by="age",
+                sort=sort,
+            )
+
+        seen: list[str] = []
+        pages: list[list[str]] = []
+        null_anchored = False
+        cursor: str | None = None
+        while True:
+            result = await page(cursor)
+            ids = [str(row["id"]) for row in result.items]
+            pages.append(ids)
+            seen.extend(ids)
+            if not result.has_more:
+                break
+            assert result.next_cursor is not None
+            anchor = BaseCursorPaginator.decode_cursor(result.next_cursor)
+            assert anchor.sort_column == "age"
+            null_anchored |= anchor.has_sort_value and anchor.sort_value is None
+            cursor = result.next_cursor
+            assert len(pages) <= 5, "pagination did not advance"
+
+        assert null_anchored, "expected a page boundary anchored on a NULL sort value"
+        assert seen == list(dict.fromkeys(seen))
+        assert set(seen) == unset_ids | set_ids
+
+        # PostgreSQL sorts NULLs last ascending and first descending, so the
+        # unset rows form a contiguous block at one end of the walk.
+        assert set(seen[-3:] if sort == "asc" else seen[:3]) == unset_ids
+
+        # Paging back must land on the preceding page rather than restarting.
+        page_1 = await page(None)
+        page_2 = await page(page_1.next_cursor)
+        assert page_2.prev_cursor is not None
+        back = await page(page_2.prev_cursor, reverse=True)
+        assert [str(row["id"]) for row in back.items] == pages[0]
 
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table

@@ -11,11 +11,14 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import pytest
+import sqlalchemy as sa
 
 from tracecat.pagination import (
+    BaseCursorPaginator,
     CursorData,
     InvalidCursorError,
     build_cursor_page,
+    keyset_filter,
     take_cursor_page,
     validate_cursor_sort_column,
 )
@@ -199,9 +202,194 @@ def test_validate_cursor_sort_column_rejects_a_wrongly_typed_sort_value() -> Non
         validate_cursor_sort_column(cursor, sort_column="priority", expected_type=int)
 
 
+def test_validate_cursor_sort_column_accepts_an_explicit_null_when_allowed() -> None:
+    """A nullable sort column can legitimately anchor a page on a NULL value."""
+    cursor = BaseCursorPaginator.decode_cursor(
+        BaseCursorPaginator.encode_cursor("abc", sort_column="score", sort_value=None)
+    )
+
+    assert cursor.has_sort_value is True
+    assert (
+        validate_cursor_sort_column(cursor, sort_column="score", allow_null=True)
+        is None
+    )
+
+
+def test_validate_cursor_sort_column_rejects_a_null_by_default() -> None:
+    """Sorts on NOT NULL columns keep treating a NULL anchor as unusable."""
+    cursor = BaseCursorPaginator.decode_cursor(
+        BaseCursorPaginator.encode_cursor(
+            "abc", sort_column="created_at", sort_value=None
+        )
+    )
+
+    with pytest.raises(InvalidCursorError, match="missing a sort value"):
+        validate_cursor_sort_column(cursor, sort_column="created_at")
+
+
+def test_validate_cursor_sort_column_rejects_an_omitted_sort_value_when_null_allowed() -> (
+    None
+):
+    """An absent field is a legacy cursor, not a row whose sort value is NULL."""
+    cursor = CursorData.model_validate({"id": "abc", "sort_column": "score"})
+
+    assert cursor.has_sort_value is False
+    with pytest.raises(InvalidCursorError, match="missing a sort value"):
+        validate_cursor_sort_column(cursor, sort_column="score", allow_null=True)
+
+
 def test_invalid_cursor_error_is_a_value_error() -> None:
     """Routers map ValueError to 400; the subclass keeps that mapping."""
     assert issubclass(InvalidCursorError, ValueError)
+
+
+# Keyset filtering over a nullable sort column, exercised on in-memory SQLite.
+# NULL placement is pinned with explicit NULLS FIRST/LAST, so the ordering
+# matches PostgreSQL's defaults and the predicate is checked against real rows
+# rather than a rendered SQL string.
+_KEYSET_TABLE = sa.Table(
+    "keyset_rows",
+    sa.MetaData(),
+    sa.Column("id", sa.Integer, primary_key=True),
+    sa.Column("score", sa.Integer, nullable=True),
+)
+# Ids paired with a nullable sort value, deliberately interleaving NULLs with
+# ties so both the tie-breaker and the NULL/non-NULL transition are crossed.
+_KEYSET_ROWS = [
+    (1, None),
+    (2, 10),
+    (3, None),
+    (4, 5),
+    (5, 10),
+    (6, None),
+    (7, 1),
+    (8, 5),
+]
+# (score ASC NULLS LAST, id ASC). The descending display order is its reverse.
+_ASCENDING_IDS = [7, 4, 8, 2, 5, 1, 3, 6]
+
+
+@pytest.fixture
+def keyset_conn():
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        _KEYSET_TABLE.create(conn)
+        conn.execute(
+            _KEYSET_TABLE.insert(),
+            [{"id": id_, "score": score} for id_, score in _KEYSET_ROWS],
+        )
+    with engine.connect() as conn:
+        yield conn
+    engine.dispose()
+
+
+def _keyset_scan(conn, *, cursor: str | None, ascending: bool, limit: int):
+    """Run one over-fetched keyset scan, mirroring what the services build."""
+    stmt = sa.select(_KEYSET_TABLE.c.id, _KEYSET_TABLE.c.score)
+    if cursor is not None:
+        cursor_data = BaseCursorPaginator.decode_cursor(cursor)
+        stmt = stmt.where(
+            keyset_filter(
+                _KEYSET_TABLE.c.score,
+                _KEYSET_TABLE.c.id,
+                sort_value=validate_cursor_sort_column(
+                    cursor_data, sort_column="score", allow_null=True
+                ),
+                id_value=int(cursor_data.id),
+                ascending=ascending,
+            )
+        )
+    sort_order = (
+        _KEYSET_TABLE.c.score.asc().nulls_last()
+        if ascending
+        else _KEYSET_TABLE.c.score.desc().nulls_first()
+    )
+    id_order = _KEYSET_TABLE.c.id.asc() if ascending else _KEYSET_TABLE.c.id.desc()
+    return list(conn.execute(stmt.order_by(sort_order, id_order).limit(limit + 1)))
+
+
+def _keyset_page(
+    conn, *, cursor: str | None, ascending: bool, limit: int, reverse: bool = False
+):
+    """One page in display order, following the cursor contract end to end."""
+    scanned = _keyset_scan(
+        conn, cursor=cursor, ascending=ascending != reverse, limit=limit
+    )
+    rows, has_more = take_cursor_page(scanned, limit=limit)
+    return build_cursor_page(
+        rows,
+        cursor=cursor,
+        reverse=reverse,
+        has_more=has_more,
+        encode_cursor=lambda row: BaseCursorPaginator.encode_cursor(
+            row.id, sort_column="score", sort_value=row.score
+        ),
+    )
+
+
+@pytest.mark.parametrize("ascending", [True, False])
+def test_keyset_filter_walks_every_row_across_the_null_boundary(
+    keyset_conn, ascending: bool
+) -> None:
+    """Regression: a page anchored on a NULL sort value used to be unreachable.
+
+    Nullable columns let a page boundary land inside the NULL block, so the
+    server issues a cursor whose sort value is NULL. Following it must resume
+    inside that block rather than reject the cursor or restart the scan.
+    """
+    expected = _ASCENDING_IDS if ascending else list(reversed(_ASCENDING_IDS))
+
+    seen: list[int] = []
+    cursor: str | None = None
+    while True:
+        page = _keyset_page(keyset_conn, cursor=cursor, ascending=ascending, limit=2)
+        seen.extend(row.id for row in page.items)
+        if not page.has_more:
+            break
+        cursor = page.next_cursor
+
+    assert seen == expected
+
+
+@pytest.mark.parametrize("ascending", [True, False])
+def test_keyset_filter_reverses_across_the_null_boundary(
+    keyset_conn, ascending: bool
+) -> None:
+    """Paging back from a NULL-adjacent page must land on the page before it."""
+    expected = _ASCENDING_IDS if ascending else list(reversed(_ASCENDING_IDS))
+
+    page_1 = _keyset_page(keyset_conn, cursor=None, ascending=ascending, limit=3)
+    page_2 = _keyset_page(
+        keyset_conn, cursor=page_1.next_cursor, ascending=ascending, limit=3
+    )
+    assert [row.id for row in page_2.items] == expected[3:6]
+
+    back = _keyset_page(
+        keyset_conn,
+        cursor=page_2.prev_cursor,
+        ascending=ascending,
+        limit=3,
+        reverse=True,
+    )
+
+    assert [row.id for row in back.items] == expected[:3]
+
+
+@pytest.mark.parametrize("ascending", [True, False])
+def test_keyset_filter_omits_null_branches_for_not_null_columns(
+    ascending: bool,
+) -> None:
+    """NOT NULL sorts keep the tight two-branch predicate they had before."""
+    predicate = keyset_filter(
+        _KEYSET_TABLE.c.score,
+        _KEYSET_TABLE.c.id,
+        sort_value=5,
+        id_value=4,
+        ascending=ascending,
+        nullable=False,
+    )
+
+    assert "NULL" not in str(predicate.compile(compile_kwargs={"literal_binds": True}))
 
 
 @pytest.mark.parametrize("reverse", [False, True])
