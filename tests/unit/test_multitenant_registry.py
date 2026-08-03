@@ -8,6 +8,7 @@ These tests verify:
 from __future__ import annotations
 
 import asyncio
+import tarfile
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -38,6 +39,12 @@ async def _lease_paths(
 ) -> list[Path]:
     async with cache.lease([artifact_uri]) as paths:
         return paths
+
+
+def _write_empty_tarball(path: Path) -> None:
+    """Write a valid archive for tests that mock the extraction contents."""
+    with tarfile.open(path, "w:gz"):
+        pass
 
 
 # =============================================================================
@@ -77,7 +84,7 @@ class TestTarballCacheBehavior:
         async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network delay
-            path.write_bytes(b"fake tarball")
+            _write_empty_tarball(path)
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
@@ -124,7 +131,7 @@ class TestTarballCacheBehavior:
 
         async def mock_download(self, ctx, path: Path):
             download_calls.append(self.uri)
-            path.write_bytes(b"fake tarball")
+            _write_empty_tarball(path)
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
@@ -165,7 +172,7 @@ class TestTarballCacheBehavior:
         cache_key = compute_registry_artifact_cache_key(tarball_uri)
 
         async def mock_download(self, ctx, path: Path):
-            path.write_bytes(b"corrupt tarball")
+            _write_empty_tarball(path)
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             raise RuntimeError("Extraction failed - corrupt tarball")
@@ -206,7 +213,7 @@ class TestTarballCacheBehavior:
 
         async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
-            path.write_bytes(b"tarball")
+            _write_empty_tarball(path)
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "file.txt").write_text("content")
