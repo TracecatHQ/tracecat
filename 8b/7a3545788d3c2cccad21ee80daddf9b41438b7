@@ -1,0 +1,133 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/search_detection_alerts.yml
+  s_a917b1b15f7627::t_a2ec087a36a4b3 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_processes.yml
+  s_a917b1b15f7627::t_fde9d1af499410 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/documents/get_document.yml
+  s_a917b1b15f7627::t_0640bdd3589774 1-41
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/create_endpoint_script.yml
+  s_a917b1b15f7627::t_96a8f255523543 1-54,56-90
+  s_a917b1b15f7627::t_743d45da2123cb 55
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/list_detection_rules.yml
+  s_a917b1b15f7627::t_17b0ba4724a43e 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/scan_endpoint_path.yml
+  s_a917b1b15f7627::t_88122deadf528d 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoint_scripts.yml
+  s_a917b1b15f7627::t_9773a50eed958d 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/download_response_file.yml
+  s_a917b1b15f7627::t_6f7d3ec7cc3f6d 1-59
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/queries/esql.yml
+  s_a917b1b15f7627::t_1c8651f266222a 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/delete_exception_list_item.yml
+  s_a917b1b15f7627::t_a17ab125832328 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/upload_endpoint_file.yml
+  s_a917b1b15f7627::t_c2f32834f33e3c 1-54,56-90
+  s_a917b1b15f7627::t_743d45da2123cb 55
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/patch_detection_rule.yml
+  s_a917b1b15f7627::t_492fa7c5d67b17 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/suspend_endpoint_process.yml
+  s_a917b1b15f7627::t_2e658a8638b986 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/assign_detection_alert_users.yml
+  s_a917b1b15f7627::t_09da2cb001588d 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_command.yml
+  s_a917b1b15f7627::t_533967ffafbf07 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/list_indexes.yml
+  s_a917b1b15f7627::t_f96b0d07857956 4,13-20,30-49,53,55
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/attack_discovery/search_attack_discoveries.yml
+  s_a917b1b15f7627::t_47c1a5fe34e5ce 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/set_detection_alert_status.yml
+  s_a917b1b15f7627::t_bbed035e74d660 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_response_file_info.yml
+  s_a917b1b15f7627::t_d7d2ca3ba06302 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/list_detection_signals.yml
+  s_a917b1b15f7627::t_b697cbccb40b97 3-4,9
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/cancel_response_action.yml
+  s_a917b1b15f7627::t_5b667a4e05b8b6 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/preview_detection_rule.yml
+  s_a917b1b15f7627::t_edf3040775ccd3 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint_file.yml
+  s_a917b1b15f7627::t_0585a2dc9637fe 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/search_events.yml
+  s_a917b1b15f7627::t_1c8651f266222a 4
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/entity_analytics/search_entities.yml
+  s_a917b1b15f7627::t_47c1a5fe34e5ce 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_response_actions.yml
+  s_a917b1b15f7627::t_fc233d0fafdf27 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_lists.yml
+  s_d274b6742342ad::t_63e107f625fcc1 1-3,5-52
+  s_a917b1b15f7627::t_1c8651f266222a 4
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/generate_endpoint_memory_dump.yml
+  s_a917b1b15f7627::t_9940a626518aa5 1-58
+tests/registry/test_elastic_templates.py
+  s_a917b1b15f7627::t_47c1a5fe34e5ce 69,77,143-161,387-390,434,436
+  s_a917b1b15f7627::t_3cd6a5e0ab53e1 1-32,34,36-68,70-76,78-142,162-329,334-351,353-386,391-400,403,432-433,435,437-450,467-468,470-471,480-484,491,494-499,501,504-507,509-514,516-521,523-526
+  s_a917b1b15f7627::t_8f6d7440801e77 33,35,330-333,352,469,472-479,485-490,492-493,500,502-503,508,515,522
+  s_a917b1b15f7627::t_c5b4c877c8fbad 404-431,451-466
+  s_a917b1b15f7627::t_19b6bbe1833091 401-402
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/update_detection_alert_tags.yml
+  s_a917b1b15f7627::t_4e72a2420324ba 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list_item.yml
+  s_a917b1b15f7627::t_289c900919bff7 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/terminate_endpoint_process.yml
+  s_a917b1b15f7627::t_80f152f35256fc 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_endpoint.yml
+  s_a917b1b15f7627::t_f28009af2ff4bc 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/import_detection_rules.yml
+  s_a917b1b15f7627::t_208f76dab4f78b 1-65
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/get_response_action.yml
+  s_a917b1b15f7627::t_f281cb29034ee3 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/list_endpoints.yml
+  s_a917b1b15f7627::t_59db273ab480d3 1-52
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/export_detection_rules.yml
+  s_a917b1b15f7627::t_a5f24e66bb69f0 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/run_endpoint_script.yml
+  s_a917b1b15f7627::t_d6fafd89728de6 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/create_detection_rule.yml
+  s_a917b1b15f7627::t_c1e310c5d0274f 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/indexes/get_mapping.yml
+  s_a917b1b15f7627::t_b9397ab8cd4173 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/detections/bulk_action_detection_rules.yml
+  s_a917b1b15f7627::t_c35b7169bd5689 1-58
+tracecat/expressions/functions.py
+  s_a917b1b15f7627::t_7f4b01ba1bdc3c 85
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/isolate_endpoint.yml
+  s_a917b1b15f7627::t_1e8cb200ca4a83 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/endpoint_response/release_endpoint.yml
+  s_a917b1b15f7627::t_85820a57eda405 1-58
+tests/unit/test_functions.py
+  s_a917b1b15f7627::t_6708b8e1250951 883
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/osquery/run_osquery_live_query.yml
+  s_a917b1b15f7627::t_47c1a5fe34e5ce 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/elasticsearch/queries/eql.yml
+  s_a917b1b15f7627::t_47c1a5fe34e5ce 1-53
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/create_exception_list.yml
+  s_a917b1b15f7627::t_9e0ffae597f565 1-58
+tests/registry/test_elastic_security_template.py
+  s_a917b1b15f7627::t_8fe541c9cf0691 51-83
+packages/tracecat-registry/tracecat_registry/templates/tools/elastic_security/exceptions/list_exception_list_items.yml
+  s_a917b1b15f7627::t_1c8651f266222a 4
+  s_d274b6742342ad::t_30748c39a577b8 1-3,5-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "8b7a3545788d3c2cccad21ee80daddf9b41438b7",
+  "prompts": {},
+  "sessions": {
+    "s_a917b1b15f7627": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb502-f6da-7592-8445-6a38ac6b8e94",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_d274b6742342ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc5c7-c33e-77d0-aee0-30687f0f55cd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
