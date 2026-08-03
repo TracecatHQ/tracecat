@@ -48,6 +48,39 @@ def test_expects_declares_optional_source_fields(template: TemplateAction) -> No
     assert field.type == "list[str] | dict[str, Any] | None"
 
 
+def test_legacy_action_metadata_points_to_replacement(template: TemplateAction) -> None:
+    definition = template.definition
+    replacement = "tools.elastic_security.search_detection_alerts"
+    assert definition.name == "list_detection_signals"
+    assert definition.action == "tools.elastic_security.list_detection_signals"
+    assert definition.title == "(Deprecated) List detection alerts"
+    assert replacement in definition.description
+    assert definition.deprecated is not None
+    assert replacement in definition.deprecated
+
+
+def test_legacy_runtime_contract_is_unchanged(template: TemplateAction) -> None:
+    assert set(template.definition.expects) == {
+        "start_time",
+        "end_time",
+        "query",
+        "limit",
+        "source_fields",
+        "base_url",
+        "verify_ssl",
+    }
+    assert [step.ref for step in template.definition.steps] == [
+        "search_query",
+        "build_search_payload",
+        "query_detection_alerts",
+    ]
+    request = template.definition.steps[-1]
+    assert request.args["url"].endswith("/api/detection_engine/signals/search")
+    assert (
+        template.definition.returns == "${{ steps.query_detection_alerts.result.data }}"
+    )
+
+
 def test_payload_omits_source_when_unset(build_payload) -> None:
     payload = build_payload(START, END, QUERY, 100, None)
     assert "_source" not in payload
