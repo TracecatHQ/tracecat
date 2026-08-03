@@ -1680,9 +1680,7 @@ describe("ChatSessionPane", () => {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <ChatSessionPane
-            chat={createChatFixture({
-              messages: serverMessages as AgentSessionReadVercel["messages"],
-            })}
+            chat={createChatFixture({ messages: serverMessages })}
             workspaceId="workspace-1"
             entityType="case"
             entityId="case-1"
