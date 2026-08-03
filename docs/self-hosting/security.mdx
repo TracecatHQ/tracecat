@@ -81,49 +81,134 @@ Rotation support differs by secret, and the differences matter before you plan a
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
 | `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users are not logged out. MCP refresh tokens are hashed and survive. |
 
-## Execution sandboxing
+## Isolation
 
-Tracecat executes user-defined Python scripts and actions inside the executor service. The level of isolation depends on your configuration.
+The `executor` and `agent-executor` services run code Tracecat did not write: user Python scripts, custom registry actions, and agent-generated code. Isolation is either on ([nsjail](https://github.com/google/nsjail)) or off, and off means you run trusted code only.
 
-<Warning>
-  By default, Tracecat runs with `TRACECAT__DISABLE_NSJAIL=true` and uses the `direct` executor backend. In this mode, scripts run as regular subprocesses and can access the executor's environment variables, filesystem, and network. This is acceptable for development but **not recommended for production**.
-</Warning>
+| Level | Boundary | Assume | Enable with |
+| --- | --- | --- | --- |
+| nsjail | User, PID, mount, IPC, UTS, and network namespaces; seccomp filter; resource limits; read-only rootfs. | Untrusted code and untrusted third-party dependencies. Required for multi-tenant and agent workloads. | `TRACECAT__DISABLE_NSJAIL=false` and `TRACECAT__EXECUTOR_BACKEND=ephemeral`, plus the container privileges below. |
+| None | No namespace boundary. | Trusted code and trusted dependencies only. You audit every custom action and dependency you run. | `TRACECAT__DISABLE_NSJAIL=true` and `TRACECAT__EXECUTOR_BACKEND=direct` (the Docker Compose default). |
 
-### PID namespace isolation
+### Coverage by code path
 
-The default `direct` backend provides best-effort PID namespace isolation using Linux `unshare`. This prevents scripts from inspecting other processes via `/proc`, but does not restrict filesystem or network access. It works without Docker privileged mode and is the baseline for non-sandboxed deployments.
+The two levels do not degrade uniformly. What you lose without nsjail depends on the code path.
 
-### nsjail sandbox (recommended for production)
+| Code path | nsjail on | nsjail off |
+| --- | --- | --- |
+| `core.script.run_python` | nsjail jail with all six namespaces, seccomp, and resource limits. | `unshare --pid` fallback when available; the script environment is built from scratch. |
+| Custom registry actions | nsjail, via the `ephemeral` backend or `TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`. | Plain subprocess with `setpriv --no-new-privs`; inherits the full executor environment. |
+| `ai.agent` and `stdio` MCP | nsjail with network default-deny. | Plain subprocess; environment scrubbed to a base set. |
 
-For production, enable [nsjail](https://github.com/google/nsjail) — a process isolation tool from Google that enforces:
+The registry-action row is the one to read twice: without nsjail, a custom action receives `TRACECAT__DB_URI`, `TRACECAT__DB_ENCRYPTION_KEY`, `TRACECAT__SERVICE_KEY`, and `TRACECAT__SIGNING_SECRET` in its environment.
 
-- **Filesystem isolation** — scripts can only access their job directory and explicitly mounted paths. The host filesystem is not visible.
-- **Resource limits** — CPU time, memory, file size, and process count are capped per execution. A runaway script cannot starve the host.
-- **User namespace separation** — scripts run as unprivileged users even when the container runs as root.
-- **Network access** — network is allowed (scripts need to reach databases, APIs, and S3) but constrained to the container's network namespace.
+The `unshare --pid` fallback for `run_python` is automatic, not a level you select; it is deprecated and will be removed before the 1.0.0 release. It kills the script's children when the script exits, but it does not remount `/proc` — other container processes stay visible — and it adds no filesystem or network boundary.
 
-To enable nsjail, set the following in your `.env`:
+### Requirements
 
-```bash
-TRACECAT__DISABLE_NSJAIL=false
-TRACECAT__EXECUTOR_BACKEND=ephemeral
-```
+nsjail needs privileges that container runtimes do not grant by default.
 
-nsjail requires:
-- Linux with kernel 4.6+
-- Docker privileged mode or `CAP_SYS_ADMIN` capability on the executor container
-- The nsjail binary and sandbox rootfs (included in Tracecat images)
+| Requirement | Why |
+| --- | --- |
+| Linux kernel with unprivileged user namespaces enabled | nsjail clones user, PID, mount, IPC, UTS, and network namespaces. Check the `kernel.unprivileged_userns_clone` and `user.max_user_namespaces` sysctls if it fails. |
+| `CAP_SYS_ADMIN` on the executor containers | Required to create namespaces and mounts inside the container. |
+| Seccomp, AppArmor, and SELinux must permit mount and `unshare` | Docker's default seccomp profile blocks these syscalls; the shipped overlay uses `seccomp:unconfined`. |
+| Unmasked `/proc` (`systempaths=unconfined` on Docker, `privileged` on Kubernetes) | nsjail remounts a fresh `/proc` inside the jail. |
+| `/dev/net/tun` on the executor containers | Sandbox networking uses pasta, which needs the TUN device. |
 
-<Info>
-  nsjail is not supported on macOS or Windows. These platforms can only use the `direct` backend with PID namespace isolation.
-</Info>
+AWS Fargate cannot grant these privileges. The Fargate deployment hardcodes the `direct` backend with nsjail disabled, and there is no Terraform variable to change it.
 
-### Choosing a backend
+nsjail also does not run on macOS or Windows hosts. Use those platforms for development with trusted code only.
 
-| Backend | Isolation | Latency | Use case |
-| :------ | :-------- | :------ | :------- |
-| `direct` | PID namespace only | ~50ms | Development, trusted environments |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Production, maximum isolation |
+### Enable isolation
+
+<Tabs>
+  <Tab title="Docker Compose">
+    Set both variables in your `.env`:
+
+    ```bash
+    TRACECAT__DISABLE_NSJAIL=false
+    TRACECAT__EXECUTOR_BACKEND=ephemeral
+    ```
+
+    Then start the stack with the shipped sandbox overlay, which grants the container privileges:
+
+    ```bash
+    docker compose -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+    ```
+
+    The overlay contains:
+
+    ```yaml
+    services:
+      executor:
+        cap_add:
+          - SYS_ADMIN
+        security_opt:
+          - seccomp:unconfined
+          - systempaths=unconfined
+        devices:
+          - /dev/net/tun:/dev/net/tun
+        # SquashFS registry artifact mounts need loop devices;
+        # Docker's device cgroup blocks /dev/loop* with SYS_ADMIN alone.
+        privileged: true
+
+      agent-executor:
+        cap_add:
+          - SYS_ADMIN
+        security_opt:
+          - seccomp:unconfined
+          - systempaths=unconfined
+        devices:
+          - /dev/net/tun:/dev/net/tun
+    ```
+  </Tab>
+  <Tab title="Kubernetes">
+    nsjail is the Helm chart default:
+
+    ```yaml
+    tracecat:
+      sandbox:
+        disableNsjail: false   # default
+
+    executor:
+      backend: ephemeral       # default
+
+    agentExecutor:
+      backend: ephemeral       # default
+    ```
+
+    The chart applies the required security context, seccomp profile, and TUN device to the `executor` and `agent-executor` pods itself. Your cluster must allow `privileged` pods in the release namespace, and every node that can schedule these pods must have `/dev/net/tun`.
+
+    Turning nsjail off on Kubernetes takes both `disableNsjail: true` and `backend: direct` — the `ephemeral` backend forces nsjail regardless of the flag. See [Kubernetes execution sandboxing](/self-hosting/kubernetes#execution-sandboxing) for the rendered manifests, cluster prerequisites, and this footgun in full.
+  </Tab>
+</Tabs>
+
+### Verify isolation
+
+Grep the worker logs for these exact strings:
+
+| Log line | Meaning |
+| --- | --- |
+| `Starting ExecutorWorker` with `executor_backend=<value>` | Backend selected at startup. |
+| `Auto-selecting 'ephemeral' backend (nsjail available)` | `auto` resolved to nsjail. |
+| `Auto-selecting 'direct' backend (nsjail not available)` | `auto` fell back to no isolation. |
+| `nsjail is disabled (TRACECAT__DISABLE_NSJAIL=true); running scripts without isolation. Only run code and dependencies you trust.` | `run_python` ran without isolation because you disabled nsjail. |
+| `nsjail is enabled but unavailable (binary or rootfs missing); running scripts without isolation. Only run code and dependencies you trust.` | `run_python` ran without isolation because the nsjail binary or rootfs is missing. |
+| `PID namespace isolation unavailable` with `reason=` | The `unshare` probe failed; scripts run as plain subprocesses. |
+| `Network isolation is not enforced without nsjail` | No network namespace applies. |
+| `Spawning jailed agent runtime` | Agents run inside nsjail. |
+| `Spawning agent runtime (direct subprocess - DEVELOPMENT MODE)` | Agents run without isolation. |
+
+Most of these fire per invocation, not at startup — run a workflow with a `core.script.run_python` action and an `ai.agent` action to see them. Check with `docker compose logs executor` and `docker compose logs agent-executor`, or `kubectl logs` on Kubernetes.
+
+### Best practices
+
+- Enable nsjail before running untrusted code or third-party dependencies.
+- Test your isolation: check the worker logs for the status messages above rather than trusting configuration alone.
+- Audit custom registry code and pin its dependencies when nsjail is off.
+- Set `TRACECAT__DISABLE_NSJAIL` to exactly `true` or `false`; the agent runtime accepts only those two values.
+- Keep the host kernel and Tracecat images updated.
 
 ## Authentication
 
@@ -132,6 +217,67 @@ Docker Compose deployments default to basic email/password authentication. For p
 ## TLS
 
 Never run production traffic over plain HTTP. See [TLS and certificates](/self-hosting/tls) for Caddy-based automatic TLS setup, custom certificates, and trusting internal CAs.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Which isolation level am I running?">
+    Check the executor startup log for `Starting ExecutorWorker` and its `executor_backend` value, then run a workflow and grep for the per-invocation lines in [Verify isolation](#verify-isolation).
+    Configuration alone does not answer this — `auto` resolves at startup, and fallbacks fire at invocation time.
+  </Accordion>
+
+  <Accordion title="Do I need privileged mode, or is SYS_ADMIN enough?">
+    On Docker Compose, `SYS_ADMIN` with `seccomp:unconfined` and `systempaths=unconfined` is enough for nsjail on `agent-executor`.
+    The `executor` container additionally needs `privileged: true` because SquashFS registry artifacts need loop devices, which Docker's device cgroup blocks with `SYS_ADMIN` alone.
+    On Kubernetes the chart always sets `privileged: true` because Kubernetes has no equivalent of `systempaths=unconfined`.
+  </Accordion>
+
+  <Accordion title="nsjail fails with 'Operation not permitted' — what is missing?">
+    The container lacks `CAP_SYS_ADMIN`, or a seccomp, AppArmor, or SELinux policy is blocking mount and `unshare` syscalls.
+    On Docker Compose, start the stack with the `docker-compose.sandbox.yml` overlay from [Enable isolation](#enable-isolation).
+    On Kubernetes, confirm the chart-applied `securityContext` was not stripped by admission control.
+  </Accordion>
+
+  <Accordion title="nsjail fails with a CLONE_NEWUSER error — what is missing?">
+    The host kernel is not allowing unprivileged user namespaces.
+    Check the `kernel.unprivileged_userns_clone` and `user.max_user_namespaces` sysctls on the host or node and enable them.
+  </Accordion>
+
+  <Accordion title="Can I run nsjail on macOS, Windows, or AWS Fargate?">
+    No. nsjail needs Linux namespaces and container privileges that none of these platforms provide.
+    The Fargate deployment hardcodes the `direct` backend with nsjail disabled, with no Terraform variable to change it.
+    Use Kubernetes or Docker Compose on a Linux host for isolation.
+  </Accordion>
+
+  <Accordion title="Does isolation cover custom registry actions as well as core.script.run_python?">
+    Yes, when nsjail is on: the `ephemeral` backend runs registry actions inside nsjail, and `TRACECAT__EXECUTOR_SANDBOX_ENABLED=true` does the same on the `direct` backend.
+    When nsjail is off, custom actions run as plain subprocesses that inherit the full executor environment, including database and signing credentials — see [Coverage by code path](#coverage-by-code-path).
+  </Accordion>
+
+  <Accordion title="What does the unshare fallback protect when nsjail is off?">
+    Very little: it gives `core.script.run_python` a PID namespace so the script's children are killed when it exits and builds the script environment from scratch, but it does not remount `/proc` or add a filesystem or network boundary.
+    This fallback is deprecated and will be removed before the 1.0.0 release.
+  </Accordion>
+
+  <Accordion title="My cluster enforces PodSecurity baseline or restricted — can I run nsjail?">
+    Not in that namespace. Both levels reject `privileged: true` and a non-`Default` seccomp profile, so the executor pods will not be admitted.
+    Run Tracecat in a namespace with the `privileged` PodSecurity level — see [Kubernetes execution sandboxing](/self-hosting/kubernetes#execution-sandboxing).
+  </Accordion>
+
+  <Accordion title="Executor pods will not start with a /dev/net/tun error">
+    The chart mounts `/dev/net/tun` from the node as a `hostPath` volume typed `CharDevice`, so pods fail to start on nodes without the TUN device.
+    Minimal or hardened node images are the usual cause — see [Kubernetes execution sandboxing](/self-hosting/kubernetes#execution-sandboxing).
+  </Accordion>
+
+  <Accordion title="I set disableNsjail: true but actions still fail — why?">
+    You must also set `executor.backend: direct` and `agentExecutor.backend: direct`.
+    The `ephemeral` backend forces nsjail regardless of the flag, but the chart no longer grants the privileges it needs — see [Kubernetes execution sandboxing](/self-hosting/kubernetes#execution-sandboxing).
+  </Accordion>
+
+  <Accordion title="Can I use a tighter security profile than privileged with Unconfined seccomp?">
+    Not through chart values. The container `securityContext` is hardcoded in the templates, so a tighter profile requires a post-renderer, Kustomize, or a chart fork — see [Kubernetes execution sandboxing](/self-hosting/kubernetes#execution-sandboxing).
+  </Accordion>
+</AccordionGroup>
 
 ## Related pages
 

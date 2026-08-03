@@ -387,7 +387,17 @@ External MCP clients such as coding agents authenticate to Tracecat and call too
 
 Custom Python actions, agents, agent-generated code, and local MCP processes all execute code that Tracecat did not write, on infrastructure shared between tenants. Containment therefore cannot depend on that code being correct.
 
-nsjail is the boundary. It runs by default on full-isolation profiles and applies to tenant code, third-party packages, and generated output alike. The sandbox exposes only the files and broker interfaces the run needs. General automation actions use their configured executor network policy instead.
+### Isolation
+
+nsjail is the boundary. It runs by default on full-isolation profiles and applies to tenant code, third-party packages, and generated output alike.
+
+The sandbox exposes only the files and broker interfaces the run needs. General automation actions use their configured executor network policy instead.
+
+Without nsjail, containment weakens per code path: `core.script.run_python` falls back to a PID namespace where the host permits one, with no filesystem or network boundary either way, custom registry actions run as plain subprocesses that inherit the executor environment, and agents run as plain subprocesses with a scrubbed environment. Run without nsjail only when you trust every custom action and dependency.
+
+See [Self-hosted security](/self-hosting/security#isolation) for isolation levels, requirements, and how to enable and verify nsjail.
+
+When nsjail is enabled, it provides these controls:
 
 | Layer | Control |
 | --- | --- |
@@ -514,14 +524,14 @@ See [Custom registry](/custom-actions/custom-registry) for how to declare depend
 
 ## Deployment profiles
 
-| Profile | Isolation contract | Intended use |
-| --- | --- | --- |
-| Tracecat Cloud | Tracecat manages the secure agent profile and trusted brokers.<br/>Tracecat also manages the network boundary and sandbox lifecycle. | Managed production workloads. |
-| Self-hosted Kubernetes | Helm supports nsjail and cgroup-backed isolation.<br/>Apply the required executor security context and capacity settings. | Production workloads that run untrusted code or agents. |
-| AWS Fargate | Fargate lacks the kernel capabilities required by nsjail.<br/>Tracecat uses a reduced-isolation executor profile. | Trusted Fargate workloads.<br/>Use Kubernetes for the full sandbox boundary. |
-| macOS or Windows development | The direct backend lacks the Linux nsjail boundary. | Local development with trusted code only. |
+| Profile | Isolation level | Contract | Intended use |
+| --- | --- | --- | --- |
+| Tracecat Cloud | nsjail | Tracecat manages the secure agent profile, trusted brokers, network boundary, and sandbox lifecycle. | Managed production workloads. |
+| Self-hosted Kubernetes | nsjail | The Helm chart enables nsjail by default and applies the required executor security context itself. | Production workloads that run untrusted code or agents. |
+| AWS Fargate | None | Fargate lacks the kernel capabilities nsjail requires.<br/>A move to ECS managed instances is planned. | Trusted Fargate workloads.<br/>Use Kubernetes for the full sandbox boundary. |
+| macOS or Windows development | None | The `direct` backend lacks the Linux nsjail boundary. | Local development with trusted code only. |
 
-- See [Self-hosted security](/self-hosting/security) to select an execution backend.
+- See [Self-hosted security](/self-hosting/security#isolation) to choose an isolation level and enable nsjail.
 - See [Kubernetes](/self-hosting/kubernetes#security) for the sandboxing and authentication settings the chart expects.
 
 ## Related pages
