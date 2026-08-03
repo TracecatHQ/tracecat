@@ -10,8 +10,7 @@ definition:
   secrets:
     - name: gitlab
       keys:
-        - GITLAB_API_BASE_URL
-        - GITLAB_TOKEN
+        - GITLAB_API_TOKEN
   expects:
     project_id:
       type: str
@@ -20,14 +19,18 @@ definition:
       type: dict[str, Any] | None
       description: API-native query parameters, including pagination and filters.
       default: null
+    base_url:
+      type: str | None
+      description: GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`.
+      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/deploy_keys
+        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/deploy_keys
         method: GET
         headers:
-          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
         params: ${{ inputs.params }}
   returns: ${{ steps.request.result }}

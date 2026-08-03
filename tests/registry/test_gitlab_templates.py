@@ -377,7 +377,7 @@ def load_templates() -> dict[str, RawTemplate]:
 
 
 def normalized_path(url: str) -> str:
-    url = url.removeprefix("${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}")
+    url = url.removeprefix("${{ inputs.base_url || VARS.gitlab.base_url }}")
     pattern = re.compile(
         r"\$\{\{ FN\.url_encode_component\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
     )
@@ -398,19 +398,26 @@ def test_catalog_contract() -> None:
         assert definition["secrets"] == [
             {
                 "name": "gitlab",
-                "keys": ["GITLAB_API_BASE_URL", "GITLAB_TOKEN"],
+                "keys": ["GITLAB_API_TOKEN"],
             }
         ]
+        assert definition["expects"]["base_url"] == {
+            "type": "str | None",
+            "description": (
+                "GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`."
+            ),
+            "default": None,
+        }
 
         request = definition["steps"][0]
         assert request["action"] == "core.http_request"
         assert request["args"]["method"] == method
         assert normalized_path(request["args"]["url"]) == path
         assert request["args"]["url"].startswith(
-            "${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}"
+            "${{ inputs.base_url || VARS.gitlab.base_url }}"
         )
         assert request["args"]["headers"]["PRIVATE-TOKEN"] == (
-            "${{ SECRETS.gitlab.GITLAB_TOKEN }}"
+            "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
         )
         expected_accept = (
             "application/octet-stream" if mode == "binary" else "application/json"
@@ -438,6 +445,16 @@ def test_catalog_contract() -> None:
             assert definition["returns"] == "${{ steps.poll.result }}"
         else:
             assert definition["returns"] == "${{ steps.request.result }}"
+
+        for step in definition["steps"]:
+            if step["action"] not in {"core.http_request", "core.http_poll"}:
+                continue
+            assert step["args"]["url"].startswith(
+                "${{ inputs.base_url || VARS.gitlab.base_url }}"
+            )
+            assert step["args"]["headers"]["PRIVATE-TOKEN"] == (
+                "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
+            )
 
 
 def test_project_and_nested_file_paths_are_component_encoded() -> None:

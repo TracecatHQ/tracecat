@@ -10,8 +10,7 @@ definition:
   secrets:
     - name: gitlab
       keys:
-        - GITLAB_API_BASE_URL
-        - GITLAB_TOKEN
+        - GITLAB_API_TOKEN
   expects:
     project_id:
       type: str
@@ -32,24 +31,28 @@ definition:
       type: int
       description: Maximum polling attempts.
       default: 10
+    base_url:
+      type: str | None
+      description: GitLab API v4 base URL. Falls back to `VARS.gitlab.base_url`.
+      default: null
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
+        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
         method: POST
         headers:
-          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
         params: ${{ inputs.params }}
         payload: ${{ inputs.payload }}
     - ref: poll
       action: core.http_poll
       args:
-        url: ${{ SECRETS.gitlab.GITLAB_API_BASE_URL }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
+        url: ${{ inputs.base_url || VARS.gitlab.base_url }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
         method: GET
         headers:
-          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_TOKEN }}
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
         poll_condition: "lambda response: response.get('status_code') != 202"
         poll_interval: ${{ inputs.poll_interval }}
