@@ -206,7 +206,7 @@ EXPECTED_ENDPOINTS = {
         "json",
     ),
     "get_job": ("GET", "/projects/{project_id}/jobs/{job_id}", "json"),
-    "get_job_trace": ("GET", "/projects/{project_id}/jobs/{job_id}/trace", "json"),
+    "get_job_trace": ("GET", "/projects/{project_id}/jobs/{job_id}/trace", "text"),
     "retry_job": ("POST", "/projects/{project_id}/jobs/{job_id}/retry", "json"),
     "cancel_job": ("POST", "/projects/{project_id}/jobs/{job_id}/cancel", "json"),
     "download_job_artifacts": (
@@ -333,6 +333,17 @@ EXPECTED_ENDPOINTS = {
     ),
 }
 
+EXPECTED_POLL_ENDPOINTS = {
+    "create_project_vulnerability_export_and_wait": (
+        "GET",
+        "/security/vulnerability_exports/{export_id}",
+    ),
+    "create_project_dependency_list_export_and_wait": (
+        "GET",
+        "/dependency_list_exports/{export_id}",
+    ),
+}
+
 MCP_REST_BASELINE = {
     "create_issue",
     "get_issue",
@@ -379,9 +390,12 @@ def load_templates() -> dict[str, RawTemplate]:
 def normalized_path(url: str) -> str:
     url = url.removeprefix("${{ VARS.gitlab.base_url || inputs.base_url }}")
     pattern = re.compile(
-        r"\$\{\{ FN\.url_encode_component\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
+        r"\$\{\{ FN\.url_encode\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\) \}\}"
     )
-    return pattern.sub(lambda match: "{" + match.group(1) + "}", url)
+    url = pattern.sub(lambda match: "{" + match.group(1) + "}", url)
+    return url.replace(
+        "${{ FN.url_encode(steps.request.result.data.id) }}", "{export_id}"
+    )
 
 
 def test_catalog_contract() -> None:
@@ -423,9 +437,10 @@ def test_catalog_contract() -> None:
         assert request["args"]["headers"]["PRIVATE-TOKEN"] == (
             "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
         )
-        expected_accept = (
-            "application/octet-stream" if mode == "binary" else "application/json"
-        )
+        expected_accept = {
+            "binary": "application/octet-stream",
+            "text": "text/plain",
+        }.get(mode, "application/json")
         assert request["args"]["headers"]["Accept"] == expected_accept
         assert definition["expects"]["params"]["type"] == "dict[str, Any] | None"
         assert request["args"]["params"] == "${{ inputs.params }}"
@@ -435,7 +450,7 @@ def test_catalog_contract() -> None:
             assert request["args"]["payload"] == "${{ inputs.payload }}"
 
         for input_name in re.findall(
-            r"FN\.url_encode_component\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\)",
+            r"FN\.url_encode\(inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\)",
             request["args"]["url"],
         ):
             assert input_name in definition["expects"]
@@ -444,8 +459,15 @@ def test_catalog_contract() -> None:
             assert request["args"]["follow_redirects"] is True
             assert request["args"]["base64_encode_data"] is True
             assert definition["returns"] == "${{ steps.request.result }}"
+        elif mode == "text":
+            assert request["args"]["follow_redirects"] is True
+            assert definition["returns"] == "${{ steps.request.result }}"
         elif mode == "poll":
-            assert definition["steps"][1]["action"] == "core.http_poll"
+            poll = definition["steps"][1]
+            assert poll["action"] == "core.http_poll"
+            poll_method, poll_path = EXPECTED_POLL_ENDPOINTS[name]
+            assert poll["args"]["method"] == poll_method
+            assert normalized_path(poll["args"]["url"]) == poll_path
             assert definition["returns"] == "${{ steps.poll.result }}"
         else:
             assert definition["returns"] == "${{ steps.request.result }}"
@@ -464,9 +486,8 @@ def test_catalog_contract() -> None:
 def test_project_and_nested_file_paths_are_component_encoded() -> None:
     definition = load_templates()["get_repository_file"]["definition"]
     url = definition["steps"][0]["args"]["url"]
-    assert "FN.url_encode_component(inputs.project_id)" in url
-    assert "FN.url_encode_component(inputs.file_path)" in url
-    assert "FN.url_encode(inputs.file_path)" not in url
+    assert "FN.url_encode(inputs.project_id)" in url
+    assert "FN.url_encode(inputs.file_path)" in url
 
 
 def test_bug_and_security_issue_payload_is_native() -> None:
@@ -511,7 +532,8 @@ def test_export_polling_is_bounded_and_status_code_driven() -> None:
         assert not condition({"status_code": 202, "headers": {}, "data": {}})
         assert condition({"status_code": 200, "headers": {}, "data": {}})
         assert condition({"status_code": 500, "headers": {}, "data": {}})
-        assert definition["expects"]["poll_max_attempts"]["default"] > 0
+        assert "poll_max_attempts" not in definition["expects"]
+        assert poll["args"]["poll_max_attempts"] == 10
         assert poll["args"]["method"] == "GET"
 
 

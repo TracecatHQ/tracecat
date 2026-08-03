@@ -112,7 +112,6 @@ from tracecat.expressions.functions import (
     uppercase,
     url_decode,
     url_encode,
-    url_encode_component,
     utcnow,
     wall_clock,
     weeks_between,
@@ -881,16 +880,12 @@ def test_unset_timezone(dt: datetime) -> None:
     [
         ("admin+tracecat1@gmail.com", "admin%2Btracecat1%40gmail.com"),
         ("admin+tracecat1-org@gmail.com", "admin%2Btracecat1-org%40gmail.com"),
+        ("path/segment with space", "path%2Fsegment%20with%20space"),
+        (123, "123"),
     ],
 )
-def test_url_encode(input_str: str, expected: str) -> None:
+def test_url_encode(input_str: str | int, expected: str) -> None:
     assert url_encode(input_str) == expected
-
-
-def test_url_encode_component_encodes_nested_path_separators() -> None:
-    assert url_encode_component("feature/security/report") == (
-        "feature%2Fsecurity%2Freport"
-    )
 
 
 @pytest.mark.parametrize(

@@ -30,10 +30,11 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/jobs/${{ FN.url_encode_component(inputs.job_id) }}/trace
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/jobs/${{ FN.url_encode(inputs.job_id) }}/trace
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
-          Accept: application/json
+          Accept: text/plain
         params: ${{ inputs.params }}
+        follow_redirects: true
   returns: ${{ steps.request.result }}

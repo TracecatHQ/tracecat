@@ -37,7 +37,7 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/issues/${{ FN.url_encode_component(inputs.issue_iid) }}/notes/${{ FN.url_encode_component(inputs.note_id) }}
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/issues/${{ FN.url_encode(inputs.issue_iid) }}/notes/${{ FN.url_encode(inputs.note_id) }}
         method: PUT
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}

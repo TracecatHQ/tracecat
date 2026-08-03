@@ -80,14 +80,9 @@ def slugify_(x: str) -> str:
     return slugify(x)
 
 
-def url_encode(x: str) -> str:
+def url_encode(x: str | int) -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
-    return urllib.parse.quote(x)
-
-
-def url_encode_component(x: str) -> str:
-    """Percent-encode a complete URL path component, including slashes."""
-    return urllib.parse.quote(x, safe="")
+    return urllib.parse.quote(str(x), safe="")
 
 
 def url_decode(x: str) -> str:
@@ -1081,7 +1076,6 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "url_encode": url_encode,
-    "url_encode_component": url_encode_component,
     "url_decode": url_decode,
     # Comparison
     "greater_than_or_equal": greater_than_or_equal,

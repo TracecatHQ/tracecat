@@ -27,10 +27,6 @@ definition:
       type: float | None
       description: Seconds between polling attempts; exponential backoff when omitted.
       default: null
-    poll_max_attempts:
-      type: int
-      description: Maximum polling attempts.
-      default: 10
     base_url:
       type: str
       description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
@@ -39,7 +35,7 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/dependency_list_exports
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/dependency_list_exports
         method: POST
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
@@ -49,12 +45,12 @@ definition:
     - ref: poll
       action: core.http_poll
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/dependency_list_exports/${{ FN.url_encode_component(steps.request.result.data.id) }}
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/dependency_list_exports/${{ FN.url_encode(steps.request.result.data.id) }}
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/json
         poll_condition: "lambda response: response.get('status_code') != 202"
         poll_interval: ${{ inputs.poll_interval }}
-        poll_max_attempts: ${{ inputs.poll_max_attempts }}
+        poll_max_attempts: 10
   returns: ${{ steps.poll.result }}

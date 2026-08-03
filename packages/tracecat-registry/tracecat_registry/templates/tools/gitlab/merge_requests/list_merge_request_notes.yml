@@ -30,7 +30,7 @@ definition:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/merge_requests/${{ FN.url_encode_component(inputs.merge_request_iid) }}/notes
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/merge_requests/${{ FN.url_encode(inputs.merge_request_iid) }}/notes
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
