@@ -4798,6 +4798,19 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
+ * Request for one-click connecting a platform MCP catalog entry.
+ *
+ * Carries no connection fields, so the recipe cannot be inferred from the
+ * payload; the caller names the connection option it offered.
+ */
+export type MCPCatalogConnectRequest = {
+  /**
+   * Platform MCP catalog connection option to connect
+   */
+  connection_option_id?: string | null
+}
+
+/**
  * Response for connecting a platform MCP catalog entry.
  */
 export type MCPCatalogConnectResponse = {
@@ -13447,6 +13460,7 @@ export type McpIntegrationsListPlatformMcpCatalogResponse =
 
 export type McpIntegrationsConnectPlatformMcpCatalogData = {
   catalogSlug: string
+  requestBody?: MCPCatalogConnectRequest | null
   workspaceId: string
 }
 

@@ -160,6 +160,14 @@
         "server_uri": "https://mcp.your-env-here.scanner.dev/v1/mcp",
         "credentials": [
           {
+            "key": "your-env-here",
+            "label": "Scanner environment",
+            "description": "Your Scanner environment slug, found in Scanner Settings under API URL, e.g. acme-prod. The MCP endpoint is https://mcp.<your-env-here>.scanner.dev/v1/mcp.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
             "key": "Authorization",
             "label": "Scanner API key (Authorization header)",
             "description": "Scanner API key sent as the Authorization header in the form 'Bearer <api-key>'. The key needs Read and Query permissions on the indexes you want to investigate, or team-level IndexReadAny and IndexQueryAny permissions.",

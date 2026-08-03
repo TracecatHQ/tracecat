@@ -42,6 +42,7 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPCatalogConnectRequest,
     MCPCatalogConnectResponse,
     MCPCatalogConnectStatus,
     MCPHttpIntegrationCreate,
@@ -1083,6 +1084,7 @@ async def connect_platform_mcp_catalog(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     catalog_slug: str,
+    params: Annotated[MCPCatalogConnectRequest | None, Body()] = None,
 ) -> MCPCatalogConnectResponse:
     """Create or return a workspace MCP integration from catalog defaults."""
     if role.workspace_id is None:
@@ -1094,7 +1096,8 @@ async def connect_platform_mcp_catalog(
     svc = IntegrationService(session, role=role)
     try:
         connect_result = await svc.connect_platform_mcp_catalog(
-            catalog_slug=catalog_slug
+            catalog_slug=catalog_slug,
+            connection_option_id=params.connection_option_id if params else None,
         )
     except Exception as exc:
         _raise_mcp_connect_http_error(exc)

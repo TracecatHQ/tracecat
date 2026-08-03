@@ -11797,6 +11797,7 @@ export const mcpIntegrationsListPlatformMcpCatalog = (
  * @param data The data for the request.
  * @param data.catalogSlug
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns MCPCatalogConnectResponse Successful Response
  * @throws ApiError
  */
@@ -11810,6 +11811,8 @@ export const mcpIntegrationsConnectPlatformMcpCatalog = (
       catalog_slug: data.catalogSlug,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

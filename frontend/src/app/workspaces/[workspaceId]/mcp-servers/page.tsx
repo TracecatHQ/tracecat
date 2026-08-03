@@ -216,6 +216,25 @@ function requiresCatalogConfig(entry: PlatformMCPCatalogRead) {
   return catalogConnectionSpecs(entry).some((spec) => spec.requires_config)
 }
 
+/**
+ * Connection option one-click Connect uses for a catalog entry.
+ *
+ * The request carries no connection fields, so the backend cannot infer the
+ * recipe; naming the option the card offered avoids falling back to a catalog
+ * default that may not be the one shown. Undefined for bare-spec rows, where
+ * the default is unambiguous.
+ */
+function catalogConnectOptionId(entry: PlatformMCPCatalogRead) {
+  const options = entry.connection_options ?? []
+  if (options.length < 2) {
+    return undefined
+  }
+  const connectable = options.filter(
+    (option) => !option.connection_spec.requires_config
+  )
+  return connectable.length === 1 ? connectable[0].id : undefined
+}
+
 function isCatalogEntryConnectable(entry: PlatformMCPCatalogRead) {
   return Boolean(
     entry.connection_spec ||
@@ -318,6 +337,9 @@ export default function McpServersPage() {
       await mcpIntegrationsConnectPlatformMcpCatalog({
         workspaceId,
         catalogSlug: entry.slug,
+        requestBody: {
+          connection_option_id: catalogConnectOptionId(entry),
+        },
       }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: catalogQueryKey })
