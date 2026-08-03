@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import os
 import threading
@@ -14,12 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aioboto3
-import aiofiles
 from aiobotocore.config import AioConfig
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
 from tracecat import config
+from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -894,8 +895,9 @@ async def download_file_to_path(
                         else min(download_limit, reserved_bytes)
                     )
 
-            # Unbuffered writes keep prior chunks visible to capacity scans.
-            async with aiofiles.open(temp_path, "wb", buffering=0) as f:
+            # Unbuffered writes keep prior chunks visible to capacity scans. Each
+            # executor-backed write is rejoined before the file is closed or unlinked.
+            with temp_path.open("wb", buffering=0) as output_file:
                 async for chunk in stream.iter_chunks(chunk_size=chunk_size):
                     if not chunk:
                         continue
@@ -910,7 +912,9 @@ async def download_file_to_path(
                         await ensure_capacity(len(chunk))
                     if hasher is not None:
                         hasher.update(chunk)
-                    await f.write(chunk)
+                    await run_blocking_rejoin_on_cancel(
+                        functools.partial(output_file.write, chunk)
+                    )
 
         if hasher is not None:
             actual_sha256 = hasher.hexdigest()

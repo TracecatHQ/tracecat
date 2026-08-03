@@ -955,7 +955,7 @@ class RegistryArtifactCacheStorage:
 
     def _cache_structural_footprint(self, *, allocation_unit: int) -> int:
         """Measure cache roots and non-entry data exactly once."""
-        return _directory_footprint(
+        cache_structure = _directory_footprint(
             self.cache_dir,
             allocation_unit=allocation_unit,
             pruned_directories=(
@@ -964,6 +964,36 @@ class RegistryArtifactCacheStorage:
                 self.trash_dir,
             ),
         )
+        return cache_structure + self._invalid_entry_footprint(
+            allocation_unit=allocation_unit
+        )
+
+    def _invalid_entry_footprint(self, *, allocation_unit: int) -> int:
+        """Measure non-directory children that cannot be cache entries."""
+        _validate_cache_child_directory(self.entries_dir)
+        try:
+            entries = list(os.scandir(self.entries_dir))
+        except FileNotFoundError:
+            return 0
+
+        total_bytes = 0
+        seen_inodes: set[tuple[int, int]] = set()
+        for entry in entries:
+            try:
+                entry_stat = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(entry_stat.st_mode):
+                continue
+            inode_key = (entry_stat.st_dev, entry_stat.st_ino)
+            if inode_key in seen_inodes:
+                continue
+            seen_inodes.add(inode_key)
+            total_bytes += _allocated_stat_size(
+                entry_stat,
+                allocation_unit=allocation_unit,
+            )
+        return total_bytes
 
     def _prepare_budget_roots(self) -> None:
         """Create fixed roots before measuring or retiring an entry."""

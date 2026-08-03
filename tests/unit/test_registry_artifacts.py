@@ -2259,6 +2259,26 @@ class TestRegistryArtifactCacheLease:
 class TestRegistryArtifactCacheEviction:
     """Tests for bounded eviction of registry artifact cache entries."""
 
+    def test_snapshot_accounts_for_invalid_entry_children(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Files and symlinks directly under entries remain budget-visible."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        before = cache._scan_cache_snapshot()
+        invalid_file = cache.entries_dir / "invalid-file"
+        invalid_file.write_bytes(b"x" * 65536)
+        invalid_link = cache.entries_dir / "invalid-link"
+        invalid_link.symlink_to(invalid_file)
+        allocation_unit = _filesystem_allocation_unit(temp_cache_dir)
+        invalid_bytes = _allocated_stat_size(
+            invalid_file.lstat(), allocation_unit=allocation_unit
+        ) + _allocated_stat_size(invalid_link.lstat(), allocation_unit=allocation_unit)
+
+        after = cache._scan_cache_snapshot()
+
+        assert after.entries == {}
+        assert after.structural_bytes >= before.structural_bytes + invalid_bytes
+
     def test_delete_cache_path_reports_directory_failure(self, temp_cache_dir):
         """Physical deletion failures are observable instead of suppressed."""
         entry_dir = temp_cache_dir / "entry"

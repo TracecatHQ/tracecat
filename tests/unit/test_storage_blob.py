@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -1038,6 +1039,81 @@ class TestEdgeCases:
 
         assert not out.exists()
         assert not (tmp_path / "out.bin.part").exists()
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_rejoins_cancelled_write_before_cleanup(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Cancellation cannot unlink a partial file while its write is running."""
+        write_started = threading.Event()
+        finish_write = threading.Event()
+        file_closed = threading.Event()
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"partial"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(
+            *, key: str, bucket: str, redact_log_identifiers: bool = False
+        ):  # noqa: ARG001
+            yield DummyStream(), 7
+
+        out = tmp_path / "out.bin"
+        partial_path = tmp_path / "out.bin.part"
+        original_open = Path.open
+        original_unlink = Path.unlink
+
+        class BlockingFile:
+            def __init__(self, path: Path, *args, **kwargs) -> None:
+                self._file = original_open(path, *args, **kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args) -> None:
+                self._file.close()
+                file_closed.set()
+
+            def write(self, chunk: bytes) -> int:
+                write_started.set()
+                assert finish_write.wait(timeout=5)
+                return self._file.write(chunk)
+
+        def blocking_open(path: Path, *args, **kwargs):
+            if path == partial_path:
+                return BlockingFile(path, *args, **kwargs)
+            return original_open(path, *args, **kwargs)
+
+        def checked_unlink(path: Path, *args, **kwargs):
+            if path == partial_path:
+                assert file_closed.is_set()
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+        monkeypatch.setattr(Path, "open", blocking_open)
+        monkeypatch.setattr(Path, "unlink", checked_unlink)
+
+        download = asyncio.create_task(
+            download_file_to_path(key="k", bucket="b", output_path=out)
+        )
+        assert await asyncio.to_thread(write_started.wait, 2)
+        download.cancel()
+        await asyncio.sleep(0)
+        download.cancel()
+        await asyncio.sleep(0)
+        assert not download.done()
+
+        finish_write.set()
+        with pytest.raises(asyncio.CancelledError):
+            await download
+
+        assert file_closed.is_set()
+        assert not out.exists()
+        assert not partial_path.exists()
 
     @pytest.mark.anyio
     async def test_download_file_to_path_defers_failed_partial_cleanup(
