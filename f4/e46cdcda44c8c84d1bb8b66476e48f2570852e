@@ -1,0 +1,320 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_release_by_tag.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/enable_private_vulnerability_reporting.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_combined_commit_status.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflows.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_repository.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_repository_sbom.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/get_repo_security_advisory.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/commit_code_scanning_autofix.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_dependabot_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_secret_scanning_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/enable_vulnerability_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_issue_comments.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_dependabot_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_artifacts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/disable_private_vulnerability_reporting.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/add_sub_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/list_organization_members.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/get_pull_request.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_requested_reviewers.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_files.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/update_repository.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_requests.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_repositories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/upsert_repository_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/delete_repository_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_secret_scanning_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_issues.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/get_dependabot_repository_access_policy.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/upsert_organization_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_code_scanning_default_setup.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_secret_scanning_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/create_security_advisory_fork.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/update_pull_request_branch.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/get_private_vulnerability_reporting.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_vulnerability_alert_status.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/create_or_update_repository_content.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_git_tree.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/detach_code_security_configuration.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/dispatch_workflow.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/upload_sarif_and_wait.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,38,44,55
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/generate_release_notes.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/list_organization_repositories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/set_organization_dependabot_secret_repositories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/get_organization_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/submit_pull_request_review.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,36,42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/create_release.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/list_organization_dependabot_secrets.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 30,36
+  s_00f7fa2b016a0e::t_348bbbf7dab145 4
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/list_organization_dependabot_secret_repositories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_commit.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_default_code_security_configurations.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/reprioritize_sub_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_workflow.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/update_release.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/compare_commits.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/set_dependabot_repository_access_default.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_issues.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/create_commit_status.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_workflow_run_jobs.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/list_organization_rulesets.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_secret_scanning_alert_locations.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/get_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/get_required_commit_signature_protection.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/request_security_advisory_cve.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/update_issue_comment.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/attach_code_security_configuration.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/create_issue_comment.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/remove_issue_label.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,36,42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_code_scanning_default_setup.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_commits.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/get_organization_dependabot_public_key.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_global_security_advisories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_repository_content.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_authenticated_user.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/dismiss_pull_request_review.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,36,42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_code_security_configuration.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_blocking_dependencies.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/get_organization_membership.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/list_repository_dependabot_secrets.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/remove_requested_reviewers.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/disable_vulnerability_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/get_global_security_advisory.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/merge_pull_request.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_repository_workflow_runs.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_code_scanning_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_review_comments.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/list_branches.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_code_security_configuration_repositories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/remove_sub_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/list_commits.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/list_organization_github_app_installations.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/update_branch_protection.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/update_dependabot_repository_access_policy.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_reviews.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/download_artifact.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,32,38
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_dependabot_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_organization_security_advisories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/list_outside_collaborators.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/reply_to_pull_request_review_comment.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,36,42
+tests/registry/test_github_templates.py
+  s_00f7fa2b016a0e::t_644bcf7a710fe5 922,939-946,956,963,995,1074,1081
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/add_issue_labels.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/rerun_workflow.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/delete_organization_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_labels.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/delete_repository_content.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/update_dependabot_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/update_issue.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_repository_issue_types.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/get_repository_dependabot_public_key.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/get_branch_protection.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_code_scanning_alert_instances.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_secret_scanning_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/request_pull_request_reviewers.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_releases.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/create_pull_request_review_comment.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/get_organization.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/get_workflow_run.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/add_blocked_by_dependency.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/submit_private_vulnerability_report.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/list_commit_statuses.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/rerun_failed_workflow_jobs.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/list_repo_security_advisories.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_code_scanning_alert.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/update_repo_security_advisory.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/update_pull_request.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/get_repository_collaborator_permission.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_issue_timeline_events.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/list_pull_request_commits.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_blocked_by_dependencies.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/list_repository_collaborators.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/replace_issue_labels.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/remove_blocked_by_dependency.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,36,42
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_automated_security_fixes_status.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/code/get_branch.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/get_pull_request_merge_state.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/search/search_code.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,20,26
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_code_scanning_alerts.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/submit_dependency_snapshot.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_organization_code_security_configurations.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/cancel_workflow_run.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,33,39
+packages/tracecat-registry/tracecat_registry/templates/tools/github/issues/list_sub_issues.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/posture/list_repository_rulesets.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,26,32
+packages/tracecat-registry/tracecat_registry/templates/tools/github/dependabot/get_repository_dependabot_secret.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/create_code_scanning_autofix_and_wait.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,41,47,58
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/set_default_code_security_configuration.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+packages/tracecat-registry/tracecat_registry/templates/tools/github/actions/download_workflow_job_logs.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,29,35
+packages/tracecat-registry/tracecat_registry/templates/tools/github/organization/get_organization_audit_log.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,23,29
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security_reports/create_repository_security_advisory.yml
+  s_00f7fa2b016a0e::t_2edcb692d41e4f 4,30,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "f4e46cdcda44c8c84d1bb8b66476e48f2570852e",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
