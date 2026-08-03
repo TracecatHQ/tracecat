@@ -340,6 +340,11 @@ async def _ensure_workflow(
         workflow_id = existing["id"]
 
     if workflow_id is not None:
+        if await client.has_running_executions(workspace_id, workflow_id):
+            raise FixtureError(
+                f"workflow fixture '{fixture.title}' still has running executions; "
+                "wait for them to finish before replacing it"
+            )
         # The public API has no whole-draft import endpoint for an existing
         # workflow. The reserved alias plus exact title is the ownership marker
         # that makes deletion safe; a title match alone is never sufficient.

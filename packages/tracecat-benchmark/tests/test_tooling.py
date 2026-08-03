@@ -3528,6 +3528,8 @@ def test_existing_fixture_workflow_is_replaced_from_yaml(tmp_path: Path) -> None
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append((request.method, request.url.path))
         if request.method == "GET":
+            if request.url.path.endswith("/workflow-executions/search"):
+                return httpx.Response(200, json={"items": [], "next_cursor": None})
             return httpx.Response(
                 200,
                 json={
@@ -3575,12 +3577,54 @@ def test_existing_fixture_workflow_is_replaced_from_yaml(tmp_path: Path) -> None
     assert asyncio.run(exercise()) == "current-workflow"
     assert [method for method, _path in requests] == [
         "GET",
+        "GET",
         "DELETE",
         "POST",
         "PATCH",
         "POST",
     ]
-    assert requests[1][1].endswith("/workflows/stale-workflow")
+    assert requests[1][1].endswith("/workflow-executions/search")
+    assert requests[2][1].endswith("/workflows/stale-workflow")
+
+
+def test_existing_fixture_workflow_is_not_replaced_while_running() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.deleted_workflow_ids: list[str] = []
+
+        async def list_workflows(self, _workspace_id: str) -> list[dict[str, str]]:
+            return [
+                {
+                    "id": "running-workflow",
+                    "title": "Current fixture",
+                    "alias": "scatter_load_test_fixture",
+                }
+            ]
+
+        async def has_running_executions(
+            self, _workspace_id: str, workflow_id: str
+        ) -> bool:
+            return workflow_id == "running-workflow"
+
+        async def delete_workflow(self, _workspace_id: str, workflow_id: str) -> None:
+            self.deleted_workflow_ids.append(workflow_id)
+
+    async def exercise() -> FakeClient:
+        client = FakeClient()
+        fixture = WorkflowFixture(
+            load_type=LoadType.SCATTER,
+            path="unused.yml",
+            title="Current fixture",
+            alias="scatter_load_test_fixture",
+        )
+        with pytest.raises(fixtures_module.FixtureError, match="still has running"):
+            await fixtures_module._ensure_workflow(
+                cast(TracecatClient, client), "workspace-1", fixture
+            )
+        return client
+
+    client = asyncio.run(exercise())
+    assert client.deleted_workflow_ids == []
 
 
 def test_same_title_without_fixture_alias_is_not_deleted(tmp_path: Path) -> None:
