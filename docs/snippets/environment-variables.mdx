@@ -71,11 +71,6 @@
 | :------- | :------ | :---------- |
 | `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution strategy for actions. `direct` runs a subprocess per action, `ephemeral` spawns a cold nsjail subprocess per action for full isolation, `auto` selects `ephemeral` if nsjail is available and falls back to `direct`. |
 | `TRACECAT__DISABLE_NSJAIL` | `true` | Disable nsjail sandboxing. Set to `false` only if nsjail is installed. |
-| `TRACECAT__EXECUTOR_SANDBOX_ENABLED` | `false` | Run registry actions in the nsjail sandbox on the `direct` backend. Independent of `TRACECAT__DISABLE_NSJAIL`. |
-| `TRACECAT__SANDBOX_DEFAULT_TIMEOUT` | `300` | Timeout in seconds for sandboxed action execution. |
-| `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Memory limit in MB for sandboxed action execution. |
-| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `1800` | Timeout in seconds for the agent sandbox runtime. |
-| `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | `4096` | Memory limit in MB for the agent sandbox runtime. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__COLLECTION_MANIFESTS_ENABLED` | `true` | Store large collections as chunked manifests in blob storage. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |

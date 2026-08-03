@@ -36,8 +36,6 @@ from tracecat.sandbox.utils import (
 )
 
 module_logger = logging.getLogger(__name__)
-_PID_ISOLATION_WARNING_EMITTED = False
-_NETWORK_ISOLATION_WARNING_EMITTED = False
 
 SAFE_WRAPPER_SCRIPT = '''
 import asyncio
@@ -252,6 +250,8 @@ class UnsafePidExecutor:
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "unsafe-pid-packages"
         self.uv_cache = self.cache_dir / "uv-cache"
+        self._pid_isolation_warning_emitted = False
+        self._network_isolation_warning_emitted = False
 
         self.package_cache.mkdir(parents=True, exist_ok=True)
         self.uv_cache.mkdir(parents=True, exist_ok=True)
@@ -308,18 +308,15 @@ class UnsafePidExecutor:
     async def _build_execution_cmd(
         self, python_path: str, wrapper_path: Path
     ) -> list[str]:
-        global _PID_ISOLATION_WARNING_EMITTED
         base_cmd = [python_path, str(wrapper_path)]
-        # DEPRECATED: the unshare wrap is removed before the 1.0.0 release.
-        # See pid_namespace_available in tracecat/sandbox/utils.py for why.
         if await pid_namespace_available():
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
-        if not _PID_ISOLATION_WARNING_EMITTED:
+        if not self._pid_isolation_warning_emitted:
             message = "PID namespace isolation unavailable; running script without PID isolation"
             logger.warning(message, reason=pid_namespace_probe_error())
             module_logger.warning(message)
-            _PID_ISOLATION_WARNING_EMITTED = True
+            self._pid_isolation_warning_emitted = True
         return base_cmd
 
     async def _create_venv(self, venv_path: Path) -> None:
@@ -402,16 +399,15 @@ class UnsafePidExecutor:
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> SandboxResult:
-        global _NETWORK_ISOLATION_WARNING_EMITTED
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
 
         start_time = time.time()
-        if not allow_network and not _NETWORK_ISOLATION_WARNING_EMITTED:
+        if not allow_network and not self._network_isolation_warning_emitted:
             message = "Network isolation is not enforced without nsjail; scripts may still access network"
             logger.warning(message)
             module_logger.warning(message)
-            _NETWORK_ISOLATION_WARNING_EMITTED = True
+            self._network_isolation_warning_emitted = True
 
         work_dir = Path(tempfile.mkdtemp(prefix="unsafe-pid-sandbox-"))
 

@@ -96,11 +96,6 @@ def is_nsjail_available() -> bool:
     return nsjail_path.exists() and rootfs_path.is_dir()
 
 
-# DEPRECATED: PID-namespace isolation is deprecated and will be removed before the
-# 1.0.0 release. It requires CAP_SYS_ADMIN, so it rarely activates in practice; it
-# does not pass --mount-proc, so /proc still lists other container processes; and its
-# process-tree reaping is already covered by start_new_session=True plus killpg in
-# terminate_process_group. Use nsjail for real isolation.
 async def pid_namespace_available() -> bool:
     """Check whether ``unshare --pid --fork --kill-child`` works on this host.
 
@@ -150,7 +145,6 @@ async def pid_namespace_available() -> bool:
     return _PID_NAMESPACE_AVAILABLE
 
 
-# DEPRECATED: see pid_namespace_available above.
 def pid_namespace_probe_error() -> str | None:
     """Return the cached PID namespace probe failure reason, if any."""
     return _PID_NAMESPACE_PROBE_ERROR

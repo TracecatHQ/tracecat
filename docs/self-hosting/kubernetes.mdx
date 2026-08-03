@@ -411,117 +411,17 @@ Run the chart upgrade command after updating `values.yaml`. If you set `migratio
 
 ### Execution sandboxing
 
-The chart enables nsjail by default (`tracecat.sandbox.disableNsjail: false`). nsjail isolates user Python scripts, custom registry actions, and agent runtimes inside the `executor` and `agent-executor` pods.
+The chart enables nsjail by default (`tracecat.sandbox.disableNsjail: false`). nsjail isolates user-defined Python scripts and custom actions inside the executor.
 
 ```yaml
 tracecat:
   sandbox:
-    disableNsjail: false   # default
-
-executor:
-  backend: ephemeral       # default
-
-agentExecutor:
-  backend: ephemeral       # default
+    disableNsjail: false  # default
 ```
 
-#### What the flag expands to
+nsjail requires privileged pods with `SYS_ADMIN` capability and an `Unconfined` seccomp profile. The chart sets these automatically on executor and agent-executor containers.
 
-`tracecat.sandbox.disableNsjail: false` is one boolean that fans out to four changes on both the `executor` and `agent-executor` deployments:
-
-| Rendered | Source |
-| --- | --- |
-| `TRACECAT__DISABLE_NSJAIL` env var, plus fixed nsjail binary, rootfs, and cache paths | `templates/_helpers.tpl` |
-| Container `securityContext` with `privileged: true`, `capabilities.add: [SYS_ADMIN]`, and `seccompProfile.type: Unconfined` | `templates/executor-deployment.yaml` |
-| `volumeMount` of `dev-tun` at `/dev/net/tun` | `templates/executor-deployment.yaml` |
-| `hostPath` volume for `/dev/net/tun`, typed `CharDevice` | `templates/executor-deployment.yaml` |
-
-This is the `helm template` diff of the executor Deployment with the flag toggled — lines added when nsjail is enabled:
-
-```diff
-           command: ["python", "-m", "tracecat.executor.worker"]
-+          securityContext:
-+            privileged: true
-+            capabilities:
-+              add:
-+                - SYS_ADMIN
-+            seccompProfile:
-+              type: Unconfined
- ...
-             - name: TRACECAT__DISABLE_NSJAIL
--              value: "true"
-+              value: "false"
- ...
-           volumeMounts:
-             - name: sandbox-cache
-               mountPath: /var/lib/tracecat/sandbox-cache
-             - name: tmp
-               mountPath: /tmp
-+            - name: dev-tun
-+              mountPath: /dev/net/tun
- ...
-       volumes:
-         - name: sandbox-cache
-           emptyDir: {}
-         - name: tmp
-           emptyDir: {}
-+        - name: dev-tun
-+          hostPath:
-+            path: /dev/net/tun
-+            type: CharDevice
-```
-
-The `agent-executor` Deployment renders the identical four changes.
-
-Do not confuse the two `securityContext` levels. The pod-level one is always present and comes from values:
-
-```yaml
-spec:
-  securityContext:
-    fsGroup: 1001
-    runAsUser: 1001
-```
-
-The container-level one in the diff above appears only when nsjail is enabled and is not configurable.
-
-#### Why privileged and not just SYS_ADMIN
-
-Kubernetes has no equivalent of Docker's `systempaths=unconfined`, which nsjail needs in order to remount `/proc` inside the jail. Privileged containers get an unmasked `/proc` as a side effect, so the chart uses that.
-
-The targeted alternative, `securityContext.procMount: Unmasked`, needs the `ProcMountType` feature gate, and the chart does not expose it. `privileged: true` already implies all capabilities, so the explicit `SYS_ADMIN` add is redundant while privileged is set — dropping `privileged` and keeping `SYS_ADMIN` does not produce a working configuration.
-
-#### Cluster prerequisites
-
-- PodSecurity admission must allow `privileged` in the release namespace. The `baseline` and `restricted` levels both reject `privileged: true` and a non-`Default` seccomp profile, so the pods will not be admitted.
-- Every node that can schedule `executor` or `agent-executor` must have `/dev/net/tun`. The volume is typed `CharDevice`, so the pod fails to start on nodes without it — minimal or hardened node images are the usual cause. Pin the deployments with `scheduling.nodeSelector` if only some node groups qualify.
-
-#### Turning nsjail off
-
-Set both the flag and the backends, or it does not take effect:
-
-```yaml
-tracecat:
-  sandbox:
-    disableNsjail: true
-
-executor:
-  backend: direct
-
-agentExecutor:
-  backend: direct
-```
-
-The `ephemeral` backend forces nsjail and bypasses the `TRACECAT__DISABLE_NSJAIL` check entirely. Leaving the default `backend: ephemeral` while setting `disableNsjail: true` still attempts nsjail — now without the security context or the TUN device — so registry actions fail.
-
-The agent runtime reads `TRACECAT__DISABLE_NSJAIL` directly and does fall back, so agents keep working while registry actions fail. The two halves disagreeing is what makes this hard to diagnose.
-
-#### Customizing the profile
-
-The container `securityContext` is a hardcoded literal in the chart templates. Values expose only the global pod-level `securityContext` (`fsGroup: 1001`, `runAsUser: 1001`); there is no `executor.securityContext` key.
-
-A tighter profile — a `Localhost` seccomp profile, or `procMount: Unmasked` instead of `privileged` — requires a post-renderer, Kustomize, or a chart fork.
-
-See [Security](/self-hosting/security#isolation) for isolation levels, coverage by code path, and how to verify what you are running.
+See [Security](/self-hosting/security) for backend choices (`ephemeral`, `direct`) and isolation tradeoffs.
 
 ### Authentication
 

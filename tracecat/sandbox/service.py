@@ -29,28 +29,6 @@ from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
-_NO_ISOLATION_WARNING_EMITTED = False
-
-
-def _warn_no_isolation_once() -> None:
-    """Warn once when run_python cannot use nsjail isolation."""
-    global _NO_ISOLATION_WARNING_EMITTED
-    if _NO_ISOLATION_WARNING_EMITTED:
-        return
-
-    if TRACECAT__DISABLE_NSJAIL:
-        message = (
-            "nsjail is disabled (TRACECAT__DISABLE_NSJAIL=true); running scripts "
-            "without isolation. Only run code and dependencies you trust."
-        )
-    else:
-        message = (
-            "nsjail is enabled but unavailable (binary or rootfs missing); running "
-            "scripts without isolation. Only run code and dependencies you trust."
-        )
-    logger.warning(message)
-    _NO_ISOLATION_WARNING_EMITTED = True
-
 
 def validate_run_python_script(script: str) -> tuple[bool, str | None]:
     """Validate that a Python script has the required structure for run_python.
@@ -400,7 +378,12 @@ class SandboxService:
                 action_gateway_socket=resolved_action_gateway_socket,
             )
         else:
-            _warn_no_isolation_once()
+            logger.info(
+                "nsjail not available, using unsafe PID executor. "
+                "Using PID namespace isolation when available. "
+                "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
+                "and ensure nsjail is installed with the sandbox rootfs."
+            )
             resolved_env_vars = self._with_action_gateway_socket_env(
                 env_vars,
                 socket_path=resolved_action_gateway_socket,
@@ -419,7 +402,7 @@ class SandboxService:
             if not result.success:
                 error_msg = result.error or "Unknown error"
                 logger.error(
-                    "Script execution failed (no isolation)",
+                    "Script execution failed (unsafe PID executor)",
                     error=error_msg,
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,
