@@ -81,7 +81,7 @@ Rotation support differs by secret, and the differences matter before you plan a
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
 | `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users are not logged out. MCP refresh tokens are hashed and survive. |
 
-## Execution sandboxing
+## Isolation
 
 Tracecat executes user-defined Python scripts, custom actions, and agents inside the executor service. You choose between nsjail isolation and no isolation.
 
