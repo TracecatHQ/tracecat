@@ -93,7 +93,7 @@ members = ["packages/*"]
 [tool.uv]
 # Override dependency pins to resolve conflicts between packages:
 override-dependencies = [
-    "pyasn1==0.6.3",
+    "pyasn1==0.6.4",
     "requests==2.33.0",
     "aiohttp==3.14.1",
     "uvicorn==0.35.0",

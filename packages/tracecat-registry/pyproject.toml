@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "aioboto3==15.5.0",
-    "ansible-core==2.20.4",
+    "ansible-core==2.20.7",
     "ansible-runner==2.4.0",
     "boto3==1.40.61",
     "cloudflare==5.2.0",
