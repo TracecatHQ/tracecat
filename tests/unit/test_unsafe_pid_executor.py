@@ -70,6 +70,15 @@ def main(pid_file, wait):
 
 
 class TestUnsafePidExecutor:
+    @pytest.fixture(autouse=True)
+    def reset_warning_guards(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            unsafe_pid_executor, "_PID_ISOLATION_WARNING_EMITTED", False
+        )
+        monkeypatch.setattr(
+            unsafe_pid_executor, "_NETWORK_ISOLATION_WARNING_EMITTED", False
+        )
+
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
         return UnsafePidExecutor(cache_dir=str(tmp_path))
@@ -137,8 +146,11 @@ class TestUnsafePidExecutor:
         await executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
         )
-        await executor._build_execution_cmd(
-            "python3", executor.cache_dir / "wrapper.py"
+        second_executor = UnsafePidExecutor(
+            cache_dir=str(executor.cache_dir / "second")
+        )
+        await second_executor._build_execution_cmd(
+            "python3", second_executor.cache_dir / "wrapper.py"
         )
 
         warnings = [
@@ -435,7 +447,10 @@ def main():
         caplog.set_level(logging.WARNING, logger="tracecat.sandbox.unsafe_pid_executor")
         caplog.clear()
         await executor.execute(script=script, allow_network=False)
-        await executor.execute(script=script, allow_network=False)
+        second_executor = UnsafePidExecutor(
+            cache_dir=str(executor.cache_dir / "second")
+        )
+        await second_executor.execute(script=script, allow_network=False)
         warnings = [
             record
             for record in caplog.records

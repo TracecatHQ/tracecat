@@ -271,6 +271,8 @@ async def _execute_probe_without_nsjail(
     """
     python_path = shutil.which("python3") or "python3"
     cmd = [python_path, "probe.py"]
+    # DEPRECATED: the unshare wrap is removed before the 1.0.0 release.
+    # See pid_namespace_available in tracecat/sandbox/utils.py for why.
     if await pid_namespace_available():
         cmd = ["unshare", "--pid", "--fork", "--kill-child", *cmd]
 
