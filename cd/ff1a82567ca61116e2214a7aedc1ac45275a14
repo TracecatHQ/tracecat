@@ -1,0 +1,38 @@
+tracecat/sandbox/unsafe_pid_executor.py
+  s_4b9afcbd518739::t_60347948cfaa9b 313-314
+  s_6f99b268658dcf::t_2c4d4b69ad7ea9 39-40,311,318,322,405,410,414
+tracecat/agent/mcp/stdio_probe.py
+  s_4b9afcbd518739::t_459a92c5f0a88c 274-275
+tracecat/sandbox/utils.py
+  s_4b9afcbd518739::t_efa5fc38cd290d 99-103
+  s_4b9afcbd518739::t_17c1b6d6ceb702 153
+tests/unit/test_unsafe_pid_executor.py
+  s_6f99b268658dcf::t_3e651d4c5345e8 149-151,450-452
+  s_6f99b268658dcf::t_2c4d4b69ad7ea9 73-81,152-153,453
+tracecat/sandbox/service.py
+  s_6f99b268658dcf::t_2c4d4b69ad7ea9 32-53,403,422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "cdff1a82567ca61116e2214a7aedc1ac45275a14",
+  "prompts": {},
+  "sessions": {
+    "s_4b9afcbd518739": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd74f36a-dc94-4f3c-9dea-994069c26541",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_6f99b268658dcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc551-a83d-7133-b703-b1deb1aa74df",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
