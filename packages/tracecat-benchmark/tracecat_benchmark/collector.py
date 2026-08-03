@@ -693,7 +693,8 @@ def _quote_identifier(value: str) -> str:
 
 
 def _is_sensitive_environment_name(name: str) -> bool:
-    return name.upper().endswith(SENSITIVE_ENV_SUFFIXES)
+    normalized_name = re.sub(r"_\d+$", "", name.upper())
+    return normalized_name.endswith(SENSITIVE_ENV_SUFFIXES)
 
 
 def _shareable_compose_path(value: str, repo_root: Path | None) -> str:

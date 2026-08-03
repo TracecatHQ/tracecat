@@ -2158,6 +2158,9 @@ services:
       - OAUTH_CLIENT_SECRET=sensitive-list-test-value
       - PUBLIC_URL=https://tracecat.test
       - TEMPORAL_CORS_ORIGINS=sensitive-temporal-origin-test-value
+  pgdog:
+    environment:
+      PGDOG_DATABASE_URL_1: postgresql://benchmark-user:sensitive-pgdog-password@postgres_db/tracecat_worker
 """
 
     redacted = _redact_compose_config(
@@ -2197,10 +2200,11 @@ services:
     assert "sensitive-namespace-test-value" not in redacted
     assert "sensitive-queue-test-value" not in redacted
     assert "sensitive-temporal-origin-test-value" not in redacted
+    assert "sensitive-pgdog-password" not in redacted
     assert "sensitive-build-api-url" not in redacted
     assert "sensitive-build-app-url" not in redacted
     assert "https://tracecat.test" not in redacted
-    assert redacted.count(REDACTED_ENV_VALUE) == 15
+    assert redacted.count(REDACTED_ENV_VALUE) == 16
     assert "TRACECAT__AUTH_MIN_PASSWORD_LENGTH: '12'" in redacted
     assert "NODE_ENV: development" in redacted
 
