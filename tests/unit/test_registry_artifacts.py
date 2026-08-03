@@ -2064,11 +2064,12 @@ class TestRegistryArtifactCacheEviction:
         assert (registry_paths[0] / "module.py").read_bytes() == b"x" * 32
 
     @pytest.mark.anyio
-    async def test_compression_heavy_tarball_is_rejected_before_extraction(
+    async def test_impossible_tarball_reservation_preserves_warm_entry(
         self, temp_cache_dir: Path
     ) -> None:
-        """Compressed bytes plus declared extraction cannot exceed the cache cap."""
+        """Impossible extraction cannot evict warm entries before rejection."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        warm = _write_image_entry(temp_cache_dir, "warm", size=64, mtime=100.0)
         artifact_uri = "s3://bucket/compression-heavy.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         payload = _tarball_payload(size=4096)
@@ -2101,6 +2102,9 @@ class TestRegistryArtifactCacheEviction:
                 "extract",
                 new_callable=AsyncMock,
             ) as extract,
+            patch.object(
+                cache, "_evict_entry", wraps=cache._evict_entry
+            ) as evict_entry,
         ):
             with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
                 async with cache.lease([artifact_uri]):
@@ -2109,6 +2113,8 @@ class TestRegistryArtifactCacheEviction:
         assert raised.value.additional_bytes == 4096
         assert raised.value.max_bytes == max_bytes
         extract.assert_not_awaited()
+        evict_entry.assert_not_awaited()
+        assert warm.is_file()
         assert not cache._paths_for(cache_key).entry_dir.exists()
         assert not cache.staging_dir.exists() or not any(cache.staging_dir.iterdir())
 
@@ -2289,6 +2295,39 @@ class TestRegistryArtifactCacheEviction:
         assert not older.exists()
         assert newest.exists()
         assert not any(cache.trash_dir.iterdir())
+
+    @pytest.mark.anyio
+    async def test_undeletable_trash_does_not_evict_warm_entries_for_admission(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Unreclaimed trash blocks a write without cascading eviction."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        warm = _write_image_entry(temp_cache_dir, "warm", size=32, mtime=100.0)
+        stale_trash = cache.trash_dir / "stale"
+        stale_trash.mkdir(parents=True)
+        (stale_trash / "image.squashfs").write_bytes(b"x" * 32)
+        real_delete = _delete_cache_path
+
+        def fail_stale_trash(path: Path) -> bool:
+            if path == stale_trash:
+                return False
+            return real_delete(path)
+
+        with patch(
+            "tracecat.executor.registry_artifacts._delete_cache_path",
+            side_effect=fail_stale_trash,
+        ):
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                await cache._ensure_cache_capacity(
+                    additional_bytes=16,
+                    protected_key="new",
+                    max_bytes=64,
+                )
+
+        assert raised.value.current_bytes == 64
+        assert warm.exists()
+        assert stale_trash.exists()
 
     @pytest.mark.anyio
     async def test_rename_failure_does_not_block_materialization(self, temp_cache_dir):

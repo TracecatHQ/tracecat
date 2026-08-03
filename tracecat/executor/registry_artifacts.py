@@ -1532,7 +1532,7 @@ class RegistryArtifactCache:
             raise ValueError("additional_bytes must be non-negative")
 
         async with self._budget_lock:
-            await _rejoin_future_on_cancel(
+            trash_clean, startup_clean = await _rejoin_future_on_cancel(
                 asyncio.gather(
                     asyncio.to_thread(self._clear_work_dir, self.trash_dir),
                     asyncio.to_thread(self._retry_failed_startup_cleanup),
@@ -1548,6 +1548,35 @@ class RegistryArtifactCache:
                 + staging_bytes
                 + trash_bytes
             )
+            non_evictable_bytes = (
+                staging_bytes
+                + trash_bytes
+                + sum(
+                    entry.size_bytes
+                    for entry in entries.values()
+                    if entry.cache_key == protected_key
+                    or self._refcount(entry.cache_key) > 0
+                    or (
+                        (runtime := self._runtime.get(entry.cache_key)) is not None
+                        and runtime.lock.locked()
+                    )
+                )
+            )
+            if non_evictable_bytes + additional_bytes > max_bytes:
+                raise RegistryArtifactCacheCapacityError(
+                    current_bytes=non_evictable_bytes,
+                    additional_bytes=additional_bytes,
+                    max_bytes=max_bytes,
+                )
+            if (
+                not (trash_clean and startup_clean)
+                and total_bytes + additional_bytes > max_bytes
+            ):
+                raise RegistryArtifactCacheCapacityError(
+                    current_bytes=total_bytes,
+                    additional_bytes=additional_bytes,
+                    max_bytes=max_bytes,
+                )
             skipped = {protected_key}
 
             while total_bytes + additional_bytes > max_bytes:
