@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Resolve merge request discussion
+  description: >-
+    Resolve merge request discussion. Calls PUT /projects/{project_id}/merge_requests/{merge_request_iid}/discussions/{discussion_id} directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: resolve_merge_request_discussion
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    merge_request_iid:
+      type: int
+      description: GitLab API path value for merge_request_iid.
+    discussion_id:
+      type: str
+      description: GitLab API path value for discussion_id.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+    payload:
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode_component(inputs.project_id) }}/merge_requests/${{ FN.url_encode_component(inputs.merge_request_iid) }}/discussions/${{ FN.url_encode_component(inputs.discussion_id) }}
+        method: PUT
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params: ${{ inputs.params }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}
