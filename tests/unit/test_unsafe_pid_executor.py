@@ -5,7 +5,6 @@ import contextlib
 import logging
 import os
 import signal
-import sys
 from pathlib import Path
 
 import pytest
@@ -23,12 +22,8 @@ def _process_is_running(pid: int) -> bool:
         return False
 
     stat_path = Path(f"/proc/{pid}/stat")
-    try:
-        if not stat_path.exists():
-            return True
-    except (FileNotFoundError, ProcessLookupError):
-        # Procfs can report ESRCH while resolving a process that just exited.
-        return False
+    if not stat_path.exists():
+        return True
     try:
         stat_fields = stat_path.read_text().split()
     except (FileNotFoundError, ProcessLookupError):
@@ -74,25 +69,6 @@ def main(pid_file, wait):
 """
 
 
-def _detached_background_process_script() -> str:
-    return """
-import subprocess
-import sys
-from pathlib import Path
-
-def main(pid_file):
-    child = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    Path(pid_file).write_text(str(child.pid))
-    return child.pid
-"""
-
-
 class TestUnsafePidExecutor:
     @pytest.fixture
     def executor(self, tmp_path) -> UnsafePidExecutor:
@@ -115,18 +91,6 @@ class TestUnsafePidExecutor:
 
         assert not _process_is_running(123)
 
-    def test_process_probe_handles_procfs_stat_exit_race(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        def process_disappeared(path: Path) -> bool:
-            del path
-            raise ProcessLookupError
-
-        monkeypatch.setattr(os, "kill", lambda *_: None)
-        monkeypatch.setattr(Path, "exists", process_disappeared)
-
-        assert not _process_is_running(123)
-
     @pytest.mark.anyio
     async def test_build_execution_cmd_with_pid_namespace(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
@@ -138,35 +102,10 @@ class TestUnsafePidExecutor:
             "tracecat.sandbox.unsafe_pid_executor.pid_namespace_available",
             pid_namespace_available,
         )
-        command = await executor._build_execution_cmd(
+        cmd = await executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
         )
-        assert command.argv[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
-        assert command.supervised is False
-
-    @pytest.mark.anyio
-    async def test_build_execution_cmd_without_pid_namespace_uses_linux_supervisor(
-        self,
-        executor: UnsafePidExecutor,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        async def pid_namespace_unavailable() -> bool:
-            return False
-
-        monkeypatch.setattr(
-            unsafe_pid_executor,
-            "pid_namespace_available",
-            pid_namespace_unavailable,
-        )
-        monkeypatch.setattr(unsafe_pid_executor.sys, "platform", "linux")
-
-        wrapper_path = executor.cache_dir / "wrapper.py"
-        command = await executor._build_execution_cmd("python3", wrapper_path)
-
-        assert command.argv[:2] == [sys.executable, "-I"]
-        assert Path(command.argv[2]).name == "process_supervisor.py"
-        assert command.argv[-2:] == ["python3", str(wrapper_path)]
-        assert command.supervised is True
+        assert cmd[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
 
     @pytest.mark.anyio
     async def test_pid_isolation_warning_logged_once(
@@ -250,90 +189,6 @@ class TestUnsafePidExecutor:
             unsafe_pid_executor.pid_namespace_probe_error() == "unshare probe timed out"
         )
 
-    @pytest.mark.parametrize("operation", ["create-venv", "install-packages"])
-    @pytest.mark.anyio
-    async def test_cancelled_dependency_setup_kills_process_group(
-        self,
-        executor: UnsafePidExecutor,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        operation: str,
-    ) -> None:
-        """Cancellation cannot leave package-build descendants running."""
-        pid_file = tmp_path / f"{operation}-child.pid"
-        real_create_subprocess_exec = asyncio.create_subprocess_exec
-        created_processes: list[asyncio.subprocess.Process] = []
-        setup_script = """
-import subprocess
-import sys
-import time
-from pathlib import Path
-
-child = subprocess.Popen(
-    [sys.executable, "-c", "import time; time.sleep(30)"],
-    stdin=subprocess.DEVNULL,
-)
-Path(sys.argv[1]).write_text(str(child.pid))
-time.sleep(30)
-"""
-
-        async def create_dependency_process(*args, **kwargs):
-            del args
-            assert kwargs["start_new_session"] is True
-            process = await real_create_subprocess_exec(
-                sys.executable,
-                "-c",
-                setup_script,
-                str(pid_file),
-                stdout=kwargs["stdout"],
-                stderr=kwargs["stderr"],
-                start_new_session=True,
-            )
-            created_processes.append(process)
-            return process
-
-        monkeypatch.setattr(
-            asyncio,
-            "create_subprocess_exec",
-            create_dependency_process,
-        )
-
-        if operation == "create-venv":
-            setup = executor._create_venv(tmp_path / "venv")
-        else:
-            setup = executor._install_packages(
-                tmp_path / "venv",
-                ["synthetic-package"],
-            )
-
-        task = asyncio.create_task(setup)
-        child_pid: int | None = None
-        try:
-            await _wait_for_file(pid_file)
-            child_pid = int(pid_file.read_text())
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-
-            assert len(created_processes) == 1
-            assert created_processes[0].returncode is not None
-            await _wait_for_process_exit(child_pid)
-        finally:
-            if not task.done():
-                task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
-            for process in created_processes:
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
-                if process.returncode is None:
-                    with contextlib.suppress(ProcessLookupError):
-                        process.kill()
-                await process.wait()
-            if child_pid is not None:
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(child_pid, signal.SIGKILL)
-
     @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:
         script = """
@@ -392,42 +247,6 @@ def main():
             executor.execute(
                 script=_background_process_script(),
                 inputs={"pid_file": str(pid_file), "wait": False},
-            ),
-            timeout=5,
-        )
-
-        assert result.success
-        child_pid = int(pid_file.read_text())
-        try:
-            await _wait_for_process_exit(child_pid)
-        finally:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(child_pid, signal.SIGKILL)
-
-    @pytest.mark.skipif(
-        sys.platform != "linux",
-        reason="Detached fallback containment uses the Linux subreaper supervisor",
-    )
-    @pytest.mark.anyio
-    async def test_execute_without_pid_namespace_reaps_detached_descendant(
-        self,
-        executor: UnsafePidExecutor,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        async def pid_namespace_unavailable() -> bool:
-            return False
-
-        monkeypatch.setattr(
-            unsafe_pid_executor,
-            "pid_namespace_available",
-            pid_namespace_unavailable,
-        )
-        pid_file = tmp_path / "detached-child.pid"
-        result = await asyncio.wait_for(
-            executor.execute(
-                script=_detached_background_process_script(),
-                inputs={"pid_file": str(pid_file)},
             ),
             timeout=5,
         )

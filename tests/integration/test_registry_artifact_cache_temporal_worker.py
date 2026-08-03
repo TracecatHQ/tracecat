@@ -35,8 +35,9 @@ async def temporal_env() -> AsyncGenerator[WorkflowEnvironment, None]:
 
 @dataclass(frozen=True, slots=True)
 class _ProbeResult:
-    """Runtime observations from one Temporal activity."""
+    """Runtime identity observed by one Temporal activity."""
 
+    cache_instance_id: int
     event_loop_id: int
     thread_id: int
     registry_path: str
@@ -72,6 +73,7 @@ class _RegistryCacheProbe:
             try:
                 await self.release.wait()
                 return _ProbeResult(
+                    cache_instance_id=id(self.cache),
                     event_loop_id=id(asyncio.get_running_loop()),
                     thread_id=threading.get_ident(),
                     registry_path=str(registry_paths[0]),
@@ -110,9 +112,10 @@ async def test_one_temporal_worker_uses_one_cache_loop_and_thread(
     """Protect the production async-activity ownership contract.
 
     A real Temporal worker must schedule overlapping cache users on one event
-    loop and thread and balance their leases. The explicit production-activity
-    assertion also prevents action execution from quietly moving into Temporal's
-    synchronous thread pool, the historical failure mode for async storage state.
+    loop and thread while sharing one process-wide cache instance. The explicit
+    production-activity assertion also prevents action execution from quietly
+    moving into Temporal's synchronous thread pool, the historical failure mode
+    for process-wide async storage state.
     """
     assert inspect.iscoroutinefunction(ExecutorActivities.execute_action_activity)
 
@@ -163,6 +166,7 @@ async def test_one_temporal_worker_uses_one_cache_loop_and_thread(
 
     assert probe.peak_holders == activity_count
     assert probe.active_holders == 0
+    assert {result.cache_instance_id for result in results} == {id(cache)}
     assert len({result.event_loop_id for result in results}) == 1
     assert len({result.thread_id for result in results}) == 1
     assert {result.registry_path for result in results} == {str(registry_path)}

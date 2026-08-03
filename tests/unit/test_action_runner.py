@@ -6,10 +6,8 @@ These tests cover tarball caching, cache key computation, and execution logic.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import tempfile
 import uuid
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -102,15 +100,12 @@ class TestActionRunner:
             *,
             input: bytes | None = None,  # noqa: A002
             timeout: float | None = None,
-            terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]]
-            | None = None,
         ) -> tuple[bytes, bytes]:
             if isinstance(process, asyncio.subprocess.Process):
                 return await real_communication(
                     process,
                     input=input,
                     timeout=timeout,
-                    terminate=terminate,
                 )
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=input),
@@ -532,10 +527,9 @@ class TestActionRunner:
         temp_cache_dir,
         mock_run_action_input,
         mock_role,
-        mock_process_group_communication: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test Linux direct execution isolates and drops supervisor privileges."""
+        """Test direct subprocess execution disables new Linux privileges."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -579,17 +573,8 @@ class TestActionRunner:
             "--inh-caps=-all",
             "--ambient-caps=-all",
         ]
-        assert captured_args[-5] == action_runner.sys.executable
-        assert captured_args[-4] == "-I"
-        assert captured_args[-3].endswith("process_supervisor.py")
         assert captured_args[-2] == action_runner.sys.executable
         assert captured_args[-1].endswith("minimal_runner.py")
-        communication_call = mock_process_group_communication.await_args
-        assert communication_call is not None
-        assert (
-            communication_call.kwargs["terminate"]
-            is action_runner.terminate_supervised_process
-        )
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(
@@ -664,7 +649,6 @@ class TestActionRunner:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
         entry_dir.mkdir(parents=True)
-        await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
             action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
@@ -694,23 +678,15 @@ class TestActionRunner:
             env = kwargs.get("env")
             assert isinstance(env, dict)
             registry_paths.append(env["PYTHONPATH"])
-            (entry_dir / "action-output.bin").write_bytes(b"x" * 4096)
 
             mock_proc = AsyncMock()
             mock_proc.returncode = 0
             mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
             return mock_proc
 
-        with (
-            patch(
-                "asyncio.create_subprocess_exec",
-                side_effect=create_subprocess_exec_side_effect,
-            ),
-            patch.object(
-                runner.registry_artifacts,
-                "_scan_cache_entries",
-                wraps=runner.registry_artifacts._scan_cache_entries,
-            ) as scan_cache_entries,
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
         ):
             result = await runner.execute_action(
                 input=mock_run_action_input,
@@ -724,7 +700,6 @@ class TestActionRunner:
         assert refcounts == [1]
         assert registry_paths[0].startswith(str(entry_dir))
         assert runner.registry_artifacts._refcount(cache_key) == 0
-        assert scan_cache_entries.call_count == 1
 
     @pytest.mark.anyio
     async def test_cancelled_action_reaps_child_before_releasing_mounted_artifact(
@@ -772,10 +747,7 @@ class TestActionRunner:
         )
 
         real_create_subprocess_exec = asyncio.create_subprocess_exec
-        real_terminate_supervised_process = action_runner.terminate_supervised_process
         process_started = asyncio.Event()
-        termination_started = asyncio.Event()
-        finish_termination = asyncio.Event()
         process: asyncio.subprocess.Process | None = None
         reaped_before_unmount: list[bool] = []
 
@@ -785,13 +757,6 @@ class TestActionRunner:
             process_started.set()
             return process
 
-        async def controlled_termination(
-            requested_process: asyncio.subprocess.Process,
-        ) -> None:
-            termination_started.set()
-            await finish_termination.wait()
-            await real_terminate_supervised_process(requested_process)
-
         async def release_mount(mount_dir: Path) -> bool:
             reaped_before_unmount.append(
                 process is not None and process.returncode is not None
@@ -800,11 +765,7 @@ class TestActionRunner:
             return True
 
         with (
-            patch.object(action_runner.sys, "platform", "linux"),
-            patch(
-                "tracecat.executor.registry_artifact_mounts.is_mount",
-                lambda path: path in mounted,
-            ),
+            patch.object(Path, "is_mount", lambda path: path in mounted),
             patch.object(
                 action_runner,
                 "_direct_subprocess_command",
@@ -813,11 +774,6 @@ class TestActionRunner:
             patch(
                 "tracecat.executor.action_runner.asyncio.create_subprocess_exec",
                 side_effect=capture_subprocess,
-            ),
-            patch.object(
-                action_runner,
-                "terminate_supervised_process",
-                side_effect=controlled_termination,
             ),
             patch.object(cache, "_unmount", side_effect=release_mount),
         ):
@@ -831,26 +787,13 @@ class TestActionRunner:
                 )
             )
             try:
-                await asyncio.wait_for(process_started.wait(), timeout=5)
+                await process_started.wait()
                 assert cache._refcount(cache_key) == 1
                 execution.cancel()
-                await termination_started.wait()
 
-                execution.cancel()
-                await asyncio.sleep(0)
-                assert not execution.done()
-                assert cache._refcount(cache_key) == 1
-                assert paths.squashfs_mount_dir in mounted
-
-                finish_termination.set()
                 with pytest.raises(asyncio.CancelledError):
                     await execution
             finally:
-                finish_termination.set()
-                if not execution.done():
-                    execution.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await execution
                 if process is not None and process.returncode is None:
                     process.kill()
                     await process.wait()

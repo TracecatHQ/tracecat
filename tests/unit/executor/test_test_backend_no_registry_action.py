@@ -12,8 +12,8 @@ import asyncio
 import sys
 import threading
 import uuid
-from collections.abc import AsyncIterator, Awaitable
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -29,7 +29,6 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.executor.backends.test import TestBackend
-from tracecat.executor.registry_artifacts import bundled_builtin_registry_uri
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorResult,
@@ -106,31 +105,6 @@ def test_run_action_input() -> RunActionInput:
 
 class TestTestBackendNoRegistryAction:
     """Test that TestBackend does not query RegistryActionsService."""
-
-    def test_backend_instances_do_not_share_loop_affine_cache(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """Function-scoped backends can run in successive pytest event loops."""
-        monkeypatch.setattr(
-            "tracecat.executor.backends.test.config"
-            ".TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR",
-            str(tmp_path),
-        )
-        first_backend = TestBackend()
-        second_backend = TestBackend()
-
-        async def sweep(backend: TestBackend) -> None:
-            await backend._registry_artifact_cache().ensure_swept()
-
-        asyncio.run(sweep(first_backend))
-        asyncio.run(sweep(second_backend))
-
-        assert (
-            first_backend._registry_artifact_cache()
-            is not second_backend._registry_artifact_cache()
-        )
 
     @pytest.mark.anyio
     async def test_execute_udf_without_db_lookup(
@@ -297,18 +271,11 @@ class TestTestBackendNoRegistryAction:
             def __init__(self) -> None:
                 self.active = 0
 
-            async def ensure_swept(self) -> None:
-                pass
-
             @asynccontextmanager
             async def lease(
-                self,
-                artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
+                self, artifact_uris: list[str] | None = None
             ) -> AsyncIterator[list[Path]]:
-                assert paths_may_be_modified is True
-                if broken_uri in (artifact_uris or []):
+                if artifact_uris == [broken_uri]:
                     raise RuntimeError("artifact unavailable")
                 self.active += 1
                 try:
@@ -336,9 +303,8 @@ class TestTestBackendNoRegistryAction:
                 False,
             )
             monkeypatch.setattr(
-                backend,
-                "_registry_artifact_cache",
-                lambda: fake_runner.registry_artifacts,
+                "tracecat.executor.backends.test.get_action_runner",
+                lambda: fake_runner,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
             monkeypatch.setattr(
@@ -369,126 +335,6 @@ class TestTestBackendNoRegistryAction:
             await backend.shutdown()
 
     @pytest.mark.anyio
-    async def test_execute_surfaces_registry_cache_sweep_failure(
-        self,
-        test_role: Role,
-        test_run_action_input: RunActionInput,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Global cache inspection errors are not treated as one bad artifact."""
-        artifact_uri = "s3://bucket/registry.tar.gz"
-
-        class FakeRegistryArtifacts:
-            def __init__(self) -> None:
-                self.lease_attempted = False
-
-            async def ensure_swept(self) -> None:
-                raise PermissionError("cannot inspect registry cache")
-
-            @asynccontextmanager
-            async def lease(
-                self,
-                artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
-            ) -> AsyncIterator[list[Path]]:
-                del artifact_uris, paths_may_be_modified
-                self.lease_attempted = True
-                yield []
-
-        class FakeActionRunner:
-            def __init__(self) -> None:
-                self.registry_artifacts = FakeRegistryArtifacts()
-
-        fake_runner = FakeActionRunner()
-
-        async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
-            return [artifact_uri]
-
-        backend = TestBackend()
-        monkeypatch.setattr(
-            "tracecat.executor.backends.test.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
-            False,
-        )
-        monkeypatch.setattr(
-            backend,
-            "_registry_artifact_cache",
-            lambda: fake_runner.registry_artifacts,
-        )
-        monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
-
-        with pytest.raises(PermissionError, match="cannot inspect registry cache"):
-            async with AsyncExitStack() as leases:
-                await backend._lease_registry_artifacts(
-                    leases,
-                    test_run_action_input,
-                    test_role,
-                )
-
-        assert fake_runner.registry_artifacts.lease_attempted is False
-
-    @pytest.mark.anyio
-    async def test_builtin_only_execution_skips_registry_cache_sweep(
-        self,
-        test_role: Role,
-        test_run_action_input: RunActionInput,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Cache-free builtin execution is independent of cache inspection."""
-        artifact_uri = bundled_builtin_registry_uri("1.2.3")
-
-        class FakeRegistryArtifacts:
-            def __init__(self) -> None:
-                self.sweep_attempted = False
-                self.lease_attempted = False
-
-            async def ensure_swept(self) -> None:
-                self.sweep_attempted = True
-                raise PermissionError("cannot inspect registry cache")
-
-            @asynccontextmanager
-            async def lease(
-                self,
-                artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
-            ) -> AsyncIterator[list[Path]]:
-                assert artifact_uris == [artifact_uri]
-                assert paths_may_be_modified is False
-                self.lease_attempted = True
-                yield []
-
-        registry_artifacts = FakeRegistryArtifacts()
-
-        async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
-            return [artifact_uri]
-
-        backend = TestBackend()
-        monkeypatch.setattr(
-            "tracecat.executor.backends.test.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
-            False,
-        )
-        monkeypatch.setattr(
-            backend,
-            "_registry_artifact_cache",
-            lambda: registry_artifacts,
-        )
-        monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
-
-        async with AsyncExitStack() as leases:
-            assert (
-                await backend._lease_registry_artifacts(
-                    leases,
-                    test_run_action_input,
-                    test_role,
-                )
-                == []
-            )
-
-        assert registry_artifacts.sweep_attempted is False
-        assert registry_artifacts.lease_attempted is True
-
-    @pytest.mark.anyio
     async def test_timed_out_sync_udf_keeps_artifact_lease_until_thread_finishes(
         self,
         test_role: Role,
@@ -503,24 +349,16 @@ class TestTestBackendNoRegistryAction:
         artifact_uri = "s3://bucket/sync-timeout.tar.gz"
         worker_started = threading.Event()
         finish_worker = threading.Event()
-        timeout_triggered = asyncio.Event()
 
         class FakeRegistryArtifacts:
             def __init__(self) -> None:
                 self.active = 0
 
-            async def ensure_swept(self) -> None:
-                pass
-
             @asynccontextmanager
             async def lease(
-                self,
-                artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
+                self, artifact_uris: list[str] | None = None
             ) -> AsyncIterator[list[Path]]:
                 assert artifact_uris == [artifact_uri]
-                assert paths_may_be_modified is True
                 self.active += 1
                 try:
                     yield [artifact_path]
@@ -541,21 +379,6 @@ class TestTestBackendNoRegistryAction:
             assert finish_worker.wait(timeout=5)
             return "finished"
 
-        async def wait_for_after_worker_started[T](
-            awaitable: Awaitable[T],
-            timeout: float | None,
-        ) -> T:
-            """Drive wait_for cancellation only after the UDF thread exists."""
-            del timeout
-            task = asyncio.ensure_future(awaitable)
-            assert await asyncio.to_thread(worker_started.wait, 1)
-            task.cancel()
-            timeout_triggered.set()
-            try:
-                return await task
-            except asyncio.CancelledError as e:
-                raise TimeoutError from e
-
         backend = TestBackend()
         await backend.start()
         execution: asyncio.Task[ExecutorResult] | None = None
@@ -566,9 +389,8 @@ class TestTestBackendNoRegistryAction:
                 False,
             )
             monkeypatch.setattr(
-                backend,
-                "_registry_artifact_cache",
-                lambda: fake_runner.registry_artifacts,
+                "tracecat.executor.backends.test.get_action_runner",
+                lambda: fake_runner,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
             monkeypatch.setattr(
@@ -576,17 +398,17 @@ class TestTestBackendNoRegistryAction:
                 "_load_udf_callable",
                 lambda _action_impl: blocking_udf,
             )
-            monkeypatch.setattr(asyncio, "wait_for", wait_for_after_worker_started)
 
             execution = asyncio.create_task(
                 backend.execute(
                     input=test_run_action_input,
                     role=test_role,
                     resolved_context=test_resolved_context,
-                    timeout=30.0,
+                    timeout=0.01,
                 )
             )
-            await timeout_triggered.wait()
+            assert await asyncio.to_thread(worker_started.wait, 1)
+            await asyncio.sleep(0.05)
 
             assert not execution.done()
             assert fake_runner.registry_artifacts.active == 1

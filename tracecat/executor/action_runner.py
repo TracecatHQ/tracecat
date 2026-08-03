@@ -45,10 +45,7 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
-from tracecat.sandbox.utils import (
-    communicate_process_group,
-    terminate_supervised_process,
-)
+from tracecat.sandbox.utils import communicate_process_group
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -121,17 +118,11 @@ def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
     if setpriv is None:
         raise RuntimeError("setpriv is required for direct action subprocess isolation")
 
-    supervisor_path = Path(__file__).with_name("process_supervisor.py")
     return [
         setpriv,
         "--no-new-privs",
         "--inh-caps=-all",
         "--ambient-caps=-all",
-        sys.executable,
-        # Keep registry-controlled PYTHONPATH out of the supervisor interpreter.
-        # Isolated mode leaves the environment intact for the nested action.
-        "-I",
-        str(supervisor_path),
         *runner_command,
     ]
 
@@ -181,19 +172,15 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Direct subprocesses receive host paths and can modify extracted
-        # artifacts. NsJail exposes the same paths through read-only bind mounts.
-        use_sandbox = force_sandbox or (
-            config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
-        )
-
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
         # cannot delete a directory the subprocess is still importing from.
-        async with self.registry_artifacts.lease(
-            artifact_uris,
-            paths_may_be_modified=not use_sandbox,
-        ) as registry_paths:
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
+            # Check if sandbox execution is enabled and available
+            # force_sandbox=True overrides config (used by ephemeral backend)
+            use_sandbox = force_sandbox or (
+                config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
+            )
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
@@ -456,9 +443,6 @@ class ActionRunner:
                 proc,
                 input=input_json,
                 timeout=timeout,
-                terminate=(
-                    terminate_supervised_process if sys.platform == "linux" else None
-                ),
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(

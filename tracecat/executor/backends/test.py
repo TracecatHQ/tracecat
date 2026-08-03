@@ -18,10 +18,10 @@ document it, recommend it, or factor it into executor design decisions.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 import threading
 from contextlib import AsyncExitStack, contextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
@@ -37,14 +37,9 @@ from tracecat.contexts import (
     ctx_session_id,
 )
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
-from tracecat.executor.registry_artifact_materialization import (
-    _artifact_uri_for_logging,
-    _is_cache_entry_uri,
-    _run_blocking_rejoin_on_cancel,
-)
-from tracecat.executor.registry_artifacts import RegistryArtifactCache
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -111,21 +106,6 @@ def _temporary_sys_path(paths: list[str]) -> Iterator[None]:
 
 class TestBackend(ExecutorBackend):
     """In-process execution backend for tests only."""
-
-    __test__ = False
-
-    def __init__(self) -> None:
-        # Pytest creates a backend inside each function-scoped event loop. Keep
-        # its loop-affine cache on the same lifecycle instead of reusing the
-        # process-global ActionRunner cache across closed test loops.
-        self._owned_registry_artifacts: RegistryArtifactCache | None = None
-
-    def _registry_artifact_cache(self) -> RegistryArtifactCache:
-        if self._owned_registry_artifacts is None:
-            self._owned_registry_artifacts = RegistryArtifactCache(
-                Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
-            )
-        return self._owned_registry_artifacts
 
     async def _execute(
         self,
@@ -268,7 +248,21 @@ class TestBackend(ExecutorBackend):
         leases, temporary ``sys.path`` entries, and secret contexts alive until
         the function actually stops.
         """
-        return await _run_blocking_rejoin_on_cancel(lambda: fn(**args))
+        worker = asyncio.ensure_future(asyncio.to_thread(fn, **args))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not worker.cancelled():
+                with contextlib.suppress(Exception):
+                    worker.result()
+            raise
 
     def _load_udf_callable(self, action_impl: ActionImplementation):
         """Load the UDF callable from action_impl metadata."""
@@ -314,32 +308,21 @@ class TestBackend(ExecutorBackend):
             logger.debug("No artifact URIs found, using empty paths")
             return []
 
-        registry_artifacts = self._registry_artifact_cache()
-        if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
-            await registry_artifacts.ensure_swept()
+        registry_artifacts = get_action_runner().registry_artifacts
         extracted_paths: list[str] = []
-        mutable_rescan_registered = False
 
         for artifact_uri in artifact_uris:
-            rescan_on_release = not mutable_rescan_registered and _is_cache_entry_uri(
-                artifact_uri
-            )
             try:
                 artifact_paths = await leases.enter_async_context(
-                    registry_artifacts.lease(
-                        [artifact_uri],
-                        paths_may_be_modified=rescan_on_release,
-                    )
+                    registry_artifacts.lease([artifact_uri])
                 )
             except Exception as e:
                 logger.warning(
                     "Failed to materialize artifact for test execution",
-                    artifact_uri=_artifact_uri_for_logging(artifact_uri),
+                    artifact_uri=artifact_uri,
                     error=str(e),
                 )
                 continue
-            if rescan_on_release:
-                mutable_rescan_registered = True
             extracted_paths.extend(str(path) for path in artifact_paths)
 
         logger.debug(

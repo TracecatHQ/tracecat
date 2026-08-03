@@ -2,14 +2,13 @@
 
 import asyncio
 import hashlib
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import ClientError
 
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
@@ -706,81 +705,6 @@ class TestEdgeCases:
             assert length == 123
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_open_download_stream_redacts_sensitive_client_error(
-        self, mock_get_client
-    ):
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": "denied tenant-key/org/repository",
-                }
-            },
-            operation_name="get_object",
-        )
-
-        with (
-            patch("tracecat.storage.blob.logger.error") as log_error,
-            pytest.raises(blob_module.StorageDownloadError) as exc_info,
-        ):
-            async with open_download_stream(
-                key="tenant-key/org/repository",
-                bucket="tenant-bucket",
-                redact_log_identifiers=True,
-            ):
-                pass
-
-        assert str(exc_info.value) == "Storage download failed"
-        assert exc_info.value.error_code == "AccessDenied"
-        assert exc_info.value.__cause__ is None
-        log_error.assert_called_once_with(
-            "Failed to open download stream",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_open_download_stream_redacts_sensitive_transport_error(
-        self,
-        mock_get_client,
-    ) -> None:
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        sensitive_endpoint = "https://tenant-bucket.invalid/tenant-key/org/repository"
-        mock_client.get_object.side_effect = EndpointConnectionError(
-            endpoint_url=sensitive_endpoint
-        )
-
-        with (
-            patch("tracecat.storage.blob.logger.error") as log_error,
-            pytest.raises(blob_module.StorageDownloadError) as exc_info,
-        ):
-            async with open_download_stream(
-                key="tenant-key/org/repository",
-                bucket="tenant-bucket",
-                redact_log_identifiers=True,
-            ):
-                pass
-
-        assert str(exc_info.value) == "Storage download failed"
-        assert exc_info.value.error_code is None
-        assert exc_info.value.__cause__ is None
-        log_error.assert_called_once_with(
-            "Failed to open download stream",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code=None,
-            error_type="EndpointConnectionError",
-        )
-        assert sensitive_endpoint not in repr(log_error.call_args)
-
-    @pytest.mark.anyio
     async def test_download_file_to_path_writes_bytes(
         self, tmp_path: Path, monkeypatch
     ):
@@ -815,85 +739,6 @@ class TestEdgeCases:
 
         assert bytes_written == 11
         assert out.read_bytes() == b"hello world"
-
-    @pytest.mark.anyio
-    async def test_download_file_to_path_redacts_sensitive_success_log(
-        self, tmp_path: Path, monkeypatch
-    ):
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"payload"
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(
-            *,
-            key: str,
-            bucket: str,
-            redact_log_identifiers: bool,
-        ):
-            assert key == "tenant-key/org/repository"
-            assert bucket == "tenant-bucket"
-            assert redact_log_identifiers is True
-            yield DummyStream(), 7
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-        out = tmp_path / "out.bin"
-
-        with patch("tracecat.storage.blob.logger.debug") as log_debug:
-            await download_file_to_path(
-                key="tenant-key/org/repository",
-                bucket="tenant-bucket",
-                output_path=out,
-                redact_log_identifiers=True,
-            )
-
-        log_debug.assert_called_once_with(
-            "File streamed to disk successfully",
-            key="<redacted>",
-            bucket="<redacted>",
-            output_path=str(out),
-            size=7,
-        )
-
-    @pytest.mark.anyio
-    async def test_download_file_to_path_redacts_sensitive_capacity_error(
-        self, tmp_path: Path, monkeypatch
-    ):
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"payload"
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(
-            *,
-            key: str,  # noqa: ARG001
-            bucket: str,  # noqa: ARG001
-            redact_log_identifiers: bool,
-        ):
-            assert redact_log_identifiers is True
-            yield DummyStream(), 7
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-
-        with pytest.raises(ValueError) as exc_info:
-            await download_file_to_path(
-                key="tenant-key/org/repository",
-                bucket="tenant-bucket",
-                output_path=tmp_path / "out.bin",
-                max_bytes=5,
-                redact_log_identifiers=True,
-            )
-
-        message = str(exc_info.value)
-        assert "tenant-key" not in message
-        assert "tenant-bucket" not in message
-        assert "<redacted>/<redacted>" in message
 
     @pytest.mark.anyio
     async def test_download_file_to_path_max_bytes_refuses(
@@ -962,49 +807,6 @@ class TestEdgeCases:
 
         assert reservations == [7]
         assert out.read_bytes() == b"payload"
-
-    @pytest.mark.anyio
-    async def test_download_file_to_path_grows_unknown_length_reservation(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """Unknown-length downloads reserve each chunk above current usage."""
-
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"abc"
-                yield b"defg"
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
-            yield DummyStream(), None
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-
-        out = tmp_path / "out.bin"
-        temp_path = tmp_path / "out.bin.part"
-        reservations: list[int] = []
-        partial_sizes: list[int] = []
-
-        async def ensure_capacity(size_bytes: int) -> None:
-            partial_size = temp_path.stat().st_size
-            assert 2 + partial_size + size_bytes <= 10
-            reservations.append(size_bytes)
-            partial_sizes.append(partial_size)
-
-        await download_file_to_path(
-            key="k",
-            bucket="b",
-            output_path=out,
-            max_bytes=10,
-            ensure_capacity=ensure_capacity,
-        )
-
-        assert reservations == [3, 4]
-        assert partial_sizes == [0, 3]
-        assert out.read_bytes() == b"abcdefg"
 
     @pytest.mark.anyio
     async def test_download_file_to_path_never_exceeds_reserved_length(
@@ -1077,46 +879,6 @@ class TestEdgeCases:
         assert not (tmp_path / "out.bin.part").exists()
 
     @pytest.mark.anyio
-    async def test_download_file_to_path_defers_failed_partial_cleanup(
-        self,
-        tmp_path: Path,
-        monkeypatch,
-    ):
-        """A failed partial unlink remains available for runtime cleanup."""
-
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"hello"
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
-            yield DummyStream(), 5
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-
-        out = tmp_path / "out.bin"
-        temp_path = tmp_path / "out.bin.part"
-        deferred_paths: list[Path] = []
-        expected_sha256 = hashlib.sha256(b"hello").hexdigest()
-        with (
-            patch.object(Path, "unlink", side_effect=PermissionError("busy")),
-            pytest.raises(ValueError, match="Integrity check failed"),
-        ):
-            await download_file_to_path(
-                key="k",
-                bucket="b",
-                output_path=out,
-                expected_sha256=expected_sha256 + "bad",
-                defer_cleanup=deferred_paths.append,
-            )
-
-        assert temp_path.exists()
-        assert deferred_paths == [temp_path]
-
-    @pytest.mark.anyio
     async def test_download_file_to_path_cancellation_cleans_partial(
         self, tmp_path: Path, monkeypatch
     ):
@@ -1155,153 +917,6 @@ class TestEdgeCases:
 
         assert not out.exists()
         assert not (tmp_path / "out.bin.part").exists()
-
-    @pytest.mark.anyio
-    async def test_download_file_to_path_cancellation_rejoins_active_write(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """Cancellation cannot unlink a partial file under an active writer."""
-        write_started = threading.Event()
-        write_release = threading.Event()
-        write_finished = threading.Event()
-        temp_path = tmp_path / "out.bin.part"
-
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"partial"
-
-        class BlockingFile:
-            async def __aenter__(self):
-                temp_path.touch()
-                return self
-
-            async def __aexit__(self, exc_type, exc, traceback):
-                del exc_type, exc, traceback
-
-            async def write(self, chunk: bytes) -> int:
-                def blocking_write() -> int:
-                    write_started.set()
-                    write_release.wait()
-                    temp_path.write_bytes(chunk)
-                    write_finished.set()
-                    return len(chunk)
-
-                return await asyncio.to_thread(blocking_write)
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
-            yield DummyStream(), len(b"partial")
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.blob.aiofiles.open",
-            lambda *args, **kwargs: BlockingFile(),
-        )
-
-        out = tmp_path / "out.bin"
-        download = asyncio.create_task(
-            download_file_to_path(
-                key="k",
-                bucket="b",
-                output_path=out,
-            )
-        )
-        try:
-            assert await asyncio.to_thread(write_started.wait, 1.0)
-
-            download.cancel()
-            await asyncio.sleep(0)
-            assert not download.done()
-            assert temp_path.exists()
-
-            download.cancel()
-            await asyncio.sleep(0)
-            assert not download.done()
-            assert temp_path.exists()
-        finally:
-            write_release.set()
-
-        with pytest.raises(asyncio.CancelledError):
-            await download
-
-        assert write_finished.is_set()
-        assert not out.exists()
-        assert not temp_path.exists()
-
-    @pytest.mark.anyio
-    async def test_download_file_to_path_cancellation_rejoins_active_open(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """Cancellation cannot race cleanup against the aiofiles open worker."""
-        open_started = threading.Event()
-        open_release = threading.Event()
-        open_finished = threading.Event()
-        close_finished = threading.Event()
-        temp_path = tmp_path / "out.bin.part"
-
-        class DummyStream:
-            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
-                yield b"unused"
-
-        class BlockingFile:
-            async def __aenter__(self):
-                def blocking_open():
-                    open_started.set()
-                    open_release.wait()
-                    temp_path.touch()
-                    open_finished.set()
-                    return self
-
-                return await asyncio.to_thread(blocking_open)
-
-            async def __aexit__(self, exc_type, exc, traceback):
-                del exc_type, exc, traceback
-                close_finished.set()
-
-        @asynccontextmanager
-        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
-            yield DummyStream(), len(b"unused")
-
-        monkeypatch.setattr(
-            "tracecat.storage.blob.open_download_stream",
-            _fake_open_download_stream,
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.blob.aiofiles.open",
-            lambda *args, **kwargs: BlockingFile(),
-        )
-
-        out = tmp_path / "out.bin"
-        download = asyncio.create_task(
-            download_file_to_path(
-                key="k",
-                bucket="b",
-                output_path=out,
-            )
-        )
-        try:
-            assert await asyncio.to_thread(open_started.wait, 1.0)
-
-            download.cancel()
-            await asyncio.sleep(0)
-            assert not download.done()
-
-            download.cancel()
-            await asyncio.sleep(0)
-            assert not download.done()
-        finally:
-            open_release.set()
-
-        with pytest.raises(asyncio.CancelledError):
-            await download
-
-        assert open_finished.is_set()
-        assert close_finished.is_set()
-        assert not out.exists()
-        assert not temp_path.exists()
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

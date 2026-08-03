@@ -573,7 +573,7 @@ async def _run_executor_action_smoke_case(
             # path instead of attempting a loopback mount.
             patches.append(
                 patch(
-                    "tracecat.executor.registry_artifact_materialization.shutil.which",
+                    "tracecat.executor.registry_artifacts.shutil.which",
                     return_value=None,
                 )
             )
@@ -757,15 +757,13 @@ async def test_cancelled_nsjail_operation_kills_process_group(
                 )
 
         try:
-            await asyncio.wait_for(process_started.wait(), timeout=5)
+            await process_started.wait()
             for _ in range(100):
-                try:
-                    descendant_pid = int(descendant_pid_path.read_text())
-                except (FileNotFoundError, ValueError):
-                    await asyncio.sleep(0.01)
-                else:
+                if descendant_pid_path.exists():
                     break
-            assert descendant_pid is not None
+                await asyncio.sleep(0.01)
+            assert descendant_pid_path.is_file()
+            descendant_pid = int(descendant_pid_path.read_text())
 
             execution.cancel()
 
@@ -784,10 +782,6 @@ async def test_cancelled_nsjail_operation_kills_process_group(
             else:
                 pytest.fail("nsjail descendant survived process-group cleanup")
         finally:
-            if not execution.done():
-                execution.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await execution
             if process is not None and process.returncode is None:
                 process.kill()
                 await process.wait()

@@ -1,8 +1,14 @@
-"""Tarball cache behavior through the public lease API."""
+"""Tests for tarball cache behavior in registry action runner.
+
+These tests verify:
+1. Tarball cache behavior (concurrent downloads, cache keys)
+2. Cache key isolation per tarball URI
+"""
 
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,10 +20,29 @@ from tracecat.executor.registry_artifacts import (
     compute_registry_artifact_cache_key,
 )
 
-from .registry_artifact_test_helpers import (
-    lease_paths,
-    tarball_payload,
-)
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def temp_cache_dir():
+    """Create a temporary cache directory for each test."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+async def _lease_paths(
+    cache: RegistryArtifactCache,
+    artifact_uri: str,
+) -> list[Path]:
+    async with cache.lease([artifact_uri]) as paths:
+        return paths
+
+
+# =============================================================================
+# Test Class: Tarball Cache Behavior
+# =============================================================================
 
 
 class TestTarballCacheBehavior:
@@ -52,7 +77,7 @@ class TestTarballCacheBehavior:
         async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network delay
-            path.write_bytes(tarball_payload(size=1))
+            path.write_bytes(b"fake tarball")
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
@@ -63,10 +88,10 @@ class TestTarballCacheBehavior:
         ):
             # Launch multiple concurrent requests
             results = await asyncio.gather(
-                lease_paths(cache, tarball_uri),
-                lease_paths(cache, tarball_uri),
-                lease_paths(cache, tarball_uri),
-                lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
+                _lease_paths(cache, tarball_uri),
             )
 
         # All should return same path
@@ -99,7 +124,7 @@ class TestTarballCacheBehavior:
 
         async def mock_download(self, ctx, path: Path):
             download_calls.append(self.uri)
-            path.write_bytes(tarball_payload(size=1))
+            path.write_bytes(b"fake tarball")
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
@@ -110,7 +135,7 @@ class TestTarballCacheBehavior:
         ):
             results = []
             for uri in uris:
-                result = await lease_paths(cache, uri)
+                result = await _lease_paths(cache, uri)
                 results.append(result)
 
         # All results should be different paths
@@ -140,7 +165,7 @@ class TestTarballCacheBehavior:
         cache_key = compute_registry_artifact_cache_key(tarball_uri)
 
         async def mock_download(self, ctx, path: Path):
-            path.write_bytes(tarball_payload(size=1))
+            path.write_bytes(b"corrupt tarball")
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             raise RuntimeError("Extraction failed - corrupt tarball")
@@ -150,7 +175,7 @@ class TestTarballCacheBehavior:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             with pytest.raises(RuntimeError, match="Extraction failed"):
-                await lease_paths(cache, tarball_uri)
+                await _lease_paths(cache, tarball_uri)
 
         # Verify no temp files remain
         temp_files = (
@@ -181,7 +206,7 @@ class TestTarballCacheBehavior:
 
         async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
-            path.write_bytes(tarball_payload(size=1))
+            path.write_bytes(b"tarball")
 
         async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "file.txt").write_text("content")
@@ -191,11 +216,11 @@ class TestTarballCacheBehavior:
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # First request
-            result1 = await lease_paths(cache, tarball_uri)
+            result1 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1
 
             # Second request (should use cache)
-            result2 = await lease_paths(cache, tarball_uri)
+            result2 = await _lease_paths(cache, tarball_uri)
             assert download_count[0] == 1  # No additional download
 
             assert result1 == result2
