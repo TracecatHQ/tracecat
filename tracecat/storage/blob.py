@@ -811,11 +811,7 @@ async def download_file_to_path(
                         )
                     reserved_bytes = max_bytes
                 await ensure_capacity(reserved_bytes)
-                download_limit = (
-                    reserved_bytes
-                    if download_limit is None
-                    else min(download_limit, reserved_bytes)
-                )
+                download_limit = reserved_bytes
 
             async with aiofiles.open(temp_path, "wb") as f:
                 async for chunk in stream.iter_chunks(chunk_size=chunk_size):

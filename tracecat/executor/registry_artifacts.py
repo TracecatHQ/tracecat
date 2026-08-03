@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import hashlib
 import os
 import shutil
@@ -22,6 +23,11 @@ import httpx
 import tracecat_registry
 
 from tracecat import config
+from tracecat.concurrency import (
+    drain_future_through_cancellation,
+    rejoin_future_on_cancel,
+    run_blocking_rejoin_on_cancel,
+)
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -182,41 +188,7 @@ class RegistryArtifact(ABC):
         ctx: RegistryArtifactMaterializationContext,
         suffix: str,
     ) -> Path:
-        unique_id = id(asyncio.current_task())
-        ctx.staging_dir.mkdir(parents=True, exist_ok=True)
-        return ctx.staging_dir / f"{self.cache_key}.{os.getpid()}.{unique_id}{suffix}"
-
-
-async def _drain_future_through_cancellation[T](
-    future: asyncio.Future[T],
-) -> None:
-    """Wait for a future to finish despite repeated caller cancellation."""
-    while not future.done():
-        try:
-            await asyncio.shield(future)
-        except asyncio.CancelledError:
-            continue
-        except Exception:
-            break
-    if not future.cancelled():
-        with contextlib.suppress(Exception):
-            future.result()
-
-
-async def _rejoin_future_on_cancel[T](future: asyncio.Future[T]) -> T:
-    """Shield a future and rejoin it before propagating cancellation."""
-    try:
-        return await asyncio.shield(future)
-    except asyncio.CancelledError:
-        await _drain_future_through_cancellation(future)
-        raise
-
-
-async def _run_blocking_rejoin_on_cancel[T](operation: Callable[[], T]) -> T:
-    """Run blocking work without abandoning its worker thread."""
-    return await _rejoin_future_on_cancel(
-        asyncio.ensure_future(asyncio.to_thread(operation))
-    )
+        return _unique_work_path(ctx.staging_dir, self.cache_key, suffix=suffix)
 
 
 async def _kill_and_reap_subprocess(process: asyncio.subprocess.Process) -> None:
@@ -234,7 +206,7 @@ async def _communicate_rejoin_on_cancel(
         stdout, stderr = await process.communicate()
     except asyncio.CancelledError:
         reaper = asyncio.ensure_future(_kill_and_reap_subprocess(process))
-        await _drain_future_through_cancellation(reaper)
+        await drain_future_through_cancellation(reaper)
         raise
 
     if stdout is None or stderr is None:
@@ -576,7 +548,7 @@ class TarballArtifact(RegistryArtifact):
             download_elapsed = (time.monotonic() - download_start) * 1000
 
             if ctx.admission is not None:
-                extracted_size = await _run_blocking_rejoin_on_cancel(
+                extracted_size = await run_blocking_rejoin_on_cancel(
                     lambda: _tarball_extracted_size(temp_tarball)
                 )
                 await ctx.admission.ensure_capacity(extracted_size)
@@ -643,7 +615,7 @@ class TarballArtifact(RegistryArtifact):
 
             raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
-        await _run_blocking_rejoin_on_cancel(_do_extract)
+        await run_blocking_rejoin_on_cancel(_do_extract)
 
         logger.debug(
             "Tarball extracted",
@@ -661,20 +633,13 @@ async def _download_s3_artifact(
     """Download an S3 registry artifact to a local path."""
     bucket, key = parse_s3_uri(artifact_uri)
     try:
-        if admission is None:
-            await blob.download_file_to_path(
-                key=key,
-                bucket=bucket,
-                output_path=output_path,
-            )
-        else:
-            await blob.download_file_to_path(
-                key=key,
-                bucket=bucket,
-                output_path=output_path,
-                max_bytes=admission.max_bytes,
-                ensure_capacity=admission.ensure_capacity,
-            )
+        await blob.download_file_to_path(
+            key=key,
+            bucket=bucket,
+            output_path=output_path,
+            max_bytes=None if admission is None else admission.max_bytes,
+            ensure_capacity=None if admission is None else admission.ensure_capacity,
+        )
     except FileNotFoundError as e:
         request = httpx.Request("GET", artifact_uri)
         response = httpx.Response(status_code=404, request=request)
@@ -795,9 +760,7 @@ def _squashfs_listing_size(output: bytes) -> int:
             continue
         fields = line.split(maxsplit=4)
         mode = fields[0]
-        if len(mode) != 10 or mode[0] not in "bcdlps-":
-            continue
-        if mode[0] not in "-l":
+        if len(mode) != 10 or mode[0] not in "-l":
             continue
         if len(fields) < 5 or "/" not in fields[1] or not fields[2].isdigit():
             raise ValueError(f"Could not parse SquashFS listing line: {line}")
@@ -852,32 +815,19 @@ def _delete_cache_path(path: Path) -> bool:
 
 async def _delete_cache_path_off_loop(path: Path) -> bool:
     """Delete one path without abandoning its worker thread on cancellation."""
-    deletion = asyncio.ensure_future(asyncio.to_thread(_delete_cache_path, path))
-    try:
-        return await asyncio.shield(deletion)
-    except asyncio.CancelledError:
-        # A worker thread cannot be killed. Rejoin it so no live deletion can
-        # race a later trash-directory scan. Repeated cancellation can interrupt
-        # shield without stopping the thread, so keep waiting for termination.
-        while not deletion.done():
-            try:
-                await asyncio.shield(deletion)
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                break
-        if not deletion.cancelled():
-            with contextlib.suppress(Exception):
-                deletion.result()
-        raise
+    # A worker thread cannot be killed. Rejoin it so no live deletion can race a
+    # later trash-directory scan, even through repeated caller cancellation.
+    return await run_blocking_rejoin_on_cancel(
+        functools.partial(_delete_cache_path, path)
+    )
 
 
-def _unique_work_path(root: Path, cache_key: str) -> Path:
+def _unique_work_path(root: Path, cache_key: str, *, suffix: str = "") -> Path:
     """Return a unique path beneath a cache work directory."""
     root.mkdir(parents=True, exist_ok=True)
     unique_id = time.time_ns()
     while True:
-        path = root / f"{cache_key}.{os.getpid()}.{unique_id}"
+        path = root / f"{cache_key}.{os.getpid()}.{unique_id}{suffix}"
         if not path.exists():
             return path
         unique_id += 1
@@ -911,7 +861,6 @@ class RegistryArtifactCache:
         # Cold materializations and budget passes share this outer lock. It
         # keeps byte reservations stable while downloads and extraction write.
         self._admission_lock = asyncio.Lock()
-        self._budget_lock = asyncio.Lock()
         # Guard the off-loop startup sweep independently from cache operations.
         self._swept: bool = False
         self._sweep_task: asyncio.Task[None] | None = None
@@ -1023,19 +972,22 @@ class RegistryArtifactCache:
             idle_keys = [
                 cache_key for cache_key in leased_keys if self._release_lease(cache_key)
             ]
-            cleanup_task = asyncio.ensure_future(self._finish_lease_cleanup(idle_keys))
-            pending_cancellation: asyncio.CancelledError | None = None
-            while True:
-                try:
-                    await asyncio.shield(cleanup_task)
-                    break
-                except asyncio.CancelledError as e:
-                    if cleanup_task.cancelled():
-                        raise
-                    pending_cancellation = e
+            if idle_keys or self._budget_dirty:
+                cleanup_task = asyncio.ensure_future(
+                    self._finish_lease_cleanup(idle_keys)
+                )
+                pending_cancellation: asyncio.CancelledError | None = None
+                while True:
+                    try:
+                        await asyncio.shield(cleanup_task)
+                        break
+                    except asyncio.CancelledError as e:
+                        if cleanup_task.cancelled():
+                            raise
+                        pending_cancellation = e
 
-            if pending_cancellation is not None:
-                raise pending_cancellation
+                if pending_cancellation is not None:
+                    raise pending_cancellation
 
     async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
         """Unmount every newly idle entry and converge the cache budget."""
@@ -1069,6 +1021,7 @@ class RegistryArtifactCache:
                         admission=self._admission_for(cache_key),
                     )
                     candidates = await self._artifact_candidates(ctx, artifact_uri)
+                    # Recheck after acquiring the lock.
                     if cached_paths := self._first_cached_path(candidates, ctx):
                         return cache_key, cached_paths
                     paths = await self._materialize_candidates(ctx, candidates)
@@ -1091,7 +1044,7 @@ class RegistryArtifactCache:
         except BaseException:
             if lease_acquired and self._release_lease(cache_key):
                 rollback = asyncio.ensure_future(self._unmount_idle_entry(cache_key))
-                await _drain_future_through_cancellation(rollback)
+                await drain_future_through_cancellation(rollback)
             raise
 
     async def _materialize_candidates(
@@ -1103,9 +1056,6 @@ class RegistryArtifactCache:
 
         Callers hold the cache key's lock for evictable entries.
         """
-        if cached_paths := self._first_cached_path(candidates, ctx):
-            return cached_paths
-
         cache_key = ctx.cache_key
         for index, artifact in enumerate(candidates):
             try:
@@ -1209,9 +1159,46 @@ class RegistryArtifactCache:
         return runtime.refcount == 0
 
     async def _unmount_idle_entry(self, cache_key: str) -> None:
-        """Best-effort unmount an entry after its final lease is released."""
+        """Best-effort unmount one idle entry while retaining its reusable image.
+
+        Loop-device reclamation is independent from disk-budget eviction. The
+        per-key lock and lease recheck prevent an entry from being unmounted
+        while an action is importing from it. The image and empty mount
+        directory remain cached so a later admission can remount without
+        downloading the artifact again.
+
+        Args:
+            cache_key: Cache key whose mounted artifact should be released.
+        """
         try:
-            await self._unmount_entry(cache_key)
+            lock = self._runtime_for(cache_key).lock
+            if lock.locked():
+                logger.debug(
+                    "Skipping unmount of busy registry artifact",
+                    cache_key=cache_key,
+                )
+                return
+
+            async with lock:
+                if self._refcount(cache_key) > 0:
+                    return
+
+                mount_dir = self._paths_for(cache_key).squashfs_mount_dir
+                if not mount_dir.is_mount():
+                    return
+                if not await self._unmount(mount_dir):
+                    logger.warning(
+                        "Failed to unmount registry artifact for loop-device reclamation",
+                        cache_key=cache_key,
+                        mount_dir=str(mount_dir),
+                    )
+                    return
+
+                logger.info(
+                    "Unmounted idle registry artifact",
+                    cache_key=cache_key,
+                    mount_dir=str(mount_dir),
+                )
         except OSError as e:
             logger.warning(
                 "Failed to release idle registry artifact mount",
@@ -1263,27 +1250,69 @@ class RegistryArtifactCache:
         artifact_uri: str,
     ) -> list[Path] | None:
         """Return a reusable local candidate without probing remote sidecars."""
+        include_unverified_sidecar = (
+            _bundled_builtin_registry_version(artifact_uri) is None
+            and _artifact_format(artifact_uri) == RegistryArtifactFormat.TAR_GZ
+            and self._can_try_squashfs()
+        )
+        candidates = self._candidate_artifacts(
+            ctx,
+            artifact_uri,
+            include_unverified_sidecar=include_unverified_sidecar,
+        )
+        return self._first_cached_path(candidates, ctx)
+
+    def _candidate_artifacts(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        artifact_uri: str,
+        *,
+        include_unverified_sidecar: bool,
+    ) -> list[RegistryArtifact]:
+        """Build artifact candidates in executor preference order."""
+        if version := _bundled_builtin_registry_version(artifact_uri):
+            return [
+                BuiltinArtifact(
+                    uri=artifact_uri,
+                    cache_key=ctx.cache_key,
+                    version=version,
+                )
+            ]
+
         artifact_format = _artifact_format(artifact_uri)
-        candidates: list[RegistryArtifact] = []
         if artifact_format == RegistryArtifactFormat.SQUASHFS:
-            candidates.append(
-                SquashfsArtifact(uri=artifact_uri, cache_key=ctx.cache_key)
-            )
+            candidates: list[RegistryArtifact] = [
+                SquashfsArtifact(
+                    uri=artifact_uri,
+                    cache_key=ctx.cache_key,
+                )
+            ]
             if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
                 candidates.append(
-                    TarballArtifact(uri=tarball_uri, cache_key=ctx.cache_key)
+                    TarballArtifact(
+                        uri=tarball_uri,
+                        cache_key=ctx.cache_key,
+                    )
                 )
-        else:
-            if self._can_try_squashfs() and (
-                squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
-            ):
-                candidates.append(
-                    SquashfsArtifact(uri=squashfs_uri, cache_key=ctx.cache_key)
-                )
+            return candidates
+
+        candidates = []
+        if include_unverified_sidecar and (
+            squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
+        ):
             candidates.append(
-                TarballArtifact(uri=artifact_uri, cache_key=ctx.cache_key)
+                SquashfsArtifact(
+                    uri=squashfs_uri,
+                    cache_key=ctx.cache_key,
+                )
             )
-        return self._first_cached_path(candidates, ctx)
+        candidates.append(
+            TarballArtifact(
+                uri=artifact_uri,
+                cache_key=ctx.cache_key,
+            )
+        )
+        return candidates
 
     def _remove_unpublished_entry(
         self,
@@ -1311,62 +1340,34 @@ class RegistryArtifactCache:
         artifact_uri: str,
     ) -> list[RegistryArtifact]:
         """Return artifact candidates in executor preference order."""
-        if version := _bundled_builtin_registry_version(artifact_uri):
-            return [
-                BuiltinArtifact(
-                    uri=artifact_uri,
-                    cache_key=ctx.cache_key,
-                    version=version,
-                )
-            ]
+        if _bundled_builtin_registry_version(artifact_uri) is not None:
+            return self._candidate_artifacts(
+                ctx,
+                artifact_uri,
+                include_unverified_sidecar=False,
+            )
 
         artifact_format = _artifact_format(artifact_uri)
-        if artifact_format == RegistryArtifactFormat.SQUASHFS:
-            candidates = [
-                SquashfsArtifact(
-                    uri=artifact_uri,
-                    cache_key=ctx.cache_key,
-                )
-            ]
-            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
-                candidates.append(
-                    TarballArtifact(
-                        uri=tarball_uri,
-                        cache_key=ctx.cache_key,
-                    )
-                )
-            return candidates
-
-        candidates: list[RegistryArtifact] = []
-        if self._can_try_squashfs():
-            squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
-            if squashfs_uri:
-                if ctx.paths.squashfs_image_path.exists():
-                    candidates.append(
-                        SquashfsArtifact(
-                            uri=squashfs_uri,
-                            cache_key=ctx.cache_key,
-                        )
-                    )
-                elif await self._sidecar_exists(
+        include_unverified_sidecar = False
+        if (
+            artifact_format == RegistryArtifactFormat.TAR_GZ
+            and self._can_try_squashfs()
+            and (squashfs_uri := _squashfs_sidecar_uri(artifact_uri))
+        ):
+            include_unverified_sidecar = (
+                ctx.paths.squashfs_image_path.exists()
+                or await self._sidecar_exists(
                     base_uri=artifact_uri,
                     sidecar_uri=squashfs_uri,
                     artifact_format=RegistryArtifactFormat.SQUASHFS,
-                ):
-                    candidates.append(
-                        SquashfsArtifact(
-                            uri=squashfs_uri,
-                            cache_key=ctx.cache_key,
-                        )
-                    )
-
-        candidates.append(
-            TarballArtifact(
-                uri=artifact_uri,
-                cache_key=ctx.cache_key,
+                )
             )
+
+        return self._candidate_artifacts(
+            ctx,
+            artifact_uri,
+            include_unverified_sidecar=include_unverified_sidecar,
         )
-        return candidates
 
     async def _sidecar_exists(
         self,
@@ -1441,10 +1442,10 @@ class RegistryArtifactCache:
     async def _enforce_cache_budget(self, *, protected_key: str | None = None) -> bool:
         """Evict least-recently-used idle entries until the cache fits its budget.
 
-        The admission lock excludes cold writers before the budget lock begins
-        a scan/select/evict pass. Callers invoke enforcement without holding a
-        per-key lock. Cold writers already hold the admission lock and use
-        ``_ensure_cache_capacity`` for their staged reservations instead.
+        The admission lock excludes cold writers during the scan/select/evict
+        pass. Callers invoke enforcement without holding a per-key lock. Cold
+        writers already hold the admission lock and use ``_ensure_cache_capacity``
+        for their staged reservations instead.
 
         Args:
             protected_key: Newly materialized cache key. It is counted against
@@ -1455,23 +1456,24 @@ class RegistryArtifactCache:
             Whether the cache is within budget once eviction has finished.
         """
         async with self._admission_lock:
-            async with self._budget_lock:
-                return await self._enforce_cache_budget_locked(
-                    protected_key=protected_key
-                )
+            return await self._enforce_cache_budget_locked(protected_key=protected_key)
+
+    async def _reclaim_pending_work(self) -> tuple[bool, bool]:
+        """Retry pending trash and startup cleanup off the event loop."""
+        return await rejoin_future_on_cancel(
+            asyncio.gather(
+                asyncio.to_thread(self._clear_work_dir, self.trash_dir),
+                asyncio.to_thread(self._retry_failed_startup_cleanup),
+            )
+        )
 
     async def _enforce_cache_budget_locked(
         self,
         *,
         protected_key: str | None,
     ) -> bool:
-        """Enforce entry and byte limits while both cache-wide locks are held."""
-        trash_clean, startup_clean = await _rejoin_future_on_cancel(
-            asyncio.gather(
-                asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-                asyncio.to_thread(self._retry_failed_startup_cleanup),
-            )
-        )
+        """Enforce entry and byte limits while the admission lock is held."""
+        trash_clean, startup_clean = await self._reclaim_pending_work()
         cleanup_complete = trash_clean and startup_clean
         if not cleanup_complete:
             return False
@@ -1524,85 +1526,69 @@ class RegistryArtifactCache:
     ) -> None:
         """Reserve peak bytes for a cold writer without exceeding the cap.
 
-        The caller holds the admission lock and its key lock. Every normal
-        budget pass takes the admission lock first, so acquiring the budget
-        lock here cannot deadlock with eviction of the protected key.
+        The caller must hold the admission lock and its key lock so reservations
+        stay serialized with normal budget passes and other cold writers.
         """
         if additional_bytes < 0:
             raise ValueError("additional_bytes must be non-negative")
 
-        async with self._budget_lock:
-            trash_clean, startup_clean = await _rejoin_future_on_cancel(
-                asyncio.gather(
-                    asyncio.to_thread(self._clear_work_dir, self.trash_dir),
-                    asyncio.to_thread(self._retry_failed_startup_cleanup),
-                )
+        def capacity_error(current_bytes: int) -> RegistryArtifactCacheCapacityError:
+            return RegistryArtifactCacheCapacityError(
+                current_bytes=current_bytes,
+                additional_bytes=additional_bytes,
+                max_bytes=max_bytes,
             )
-            entries = await asyncio.to_thread(self._scan_cache_entries)
-            staging_bytes, trash_bytes = await asyncio.gather(
-                asyncio.to_thread(_directory_footprint, self.staging_dir),
-                asyncio.to_thread(_directory_footprint, self.trash_dir),
-            )
-            total_bytes = (
-                sum(entry.size_bytes for entry in entries.values())
-                + staging_bytes
-                + trash_bytes
-            )
-            non_evictable_bytes = (
-                staging_bytes
-                + trash_bytes
-                + sum(
-                    entry.size_bytes
-                    for entry in entries.values()
-                    if entry.cache_key == protected_key
-                    or self._refcount(entry.cache_key) > 0
-                    or (
-                        (runtime := self._runtime.get(entry.cache_key)) is not None
-                        and runtime.lock.locked()
-                    )
-                )
-            )
-            if non_evictable_bytes + additional_bytes > max_bytes:
-                raise RegistryArtifactCacheCapacityError(
-                    current_bytes=non_evictable_bytes,
-                    additional_bytes=additional_bytes,
-                    max_bytes=max_bytes,
-                )
-            if (
-                not (trash_clean and startup_clean)
-                and total_bytes + additional_bytes > max_bytes
-            ):
-                raise RegistryArtifactCacheCapacityError(
-                    current_bytes=total_bytes,
-                    additional_bytes=additional_bytes,
-                    max_bytes=max_bytes,
-                )
-            skipped = {protected_key}
 
-            while total_bytes + additional_bytes > max_bytes:
-                candidate = self._least_recently_used(
-                    entries.values(),
-                    excluded=skipped,
+        trash_clean, startup_clean = await self._reclaim_pending_work()
+        entries = await asyncio.to_thread(self._scan_cache_entries)
+        staging_bytes, trash_bytes = await asyncio.gather(
+            asyncio.to_thread(_directory_footprint, self.staging_dir),
+            asyncio.to_thread(_directory_footprint, self.trash_dir),
+        )
+        total_bytes = (
+            sum(entry.size_bytes for entry in entries.values())
+            + staging_bytes
+            + trash_bytes
+        )
+        non_evictable_bytes = (
+            staging_bytes
+            + trash_bytes
+            + sum(
+                entry.size_bytes
+                for entry in entries.values()
+                if entry.cache_key == protected_key
+                or self._refcount(entry.cache_key) > 0
+                or (
+                    (runtime := self._runtime.get(entry.cache_key)) is not None
+                    and runtime.lock.locked()
                 )
-                if candidate is None:
-                    raise RegistryArtifactCacheCapacityError(
-                        current_bytes=total_bytes,
-                        additional_bytes=additional_bytes,
-                        max_bytes=max_bytes,
-                    )
+            )
+        )
+        if non_evictable_bytes + additional_bytes > max_bytes:
+            raise capacity_error(non_evictable_bytes)
+        if (
+            not (trash_clean and startup_clean)
+            and total_bytes + additional_bytes > max_bytes
+        ):
+            raise capacity_error(total_bytes)
+        skipped = {protected_key}
 
-                eviction = await self._evict_entry(candidate.cache_key)
-                if eviction.retired:
-                    del entries[candidate.cache_key]
-                    if not eviction.reclaimed:
-                        raise RegistryArtifactCacheCapacityError(
-                            current_bytes=total_bytes,
-                            additional_bytes=additional_bytes,
-                            max_bytes=max_bytes,
-                        )
-                    total_bytes -= candidate.size_bytes
-                else:
-                    skipped.add(candidate.cache_key)
+        while total_bytes + additional_bytes > max_bytes:
+            candidate = self._least_recently_used(
+                entries.values(),
+                excluded=skipped,
+            )
+            if candidate is None:
+                raise capacity_error(total_bytes)
+
+            eviction = await self._evict_entry(candidate.cache_key)
+            if eviction.retired:
+                del entries[candidate.cache_key]
+                if not eviction.reclaimed:
+                    raise capacity_error(total_bytes)
+                total_bytes -= candidate.size_bytes
+            else:
+                skipped.add(candidate.cache_key)
 
     def _least_recently_used(
         self,
@@ -1626,51 +1612,6 @@ class RegistryArtifactCache:
         if runtime is None:
             return entry.last_used
         return max(entry.last_used, runtime.last_used)
-
-    async def _unmount_entry(self, cache_key: str) -> bool:
-        """Unmount one idle cache entry while retaining its reusable image.
-
-        Loop-device reclamation is independent from disk-budget eviction. The
-        per-key lock and lease recheck prevent an entry from being unmounted
-        while an action is importing from it. The image and empty mount
-        directory remain cached so a later admission can remount without
-        downloading the artifact again.
-
-        Args:
-            cache_key: Cache key whose mounted artifact should be released.
-
-        Returns:
-            Whether a mounted entry was unmounted.
-        """
-        lock = self._runtime_for(cache_key).lock
-        if lock.locked():
-            logger.debug(
-                "Skipping unmount of busy registry artifact",
-                cache_key=cache_key,
-            )
-            return False
-
-        async with lock:
-            if self._refcount(cache_key) > 0:
-                return False
-
-            mount_dir = self._paths_for(cache_key).squashfs_mount_dir
-            if not mount_dir.is_mount():
-                return False
-            if not await self._unmount(mount_dir):
-                logger.warning(
-                    "Failed to unmount registry artifact for loop-device reclamation",
-                    cache_key=cache_key,
-                    mount_dir=str(mount_dir),
-                )
-                return False
-
-            logger.info(
-                "Unmounted idle registry artifact",
-                cache_key=cache_key,
-                mount_dir=str(mount_dir),
-            )
-            return True
 
     async def _evict_entry(self, cache_key: str) -> RegistryArtifactEviction:
         """Remove one cache entry from disk, unmounting it first.

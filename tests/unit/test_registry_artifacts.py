@@ -303,7 +303,11 @@ class TestRegistryArtifactCache:
             key: str,
             bucket: str,
             output_path: Path,
+            max_bytes: int | None = None,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None = None,
         ) -> None:
+            assert max_bytes is None
+            assert ensure_capacity is None
             output_path.write_bytes(b"squashfs")
 
         with patch(
@@ -2319,11 +2323,12 @@ class TestRegistryArtifactCacheEviction:
             side_effect=fail_stale_trash,
         ):
             with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
-                await cache._ensure_cache_capacity(
-                    additional_bytes=16,
-                    protected_key="new",
-                    max_bytes=64,
-                )
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=16,
+                        protected_key="new",
+                        max_bytes=64,
+                    )
 
         assert raised.value.current_bytes == 64
         assert warm.exists()
@@ -2999,11 +3004,12 @@ class TestRegistryArtifactCacheEviction:
             if operation == "budget":
                 await cache._enforce_cache_budget()
             else:
-                await cache._ensure_cache_capacity(
-                    additional_bytes=0,
-                    protected_key="pending",
-                    max_bytes=1,
-                )
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=0,
+                        protected_key="pending",
+                        max_bytes=1,
+                    )
 
         with (
             patch.object(cache, "_clear_work_dir", side_effect=blocking_clear),
@@ -3017,8 +3023,7 @@ class TestRegistryArtifactCacheEviction:
                 running.cancel()
                 await asyncio.sleep(0)
                 assert not running.done()
-                assert cache._budget_lock.locked()
-                assert cache._admission_lock.locked() is (operation == "budget")
+                assert cache._admission_lock.locked()
             finally:
                 cleanup_release.set()
 
@@ -3026,7 +3031,6 @@ class TestRegistryArtifactCacheEviction:
                 await running
 
         assert cleanup_finished.is_set()
-        assert not cache._budget_lock.locked()
         assert not cache._admission_lock.locked()
 
     @pytest.mark.anyio

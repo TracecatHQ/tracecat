@@ -18,7 +18,7 @@ document it, recommend it, or factor it into executor design decisions.
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import functools
 import sys
 import threading
 from contextlib import AsyncExitStack, contextmanager
@@ -29,6 +29,7 @@ from tracecat_registry.context import RegistryContext, set_context
 from tracecat_registry.sdk.client import TracecatClient
 
 from tracecat import config
+from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logger,
@@ -248,21 +249,7 @@ class TestBackend(ExecutorBackend):
         leases, temporary ``sys.path`` entries, and secret contexts alive until
         the function actually stops.
         """
-        worker = asyncio.ensure_future(asyncio.to_thread(fn, **args))
-        try:
-            return await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            while not worker.done():
-                try:
-                    await asyncio.shield(worker)
-                except asyncio.CancelledError:
-                    continue
-                except Exception:
-                    break
-            if not worker.cancelled():
-                with contextlib.suppress(Exception):
-                    worker.result()
-            raise
+        return await run_blocking_rejoin_on_cancel(functools.partial(fn, **args))
 
     def _load_udf_callable(self, action_impl: ActionImplementation):
         """Load the UDF callable from action_impl metadata."""
