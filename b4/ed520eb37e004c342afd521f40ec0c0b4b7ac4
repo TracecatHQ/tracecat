@@ -1,0 +1,33 @@
+docs/self-hosting/tls.mdx
+  s_4b9afcbd518739::t_f9712026bc009b 175
+docs/self-hosting/security.mdx
+  s_4b9afcbd518739::t_f9712026bc009b 84,86,88-90,92,94,96,98,100-103,105,107-110,112-126
+tests/unit/test_unsafe_pid_executor.py
+  s_4b9afcbd518739::t_f4bf96b05bfcfe 140-141,438
+docs/self-hosting/kubernetes.mdx
+  s_4b9afcbd518739::t_f9712026bc009b 414,419,422,424
+docs/security/architecture.mdx
+  s_4b9afcbd518739::t_f9712026bc009b 390,524-529,531
+docs/self-hosting/aws-fargate.mdx
+  s_4b9afcbd518739::t_f9712026bc009b 115-116
+tracecat/sandbox/unsafe_pid_executor.py
+  s_4b9afcbd518739::t_f4bf96b05bfcfe 253-254,315,319,406,410
+tracecat/sandbox/service.py
+  s_4b9afcbd518739::t_f4bf96b05bfcfe 381-386,405
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "b4ed520eb37e004c342afd521f40ec0c0b4b7ac4",
+  "prompts": {},
+  "sessions": {
+    "s_4b9afcbd518739": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd74f36a-dc94-4f3c-9dea-994069c26541",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
