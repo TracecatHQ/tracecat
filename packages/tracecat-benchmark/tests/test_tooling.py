@@ -3343,6 +3343,29 @@ def test_bulk_fixture_does_not_pass_row_payloads_between_actions() -> None:
     assert definition["returns"] == "${{ ACTIONS.bulk_insert.result }}"
 
 
+def test_table_fixture_rejects_non_object_columns(tmp_path: Path) -> None:
+    fixture_path = tmp_path / "table.json"
+    fixture_path.write_text(
+        json.dumps(
+            {
+                "name": "scatter_load_rows",
+                "columns": [
+                    {"name": "run_id", "type": "TEXT", "nullable": False},
+                    "not-a-column",
+                ],
+                "unique_index_column": "run_id",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        fixtures_module.FixtureError,
+        match=r"columns\[1\] must be a JSON object",
+    ):
+        fixtures_module.load_table_fixture(fixture_path)
+
+
 def test_noop_fixture_materializes_static_reshape_actions_without_expressions() -> None:
     workflow = fixtures_module.load_workflow_fixture(LoadType.NOOP, branch_count=256)
     assert workflow.content is not None

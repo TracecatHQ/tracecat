@@ -87,18 +87,21 @@ def load_table_fixture(path: Path = TABLE_FIXTURE_PATH) -> TableFixture:
     raw_columns = raw.get("columns")
     if not isinstance(raw_columns, list):
         raise FixtureError(f"{path} is missing a 'columns' array")
-    columns = tuple(
-        TableColumnFixture(
-            name=str(column["name"]),
-            type=str(column["type"]),
-            nullable=bool(column.get("nullable", True)),
+    columns: list[TableColumnFixture] = []
+    for index, raw_column in enumerate(raw_columns):
+        if not isinstance(raw_column, dict):
+            raise FixtureError(f"{path} columns[{index}] must be a JSON object")
+        column = cast(dict[str, object], raw_column)
+        columns.append(
+            TableColumnFixture(
+                name=str(column["name"]),
+                type=str(column["type"]),
+                nullable=bool(column.get("nullable", True)),
+            )
         )
-        for column in raw_columns
-        if isinstance(column, dict)
-    )
     return TableFixture(
         name=str(raw["name"]),
-        columns=columns,
+        columns=tuple(columns),
         unique_index_column=str(raw["unique_index_column"]),
         unique_index_note=str(raw.get("unique_index_note", "")),
     )
