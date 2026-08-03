@@ -2554,6 +2554,7 @@ class MetricCollector:
         self._db_pool_metrics_sample_count = 0
         self._pgdog_metrics_sample_count = 0
         self._pending_sampling_failures: dict[str, str] = {}
+        self._fatal_sampling_failures: dict[str, str] = {}
         self._cadence_sampling_failures: set[str] = set()
         self._runner_status: Literal["completed", "aborted"] | None = None
         self._external_stop_requested = False
@@ -2578,6 +2579,11 @@ class MetricCollector:
         """Persist a gap and keep it pending until that signal samples again."""
         failure_name = type(failure).__name__
         self._pending_sampling_failures[signal_name] = failure_name
+        if signal_name == "PostgreSQL":
+            # PostgreSQL samples feed the benchmark's peak connection and
+            # transaction evidence. A missing interval cannot be reconstructed
+            # after recovery, so the run must remain invalid.
+            self._fatal_sampling_failures.setdefault(signal_name, failure_name)
         handle.write(
             json.dumps(
                 SamplerErrorGap(
@@ -3158,6 +3164,10 @@ class MetricCollector:
                 observability_failure = type(exc).__name__
 
             await sample_task
+            if self._fatal_sampling_failures and observability_failure is None:
+                observability_failure = next(
+                    iter(self._fatal_sampling_failures.values())
+                )
             if self._pending_sampling_failures and observability_failure is None:
                 observability_failure = next(
                     iter(self._pending_sampling_failures.values())

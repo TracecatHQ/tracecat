@@ -4170,6 +4170,50 @@ def test_recovered_sampler_error_records_nonfatal_gap(
     )
 
 
+def test_recovered_postgres_sampler_error_still_invalidates_observability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TransientPostgresSampler(SuccessfulSampler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.sample_calls = 0
+
+        async def sample(self) -> PgActivitySample:
+            self.sample_calls += 1
+            if self.sample_calls == 2:
+                raise OSError("synthetic transient PostgreSQL scrape failure")
+            return await super().sample()
+
+    _patch_successful_auxiliary_captures(monkeypatch)
+    artifact_dir = tmp_path / "scatter-test"
+    collector = MetricCollector(
+        replace(
+            _collector_config(artifact_dir),
+            sample_interval_seconds=0.01,
+            recovery_seconds=0.05,
+        ),
+        sampler=TransientPostgresSampler(),
+        temporal_sampler=SuccessfulTemporalSampler(),
+        resource_sampler=SuccessfulResourceSampler(),
+    )
+
+    manifest = asyncio.run(collector.run(tmp_path))
+
+    assert manifest["status"] == "observability_failed"
+    assert manifest["observability_failure"] == "OSError"
+    postgres_records = [
+        json.loads(line)
+        for line in (artifact_dir / "pg_activity.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        record.get("sampling_gap") == "sampler_error"
+        and record.get("signal") == "PostgreSQL"
+        and record.get("error_type") == "OSError"
+        for record in postgres_records
+    )
+
+
 def test_unrecovered_sampler_error_marks_manifest_failed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
