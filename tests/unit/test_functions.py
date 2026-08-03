@@ -880,6 +880,7 @@ def test_unset_timezone(dt: datetime) -> None:
     [
         ("admin+tracecat1@gmail.com", "admin%2Btracecat1%40gmail.com"),
         ("admin+tracecat1-org@gmail.com", "admin%2Btracecat1-org%40gmail.com"),
+        ("path/segment with space", "path%2Fsegment%20with%20space"),
     ],
 )
 def test_url_encode(input_str: str, expected: str) -> None:

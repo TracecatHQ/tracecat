@@ -82,7 +82,7 @@ def slugify_(x: str) -> str:
 
 def url_encode(x: str) -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
-    return urllib.parse.quote(x)
+    return urllib.parse.quote(x, safe="")
 
 
 def url_decode(x: str) -> str:
