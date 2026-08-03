@@ -34,17 +34,64 @@ services:
 
 In production, consider replacing self-hosted PostgreSQL and Redis with managed services (e.g., Amazon RDS, ElastiCache) that handle encryption at rest, automated backups, and credential rotation.
 
-## Execution sandboxing
+## Platform secrets
 
-Tracecat executes user-defined Python scripts and actions inside the executor service. The level of isolation depends on your configuration.
+Tracecat requires four cryptographic secrets, plus an optional keyring if you enable Temporal payload encryption.
+
+| Secret | Protects |
+| --- | --- |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for credentials and sensitive settings stored in PostgreSQL. |
+| `TRACECAT__SERVICE_KEY` | Service-to-service JWT signing. |
+| `TRACECAT__SIGNING_SECRET` | Webhook URL signing and HMAC operations. |
+| `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
+| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional, and only read when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
+
+<Snippet file="generate-secrets.mdx" />
+
+### Where to store them
+
+Keep these out of your application configuration and out of version control. Use the mechanism your platform already provides.
+
+| Deployment | Recommended storage |
+| --- | --- |
+| [AWS ECS Fargate](/self-hosting/aws-fargate) | AWS Secrets Manager. Pass secret ARNs to Terraform; values are resolved at task launch and never appear in your `.tfvars`. |
+| [Kubernetes](/self-hosting/kubernetes#secrets-management) | External Secrets Operator syncing from your secret manager, or an existing Kubernetes Secret you create out of band. |
+| [Docker Compose](/self-hosting/docker-compose) | A `.env` file on the host. Restrict it to the service account that runs Tracecat and exclude it from version control. |
+
+On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your secret manager stays the source of truth, values are re-synced rather than copied, and no plaintext passes through a shell history or a manifest. Reserve chart-managed secret templates for pipelines that encrypt values at rest with Sealed Secrets or SOPS.
+
+### Rotation
+
+Rotation support differs by secret, and the differences matter before you plan a rotation window.
 
 <Warning>
-  By default, Tracecat runs with `TRACECAT__DISABLE_NSJAIL=true` and uses the `direct` executor backend. In this mode, scripts run as regular subprocesses and can access the executor's environment variables, filesystem, and network. This is acceptable for development but **not recommended for production**.
+  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
+
+  Tracecat encrypts under a single Fernet key with no re-encryption path.
+  Changing it makes every stored credential unrecoverable, and there is no
+  migration to re-key existing rows. Treat this key as permanent for the life of
+  the deployment: back it up, and control access to it at least as tightly as
+  the credentials it encrypts.
 </Warning>
 
-### PID namespace isolation
+| Secret | Overlap window | Rotation procedure | Blast radius |
+| --- | --- | --- | --- |
+| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add a key and point `current_key_id` at it. Keep retired keys as long as their histories are retained. | None. Existing histories stay readable under the key they were written with. |
+| `TRACECAT__SIGNING_SECRET` | No | Rotate, then reissue every affected URL. | Every webhook URL and agent channel endpoint URL. Breaks in-flight Slack OAuth installs, and pending Slack approval buttons for up to 24 hours. |
+| `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
+| `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users are not logged out. MCP refresh tokens are hashed and survive. |
 
-The default `direct` backend provides best-effort PID namespace isolation using Linux `unshare`. This prevents scripts from inspecting other processes via `/proc`, but does not restrict filesystem or network access. It works without Docker privileged mode and is the baseline for non-sandboxed deployments.
+## Isolation
+
+Tracecat executes user-defined Python scripts, custom actions, and agents inside the executor service. You choose between nsjail isolation and no isolation.
+
+Defaults differ by deployment target.
+
+| Deployment | Default |
+| --- | --- |
+| [Kubernetes](/self-hosting/kubernetes#security) | nsjail sandbox. The chart applies the required security context to the executor pods. |
+| [Docker Compose](/self-hosting/docker-compose) | No isolation. `TRACECAT__DISABLE_NSJAIL=true` with the `direct` backend. |
+| [AWS Fargate](/self-hosting/aws-fargate) | No isolation. Fargate cannot grant the capabilities nsjail requires. |
 
 ### nsjail sandbox (recommended for production)
 
@@ -68,15 +115,23 @@ nsjail requires:
 - The nsjail binary and sandbox rootfs (included in Tracecat images)
 
 <Info>
-  nsjail is not supported on macOS or Windows. These platforms can only use the `direct` backend with PID namespace isolation.
+  nsjail is not supported on macOS or Windows. Use the `direct` backend on those platforms.
 </Info>
+
+### No isolation
+
+Without nsjail, scripts, custom actions, and agents run as regular subprocesses in the executor.
+
+This is a supported production configuration when you trust everything that runs. That means your own workflow and custom registry code, the third-party dependencies those actions install, and the agents, tools, and MCP servers you enable.
+
+Review that code and pin those dependencies as you would any code with direct access to your systems. Choose nsjail instead when you run code you have not reviewed, such as untrusted third-party packages or agents that generate and execute their own code.
 
 ### Choosing a backend
 
 | Backend | Isolation | Latency | Use case |
 | :------ | :-------- | :------ | :------- |
-| `direct` | PID namespace only | ~50ms | Development, trusted environments |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Production, maximum isolation |
+| `direct` | None | ~50ms | Trusted code, dependencies, and agents |
+| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
 
 ## Authentication
 
@@ -88,4 +143,4 @@ Never run production traffic over plain HTTP. See [TLS and certificates](/self-h
 
 ## Related pages
 
-- See [Security architecture](/security/architecture) for the platform and AI agent trust model.
+- See [Architecture](/security/architecture) for the platform and AI agent trust model.
