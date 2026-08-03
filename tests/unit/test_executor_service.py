@@ -666,6 +666,32 @@ async def test_prepare_resolved_context_resolves_unmapped_parameters(
             },
         ),
         (
+            "core.cases.create_comment",
+            {
+                "case_id": "case-123",
+                "content": '${{ inputs.value || "fallback" }}',
+            },
+            "${{ SECRETS.runtime.TOKEN }}",
+            "runtime-secret",
+            {
+                "case_id": "case-123",
+                "content": MASK_VALUE,
+            },
+        ),
+        (
+            "core.cases.create_comment",
+            {
+                "case_id": "case-123",
+                "content": "${{ inputs.value }}",
+            },
+            "${{ ACTIONS.fetch.result.body }}",
+            "upstream-value",
+            {
+                "case_id": "case-123",
+                "content": "upstream-value",
+            },
+        ),
+        (
             "core.workflow.edit_workflow",
             {
                 "workflow_id": "wf-123",
@@ -774,6 +800,93 @@ async def test_template_step_applies_target_action_expression_policy(
     assert step_resolved.evaluated_args == expected_args
 
 
+@pytest.mark.anyio
+async def test_compound_secret_dependency_reaches_nested_template_sink(mocker):
+    """Secret dependency survives composition and a nested template boundary."""
+    source_value = "${{ SECRETS.runtime.TOKEN }}"
+    action_input = _expression_policy_input(
+        "testing.policy_wrapper",
+        {"value": source_value},
+    )
+    role = _expression_policy_role("tracecat-executor")
+    inner_template = ActionImplementation(
+        type="template",
+        action_name="testing.inner_wrapper",
+        template_definition={
+            "name": "inner_wrapper",
+            "namespace": "testing",
+            "title": "Inner wrapper",
+            "description": "Calls a protected sink",
+            "display_group": "Testing",
+            "expects": {},
+            "steps": [
+                {
+                    "ref": "persist",
+                    "action": "core.cases.create_comment",
+                    "args": {
+                        "case_id": "case-123",
+                        "content": "${{ inputs.value }}",
+                    },
+                }
+            ],
+            "returns": "done",
+        },
+    )
+    parent_resolved = _policy_wrapper_resolved(
+        action_input,
+        role,
+        steps=[
+            {
+                "ref": "inner",
+                "action": "testing.inner_wrapper",
+                "args": {
+                    "value": '${{ inputs.value || "fallback" }}',
+                },
+            }
+        ],
+        evaluated_args={"value": "runtime-secret"},
+        variables={},
+        secrets={"runtime": {"TOKEN": "runtime-secret"}},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            side_effect=[
+                inner_template,
+                ActionImplementation(
+                    type="udf",
+                    action_name="core.cases.create_comment",
+                ),
+            ]
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_mint_action_executor_token",
+        return_value="step-token",
+    )
+    backend = mocker.Mock()
+    backend.execute = mocker.AsyncMock(
+        return_value=ExecutorResultSuccess(result={"persisted": True})
+    )
+
+    await executor_service._execute_template_action(
+        backend=backend,
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+        resolved_context=parent_resolved,
+        timeout=30,
+        source_args={"value": source_value},
+    )
+
+    sink_resolved = backend.execute.await_args.kwargs["resolved_context"]
+    assert sink_resolved.evaluated_args == {
+        "case_id": "case-123",
+        "content": MASK_VALUE,
+    }
+
+
 def _policy_wrapper_resolved(
     action_input: RunActionInput,
     role: Role,
@@ -781,9 +894,10 @@ def _policy_wrapper_resolved(
     steps: list[dict[str, object]],
     evaluated_args: dict[str, object],
     variables: dict[str, dict[str, str]],
+    secrets: dict[str, dict[str, str]] | None = None,
 ) -> ResolvedContext:
     return ResolvedContext(
-        secrets={},
+        secrets=secrets or {},
         variables=variables,
         action_impl=ActionImplementation(
             type="template",

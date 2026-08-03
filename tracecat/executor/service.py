@@ -47,6 +47,9 @@ from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.expression_policy import (
     ExpressionPolicy,
+    SecretDependencies,
+    SecretDependency,
+    derive_secret_dependencies,
     expand_template_source_references,
     expression_policy,
     partition_action_args,
@@ -454,6 +457,7 @@ async def _execute_template_action(
     resolved_context: ResolvedContext,
     timeout: float,
     source_args: Mapping[str, Any],
+    source_dependencies: SecretDependencies | None = None,
 ) -> Any:
     """Execute a template action by orchestrating its steps.
 
@@ -470,6 +474,7 @@ async def _execute_template_action(
         resolved_context: Pre-resolved context with secrets and template definition
         timeout: Execution timeout
         source_args: Unevaluated arguments supplied to this template invocation
+        source_dependencies: Secret dependencies derived by the caller
 
     Returns:
         The evaluated returns expression result
@@ -515,13 +520,15 @@ async def _execute_template_action(
     )
     source_input_args = dict(validated_input_args)
     source_input_args.update(source_args)
-    source_context = TemplateExecutionContext(
-        SECRETS=secrets_context,
-        ENV=env_context,
-        VARS=vars_context,
-        inputs=source_input_args,
-        steps=template_context["steps"],
+    input_dependencies = cast(
+        dict[str, SecretDependency],
+        derive_secret_dependencies(source_input_args),
     )
+    if source_dependencies:
+        input_dependencies.update(source_dependencies)
+    # Source expansion is a raw inputs.* lookup. Do not expose runtime secrets,
+    # variables, environment, or step results to this analysis context.
+    source_context: Mapping[str, Any] = {"inputs": source_input_args}
 
     logger.info(
         "Executing template action via backend",
@@ -537,9 +544,9 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Expand direct input references to their source form only when a
-        # parameter's policy diverges from RESOLVE; the parse walk is wasted
-        # work otherwise.
+        # Non-resolving policies need the caller's source form for direct input
+        # references. The parallel dependency tree covers compound expressions
+        # that cannot be source-expanded without rewriting their AST.
         source_step_args: dict[str, Any] | None = None
         policy_args: Mapping[str, Any] = step.args
         if any(
@@ -563,6 +570,7 @@ async def _execute_template_action(
             step.action,
             policy_args,
             template_context,
+            input_dependencies,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -584,6 +592,14 @@ async def _execute_template_action(
                 if step_resolved.action_impl.type == "template"
                 else {}
             )
+        step_dependencies = (
+            cast(
+                dict[str, SecretDependency],
+                derive_secret_dependencies(step.args, input_dependencies),
+            )
+            if step_resolved.action_impl.type == "template"
+            else None
+        )
 
         # Execute step via _invoke_step (handles nested templates)
         try:
@@ -594,6 +610,7 @@ async def _execute_template_action(
                 ctx=ctx,
                 timeout=timeout,
                 source_args=source_step_args,
+                source_dependencies=step_dependencies,
             )
         except ExecutionError:
             # Re-raise with step context preserved
@@ -627,6 +644,7 @@ async def _invoke_step(
     ctx: DispatchActionContext,
     timeout: float,
     source_args: Mapping[str, Any],
+    source_dependencies: SecretDependencies | None = None,
 ) -> Any:
     """Execute a template step. Skips masking (done at root level).
 
@@ -641,6 +659,7 @@ async def _invoke_step(
         ctx: Dispatch context containing the role
         timeout: Execution timeout
         source_args: Unevaluated arguments supplied to this action invocation
+        source_dependencies: Secret dependencies derived by the caller
 
     Returns:
         The step execution result (unmasked)
@@ -655,6 +674,7 @@ async def _invoke_step(
                 resolved_context=resolved_context,
                 timeout=timeout,
                 source_args=source_args,
+                source_dependencies=source_dependencies,
             )
         case "udf":
             # Leaf node - execute via backend
@@ -871,6 +891,10 @@ async def invoke_once(
             ctx=ctx,
             timeout=timeout,
             source_args=input.task.args,
+            source_dependencies=cast(
+                dict[str, SecretDependency],
+                derive_secret_dependencies(input.task.args),
+            ),
         )
 
     except ExecutionError as e:
