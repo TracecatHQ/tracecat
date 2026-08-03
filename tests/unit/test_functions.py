@@ -112,6 +112,7 @@ from tracecat.expressions.functions import (
     uppercase,
     url_decode,
     url_encode,
+    url_encode_component,
     utcnow,
     wall_clock,
     weeks_between,
@@ -884,6 +885,12 @@ def test_unset_timezone(dt: datetime) -> None:
 )
 def test_url_encode(input_str: str, expected: str) -> None:
     assert url_encode(input_str) == expected
+
+
+def test_url_encode_component_encodes_nested_path_separators() -> None:
+    assert url_encode_component("feature/security/report") == (
+        "feature%2Fsecurity%2Freport"
+    )
 
 
 @pytest.mark.parametrize(

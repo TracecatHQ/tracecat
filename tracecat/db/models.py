@@ -4485,6 +4485,10 @@ class OAuthIntegration(TimestampMixin, Base):
         Text,
         nullable=True,
     )
+    api_base_url: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
     token_endpoint_auth_method: Mapped[str | None] = mapped_column(
         String,
         nullable=True,

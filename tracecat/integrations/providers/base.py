@@ -300,6 +300,7 @@ class BaseOAuthProvider(ABC):
     # OAuth2 endpoint defaults
     default_authorization_endpoint: ClassVar[str | None] = None
     default_token_endpoint: ClassVar[str | None] = None
+    default_api_base_url: ClassVar[str | None] = None
     authorization_endpoint_help: ClassVar[str | list[str] | None] = None
     token_endpoint_help: ClassVar[str | list[str] | None] = None
     scopes: ClassVar[ProviderScopes]

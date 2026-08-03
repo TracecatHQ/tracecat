@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Get Global Security Advisory
+  description: 'Get global security advisory. Calls GET /advisories/{ghsa_id} directly. Accepted OAuth scope: repo (default). GitHub Enterprise Server availability depends on the installed GHES version.'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: get_global_security_advisory
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    ghsa_id:
+      type: str
+      description: GitHub API path value for ghsa_id.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}/advisories/${{ FN.url_encode_component(inputs.ghsa_id) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

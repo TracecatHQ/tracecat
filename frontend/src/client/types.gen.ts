@@ -4624,6 +4624,10 @@ export type IntegrationRead = {
    * OAuth token endpoint configured for this integration.
    */
   token_endpoint?: string | null
+  /**
+   * Trusted API base URL configured for this integration.
+   */
+  api_base_url?: string | null
   token_type: string
   expires_at: string | null
   /**
@@ -4707,6 +4711,10 @@ export type IntegrationUpdate = {
    * OAuth token endpoint URL. Overrides provider defaults when set.
    */
   token_endpoint?: string | null
+  /**
+   * Trusted API base URL. Overrides the provider default when set.
+   */
+  api_base_url?: string | null
   /**
    * OAuth scopes to request for this integration
    */
@@ -5906,6 +5914,7 @@ export type ProviderRead = {
   integration_status: IntegrationStatus
   default_authorization_endpoint?: string | null
   default_token_endpoint?: string | null
+  default_api_base_url?: string | null
   authorization_endpoint_help?: string | Array<string> | null
   token_endpoint_help?: string | Array<string> | null
   redirect_uri?: string | null

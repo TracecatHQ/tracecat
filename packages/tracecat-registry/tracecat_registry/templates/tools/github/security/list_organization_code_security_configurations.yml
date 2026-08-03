@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: List Organization Code Security Configurations
+  description: 'List organization code security configurations. Calls GET /orgs/{org}/code-security/configurations directly. Accepted OAuth scopes: admin:org. GitHub Enterprise Server availability depends on the installed GHES version.'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_organization_code_security_configurations
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    org:
+      type: str
+      description: GitHub API path value for org.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ SECRETS.github_oauth.GITHUB_API_BASE_URL }}/orgs/${{ FN.url_encode_component(inputs.org) }}/code-security/configurations
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

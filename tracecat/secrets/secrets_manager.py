@@ -220,24 +220,38 @@ async def get_action_secrets(
                         id=integration.provider_id,
                         grant_type=integration.grant_type,
                     )
-                    fetched_keys.add(provider_key)
                     integration = await service.refresh_token_if_needed(integration)
                     try:
                         if access_token := await service.get_access_token(integration):
-                            # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]
-                            # NOTE: We are overriding the provider_id key here assuming its unique
-                            # <prefix> is the provider_id in uppercase.
-                            provider_secrets = secrets.setdefault(
-                                f"{integration.provider_id}_oauth", {}
-                            )
                             # Determine token_name from either action-declared secrets or expression-based secrets
                             if provider_key in oauth_secrets:
                                 token_name = oauth_secrets[provider_key].token_name
                             else:
                                 token_name = args_oauth_token_names[provider_key]
-                            provider_secrets[token_name] = (
-                                access_token.get_secret_value()
+                            provider_impl = await service.resolve_provider_impl(
+                                provider_key=provider_key
                             )
+                            api_base_url = service.determine_api_base_url(
+                                provider_impl,
+                                configured_api_base_url=integration.api_base_url,
+                            )
+                            # Assemble the provider secret before publishing it so a
+                            # failed API-base resolution cannot expose a partial
+                            # OAuth contract to the action.
+                            provider_secrets = {
+                                token_name: access_token.get_secret_value()
+                            }
+                            if api_base_url is not None:
+                                provider_secrets[
+                                    f"{integration.provider_id.upper()}_API_BASE_URL"
+                                ] = api_base_url
+                            # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]
+                            # NOTE: We are overriding the provider_id key here assuming its unique
+                            # <prefix> is the provider_id in uppercase.
+                            secrets.setdefault(
+                                f"{integration.provider_id}_oauth", {}
+                            ).update(provider_secrets)
+                            fetched_keys.add(provider_key)
                     except Exception as e:
                         logger.warning(
                             "Could not get oauth secret, skipping",

@@ -12,6 +12,7 @@ from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprTy
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
@@ -297,9 +298,28 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         if name.endswith("_oauth"):  # <provider_id>_oauth.<key>
             provider_id = name.removesuffix("_oauth")
             expected_prefix = provider_id.upper()
+            provider_impl = get_provider_class(
+                ProviderKey(
+                    id=provider_id,
+                    grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                )
+            )
+            supports_api_base_url = (
+                getattr(provider_impl, "default_api_base_url", None) is not None
+            )
 
             def error_msg() -> str:
-                return f"OAuth token must be {expected_prefix}_SERVICE_TOKEN or {expected_prefix}_USER_TOKEN"
+                valid_keys = [
+                    f"{expected_prefix}_SERVICE_TOKEN",
+                    f"{expected_prefix}_USER_TOKEN",
+                ]
+                if supports_api_base_url:
+                    valid_keys.append(f"{expected_prefix}_API_BASE_URL")
+                return f"OAuth secret must be {', '.join(valid_keys)}"
+
+            if supports_api_base_url and key == f"{expected_prefix}_API_BASE_URL":
+                self.add(status="success", type=ExprType.SECRET)
+                return
 
             if key.endswith("SERVICE_TOKEN"):
                 grant_type = OAuthGrantType.CLIENT_CREDENTIALS

@@ -58,6 +58,10 @@ class IntegrationRead(BaseModel):
         default=None,
         description="OAuth token endpoint configured for this integration.",
     )
+    api_base_url: str | None = Field(
+        default=None,
+        description="Trusted API base URL configured for this integration.",
+    )
 
     # OAuth token details
     token_type: str
@@ -114,6 +118,11 @@ class IntegrationUpdate(BaseModel):
         description="OAuth token endpoint URL. Overrides provider defaults when set.",
         min_length=8,
     )
+    api_base_url: str | None = Field(
+        default=None,
+        description="Trusted API base URL. Overrides the provider default when set.",
+        min_length=8,
+    )
     scopes: list[str] | None = Field(
         default=None,
         description="OAuth scopes to request for this integration",
@@ -133,6 +142,32 @@ class IntegrationUpdate(BaseModel):
             raise ValueError("OAuth endpoints must use HTTPS")
         if not parsed.netloc:
             raise ValueError("OAuth endpoints must include a hostname")
+        return value
+
+    @field_validator("api_base_url", mode="before")
+    @classmethod
+    def _validate_api_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip().rstrip("/")
+        if not value:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "https":
+            raise ValueError("API base URL must use HTTPS")
+        if not parsed.hostname:
+            raise ValueError("API base URL must include a hostname")
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "API base URL cannot include credentials, parameters, a query, or a fragment"
+            )
         return value
 
 
@@ -350,6 +385,7 @@ class ProviderRead(BaseModel):
     integration_status: IntegrationStatus
     default_authorization_endpoint: str | None = None
     default_token_endpoint: str | None = None
+    default_api_base_url: str | None = None
     authorization_endpoint_help: str | list[str] | None = None
     token_endpoint_help: str | list[str] | None = None
     # Only applicable to AuthorizationCodeOAuthProvider

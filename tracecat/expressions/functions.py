@@ -85,6 +85,11 @@ def url_encode(x: str) -> str:
     return urllib.parse.quote(x)
 
 
+def url_encode_component(x: str) -> str:
+    """Percent-encode a complete URL path component, including slashes."""
+    return urllib.parse.quote(x, safe="")
+
+
 def url_decode(x: str) -> str:
     """Converts percent-encoded characters back into their original form."""
     return urllib.parse.unquote(x)
@@ -1076,6 +1081,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "url_encode": url_encode,
+    "url_encode_component": url_encode_component,
     "url_decode": url_decode,
     # Comparison
     "greater_than_or_equal": greater_than_or_equal,

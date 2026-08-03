@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Info, Save } from "lucide-react"
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
@@ -92,6 +92,18 @@ const createOAuthSchema = (clientSecretMaxLength: number) =>
       .refine((value) => value.toLowerCase().startsWith("https://"), {
         message: "Token endpoint must use HTTPS",
       }),
+    api_base_url: z
+      .union([
+        z.literal(""),
+        z
+          .string()
+          .trim()
+          .url({ message: "Enter a valid HTTPS URL" })
+          .refine((value) => value.toLowerCase().startsWith("https://"), {
+            message: "API base URL must use HTTPS",
+          }),
+      ])
+      .optional(),
   })
 
 type OAuthSchema = z.infer<ReturnType<typeof createOAuthSchema>>
@@ -125,6 +137,7 @@ export function ProviderConfigForm({
     grant_type: grantType,
     default_authorization_endpoint: providerDefaultAuth,
     default_token_endpoint: providerDefaultToken,
+    default_api_base_url: providerDefaultApiBaseUrl,
     authorization_endpoint_help: providerAuthHelp,
     token_endpoint_help: providerTokenHelp,
   } = provider
@@ -157,13 +170,34 @@ export function ProviderConfigForm({
       authorization_endpoint:
         integration?.authorization_endpoint ?? providerDefaultAuth ?? "",
       token_endpoint: integration?.token_endpoint ?? providerDefaultToken ?? "",
+      api_base_url:
+        integration?.api_base_url ?? providerDefaultApiBaseUrl ?? "",
     }
-  }, [integration, defaultScopes, providerDefaultAuth, providerDefaultToken])
+  }, [
+    integration,
+    defaultScopes,
+    providerDefaultAuth,
+    providerDefaultToken,
+    providerDefaultApiBaseUrl,
+  ])
 
   const form = useForm<OAuthSchema>({
     resolver: zodResolver(validationSchema),
     defaultValues,
   })
+  const initializedProviderRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (integrationIsLoading) {
+      return
+    }
+    const providerKey = `${id}:${grantType}`
+    if (initializedProviderRef.current === providerKey) {
+      return
+    }
+    form.reset(defaultValues)
+    initializedProviderRef.current = providerKey
+  }, [defaultValues, form, grantType, id, integrationIsLoading])
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
@@ -173,13 +207,17 @@ export function ProviderConfigForm({
         scopes: data.scopes?.length ? data.scopes : undefined,
         authorization_endpoint: data.authorization_endpoint,
         token_endpoint: data.token_endpoint,
+        api_base_url:
+          providerDefaultApiBaseUrl != null
+            ? data.api_base_url?.trim() || null
+            : undefined,
         grant_type: grantType,
       }
 
       await updateIntegration(params)
       onSuccess?.()
     },
-    [grantType, onSuccess, updateIntegration]
+    [grantType, onSuccess, providerDefaultApiBaseUrl, updateIntegration]
   )
 
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
@@ -231,20 +269,30 @@ export function ProviderConfigForm({
     control: form.control,
     name: "token_endpoint",
   })
+  const watchedApiBaseUrl = useWatch({
+    control: form.control,
+    name: "api_base_url",
+  })
   const authEndpointValue = watchedAuthEndpoint ?? ""
   const tokenEndpointValue = watchedTokenEndpoint ?? ""
   const defaultAuthEndpoint = providerDefaultAuth ?? ""
   const defaultTokenEndpoint = providerDefaultToken ?? ""
+  const apiBaseUrlValue = watchedApiBaseUrl ?? ""
+  const defaultApiBaseUrl = providerDefaultApiBaseUrl ?? ""
   const isAtDefaultEndpoints = useMemo(() => {
     return (
       authEndpointValue.trim() === defaultAuthEndpoint.trim() &&
-      tokenEndpointValue.trim() === defaultTokenEndpoint.trim()
+      tokenEndpointValue.trim() === defaultTokenEndpoint.trim() &&
+      (apiBaseUrlValue.trim() === "" ||
+        apiBaseUrlValue.trim() === defaultApiBaseUrl.trim())
     )
   }, [
     authEndpointValue,
     tokenEndpointValue,
     defaultAuthEndpoint,
     defaultTokenEndpoint,
+    apiBaseUrlValue,
+    defaultApiBaseUrl,
   ])
 
   const handleResetScopes = useCallback(() => {
@@ -266,10 +314,16 @@ export function ProviderConfigForm({
       shouldDirty: !isAtDefaultEndpoints,
       shouldTouch: true,
     })
+    form.setValue("api_base_url", "", {
+      shouldDirty: !isAtDefaultEndpoints,
+      shouldTouch: true,
+    })
     form.clearErrors("authorization_endpoint")
     form.clearErrors("token_endpoint")
+    form.clearErrors("api_base_url")
     void form.trigger("authorization_endpoint")
     void form.trigger("token_endpoint")
+    void form.trigger("api_base_url")
   }, [defaultAuthEndpoint, defaultTokenEndpoint, form, isAtDefaultEndpoints])
 
   const clientIdLabel = isServiceAccountProvider
@@ -399,7 +453,8 @@ export function ProviderConfigForm({
               {(defaultAuthEndpoint.length > 0 ||
                 defaultTokenEndpoint.length > 0 ||
                 authEndpointValue.length > 0 ||
-                tokenEndpointValue.length > 0) && (
+                tokenEndpointValue.length > 0 ||
+                apiBaseUrlValue.length > 0) && (
                 <Button
                   type="button"
                   variant="link"
@@ -478,6 +533,31 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
+
+              {providerDefaultApiBaseUrl != null && (
+                <FormField
+                  control={form.control}
+                  name="api_base_url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API base URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ""}
+                          placeholder={providerDefaultApiBaseUrl}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                      <FormDescription className="text-xs">
+                        Trusted API host for this connection. Use the default
+                        for GitHub.com or your GHES REST API base URL, such as
+                        https://github.example.com/api/v3.
+                      </FormDescription>
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
           </div>
 

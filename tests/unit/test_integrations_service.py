@@ -41,6 +41,7 @@ from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
     OAuthRefreshBusyError,
+    UnsupportedOAuthApiBaseUrlError,
 )
 from tracecat.integrations.types import TokenResponse
 
@@ -62,6 +63,7 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
         "https://mock.provider/oauth/authorize"
     )
     default_token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"  # type: ignore[assignment]
+    default_api_base_url: ClassVar[str] = "https://api.mock.provider"  # type: ignore[assignment]
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig  # type: ignore[assignment]
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
@@ -1585,6 +1587,59 @@ class TestIntegrationService:
             )
 
     @pytest.mark.parametrize(
+        "api_base_url",
+        [
+            "http://github.example.com/api/v3",
+            "https://user:password@github.example.com/api/v3",
+            "https://github.example.com/api/v3?tenant=other",
+            "https://github.example.com/api/v3#fragment",
+        ],
+    )
+    async def test_store_provider_config_rejects_unsafe_api_base_urls(
+        self,
+        integration_service: IntegrationService,
+        api_base_url: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        monkeypatch.setattr(
+            "tracecat.integrations.service.get_provider_class",
+            lambda key: MockOAuthProvider if key == provider_key else None,
+        )
+
+        with pytest.raises(InsecureOAuthEndpointError):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="client",
+                client_secret=SecretStr("secret"),
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+                api_base_url=api_base_url,
+            )
+
+    async def test_store_provider_config_rejects_api_base_url_without_opt_in(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        with pytest.raises(UnsupportedOAuthApiBaseUrlError):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="client",
+                client_secret=SecretStr("secret"),
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+                api_base_url="https://github.enterprise.example/api/v3",
+            )
+
+    @pytest.mark.parametrize(
         ("authorization_endpoint", "token_endpoint"),
         [
             (
@@ -1667,6 +1722,25 @@ class TestIntegrationService:
                 case _:
                     raise ValueError(f"Unexpected field: {field}")
 
+    @pytest.mark.parametrize(
+        "api_base_url",
+        [
+            "http://github.example.com/api/v3",
+            "https://user:password@github.example.com/api/v3",
+            "https://github.example.com/api/v3?tenant=other",
+            "https://github.example.com/api/v3#fragment",
+        ],
+    )
+    def test_integration_update_rejects_unsafe_api_base_url(
+        self,
+        api_base_url: str,
+    ) -> None:
+        with pytest.raises(ValidationError):
+            IntegrationUpdate(
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                api_base_url=api_base_url,
+            )
+
     async def test_store_provider_config_includes_default_endpoints(
         self,
         integration_service: IntegrationService,
@@ -1700,6 +1774,14 @@ class TestIntegrationService:
             == MockOAuthProvider.default_authorization_endpoint
         )
         assert integration.token_endpoint == MockOAuthProvider.default_token_endpoint
+        assert integration.api_base_url is None
+        assert (
+            integration_service.determine_api_base_url(
+                MockOAuthProvider,
+                configured_api_base_url=integration.api_base_url,
+            )
+            == MockOAuthProvider.default_api_base_url
+        )
 
         config = integration_service.get_provider_config(
             integration=integration,
@@ -1712,6 +1794,50 @@ class TestIntegrationService:
             MockOAuthProvider.default_authorization_endpoint
         )
         assert config.token_endpoint == MockOAuthProvider.default_token_endpoint
+
+    async def test_store_provider_config_normalizes_custom_api_base_url(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=MockOAuthProvider.grant_type,
+        )
+        monkeypatch.setattr(
+            "tracecat.integrations.service.get_provider_class",
+            lambda key: MockOAuthProvider if key == provider_key else None,
+        )
+
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="mock-client",
+            client_secret=SecretStr("mock-secret"),
+            api_base_url="https://github.enterprise.example/api/v3/",
+        )
+
+        assert integration.api_base_url == "https://github.enterprise.example/api/v3"
+        assert (
+            integration_service.determine_api_base_url(
+                MockOAuthProvider,
+                configured_api_base_url=integration.api_base_url,
+            )
+            == "https://github.enterprise.example/api/v3"
+        )
+
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            api_base_url=None,
+        )
+
+        assert integration.api_base_url is None
+        assert (
+            integration_service.determine_api_base_url(
+                MockOAuthProvider,
+                configured_api_base_url=integration.api_base_url,
+            )
+            == MockOAuthProvider.default_api_base_url
+        )
 
     async def test_remove_provider_config(
         self,
