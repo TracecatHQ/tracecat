@@ -1,0 +1,19 @@
+.github/dependabot.yml
+  s_d274b6742342ad::t_05351105c9afc6 4-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "fd27ead602c48030e53ff2e0263394fd5f61b837",
+  "prompts": {},
+  "sessions": {
+    "s_d274b6742342ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc5c7-c33e-77d0-aee0-30687f0f55cd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
