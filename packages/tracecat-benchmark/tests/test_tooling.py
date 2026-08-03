@@ -2707,6 +2707,34 @@ def test_runner_accepts_static_scatter_branch_fanout() -> None:
     assert args.branch_count == 256
 
 
+def test_runner_rejects_oversized_bulk_before_artifacts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = asyncio.run(
+        runner_module.amain(
+            [
+                "--base-url",
+                "http://localhost/api",
+                "--run-id",
+                "bulk-test",
+                "--load-type",
+                "bulk",
+                "--branch-count",
+                "1001",
+                "--artifact-root",
+                str(tmp_path),
+            ]
+        )
+    )
+
+    assert exit_code == 2
+    assert "--branch-count must be at most 1000 for bulk loads" in (
+        capsys.readouterr().err
+    )
+    assert not any(tmp_path.iterdir())
+
+
 def test_noop_runner_omits_runtime_branch_count_input(tmp_path: Path) -> None:
     submitted_inputs: list[dict[str, object]] = []
 

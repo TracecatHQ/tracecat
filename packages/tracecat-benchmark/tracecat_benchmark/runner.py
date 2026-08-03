@@ -66,6 +66,7 @@ from .fixtures import (
 from .models import (
     COLLECTOR_MEASUREMENT_COMPLETE_FILENAME,
     COLLECTOR_MEASUREMENT_READY_FILENAME,
+    MAX_BULK_BRANCH_COUNT,
     RUNNER_COMPLETE_FILENAME,
     RUNNER_MEASUREMENT_COMPLETE_FILENAME,
     RUNNER_MEASUREMENT_READY_FILENAME,
@@ -1154,6 +1155,15 @@ async def amain(argv: list[str]) -> int:
     if args.workflow_count <= 0 or args.branch_count <= 0:
         print(
             "--workflow-count and --branch-count must both be positive",
+            file=sys.stderr,
+        )
+        return 2
+    if (
+        args.load_type == LoadType.BULK.value
+        and args.branch_count > MAX_BULK_BRANCH_COUNT
+    ):
+        print(
+            f"--branch-count must be at most {MAX_BULK_BRANCH_COUNT} for bulk loads",
             file=sys.stderr,
         )
         return 2

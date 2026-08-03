@@ -45,7 +45,12 @@ from rich.table import Table
 from rich.text import Text
 
 from .activity_metrics import ActivityHistoryMetrics, TemporalSdkMetrics
-from .models import MAX_LOADTEST_EXECUTOR_REPLICAS, LoadType, run_id_fingerprint
+from .models import (
+    MAX_BULK_BRANCH_COUNT,
+    MAX_LOADTEST_EXECUTOR_REPLICAS,
+    LoadType,
+    run_id_fingerprint,
+)
 from .repository import REPOSITORY_ROOT_ENV, resolve_repository_root
 
 REPO_ROOT: Final = resolve_repository_root()
@@ -342,6 +347,11 @@ def _parse_case(
         default=1,
         minimum=1,
     )
+    if load_type is LoadType.BULK and branch_count > MAX_BULK_BRANCH_COUNT:
+        raise MatrixConfigurationError(
+            f"{prefix} branch_count must be at most {MAX_BULK_BRANCH_COUNT} "
+            "for bulk loads"
+        )
     return LoadTestCase(
         case_id=case_id,
         enabled=_parse_bool(

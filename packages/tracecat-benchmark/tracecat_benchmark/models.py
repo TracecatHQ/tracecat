@@ -41,6 +41,7 @@ RUNNER_MEASUREMENT_COMPLETE_FILENAME: Final = ".runner_measurement_complete.json
 COLLECTOR_MEASUREMENT_COMPLETE_FILENAME: Final = ".collector_measurement_complete.json"
 ARTIFACT_ROOT_PLACEHOLDER: Final = "<artifact-root>"
 MAX_LOADTEST_EXECUTOR_REPLICAS: Final = 10
+MAX_BULK_BRANCH_COUNT: Final = 1000
 
 
 def workspace_fingerprint(workspace_id: str) -> str:

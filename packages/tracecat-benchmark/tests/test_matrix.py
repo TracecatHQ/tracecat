@@ -170,6 +170,10 @@ def test_selected_matrix_cases_cannot_vary_temporal_history_shards(
             "case_id,load_type,branch_count\ncase,scatter,0\n",
             "branch_count must be at least 1",
         ),
+        (
+            "case_id,load_type,branch_count\ncase,bulk,1001\n",
+            "branch_count must be at most 1000 for bulk loads",
+        ),
     ],
 )
 def test_matrix_validation_rejects_ambiguous_or_unsupported_cells(
