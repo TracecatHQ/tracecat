@@ -698,6 +698,25 @@ class RegistryActionsService(BaseOrgService):
             Dict mapping action_name -> IndexedActionResult.
             Actions not found are omitted from the result.
         """
+        actions = await self._get_actions_from_index_once(action_names)
+        if actions is not None:
+            return actions
+
+        actions = await self._get_actions_from_index_once(action_names)
+        if actions is None:
+            raise RegistryError(
+                "Manifest missing for a selected registry action version"
+            )
+        return actions
+
+    async def _get_actions_from_index_once(
+        self,
+        action_names: list[str],
+    ) -> dict[str, IndexedActionResult] | None:
+        """Run one metadata and manifest lookup attempt.
+
+        Returns ``None`` when a selected version disappears between statements.
+        """
         if not action_names:
             return {}
 
@@ -832,9 +851,7 @@ class RegistryActionsService(BaseOrgService):
         for action_name, row in selected_rows.items():
             manifest = manifests.get((row.source, row.registry_version_id))
             if manifest is None:
-                raise RegistryError(
-                    "Manifest missing for a selected registry action version"
-                )
+                return None
             actions[action_name] = IndexedActionResult(
                 index_entry=IndexEntry(
                     id=row.id,
