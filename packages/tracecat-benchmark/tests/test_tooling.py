@@ -4757,6 +4757,7 @@ def test_compose_capture_runs_through_cluster_wrapper(
         (None, None),
         ("files", "ordered Compose files"),
         ("hash", "does not match the deployed container"),
+        ("replica-hash", "replicas for executor have different"),
         ("stopped", "stopped required services: worker"),
     ],
 )
@@ -4788,6 +4789,9 @@ def test_running_compose_project_matches_files_and_service_hashes(
         service: f"{index:064x}"
         for index, service in enumerate(deployed_services, start=1)
     }
+    deployed_instances = list(deployed_services)
+    if mismatch == "replica-hash":
+        deployed_instances.append("executor")
     deployed_app_url = "https://c2.tracecat.localhost"
     deployed_api_url = f"{deployed_app_url}/api"
     expected_files = [str((REPO_ROOT / path).resolve()) for path in compose_files]
@@ -4799,10 +4803,12 @@ def test_running_compose_project_matches_files_and_service_hashes(
         )
 
     labels_by_service: list[dict[str, str]] = []
-    for service in deployed_services:
+    for instance_index, service in enumerate(deployed_instances):
         config_hash = expected_hashes[service]
         if mismatch == "hash" and service == "worker":
             config_hash = "f" * 64
+        if mismatch == "replica-hash" and instance_index == len(deployed_services):
+            config_hash = "e" * 64
         labels_by_service.append(
             {
                 "com.docker.compose.project": compose_project,
@@ -4823,7 +4829,10 @@ def test_running_compose_project_matches_files_and_service_hashes(
         if args[:2] == ["docker", "ps"]:
             return (
                 0,
-                "\n".join(f"{service}-container" for service in deployed_services)
+                "\n".join(
+                    f"{service}-container-{index}"
+                    for index, service in enumerate(deployed_instances)
+                )
                 + "\n",
                 "",
             )
@@ -4839,7 +4848,7 @@ def test_running_compose_project_matches_files_and_service_hashes(
                 f"{str(service != 'migrations' and not (mismatch == 'stopped' and service == 'worker')).lower()}\t"
                 f"{environment}"
                 for service, labels in zip(
-                    deployed_services, labels_by_service, strict=True
+                    deployed_instances, labels_by_service, strict=True
                 )
             ]
             return 0, "\n".join(records) + "\n", ""

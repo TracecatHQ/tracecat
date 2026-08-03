@@ -1803,7 +1803,12 @@ def validate_running_compose_project(
                 "supplied ordered Compose files do not match the deployed project"
             )
         observed_services.add(service)
-        observed_hashes[service] = config_hash
+        previous_hash = observed_hashes.setdefault(service, config_hash)
+        if previous_hash != config_hash:
+            raise CollectorConfigurationError(
+                f"deployed Compose replicas for {service} have different "
+                "configuration hashes"
+            )
         if raw_running == "true":
             running_services.add(service)
 
