@@ -57,7 +57,7 @@ dependencies = [
     "psycopg[binary]==3.1.19",
     "pydantic-ai-slim[anthropic,bedrock,google,mcp,mistral,openai]==1.62.0",
     "pydantic-extra-types==2.11.0",
-    "pydantic==2.12.5",
+    "pydantic==2.13.4",
     "pygithub==2.8.1",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
