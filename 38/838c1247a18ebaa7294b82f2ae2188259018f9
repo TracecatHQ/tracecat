@@ -1,0 +1,21 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_vulnerability_alert_status.yml
+  s_00f7fa2b016a0e::t_4217018959064a 39-40
+packages/tracecat-registry/tracecat_registry/templates/tools/github/pull_requests/get_pull_request_merge_state.yml
+  s_00f7fa2b016a0e::t_4217018959064a 42-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "38838c1247a18ebaa7294b82f2ae2188259018f9",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
