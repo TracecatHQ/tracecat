@@ -110,6 +110,17 @@ export function WorkflowActions({
           Copy workflow alias
         </ContextMenuItem>
       )}
+      <ContextMenuItem
+        className="text-xs"
+        onClick={(e) => {
+          e.stopPropagation() // Prevent row click
+          setSelectedWorkflow(item)
+          setActiveDialog?.(ActiveDialog.WorkflowRename)
+        }}
+      >
+        <Pencil className="mr-2 size-3.5" />
+        Rename workflow
+      </ContextMenuItem>
       {showMoveToFolder && (
         <ContextMenuItem
           className="text-xs"

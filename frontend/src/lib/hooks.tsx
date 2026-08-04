@@ -354,6 +354,7 @@ import {
   type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
+  type WorkflowsUpdateWorkflowData,
   type WorkspaceCreate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
@@ -369,6 +370,7 @@ import {
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
+  workflowsUpdateWorkflow,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
@@ -919,6 +921,45 @@ export function useWorkflowManager(
     },
   })
 
+  // Update workflow
+  const { mutateAsync: updateWorkflow, isPending: updateWorkflowIsPending } =
+    useMutation({
+      mutationFn: async (params: WorkflowsUpdateWorkflowData) =>
+        await workflowsUpdateWorkflow(params),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["workflows"] })
+        queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+        // Keep an already-loaded builder view in step with a dashboard rename.
+        queryClient.invalidateQueries({ queryKey: ["workflow"] })
+      },
+      onError: (error: TracecatApiError) => {
+        // Transport failures rethrow a raw error with no `body`, so read the
+        // detail defensively; dereferencing it here would throw before the
+        // toast renders and leave the user with no feedback at all.
+        const detail = getApiErrorDetail(error)
+        switch (error.status) {
+          case 409:
+            // The API returns a specific conflict reason (alias collision vs.
+            // a duplicate workflow), so surface it rather than assuming one.
+            toast({
+              title: "Cannot update workflow",
+              description: detail ?? "The workflow was modified elsewhere.",
+              variant: "destructive",
+            })
+            break
+          default:
+            console.error("Failed to update workflow:", error)
+            toast({
+              title: "Error updating workflow",
+              description: detail
+                ? `${detail}. Please try again.`
+                : "Could not reach the server. Please try again.",
+              variant: "destructive",
+            })
+        }
+      },
+    })
+
   return {
     workflows,
     workflowsLoading,
@@ -928,6 +969,8 @@ export function useWorkflowManager(
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
+    updateWorkflow,
+    updateWorkflowIsPending,
   }
 }
 
