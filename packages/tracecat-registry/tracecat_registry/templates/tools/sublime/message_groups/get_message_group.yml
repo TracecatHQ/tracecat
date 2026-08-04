@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get message group
+  description: Retrieve a Sublime message group.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/getmessagegroup
+  namespace: tools.sublime
+  name: get_message_group
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Message group canonical ID.
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/${{ FN.url_encode(inputs.id) }}
+        method: GET
+        params: ${{ inputs.params }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}
