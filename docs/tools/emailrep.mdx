@@ -10,7 +10,7 @@ Action ID: `tools.emailrep.lookup_email`
 
 Lookup an email address in the EmailRep database.
 
-Reference: [https://docs.sublime.security/reference/emailrep-introduction](https://docs.sublime.security/reference/emailrep-introduction)
+Reference: [https://docs.sublime.security/reference/get_-email](https://docs.sublime.security/reference/get_-email)
 
 ### Secrets
 
@@ -31,5 +31,27 @@ Email to lookup.
 Whether to include the summary of the email.
 
 Default: `true`.
+
+</ParamField>
+
+## Report email address
+
+Action ID: `tools.emailrep.report_email_address`
+
+Report a malicious or suspicious email address to EmailRep.
+
+Reference: [https://docs.sublime.security/reference/post_report](https://docs.sublime.security/reference/post_report)
+
+### Secrets
+
+Required secrets:
+
+- `emailrep`: required values `EMAILREP_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native report body containing email, tags, and optional context.
 
 </ParamField>
