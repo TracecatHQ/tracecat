@@ -1,0 +1,68 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/search_galaxies.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/get_object.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/get_galaxy.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/search_galaxy_clusters.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-20,24-44,46
+  s_12329c04088fe9::t_86bc31ddfff37e 45
+  s_12329c04088fe9::t_02d11cc154b3cf 21-23
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/search_attributes.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-123
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/search_tags.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/search_event_index.yml
+  s_12329c04088fe9::t_3fa1546a0f2a31 70-72
+  s_12329c04088fe9::t_22814f07366ccb 1-69,73-114,116-118
+  s_12329c04088fe9::t_86bc31ddfff37e 115
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/get_attribute.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/get_taxonomy.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/search_events.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-128
+tests/registry/test_misp_templates.py
+  s_12329c04088fe9::t_e726a16dfd71cb 1-32,34-47,59,68-81,85-155,159-196,226,232-245
+  s_12329c04088fe9::t_02d11cc154b3cf 250
+  s_12329c04088fe9::t_af9c161d0f8c44 49-53,84
+  s_12329c04088fe9::t_f5839418c6af20 54
+  s_12329c04088fe9::t_2918d6dd5355bb 62-63
+  s_12329c04088fe9::t_e3624742f825f8 156-158,246-249,251
+  s_12329c04088fe9::t_3d5a450ed82446 33,55,82-83,197-225,227-229
+  s_12329c04088fe9::t_a354aec8bbc156 48
+  s_12329c04088fe9::t_63368164063b1e 56-58
+  s_12329c04088fe9::t_cda84e8a70163e 60-61
+  s_12329c04088fe9::t_e7acd1078144cc 64-67
+  s_12329c04088fe9::t_8bb57bca270edd 230-231
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/search_feeds.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/list_taxonomies.yml
+  s_12329c04088fe9::t_4b0b45eba0e668 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/search_objects.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-68,70-88
+  s_12329c04088fe9::t_86bc31ddfff37e 69
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/get_event.yml
+  s_12329c04088fe9::t_22814f07366ccb 1-32,53-55,59-62,64
+  s_12329c04088fe9::t_86bc31ddfff37e 33-52,56-58,63
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_12329c04088fe9::t_4697421fa65d4b 1116-1190
+tracecat/integrations/catalog/mcp_catalog.json
+  s_12329c04088fe9::t_44a630dfc8d1b0 158-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "ecd03c70136df91447ede5ac76725d37db140b81",
+  "prompts": {},
+  "sessions": {
+    "s_12329c04088fe9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc6be-5119-7583-a72e-b7ae5f2c2ec5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
