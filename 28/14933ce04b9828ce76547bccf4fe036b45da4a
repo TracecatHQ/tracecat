@@ -1,0 +1,31 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/download_dependency_list_export.yml
+  s_00f7fa2b016a0e::t_91398842e56ee3 33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/download_vulnerability_export.yml
+  s_00f7fa2b016a0e::t_91398842e56ee3 33
+tests/registry/test_gitlab_templates.py
+  s_00f7fa2b016a0e::t_91398842e56ee3 478-488,498-506,508-512,514-519
+  s_00f7fa2b016a0e::t_ca51f28174112a 507,513,520-521
+  s_00f7fa2b016a0e::t_dede11fd2e53f6 522-523
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_repository_file_raw.yml
+  s_00f7fa2b016a0e::t_91398842e56ee3 36
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/get_job_trace.yml
+  s_00f7fa2b016a0e::t_91398842e56ee3 36
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/download_job_artifacts.yml
+  s_00f7fa2b016a0e::t_91398842e56ee3 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "2814933ce04b9828ce76547bccf4fe036b45da4a",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
