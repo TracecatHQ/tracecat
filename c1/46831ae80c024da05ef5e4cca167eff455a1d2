@@ -1,0 +1,101 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_requests.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_members_with_inherited_access.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_notes.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_repository_tree.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/get_merge_request.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/search_project.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_commits.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_vulnerability_findings.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_pipelines.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_project.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/get_job_trace.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipelines.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 28,34
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_project_wiki_pages.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/get_vulnerability.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 28,34
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/merge_merge_request.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/delete_pipeline.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_link.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/update_issue.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_audit_events.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/get_repository_file.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/create_project_vulnerability_export_and_wait.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 32,38,48
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_issue_notes.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/list_merge_request_diffs.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/get_issue.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/list_commits.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/create_pipeline.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 28,34
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/create_issue_note.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/semantic_code_search.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/get_project_security_settings.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/list_project_dependencies.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/issues/list_project_labels.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_protected_branches.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/list_pipeline_jobs.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 27,33
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/update_project_security_settings.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 28,34
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/posture/list_project_approval_rules.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/cancel_pipeline.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/cicd/retry_pipeline.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/code/create_commit.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 28,34
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/security/download_vulnerability_export.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 24,30
+packages/tracecat-registry/tracecat_registry/templates/tools/gitlab/merge_requests/create_merge_request_note.yml
+  s_00f7fa2b016a0e::t_5c1e1b53bf678e 31,37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "c146831ae80c024da05ef5e4cca167eff455a1d2",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
