@@ -1,0 +1,54 @@
+docs/tools/slack.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 271-304,329-408,431-452,634-641,692-713,1164-1201,1453-1458,1460
+  s_58c363cb4abed9::t_d7ca88142d41ae 1459
+docs/tools/splunk.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 981-988
+docs/tools/elastic_security.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 7,11,15-16,79-2178,2180,2182,2184,2186,2188,2190
+  s_58c363cb4abed9::t_d3223605d79dbd 2179,2181,2183,2185,2187,2189
+docs/tools/emailrep.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 13,36-55
+  s_58c363cb4abed9::t_89b6c163d3b344 56-57
+docs/tools/github.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 7-1772,1775-3043,3045,3047-3097,3103,3105,3107-3155,3159,3161,3165,3167,3171,3173-3187,3193,3195,3201,3203-3427
+docs/tools/exa.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 11,25,29,31,33,35-51,61-69,71,75,77,79,81-111,119,121,133-141,145,147-183,185,187-215,225-255,257-259,263,265,267,269,279-285,287-289,293,295,297-407,415,417,429-541
+docs/tools/alertmedia.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 333,337,341,345,349,353
+docs/tools/fleetdm.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-2169
+docs/docs.json
+  s_58c363cb4abed9::t_e8a091c6214869 169-170,172,197,202,209
+docs/tools/misp.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-1085
+docs/tools/freshservice.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-889
+docs/tools/elasticsearch.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 7-104,109,129-242,255
+docs/tools/gitlab.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-1829
+docs/tools/opensearch.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-713
+docs/tools/sublime.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 7-72,103-162,193-223,227,249,253,255,257,269,271,277-2253
+docs/tools/cloudflare_sdk.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 67-74
+docs/tools/scanner.mdx
+  s_58c363cb4abed9::t_e8a091c6214869 1-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "391722831b6c7dc0cbc41ce91ef0f0f5e26ee557",
+  "prompts": {},
+  "sessions": {
+    "s_58c363cb4abed9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcdd7-1798-7763-94e1-0268fc137a5a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
