@@ -80,9 +80,9 @@ def slugify_(x: str) -> str:
     return slugify(x)
 
 
-def url_encode(x: str | int) -> str:
+def url_encode(x: str | int, safe: str = "") -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
-    return urllib.parse.quote(str(x), safe="")
+    return urllib.parse.quote(str(x), safe=safe)
 
 
 def url_decode(x: str) -> str:

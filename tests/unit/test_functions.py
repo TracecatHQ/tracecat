@@ -888,6 +888,12 @@ def test_url_encode(input_str: str | int, expected: str) -> None:
     assert url_encode(input_str) == expected
 
 
+def test_url_encode_accepts_explicit_safe_characters() -> None:
+    assert url_encode("feature/security report", safe="/") == (
+        "feature/security%20report"
+    )
+
+
 @pytest.mark.parametrize(
     "input_str,expected",
     [
