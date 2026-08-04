@@ -1,0 +1,428 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/rest_search_attributes.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 4-6,12-14,25,32-43
+  s_12329c04088fe9::t_996aea2f960c70 1-3,7-11,15-24,26-31,44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sightings/delete_sighting.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/cache_feeds.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/collections/delete_collection.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/check_value_warninglists_matches.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/unpublish_galaxy_cluster.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sightings/add_sighting_by_value.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/index_analyst_data.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/index_event_report.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/export_galaxy_clusters.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/noticelists/get_noticelist_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/delete_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/restore_galaxy_cluster.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/toggle_enable_warninglist.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-41
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/tag_attribute.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-21,23-33,35-40,53
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,22,34,41-52
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/edit_analyst_data.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-20,22-28,30-35,48
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,29,36-47
+  s_12329c04088fe9::t_60d8766819f63c 21
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/edit_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/get_galaxy_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/noticelists/update_noticelists.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/get_attributes.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/add_object.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-29,31-36,49
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,30,37-48
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/organisations/get_organisations.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/detach_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/view_orgs_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 4,10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-3,5-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/publish_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/delete_tag.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/collections/get_collection_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+tests/unit/test_mcp_catalog_pins.py
+  s_12329c04088fe9::t_2ead532df74af8 13,157-168
+  s_00f7fa2b016a0e::t_9e03061ca573e8 169-170
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/view_sharing_group_blueprints.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/delete_event_report.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/get_feeds.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/unpublish_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+tracecat/integrations/catalog/mcp_catalog.json
+  s_12329c04088fe9::t_2ead532df74af8 159-164
+  s_00f7fa2b016a0e::t_8ce02f8a9cfa25 158
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/describe_attribute_types.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/edit_feed.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/delete_analyst_data.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/search_galaxy_clusters.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/view_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/get_warninglists.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/remove_organisation_from_sharing_group.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/view_event_report.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/add_sharing_group.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-14,16-23,25-30,43
+  s_12329c04088fe9::t_60d8766819f63c 15
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/get_tags.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/add_attribute.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/delete_attribute.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/get_object_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/add_organisation_to_sharing_group.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/get_event_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/fetch_from_all_feeds.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/restore_event_report.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/collections/edit_collection.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/get_sharing_group.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/add_server_to_sharing_group.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/organisations/delete_organisation.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/add_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,42
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-41
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/remove_server_from_sharing_group.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,15,26,33-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-14,16-25,27-32,43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sightings/add_sighting.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/untag_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/search_tag.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/delete_galaxy_cluster.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/get_feed_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/delete_event.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/get_galaxies.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/add_feed.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/organisations/edit_organisation.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_12329c04088fe9::t_2ead532df74af8 1109-1182
+  s_00f7fa2b016a0e::t_56e316f0e8e173 1108
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/get_attribute_by_b64_value.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-3,5-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 4,10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/untag_attribute.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/get_galaxy_clusters.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/organisations/add_organisation.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/get_sharing_group_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/enable_taxonomy.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/get_taxonomy_tags.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/search_events.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-41
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/hard_delete_event_report.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/edit_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/import_from_url_event_report.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/edit_sharing_group.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+  s_12329c04088fe9::t_60d8766819f63c 18
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-17,19-26,28-33,46
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/update_taxonomies.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/rest_search_events.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 4-6,12-14,25,32-43
+  s_12329c04088fe9::t_996aea2f960c70 1-3,7-11,15-24,26-31,44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/edit_event_report.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/search_galaxies.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,42
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-41
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/restore_attribute.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/search_warninglists.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,42
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-41
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/edit_tag.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_group_blueprints/execute_sharing_group_blueprint.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/noticelists/toggle_enable_noticelist.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/get_warninglist_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/edit_galaxy_cluster.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-17,19-26,28-33,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+  s_12329c04088fe9::t_60d8766819f63c 18
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/export_taxonomy.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+scripts/registry/generate_misp_templates.py
+  s_12329c04088fe9::t_4e87893a44420b 161-173
+  s_12329c04088fe9::t_41d97ac49da748 352-358
+  s_12329c04088fe9::t_df107089d0a81d 1-160,174-351,359-548
+  s_12329c04088fe9::t_f1e1916c892fee 549-553
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/collections/get_collections.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,46
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/noticelists/get_noticelists.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/delete_galaxy.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/get_taxonomies.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/get_taxonomy_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/warninglists/update_warninglists.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/get_events.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sightings/get_sightings_by_event_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/publish_galaxy_cluster.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+tests/registry/test_misp_templates.py
+  s_12329c04088fe9::t_17cd452863a5eb 86,107-109,124,140-142,240-242
+  s_12329c04088fe9::t_41434e3574934d 1-85,87-106,110-123,125-139,143-239,243-308
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/event_reports/add_event_report.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/delete_object.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+scripts/registry/misp/README.md
+  s_12329c04088fe9::t_bff0fd4ad33976 1-3,8-27
+  s_12329c04088fe9::t_17cd452863a5eb 4-7
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/get_attribute_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/objects/rest_search_objects.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 4-6,12-14,25,32-43
+  s_12329c04088fe9::t_996aea2f960c70 1-3,7-11,15-24,26-31,44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/index_minimal_analyst_data.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/collections/add_collection.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-14,16-22,24-29,42
+  s_12329c04088fe9::t_60d8766819f63c 15
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-41
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/tag_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-28,30-35,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,29,36-45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/get_tag_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/add_event.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-41
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/get_attribute_statistics.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-26,28-33,44
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/import_galaxy_cluster.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,15,23,30-41
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-14,16-22,24-29,42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/sharing_groups/delete_sharing_group.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/get_galaxy_cluster_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/tags/add_tag.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,24,31-42
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-30,43
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/edit_attribute.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-17,19-25,27-32,45
+  s_12329c04088fe9::t_60d8766819f63c 18
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/add_analyst_data.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-23,25-31,33-38,51
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,32,39-50
+  s_12329c04088fe9::t_60d8766819f63c 24
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/events/enrich_event.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+scripts/registry/misp/openapi-3ebcd32.yaml
+  s_12329c04088fe9::t_031d3ee3dcb5cd 27-28,34,44,461,467,6546,7564-7565,7571-7573,8971
+  s_12329c04088fe9::t_87c4634ebaf1b1 1-26,29-33,35-43,45-460,462-466,468-6545,6547-7563,7566-7570,7574-8970,8972-11103
+scripts/registry/misp/operations.yml
+  s_12329c04088fe9::t_60b125daa572dd 1-4,6-134
+  s_12329c04088fe9::t_17cd452863a5eb 5
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxy_clusters/add_galaxy_cluster.yml
+  s_12329c04088fe9::t_60d8766819f63c 18
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-17,19-26,28-33,46
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,27,34-45
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/organisations/get_organisation_by_id.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/attributes/enrich_attribute.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,45
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-44
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/attach_galaxy_cluster.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-32,34-39,52
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,33,40-51
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/analyst_data/get_analyst_data_by_id.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-25,27-32,43
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,26,33-42
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/fetch_from_feed.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/taxonomies/disable_taxonomy.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/disable_feed.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/galaxies/update_galaxies.yml
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,20,27-36
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-19,21-26,37
+packages/tracecat-registry/tracecat_registry/templates/tools/misp/feeds/enable_feed.yml
+  s_12329c04088fe9::t_996aea2f960c70 1-9,13-22,24-29,40
+  s_12329c04088fe9::t_4bff0faa25df8e 10-12,23,30-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "05b800295ff0e05c50ad5b2a02d38a4e4c5860dc",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_12329c04088fe9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc6be-5119-7583-a72e-b7ae5f2c2ec5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
