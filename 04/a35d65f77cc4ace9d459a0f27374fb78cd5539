@@ -1,0 +1,21 @@
+tracecat/expressions/functions.py
+  s_00f7fa2b016a0e::t_fd5e292b2b14ca 83,85
+tests/unit/test_functions.py
+  s_00f7fa2b016a0e::t_fd5e292b2b14ca 891-896
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "04a35d65f77cc4ace9d459a0f27374fb78cd5539",
+  "prompts": {},
+  "sessions": {
+    "s_00f7fa2b016a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb4e6-c9a9-79e2-a11e-ece9c3cc1702",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
