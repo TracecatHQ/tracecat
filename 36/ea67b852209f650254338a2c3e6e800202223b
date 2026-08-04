@@ -1,0 +1,163 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/action_message.yml
+  s_a5f6c110bbec37::t_574a967bb8b958 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/analyze_message_by_id.yml
+  s_a5f6c110bbec37::t_d3ed9c8903dfa5 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/attack_score_for_message.yml
+  s_a5f6c110bbec37::t_78268ef7ab3d3c 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/create_message.yml
+  s_a5f6c110bbec37::t_dc30ca798d9159 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message.yml
+  s_a5f6c110bbec37::t_71dd0f6c46d865 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_attachment_image.yml
+  s_a5f6c110bbec37::t_d2c3109c2a0b06 1-31
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_attachment_image_raw.yml
+  s_a5f6c110bbec37::t_510fdf3c7a37a7 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_canonical_group_action_state.yml
+  s_a5f6c110bbec37::t_d7b83e1b2e6fa1 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_data_model.yml
+  s_a5f6c110bbec37::t_09ba7d9948431e 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_eml.yml
+  s_a5f6c110bbec37::t_b31825019e8905 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image.yml
+  s_a5f6c110bbec37::t_480c22b9953af4 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/get_message_image_link.yml
+  s_a5f6c110bbec37::t_786faed650ba6b 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/restore_message.yml
+  s_a5f6c110bbec37::t_a179eaf5b6c522 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/retrieve_asa_report.yml
+  s_a5f6c110bbec37::t_a8601daad50443 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/retrieve_asa_verdict.yml
+  s_a5f6c110bbec37::t_396b794ff9125a 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/set_message_access_justification.yml
+  s_a5f6c110bbec37::t_630ec7a2724fb5 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/messages/trash_message.yml
+  s_a5f6c110bbec37::t_b24b786249a61d 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/emailrep/lookup_email.yml
+  s_58c363cb4abed9::t_52e90c087d7b6e 6,25,31
+packages/tracecat-registry/tracecat_registry/templates/tools/emailrep/report_email_address.yml
+  s_58c363cb4abed9::t_393319e8286e2c 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/binexplode.yml
+  s_58c363cb4abed9::t_cde964c5dc05d7 6,48
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/binexplode/get_scan.yml
+  s_58c363cb4abed9::t_b1e89e2ca12a4f 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/binexplode/submit.yml
+  s_58c363cb4abed9::t_7be225b1d24ee3 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/create_email_bomb.yml
+  s_a5f6c110bbec37::t_c5e394cccd8176 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/dismiss_email_bomb.yml
+  s_a5f6c110bbec37::t_71fc6a121720e8 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/get_email_bomb.yml
+  s_a5f6c110bbec37::t_6a84dbad240bc4 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/email_bombs/list_email_bombs.yml
+  s_a5f6c110bbec37::t_da16d7a5225d24 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/eml_analyze.yml
+  s_58c363cb4abed9::t_d760f2128740ff 1-26
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/get_hunt_job.yml
+  s_a5f6c110bbec37::t_fa65383b1bdcd2 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/get_hunt_job_results.yml
+  s_a5f6c110bbec37::t_ce318219644917 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/hunt_jobs/start_hunt_job.yml
+  s_a5f6c110bbec37::t_61a200604da861 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/add_list_entry.yml
+  s_a5f6c110bbec37::t_403220af21eba1 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/create_list.yml
+  s_a5f6c110bbec37::t_287b94ffb59a1c 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/delete_list.yml
+  s_a5f6c110bbec37::t_d3259f3ab7883f 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/delete_list_entry.yml
+  s_a5f6c110bbec37::t_927fd66c9e8e9f 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_list.yml
+  s_a5f6c110bbec37::t_909dc9eadd185e 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_list_entries.yml
+  s_a5f6c110bbec37::t_2ad921898a7b9c 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_list_entry.yml
+  s_a5f6c110bbec37::t_cad61ed7cb6ed6 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/get_lists.yml
+  s_a5f6c110bbec37::t_21fce70e6bbe66 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/patch_list.yml
+  s_a5f6c110bbec37::t_5ad9e2357ef6b6 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/lists/set_list_entries.yml
+  s_a5f6c110bbec37::t_571ce2f1775ce9 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/mailboxes/list_mailboxes.yml
+  s_a5f6c110bbec37::t_9a366c36944210 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_message_canonical_group.yml
+  s_a5f6c110bbec37::t_508b91f4ca6e64 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/dismiss_multiple_message_groups.yml
+  s_a5f6c110bbec37::t_bc92edb4b5b2f5 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group.yml
+  s_a5f6c110bbec37::t_60f23028331e8c 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/get_message_group_siem_summary.yml
+  s_a5f6c110bbec37::t_2d6dd2f5712b26 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/graymail_multiple_message_groups.yml
+  s_a5f6c110bbec37::t_0fbe9f3917031b 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/list_message_groups.yml
+  s_a5f6c110bbec37::t_9b10afe9d992dc 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_message_canonical_group.yml
+  s_a5f6c110bbec37::t_f339a21971222c 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/quarantine_multiple_message_groups.yml
+  s_a5f6c110bbec37::t_c550911d2585fc 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_message_canonical_group.yml
+  s_a5f6c110bbec37::t_be0e93d31eb0e3 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/restore_multiple_message_groups.yml
+  s_a5f6c110bbec37::t_f5a308a7cb6417 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/review_message_groups.yml
+  s_a5f6c110bbec37::t_e51ecc427b0de9 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/search_message_groups.yml
+  s_a5f6c110bbec37::t_46b4cdf4e9a9c6 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/share_with_sublime_public.yml
+  s_a5f6c110bbec37::t_91964175c3eab7 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_message_canonical_group.yml
+  s_a5f6c110bbec37::t_ad006776e07672 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/message_groups/trash_multiple_message_groups.yml
+  s_a5f6c110bbec37::t_e5e78acc57d3bb 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/activate_rule.yml
+  s_a5f6c110bbec37::t_5a4786596cd8ac 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/create_rule.yml
+  s_a5f6c110bbec37::t_e5cb9b2b389582 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/deactivate_rule.yml
+  s_a5f6c110bbec37::t_8ebee3968453ae 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/delete_rule.yml
+  s_a5f6c110bbec37::t_47707d28edebf7 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/get_rule.yml
+  s_a5f6c110bbec37::t_97963fd399483c 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/get_rule_history.yml
+  s_a5f6c110bbec37::t_23a2f0ad75f9c1 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rule_history.yml
+  s_a5f6c110bbec37::t_81115b4a0f4d4c 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/list_rules.yml
+  s_a5f6c110bbec37::t_c0477cbc0adb5b 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/update_rule.yml
+  s_a5f6c110bbec37::t_b5fb1f4f88b264 1-32
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/rules/validate_rule.yml
+  s_a5f6c110bbec37::t_87aa7669c732ba 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/score_eml.yml
+  s_58c363cb4abed9::t_1dac75aab79b52 5-6
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/tasks/get_task.yml
+  s_a5f6c110bbec37::t_3ce820613739a6 1-28
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/user_reports/list_user_reports.yml
+  s_a5f6c110bbec37::t_a0d366da8df0ca 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "36ea67b852209f650254338a2c3e6e800202223b",
+  "prompts": {},
+  "sessions": {
+    "s_58c363cb4abed9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcdd7-1798-7763-94e1-0268fc137a5a",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_a5f6c110bbec37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcdf4-e94f-7773-ad4b-b06a858625b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
