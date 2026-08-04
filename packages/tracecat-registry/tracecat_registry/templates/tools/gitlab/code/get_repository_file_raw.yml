@@ -33,7 +33,7 @@ definition:
         url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/files/${{ FN.url_encode(inputs.file_path) }}/raw
         method: GET
         headers:
-          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
           Accept: application/octet-stream
         params: ${{ inputs.params }}
         follow_redirects: true

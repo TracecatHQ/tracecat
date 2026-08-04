@@ -434,9 +434,6 @@ def test_catalog_contract() -> None:
         assert request["args"]["url"].startswith(
             "${{ VARS.gitlab.base_url || inputs.base_url }}"
         )
-        assert request["args"]["headers"]["PRIVATE-TOKEN"] == (
-            "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
-        )
         expected_accept = {
             "binary": "application/octet-stream",
             "text": "text/plain",
@@ -478,9 +475,17 @@ def test_catalog_contract() -> None:
             assert step["args"]["url"].startswith(
                 "${{ VARS.gitlab.base_url || inputs.base_url }}"
             )
-            assert step["args"]["headers"]["PRIVATE-TOKEN"] == (
-                "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
-            )
+            headers = step["args"]["headers"]
+            if step["args"].get("follow_redirects") is True:
+                assert headers["Authorization"] == (
+                    "Bearer ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
+                )
+                assert "PRIVATE-TOKEN" not in headers
+            else:
+                assert headers["PRIVATE-TOKEN"] == (
+                    "${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
+                )
+                assert "Authorization" not in headers
 
 
 def test_project_and_nested_file_paths_are_component_encoded() -> None:
@@ -488,6 +493,32 @@ def test_project_and_nested_file_paths_are_component_encoded() -> None:
     url = definition["steps"][0]["args"]["url"]
     assert "FN.url_encode(inputs.project_id)" in url
     assert "FN.url_encode(inputs.file_path)" in url
+
+
+def test_redirects_use_bearer_authentication() -> None:
+    redirecting_actions = {
+        "download_job_artifacts",
+        "download_dependency_list_export",
+        "download_vulnerability_export",
+        "get_job_trace",
+        "get_repository_file_raw",
+    }
+    templates = load_templates()
+    seen: set[str] = set()
+
+    for name, template in templates.items():
+        for step in template["definition"]["steps"]:
+            if step["args"].get("follow_redirects") is not True:
+                continue
+            seen.add(name)
+            headers = step["args"]["headers"]
+            assert name in redirecting_actions
+            assert headers["Authorization"] == (
+                "Bearer ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}"
+            )
+            assert "PRIVATE-TOKEN" not in headers
+
+    assert seen == redirecting_actions
 
 
 def test_bug_and_security_issue_payload_is_native() -> None:
