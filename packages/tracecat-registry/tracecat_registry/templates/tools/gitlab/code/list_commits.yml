@@ -21,13 +21,13 @@ definition:
       default: null
     base_url:
       type: str
-      description: GitLab API v4 base URL. `VARS.gitlab.base_url` overrides this value.
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
       default: https://gitlab.com/api/v4
   steps:
     - ref: request
       action: core.http_request
       args:
-        url: ${{ VARS.gitlab.base_url || inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/commits
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/commits
         method: GET
         headers:
           PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
