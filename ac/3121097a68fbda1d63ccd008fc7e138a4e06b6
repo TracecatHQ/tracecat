@@ -1,0 +1,21 @@
+packages/tracecat-registry/AGENTS.md
+  s_e8854e8f3d188f::t_dd40108d22fa84 5-66
+packages/tracecat-registry/CLAUDE.md
+  s_e8854e8f3d188f::t_b3ee681f728b01 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "ac3121097a68fbda1d63ccd008fc7e138a4e06b6",
+  "prompts": {},
+  "sessions": {
+    "s_e8854e8f3d188f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd3af-1bab-7bb3-a4b3-3270e090a371",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
