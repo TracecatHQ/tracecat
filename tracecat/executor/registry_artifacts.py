@@ -1211,7 +1211,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         artifact_uri: str,
     ) -> list[Path] | None:
         """Return a reusable local candidate without probing remote sidecars."""
-        include_unverified_sidecar = (
+        include_squashfs_sidecar = (
             _bundled_builtin_registry_version(artifact_uri) is None
             and _artifact_format(artifact_uri) == RegistryArtifactFormat.TAR_GZ
             and self._can_try_squashfs()
@@ -1219,7 +1219,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         candidates = self._candidate_artifacts(
             ctx,
             artifact_uri,
-            include_unverified_sidecar=include_unverified_sidecar,
+            include_squashfs_sidecar=include_squashfs_sidecar,
         )
         return self._first_cached_path(candidates, ctx)
 
@@ -1228,7 +1228,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         ctx: RegistryArtifactMaterializationContext,
         artifact_uri: str,
         *,
-        include_unverified_sidecar: bool,
+        include_squashfs_sidecar: bool,
     ) -> list[RegistryArtifact]:
         """Build artifact candidates in executor preference order."""
         if version := _bundled_builtin_registry_version(artifact_uri):
@@ -1258,7 +1258,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             return candidates
 
         candidates = []
-        if include_unverified_sidecar and (
+        if include_squashfs_sidecar and (
             squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
         ):
             candidates.append(
@@ -1307,17 +1307,17 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             return self._candidate_artifacts(
                 ctx,
                 artifact_uri,
-                include_unverified_sidecar=False,
+                include_squashfs_sidecar=False,
             )
 
         artifact_format = _artifact_format(artifact_uri)
-        include_unverified_sidecar = False
+        include_squashfs_sidecar = False
         if (
             artifact_format == RegistryArtifactFormat.TAR_GZ
             and self._can_try_squashfs()
             and (squashfs_uri := _squashfs_sidecar_uri(artifact_uri))
         ):
-            include_unverified_sidecar = (
+            include_squashfs_sidecar = (
                 ctx.paths.squashfs_image_path.exists()
                 or await self._sidecar_exists(
                     base_uri=artifact_uri,
@@ -1329,7 +1329,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         return self._candidate_artifacts(
             ctx,
             artifact_uri,
-            include_unverified_sidecar=include_unverified_sidecar,
+            include_squashfs_sidecar=include_squashfs_sidecar,
         )
 
     async def _sidecar_exists(
