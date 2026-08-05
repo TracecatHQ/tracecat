@@ -105,6 +105,15 @@ class RegistryArtifactPaths:
     tarball_target_dir: Path
 
 
+@dataclass(frozen=True, slots=True)
+class _RegistryArtifactCleanupIdentity:
+    """Filesystem identity for one deferred cleanup target generation."""
+
+    device: int
+    inode: int
+    file_type: int
+
+
 @dataclass(slots=True)
 class RegistryArtifactRuntimeState:
     """Process-local synchronization and lease state for one cache key."""
@@ -172,6 +181,19 @@ def is_reusable_cache_file(path: Path) -> bool:
         return stat.S_ISREG(path.lstat().st_mode)
     except FileNotFoundError:
         return False
+
+
+def _cleanup_identity(path: Path) -> _RegistryArtifactCleanupIdentity | None:
+    """Return a replacement-sensitive identity for one cleanup target."""
+    try:
+        path_stat = path.lstat()
+    except FileNotFoundError:
+        return None
+    return _RegistryArtifactCleanupIdentity(
+        device=path_stat.st_dev,
+        inode=path_stat.st_ino,
+        file_type=stat.S_IFMT(path_stat.st_mode),
+    )
 
 
 def ensure_real_directory(path: Path) -> None:
@@ -416,7 +438,7 @@ class RegistryArtifactCacheStorage:
         self._swept = False
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
-        self._failed_startup_cleanup: set[Path] = set()
+        self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
         self._budget_dirty = True
 
     async def ensure_swept(self) -> None:
@@ -546,7 +568,7 @@ class RegistryArtifactCacheStorage:
             cache_key=cache_key,
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
-            defer_cleanup=self._failed_startup_cleanup.add,
+            defer_cleanup=self._defer_cleanup,
             admission=admission,
         )
 
@@ -1092,9 +1114,9 @@ class RegistryArtifactCacheStorage:
                 mounted = True
             if mounted or not _delete_cache_path(path):
                 deleted = False
-                self._failed_startup_cleanup.add(path)
+                self._defer_cleanup(path)
                 continue
-            self._failed_startup_cleanup.discard(path)
+            self._failed_startup_cleanup.pop(path, None)
             logger.info("Removed legacy registry artifact cache path", path=str(path))
         return deleted
 
@@ -1121,19 +1143,47 @@ class RegistryArtifactCacheStorage:
         for path in paths:
             if _delete_cache_path(path):
                 if remember_failures:
-                    self._failed_startup_cleanup.discard(path)
+                    self._failed_startup_cleanup.pop(path, None)
                 logger.info("Removed registry artifact work path", path=str(path))
             else:
                 deleted = False
                 if remember_failures:
-                    self._failed_startup_cleanup.add(path)
+                    self._defer_cleanup(path)
         return deleted
 
+    def _defer_cleanup(self, path: Path) -> None:
+        """Remember only the current filesystem generation for later deletion."""
+        try:
+            identity = _cleanup_identity(path)
+        except OSError as e:
+            self._failed_startup_cleanup.pop(path, None)
+            logger.warning(
+                "Could not identify deferred registry artifact cleanup path",
+                path=str(path),
+                error_type=type(e).__name__,
+            )
+            return
+        if identity is None:
+            self._failed_startup_cleanup.pop(path, None)
+            return
+        self._failed_startup_cleanup[path] = identity
+
     def _retry_failed_startup_cleanup(self) -> bool:
-        """Retry exact deferred paths without sweeping live staging work."""
-        for path in tuple(self._failed_startup_cleanup):
-            if _delete_cache_path(path):
-                self._failed_startup_cleanup.discard(path)
+        """Retry deferred objects without deleting replacement generations."""
+        for path, expected_identity in tuple(self._failed_startup_cleanup.items()):
+            try:
+                current_identity = _cleanup_identity(path)
+            except OSError:
+                continue
+            if current_identity != expected_identity:
+                if self._failed_startup_cleanup.get(path) == expected_identity:
+                    self._failed_startup_cleanup.pop(path, None)
+                continue
+            if (
+                _delete_cache_path(path)
+                and self._failed_startup_cleanup.get(path) == expected_identity
+            ):
+                self._failed_startup_cleanup.pop(path, None)
         return not self._failed_startup_cleanup
 
     def _trim_startup_cache(self) -> bool:

@@ -1211,8 +1211,43 @@ class TestRegistryArtifactCache:
         assert deferred_path.is_dir()
 
         assert await cache._enforce_cache_budget() is True
-        assert cache._failed_startup_cleanup == set()
+        assert cache._failed_startup_cleanup == {}
         assert not deferred_path.exists()
+
+    @pytest.mark.anyio
+    async def test_deferred_cleanup_does_not_delete_replacement(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A stale cleanup record cannot delete a newly published artifact."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        artifact_uri = "s3://bucket/path/replacement.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        target_dir = cache._paths_for(cache_key).tarball_target_dir
+        target_dir.parent.mkdir(parents=True)
+        target_dir.write_text("malformed")
+        cache._context_for(cache_key).defer_cleanup(target_dir)
+        target_dir.unlink()
+
+        async def mock_download(self, ctx, path):
+            del self, ctx
+            path.write_bytes(_tarball_payload(size=1))
+
+        async def mock_extract(self, tarball_path, output_dir):
+            del self, tarball_path
+            (output_dir / "module.py").write_text("VALUE = 1")
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
+        ):
+            async with cache.lease([artifact_uri]) as registry_paths:
+                assert registry_paths == [target_dir]
+                assert (target_dir / "module.py").is_file()
+
+        assert target_dir.is_dir()
+        assert cache._failed_startup_cleanup == {}
 
     @pytest.mark.anyio
     async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
@@ -3952,13 +3987,13 @@ class TestRegistryArtifactCacheStartupSweep:
         ):
             await cache.ensure_swept()
             assert orphaned.is_file()
-            assert cache._failed_startup_cleanup == {orphaned}
+            assert set(cache._failed_startup_cleanup) == {orphaned}
             assert cache._budget_dirty is True
 
             assert await cache._enforce_cache_budget() is True
 
         assert not orphaned.exists()
-        assert cache._failed_startup_cleanup == set()
+        assert cache._failed_startup_cleanup == {}
 
     @pytest.mark.anyio
     async def test_failed_startup_retirement_stays_dirty_and_retries(
