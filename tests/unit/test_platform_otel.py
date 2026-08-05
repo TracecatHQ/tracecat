@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
@@ -130,6 +130,45 @@ def test_fastapi_request_emits_sanitized_span_and_trace_headers(
     assert "do-not-export" not in str(span.attributes)
     assert "authorization" not in str(span.attributes).lower()
     assert "cookie" not in str(span.attributes).lower()
+
+
+def test_fastapi_header_capture_cannot_be_enabled_by_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setenv("OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST", ".*")
+    monkeypatch.setenv(
+        "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE", ".*"
+    )
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-api", exporter=exporter)
+    app = FastAPI()
+
+    def get_items(response: Response) -> dict[str, str]:
+        response.set_cookie("session", "synthetic-response-secret")
+        return {"status": "ok"}
+
+    app.add_api_route("/items", get_items, methods=["GET"])
+    instrument_fastapi_app(app, service_name="tracecat-api")
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/items",
+            headers={
+                "Authorization": "Bearer synthetic-request-secret",
+                "Cookie": "session=synthetic-request-secret",
+            },
+        )
+
+    assert response.status_code == 200
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    assert spans[0].attributes is not None
+    span_attributes = str(spans[0].attributes).lower()
+    assert "authorization" not in span_attributes
+    assert "cookie" not in span_attributes
+    assert "synthetic-request-secret" not in span_attributes
+    assert "synthetic-response-secret" not in span_attributes
 
 
 @pytest.mark.parametrize("path", ["/", "/health", "/ready", "/readiness", "/metrics"])
