@@ -40,7 +40,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
-    from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.logger import logger
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
@@ -104,7 +103,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     logger.info("Starting AgentWorker")
 
-    client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    client = await get_temporal_client()
 
     interceptors = []
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
