@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Trash message
+  description: Trash an individual Sublime message.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/trashmessage-1
+  namespace: tools.sublime
+  name: trash_message
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/trash
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

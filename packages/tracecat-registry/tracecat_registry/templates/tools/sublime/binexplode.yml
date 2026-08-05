@@ -3,7 +3,7 @@ definition:
   name: scan_file
   namespace: tools.sublime
   title: Scan file with BinExplode
-  description: Scan a file with BinExplode. Returns
+  description: Scan a file with BinExplode and return the completed scan results.
   doc_url: https://docs.sublime.security/reference/postscan-1
   display_group: Sublime
   secrets:
@@ -45,5 +45,5 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
         poll_condition: >
-          lambda x: x.get('data', {}).get('task_response', {}).get('state') == 'completed'
+          lambda x: x.get('data', {}).get('task_response', {}).get('state') == 'succeeded'
   returns: ${{ steps.get_scan_results.result.data.results }}
