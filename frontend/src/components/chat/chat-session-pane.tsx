@@ -265,7 +265,7 @@ export interface ChatSessionPaneProps {
   onData?: ChatOnDataCallback<UIMessage>
   /** Called whenever the underlying chat transport status changes. */
   onStatusChange?: (status: ChatStatus) => void
-  modelInfo: ModelInfo
+  modelInfo?: ModelInfo
   toolsEnabled?: boolean
   agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
@@ -381,6 +381,10 @@ export function ChatSessionPane({
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  const readonlyDescription =
+    chat && "user_id" in chat
+      ? "This legacy conversation is read-only."
+      : "This conversation belongs to a teammate."
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -464,7 +468,7 @@ export function ChatSessionPane({
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (!pendingMessage || isReadonly || !chat) return
+    if (!pendingMessage || isReadonly || !chat || !modelInfo) return
 
     const messageKey = `${chat.id}:${pendingMessage}`
     if (pendingMessageSentRef.current === messageKey) return
@@ -477,6 +481,7 @@ export function ChatSessionPane({
     pendingMessage,
     isReadonly,
     chat,
+    modelInfo,
     clearError,
     sendMessage,
     onPendingMessageSent,
@@ -518,7 +523,7 @@ export function ChatSessionPane({
   }, [isGeneratingTurn])
 
   const handleStop = useCallback(async () => {
-    if (!chat?.id || cancelRequested) return
+    if (!chat?.id || cancelRequested || isReadonly) return
     setCancelRequested(true)
     try {
       await cancelChatTurn({ chatId: chat.id })
@@ -529,7 +534,7 @@ export function ChatSessionPane({
         description: parseChatError(error),
       })
     }
-  }, [cancelChatTurn, cancelRequested, chat?.id])
+  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
@@ -591,7 +596,7 @@ export function ChatSessionPane({
 
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
-      if (!decisionPayload.length) return
+      if (isReadonly || !decisionPayload.length) return
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisionPayload))
@@ -606,7 +611,7 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, sendMessage]
+    [clearError, isReadonly, sendMessage]
   )
 
   useEffect(() => {
@@ -1158,7 +1163,7 @@ export function ChatSessionPane({
   const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
 
-    if (!hasText) {
+    if (!hasText || isReadonly || !modelInfo) {
       return
     }
 
@@ -1212,6 +1217,14 @@ export function ChatSessionPane({
 
   const promptComposer = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {isReadonly ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="px-1.5 py-0 font-normal">
+            Read only
+          </Badge>
+          {readonlyDescription}
+        </div>
+      ) : null}
       {mentionEnabled && toolMention && (
         <div className="absolute inset-x-0 bottom-full z-30 mb-2">
           <div className="overflow-hidden rounded-md border bg-popover shadow-md">
@@ -1290,7 +1303,7 @@ export function ChatSessionPane({
             onBlur={handleInputBlur}
             placeholder={
               isReadonly
-                ? "This is a legacy session (read-only)"
+                ? readonlyDescription
                 : (inputDisabled || isOptimisticBeforeSendPending) &&
                     inputDisabledPlaceholder
                   ? inputDisabledPlaceholder
@@ -1324,15 +1337,16 @@ export function ChatSessionPane({
                 mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
               />
             )}
-            {!isReadonly ? (
+            {!isReadonly && modelInfo ? (
               <PromptModelIndicator modelInfo={modelInfo} />
             ) : null}
           </PromptInputTools>
           <PromptInputSubmit
             disabled={
-              isGeneratingTurn
+              isReadonly ||
+              (isGeneratingTurn
                 ? isCancellingChatTurn || cancelRequested
-                : isInputDisabled || !input.trim()
+                : isInputDisabled || !input.trim())
             }
             onStop={() => void handleStop()}
             status={status}
@@ -1426,33 +1440,37 @@ export function ChatSessionPane({
                         isLastMessage={isLastMessage}
                         turnCancelled={cancelledTurnMessageIds.has(id)}
                         interruptedToolCallIds={interruptedToolCallIds}
-                        onSubmitApprovals={handleSubmitApprovals}
+                        onSubmitApprovals={
+                          isReadonly ? undefined : handleSubmitApprovals
+                        }
                       />
                     ))}
-                    {role === "assistant" && !isWaitingForResponse && (
-                      // Render response actions for assistant messages and reveal them on hover for older messages.
-                      <Actions
-                        className={cn(
-                          "mt-4",
-                          // Apply a smooth transition so the actions fade in and out gracefully.
-                          "transition-opacity duration-200 ease-out",
-                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                          !isLastMessage &&
-                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        )}
-                      >
-                        {isLastMessage && (
-                          <Action
-                            size="sm"
-                            onClick={() => regenerate()}
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        )}
-                      </Actions>
-                    )}
+                    {role === "assistant" &&
+                      !isWaitingForResponse &&
+                      !isReadonly && (
+                        // Render response actions for assistant messages and reveal them on hover for older messages.
+                        <Actions
+                          className={cn(
+                            "mt-4",
+                            // Apply a smooth transition so the actions fade in and out gracefully.
+                            "transition-opacity duration-200 ease-out",
+                            // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                            !isLastMessage &&
+                              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          )}
+                        >
+                          {isLastMessage && (
+                            <Action
+                              size="sm"
+                              onClick={() => regenerate()}
+                              label="Retry"
+                              tooltip="Retry"
+                            >
+                              <RefreshCcwIcon className="size-3" />
+                            </Action>
+                          )}
+                        </Actions>
+                      )}
                   </div>
                 )
               })}

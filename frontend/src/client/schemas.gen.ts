@@ -3613,6 +3613,12 @@ export const $AgentSessionRead = {
       ],
       title: "Created By",
     },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -3806,6 +3812,12 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -4008,6 +4020,12 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",

@@ -92,6 +92,7 @@ from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
     TurnLifecycleResult,
+    is_session_readonly,
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
@@ -914,7 +915,14 @@ class AgentSessionService(BaseWorkspaceService):
         items: list[AgentSessionRead | ChatReadMinimal] = []
 
         for s in sessions:
-            items.append(AgentSessionRead.model_validate(s, from_attributes=True))
+            session_read = AgentSessionRead.model_validate(s, from_attributes=True)
+            items.append(
+                session_read.model_copy(
+                    update={
+                        "is_readonly": is_session_readonly(self.role, s.created_by),
+                    }
+                )
+            )
 
         for c in legacy_chats:
             # ChatReadMinimal has is_readonly=True by default

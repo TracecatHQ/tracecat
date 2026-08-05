@@ -884,6 +884,10 @@ export type AgentSessionRead = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -911,6 +915,10 @@ export type AgentSessionReadVercel = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -942,6 +950,10 @@ export type AgentSessionReadWithMessages = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -11740,6 +11752,10 @@ export type AgentSessionsCreateSessionData = {
 export type AgentSessionsCreateSessionResponse = AgentSessionRead
 
 export type AgentSessionsListSessionsData = {
+  /**
+   * Filter by session creator. Omit to list the entire workspace.
+   */
+  createdBy?: string | null
   /**
    * Filter by entity ID
    */

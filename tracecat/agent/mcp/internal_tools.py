@@ -397,7 +397,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 
 
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
-    """List agent sessions where this agent preset is being used by end users."""
+    """List workspace sessions where this agent preset is used."""
     from tracecat.agent.session.service import AgentSessionService
 
     preset_id = _get_preset_id(claims.internal_tool_context)
@@ -408,14 +408,24 @@ async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
     if not isinstance(limit, int) or limit < 1 or limit > 100:
         limit = 50
 
+    created_by: uuid.UUID | None = None
+    if created_by_value := args.get("created_by"):
+        if isinstance(created_by_value, uuid.UUID):
+            created_by = created_by_value
+        elif isinstance(created_by_value, str):
+            try:
+                created_by = uuid.UUID(created_by_value)
+            except ValueError as e:
+                raise InternalToolError(
+                    f"Invalid created_by format: {created_by_value}"
+                ) from e
+        else:
+            raise InternalToolError(f"Invalid created_by format: {created_by_value}")
+
     try:
         async with AgentSessionService.with_session(role=role) as service:
-            if service.role.user_id is None:
-                raise InternalToolError(
-                    "Unable to list sessions: authentication required."
-                )
             sessions = await service.list_sessions(
-                created_by=service.role.user_id,
+                created_by=created_by,
                 entity_type=AgentSessionEntity.AGENT_PRESET,
                 entity_id=preset_id,
                 limit=limit,
@@ -455,7 +465,12 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
     try:
         async with AgentSessionService.with_session(role=role) as service:
             session = await service.get_session(session_id)
-            if not session or str(session.entity_id) != str(preset_id):
+            if (
+                not session
+                or AgentSessionEntity(session.entity_type)
+                is not AgentSessionEntity.AGENT_PRESET
+                or session.entity_id != preset_id
+            ):
                 raise InternalToolError(f"Session {session_id} not found.")
 
             messages = await service.list_messages(session.id)
@@ -529,6 +544,10 @@ class _ListSessionsParams(BaseModel):
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
+    created_by: uuid.UUID | None = Field(
+        default=None,
+        description="Filter by session creator. Omit to list the entire workspace.",
+    )
 
 
 class _GetSessionParams(BaseModel):
@@ -576,7 +595,10 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
         ),
         "internal.builder.list_sessions": MCPToolDefinition(
             name="internal.builder.list_sessions",
-            description="List agent sessions where this agent preset is being used by end users.",
+            description=(
+                "List workspace agent sessions where this preset is being used. "
+                "Returns all teammates by default; optionally filter by creator."
+            ),
             parameters_json_schema=_ListSessionsParams.model_json_schema(),
         ),
         "internal.builder.get_session": MCPToolDefinition(

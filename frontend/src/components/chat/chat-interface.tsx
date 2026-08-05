@@ -20,6 +20,7 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -36,6 +37,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -44,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import {
   parseChatError,
   useCreateChat,
@@ -111,6 +114,7 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
@@ -121,6 +125,7 @@ export function ChatInterface({
   const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   // Keep local selection aligned when a parent-driven chatId changes.
   useEffect(() => {
@@ -134,6 +139,7 @@ export function ChatInterface({
     workspaceId: workspaceId,
     entityType,
     entityId,
+    createdBy: historyScope === "mine" ? user?.id : undefined,
   })
 
   // Create chat mutation
@@ -217,8 +223,10 @@ export function ChatInterface({
       !inWorkspaceChat &&
       !(entityType === "case" && isDraftChat)
     ) {
-      // Select first existing chat
-      const firstChatId = chats[0].id
+      // Prefer the current user's latest writable chat before falling back to
+      // the newest teammate session.
+      const firstChatId =
+        chats.find((candidate) => !candidate.is_readonly)?.id ?? chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
@@ -333,6 +341,13 @@ export function ChatInterface({
     onChatSelect?.(chatId)
   }
 
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    if (nextScope === "mine" && chat?.is_readonly) {
+      setSelectedChatId(undefined)
+    }
+  }
+
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
@@ -398,7 +413,18 @@ export function ChatInterface({
               error={chatsError}
               selectedChatId={selectedChatId}
               onSelectChat={handleSelectChat}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
             />
+            {chat?.is_readonly ? (
+              <Badge
+                variant="outline"
+                className="px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+              >
+                Read only
+              </Badge>
+            ) : null}
           </div>
 
           {/* Right-side actions */}
@@ -595,7 +621,7 @@ function ChatBody({
   }
 
   // Render active chat session when ready
-  if (!chatReady || !modelInfo) {
+  if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
     // Render configuration required state
     if (surface === "workspace-chat") {
       return (
@@ -644,7 +670,7 @@ function ChatBody({
         entityId={entityId}
         placeholder={placeholder}
         className="flex-1 min-h-0"
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={toolsEnabled}
         agentAddonsEnabled={agentAddonsEnabled}
         mcpEnabled={mcpEnabled}
@@ -677,7 +703,7 @@ function ChatBody({
       entityId={entityId}
       placeholder={placeholder}
       className="flex-1 min-h-0"
-      modelInfo={modelInfo}
+      modelInfo={modelInfo ?? undefined}
       toolsEnabled={toolsEnabled}
       agentAddonsEnabled={agentAddonsEnabled}
       mcpEnabled={mcpEnabled}
