@@ -1,0 +1,19 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sublime/score_eml.yml
+  s_58c363cb4abed9::t_d0d7ebc1ff947b 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "114ae69a8ee7d94a2eb563304da583c22a12eb23",
+  "prompts": {},
+  "sessions": {
+    "s_58c363cb4abed9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fcdd7-1798-7763-94e1-0268fc137a5a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
