@@ -2,6 +2,68 @@
 
 Guidance for work under `packages/tracecat-registry/`, especially templates and integration wrappers.
 
+## Third-party integrations
+
+Use these rules for new or materially expanded third-party integrations. Existing
+integrations are compatibility references, not sources of truth for provider APIs;
+do not break their public inputs or outputs without an explicitly planned migration.
+
+### Research and implementation choice
+
+- Deeply research the provider before authoring actions. Triangulate endpoint-specific
+  official documentation, the official OpenAPI specification when one exists, and
+  relevant official SDK or MCP schemas. Check authentication, scopes, API versions,
+  request and response shapes, pagination, errors, and asynchronous states.
+- Deep-link each action to its official endpoint documentation. If primary sources
+  are incomplete or conflict, surface the gap during planning instead of guessing.
+- Strongly prefer YAML templates that call Tracecat's core HTTP actions for REST
+  APIs. If research finds a maintained official Python SDK, ask the user during
+  planning whether to use it. If approved, add generic direct and paginated SDK UDFs
+  plus YAML endpoint templates over those wrappers.
+
+### Thin-wrapper contract
+
+- Keep one action close to one provider endpoint or SDK method. Use provider-native
+  argument names and API-native `params` and `payload` shapes rather than recreating
+  the provider's model, validation, or business logic.
+- Do not add provider enums, duplicated argument validation, defensive state
+  machines, or exception translation. Let HTTP status codes or native SDK exceptions
+  remain authoritative.
+- Narrow boundary handling is allowed for credential isolation and security,
+  blocking private SDK dispatch, URL and path encoding, JSON serialization,
+  binary or streaming values, protocol-required checks, and bounded pagination.
+  Small input parsing or normalization is allowed only when it makes the outbound
+  API call more robust; it must not become a semantic data transform.
+- Declare credentials through `RegistrySecret` or OAuth rather than ordinary action
+  inputs. Document required scopes, API versions, and product-tier constraints.
+- Encode every dynamic URL path segment with `FN.url_encode`.
+- Declare REST `base_url` as `str | None` with a `null` default. Resolve it in this
+  order: `inputs.base_url || VARS.<tool_name>.base_url || <official public URL>`.
+  Omit only the final fallback when the provider has no universal public endpoint.
+- Return the untouched full `core.http_request` result, including `status_code`,
+  `headers`, and `data`. Do not select, rename, filter, or reshape provider output.
+  SDK wrappers may only adapt values enough to make the native result serializable.
+- Pagination is the only general output-shaping exception. Follow the Slack and
+  boto3 wrapper patterns: preserve provider order, document whether the result is a
+  page list or flattened item list, and enforce the documented bound without
+  otherwise transforming items.
+- For polling, stop when the documented transient HTTP code or body state is no
+  longer present. Do not test exact success equality or membership in a set of
+  success values. Return the raw terminal response, including provider-declared
+  failure states.
+
+### Tests
+
+- Do not add provider-specific white-box tests that mock an API or SDK and assert
+  URLs, arguments, schemas, enums, payloads, or outputs. These restate the
+  implementation without validating the real provider contract.
+- Add live or sandbox provider tests only when a reliable environment exists and the
+  user explicitly chooses that coverage during planning.
+- Generic registry and template validation remains required. Narrow unit tests are
+  allowed for Tracecat-owned security or protocol mechanics such as credential
+  isolation, private-method blocking, serialization limits, and reusable pagination
+  machinery.
+
 ## Template design
 
 - Treat templates as thin API wrappers. Prefer passing through API-native shapes over reimplementing API validation or business logic in YAML/Python steps.
