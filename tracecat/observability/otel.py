@@ -48,6 +48,12 @@ _EXCLUDED_FASTAPI_URLS: Final = ",".join(
     )
 )
 
+# OpenTelemetry treats an empty capture list as permission to fall back to
+# OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_* environment variables.
+# A non-empty never-match pattern keeps platform tracing's no-header contract
+# intact even when those variables are set globally by an operator.
+_NEVER_CAPTURE_HTTP_HEADER: Final = r"(?!)"
+
 
 @dataclass(frozen=True)
 class PlatformTracing:
@@ -226,8 +232,8 @@ def instrument_fastapi_app(
         tracer_provider=runtime.tracer_provider,
         excluded_urls=_EXCLUDED_FASTAPI_URLS,
         server_request_hook=_sanitize_server_span,
-        http_capture_headers_server_request=[],
-        http_capture_headers_server_response=[],
+        http_capture_headers_server_request=[_NEVER_CAPTURE_HTTP_HEADER],
+        http_capture_headers_server_response=[_NEVER_CAPTURE_HTTP_HEADER],
         exclude_spans=["receive", "send"],
     )
     return runtime

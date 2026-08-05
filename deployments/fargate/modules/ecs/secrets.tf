@@ -60,6 +60,11 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
+data "aws_secretsmanager_secret" "otel_exporter_otlp_headers" {
+  count = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  arn   = var.otel_exporter_otlp_headers_arn
+}
+
 # Temporal UI authentication
 
 data "aws_secretsmanager_secret" "temporal_auth_client_id" {
@@ -120,6 +125,11 @@ data "aws_secretsmanager_secret_version" "user_auth_secret" {
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   count     = var.saml_idp_metadata_url_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
+}
+
+data "aws_secretsmanager_secret_version" "otel_exporter_otlp_headers" {
+  count     = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.otel_exporter_otlp_headers[0].id
 }
 
 # Temporal UI secrets
@@ -256,8 +266,16 @@ locals {
     }
   ] : []
 
+  platform_otel_headers_secret = var.otel_exporter_otlp_headers_arn != null ? [
+    {
+      name      = "OTEL_EXPORTER_OTLP_HEADERS"
+      valueFrom = data.aws_secretsmanager_secret_version.otel_exporter_otlp_headers[0].arn
+    }
+  ] : []
+
   tracecat_api_secrets = concat(
     local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
@@ -292,7 +310,15 @@ locals {
     }
   ] : []
 
-  executor_secrets = local.tracecat_temporal_secrets
+  worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  executor_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
 
   # Agent executor reads platform OTel headers in-process via
   # load_agent_otel_platform_override; the standard executor does not, so the
