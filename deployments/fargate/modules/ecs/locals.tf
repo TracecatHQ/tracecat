@@ -64,6 +64,11 @@ locals {
     TRACECAT__DB_SSLMODE                             = "require"
   }
 
+  tracecat_platform_otel_env = {
+    TRACECAT__PLATFORM_OTEL_ENABLED = var.platform_otel_enabled
+    OTEL_EXPORTER_OTLP_ENDPOINT     = var.otel_exporter_otlp_endpoint
+  }
+
   tracecat_temporal_payload_encryption_env = {
     TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
     TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN       = var.temporal_payload_encryption_keyring_arn
@@ -82,6 +87,7 @@ locals {
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
@@ -111,6 +117,7 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -159,6 +166,7 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
