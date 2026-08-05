@@ -1516,6 +1516,24 @@ class TestRegistryArtifactCacheLease:
 
         assert entry_dir.stat().st_mtime > 100.0
 
+    def test_final_lease_release_persists_restart_safe_recency(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Only the final release persists the entry's latest use on disk."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = "nested-leases"
+        _write_tarball_entry(temp_cache_dir, cache_key)
+        entry_dir = cache._paths_for(cache_key).entry_dir
+        cache._acquire_lease(cache_key)
+        cache._acquire_lease(cache_key)
+        os.utime(entry_dir, (100.0, 100.0))
+
+        assert cache._release_lease(cache_key) is False
+        assert entry_dir.stat().st_mtime == 100.0
+
+        assert cache._release_lease(cache_key) is True
+        assert entry_dir.stat().st_mtime > 100.0
+
     @pytest.mark.anyio
     async def test_lease_refcounts_and_touches_image_mtime(self, temp_cache_dir):
         """A lease pins its entry and refreshes the restart-safe LRU timestamp."""
