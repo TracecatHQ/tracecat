@@ -265,7 +265,7 @@ variable "otel_exporter_otlp_endpoint" {
 
 variable "otel_exporter_otlp_headers_arn" {
   type        = string
-  description = "Optional Secrets Manager ARN containing OTLP exporter headers"
+  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
   default     = null
 }
 
