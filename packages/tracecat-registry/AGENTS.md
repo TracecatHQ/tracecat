@@ -60,9 +60,11 @@ do not break their public inputs or outputs without an explicitly planned migrat
 - Add live or sandbox provider tests only when a reliable environment exists and the
   user explicitly chooses that coverage during planning.
 - Generic registry and template validation remains required. Narrow unit tests are
-  allowed for Tracecat-owned security or protocol mechanics such as credential
-  isolation, private-method blocking, serialization limits, and reusable pagination
-  machinery.
+  allowed for Tracecat-owned platform security or protocol boundaries, such as
+  credential isolation, preventing host filesystem or subprocess access, blocking
+  ambient credential discovery, network-target restrictions, and shared protocol
+  machinery. Provider-local dispatch, validation, pagination, or serialization is
+  not a platform-boundary exception merely because Tracecat implements it.
 
 ## Template design
 
