@@ -16,7 +16,9 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import TracecatCredentialsError
+from tracecat.executor import expression_policy as expression_policy_module
 from tracecat.executor import service as executor_service
+from tracecat.executor.expression_policy import derive_source_provenance
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorResultSuccess,
@@ -485,7 +487,7 @@ def _patch_expression_policy_resolution(
     ("action_name", "preserved_parameter", "runtime_parameter"),
     [
         ("core.workflow.edit_workflow", "patch_ops", "workflow_id"),
-        ("core.workflow.create_workflow", "definition_yaml", "title"),
+        ("core.workflow.create_workflow", "definition_yaml", "unmapped_parameter"),
     ],
 )
 @pytest.mark.anyio
@@ -617,8 +619,8 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     [
         ("core.transform.reshape", "patch_ops"),
         ("core.transform.reshape", "content"),
+        ("core.transform.reshape", "title"),
         ("core.workflow.edit_workflow", "workflow_id"),
-        ("core.workflow.create_workflow", "title"),
     ],
 )
 @pytest.mark.anyio
@@ -647,6 +649,10 @@ async def test_prepare_resolved_context_resolves_unmapped_parameters(
     assert prepared.resolved_context.evaluated_args == {parameter: "runtime-secret"}
     assert get_action_secrets.await_args.kwargs["secret_exprs"] == {"runtime.TOKEN"}
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == set()
+
+
+def _policy_source_provenance(args: dict[str, object]):
+    return derive_source_provenance(args)
 
 
 @pytest.mark.parametrize(
@@ -792,12 +798,84 @@ async def test_template_step_applies_target_action_expression_policy(
         ctx=executor_service.DispatchActionContext(role=role),
         resolved_context=parent_resolved,
         timeout=30,
-        source_args={"value": source_value},
+        source_provenance=_policy_source_provenance({"value": source_value}),
     )
 
     assert result == {"persisted": True}
     step_resolved = backend.execute.await_args.kwargs["resolved_context"]
     assert step_resolved.evaluated_args == expected_args
+
+
+@pytest.mark.anyio
+async def test_template_step_result_is_not_tainted_by_its_arguments(mocker):
+    """Step results stay runtime data across the accepted implementation boundary."""
+    source_value = "${{ SECRETS.runtime.TOKEN }}"
+    action_input = _expression_policy_input(
+        "testing.policy_wrapper",
+        {"value": source_value},
+    )
+    role = _expression_policy_role("tracecat-executor")
+    parent_resolved = _policy_wrapper_resolved(
+        action_input,
+        role,
+        steps=[
+            {
+                "ref": "normalize",
+                "action": "core.transform.reshape",
+                "args": {"value": "${{ inputs.value }}"},
+            },
+            {
+                "ref": "persist",
+                "action": "core.cases.create_comment",
+                "args": {
+                    "case_id": "case-123",
+                    "content": "${{ steps.normalize.result }}",
+                },
+            },
+        ],
+        evaluated_args={"value": "runtime-secret"},
+        variables={},
+        secrets={"runtime": {"TOKEN": "runtime-secret"}},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            side_effect=[
+                ActionImplementation(type="udf", action_name="core.transform.reshape"),
+                ActionImplementation(
+                    type="udf", action_name="core.cases.create_comment"
+                ),
+            ]
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_mint_action_executor_token",
+        return_value="step-token",
+    )
+    backend = mocker.Mock()
+    backend.execute = mocker.AsyncMock(
+        side_effect=[
+            ExecutorResultSuccess(result="runtime-secret"),
+            ExecutorResultSuccess(result={"persisted": True}),
+        ]
+    )
+
+    await executor_service._execute_template_action(
+        backend=backend,
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+        resolved_context=parent_resolved,
+        timeout=30,
+        source_provenance=_policy_source_provenance({"value": source_value}),
+    )
+
+    sink_resolved = backend.execute.await_args_list[1].kwargs["resolved_context"]
+    assert sink_resolved.evaluated_args == {
+        "case_id": "case-123",
+        "content": "runtime-secret",
+    }
 
 
 @pytest.mark.anyio
@@ -877,7 +955,7 @@ async def test_compound_secret_dependency_reaches_nested_template_sink(mocker):
         ctx=executor_service.DispatchActionContext(role=role),
         resolved_context=parent_resolved,
         timeout=30,
-        source_args={"value": source_value},
+        source_provenance=_policy_source_provenance({"value": source_value}),
     )
 
     sink_resolved = backend.execute.await_args.kwargs["resolved_context"]
@@ -973,7 +1051,7 @@ async def test_template_step_result_stays_inert_in_redact_parameter(mocker):
         ctx=executor_service.DispatchActionContext(role=role),
         resolved_context=parent_resolved,
         timeout=30,
-        source_args={},
+        source_provenance={},
     )
 
     persist_resolved = backend.execute.await_args_list[1].kwargs["resolved_context"]
@@ -984,8 +1062,10 @@ async def test_template_step_result_stays_inert_in_redact_parameter(mocker):
 
 
 @pytest.mark.anyio
-async def test_template_step_skips_source_expansion_without_policy_parameters(mocker):
-    """Pure-RESOLVE UDF steps never pay for the source expansion walk."""
+async def test_template_step_skips_source_substitution_without_policy_parameters(
+    mocker,
+):
+    """Pure-RESOLVE UDF steps never pay for the source substitution walk."""
     action_input = _expression_policy_input("testing.policy_wrapper", {})
     role = _expression_policy_role("tracecat-executor")
     parent_resolved = _policy_wrapper_resolved(
@@ -1017,10 +1097,9 @@ async def test_template_step_skips_source_expansion_without_policy_parameters(mo
     backend.execute = mocker.AsyncMock(
         return_value=ExecutorResultSuccess(result={"ok": True})
     )
-    expansion_spy = mocker.patch.object(
-        executor_service,
-        "expand_template_source_references",
-        wraps=executor_service.expand_template_source_references,
+    substitution_spy = mocker.patch(
+        "tracecat.executor.expression_policy.substitute_source_references",
+        wraps=expression_policy_module.substitute_source_references,
     )
 
     await executor_service._execute_template_action(
@@ -1029,9 +1108,9 @@ async def test_template_step_skips_source_expansion_without_policy_parameters(mo
         ctx=executor_service.DispatchActionContext(role=role),
         resolved_context=parent_resolved,
         timeout=30,
-        source_args={"value": "hello"},
+        source_provenance=_policy_source_provenance({"value": "hello"}),
     )
 
-    expansion_spy.assert_not_called()
+    substitution_spy.assert_not_called()
     step_resolved = backend.execute.await_args.kwargs["resolved_context"]
     assert step_resolved.evaluated_args == {"value": "hello"}
