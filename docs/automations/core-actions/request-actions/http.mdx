@@ -8,6 +8,84 @@ title: "HTTP"
 
 Perform a HTTP request to a given URL.
 
+### Authenticate a REST API
+
+Add authentication credentials to `headers`. Store static API keys
+and tokens as [Secrets](/automations/core-concepts/secrets), or
+connect an [OAuth integration](/automations/integrations/oauth-integrations)
+for managed access tokens.
+
+#### Static API key or token
+
+Pass a secret as a bearer token:
+
+```yaml
+headers:
+  Authorization: Bearer ${{ SECRETS.<secret_name>.<SECRET_KEY> }}
+```
+
+If the API expects a dedicated key header, use the same expression:
+
+```yaml
+headers:
+  X-API-Key: ${{ SECRETS.<secret_name>.<SECRET_KEY> }}
+```
+
+#### OAuth access token
+
+The expression uses the provider's exact ID, not its display name.
+
+- Built-in providers use stable lowercase IDs assigned by Tracecat,
+  with underscores between words, such as `slack`, `google_drive`,
+  and `microsoft_sentinel`.
+- Custom providers use an ID derived from the provider name, or from
+  the requested ID when you create one through the API. Tracecat
+  slugifies it with underscores and prepends `custom_`. For example,
+  `My Security API` becomes `custom_my_security_api`. If that ID is
+  already used for the same grant type, Tracecat appends `_1`, `_2`,
+  and so on.
+
+Append `_oauth` to the exact provider ID for the secret name. For the
+key, uppercase the complete provider ID, preserve its underscores and
+any numeric suffix, then append `_USER_TOKEN` or `_SERVICE_TOKEN`.
+
+Use `_USER_TOKEN` for an authorization-code connection:
+
+```yaml
+headers:
+  Authorization: Bearer ${{ SECRETS.<provider_id>_oauth.<PROVIDER_ID_UPPER>_USER_TOKEN }}
+```
+
+Use `_SERVICE_TOKEN` for a client-credentials connection:
+
+```yaml
+headers:
+  Authorization: Bearer ${{ SECRETS.<provider_id>_oauth.<PROVIDER_ID_UPPER>_SERVICE_TOKEN }}
+```
+
+A built-in `google_drive` authorization-code provider resolves as:
+
+```yaml
+headers:
+  Authorization: Bearer ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN }}
+```
+
+A custom `custom_my_security_api` client-credentials provider resolves
+as:
+
+```yaml
+headers:
+  Authorization: Bearer ${{ SECRETS.custom_my_security_api_oauth.CUSTOM_MY_SECURITY_API_SERVICE_TOKEN }}
+```
+
+<Info>
+  Tracecat automatically refreshes expiring authorization-code
+  tokens when the provider issued a refresh token, and reacquires
+  client-credentials tokens with the stored client credentials. The
+  expression resolves only to the current access-token string, which
+  may be a JWT or an opaque token, not the refresh token.
+</Info>
+
 ### Secrets
 
 Optional secrets:
