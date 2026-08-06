@@ -64,6 +64,7 @@ _EXCLUDED_FASTAPI_URLS: Final = ",".join(
 # intact even when those variables are set globally by an operator.
 _NEVER_CAPTURE_HTTP_HEADER: Final = r"(?!)"
 _REDACTED_HTTP_PATH: Final = "/[REDACTED]"
+_REDACTED_ATTRIBUTE_VALUE: Final = "[REDACTED]"
 _TRACE_CONTEXT_PROPAGATOR: Final = TraceContextTextMapPropagator()
 _TEMPORAL_FAILURE_TYPE: Final = "temporal.failure"
 
@@ -338,8 +339,12 @@ def _sanitize_server_span(span: Span, scope: Scope) -> None:
     span.set_attribute("http.url", path)
     span.set_attribute("url.full", path)
     span.set_attribute("url.path", path)
+    # ASGI instrumentation emits User-Agent as a standard semantic attribute,
+    # independently of its configurable request-header capture list.
+    span.set_attribute("http.user_agent", _REDACTED_ATTRIBUTE_VALUE)
+    span.set_attribute("user_agent.original", _REDACTED_ATTRIBUTE_VALUE)
     if scope.get("query_string"):
-        span.set_attribute("url.query", "[REDACTED]")
+        span.set_attribute("url.query", _REDACTED_ATTRIBUTE_VALUE)
 
 
 class TraceResponseHeadersMiddleware:
