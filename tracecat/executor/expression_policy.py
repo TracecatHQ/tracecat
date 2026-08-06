@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
 from lark import Token, Tree
 
@@ -31,7 +31,8 @@ class ExpressionPolicy(StrEnum):
     REDACT_SECRETS = "redact_secrets"
 
 
-class ActionParameter(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class ActionParameter:
     """Identifies one parameter on a registry action."""
 
     action: str
@@ -60,12 +61,20 @@ POLICY_MAP: Mapping[ActionParameter, ExpressionPolicy] = {
     ActionParameter("core.cases.create_comment", "content"): _REDACT_SECRETS,
     ActionParameter("core.cases.reply_to_comment", "content"): _REDACT_SECRETS,
     ActionParameter("core.cases.update_comment", "content"): _REDACT_SECRETS,
+    ActionParameter("core.table.create_table", "columns"): _REDACT_SECRETS,
+    ActionParameter("core.table.create_column", "column"): _REDACT_SECRETS,
+    ActionParameter("core.table.update_column", "update"): _REDACT_SECRETS,
     ActionParameter("core.table.insert_row", "row_data"): _REDACT_SECRETS,
     ActionParameter("core.table.insert_rows", "rows_data"): _REDACT_SECRETS,
     ActionParameter("core.table.update_row", "row_data"): _REDACT_SECRETS,
     ActionParameter("core.cases.insert_row", "row"): _REDACT_SECRETS,
     ActionParameter("ai.agent.create_preset", "instructions"): _REDACT_SECRETS,
     ActionParameter("ai.agent.update_preset", "instructions"): _REDACT_SECRETS,
+    ActionParameter("ai.agent.create_preset", "name"): _REDACT_SECRETS,
+    ActionParameter("ai.agent.create_preset", "description"): _REDACT_SECRETS,
+    ActionParameter("ai.agent.update_preset", "name"): _REDACT_SECRETS,
+    ActionParameter("ai.agent.update_preset", "description"): _REDACT_SECRETS,
+    ActionParameter("ai.agent.update_preset", "new_slug"): _REDACT_SECRETS,
 }
 
 

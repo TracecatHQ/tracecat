@@ -73,12 +73,20 @@ def test_action_parameter_policy_scope_is_explicit() -> None:
         ActionParameter(action="core.cases.create_comment", parameter="content"),
         ActionParameter(action="core.cases.reply_to_comment", parameter="content"),
         ActionParameter(action="core.cases.update_comment", parameter="content"),
+        ActionParameter(action="core.table.create_table", parameter="columns"),
+        ActionParameter(action="core.table.create_column", parameter="column"),
+        ActionParameter(action="core.table.update_column", parameter="update"),
         ActionParameter(action="core.table.insert_row", parameter="row_data"),
         ActionParameter(action="core.table.insert_rows", parameter="rows_data"),
         ActionParameter(action="core.table.update_row", parameter="row_data"),
         ActionParameter(action="core.cases.insert_row", parameter="row"),
         ActionParameter(action="ai.agent.create_preset", parameter="instructions"),
         ActionParameter(action="ai.agent.update_preset", parameter="instructions"),
+        ActionParameter(action="ai.agent.create_preset", parameter="name"),
+        ActionParameter(action="ai.agent.create_preset", parameter="description"),
+        ActionParameter(action="ai.agent.update_preset", parameter="name"),
+        ActionParameter(action="ai.agent.update_preset", parameter="description"),
+        ActionParameter(action="ai.agent.update_preset", parameter="new_slug"),
     }
 
 
@@ -463,6 +471,54 @@ def test_workflow_metadata_redacts_secret_expressions() -> None:
     assert prepared == {
         "title": f"Sync {MASK_VALUE}",
         "description": "Uses api.example.com",
+    }
+
+
+def test_preset_metadata_redacts_secret_expressions() -> None:
+    prepared = prepare_action_args(
+        "ai.agent.update_preset",
+        {
+            "slug": "analyst",
+            "description": "Uses ${{ SECRETS.api.KEY }}",
+            "name": "Analyst ${{ VARS.api.env }}",
+        },
+        {"VARS": {"api": {"env": "prod"}}},
+    )
+
+    assert prepared == {
+        "slug": "analyst",
+        "description": f"Uses {MASK_VALUE}",
+        "name": "Analyst prod",
+    }
+
+
+def test_column_definitions_redact_secret_expressions() -> None:
+    prepared = prepare_action_args(
+        "core.table.create_table",
+        {
+            "name": "alerts",
+            "columns": [
+                {
+                    "name": "token",
+                    "type": "TEXT",
+                    "default": "${{ SECRETS.api.KEY }}",
+                },
+                {
+                    "name": "region",
+                    "type": "TEXT",
+                    "default": "${{ VARS.api.region }}",
+                },
+            ],
+        },
+        {"VARS": {"api": {"region": "us-east-1"}}},
+    )
+
+    assert prepared == {
+        "name": "alerts",
+        "columns": [
+            {"name": "token", "type": "TEXT", "default": MASK_VALUE},
+            {"name": "region", "type": "TEXT", "default": "us-east-1"},
+        ],
     }
 
 
