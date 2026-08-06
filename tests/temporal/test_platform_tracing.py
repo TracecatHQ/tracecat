@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncGenerator
+from datetime import timedelta
+
+import pytest
+from opentelemetry import baggage, context
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
+from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+
+from tracecat import config
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    set_current_span_attributes,
+    shutdown_platform_tracing,
+    temporal_tracing_interceptor,
+)
+
+pytestmark = [pytest.mark.temporal]
+
+
+@activity.defn
+async def traced_executor_activity() -> str:
+    info = activity.info()
+    set_current_span_attributes(
+        {
+            "tracecat.workflow.execution.id": info.workflow_id,
+            "tracecat.action.name": "core.test.trace",
+            "temporal.activity.attempt": info.attempt,
+            "temporal.task_queue": info.task_queue,
+        }
+    )
+    return "ok"
+
+
+@workflow.defn(sandboxed=False)
+class TracedWorkflow:
+    @workflow.run
+    async def run(self) -> str:
+        return await workflow.execute_activity(
+            traced_executor_activity,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+_SYNTHETIC_BAGGAGE_KEY = "synthetic-platform-baggage"
+
+
+@activity.defn
+async def baggage_probe_activity() -> bool:
+    return baggage.get_baggage(_SYNTHETIC_BAGGAGE_KEY) is not None
+
+
+@workflow.defn(sandboxed=False)
+class BaggageProbeWorkflow:
+    @workflow.run
+    async def run(self) -> list[bool]:
+        workflow_has_baggage = baggage.get_baggage(_SYNTHETIC_BAGGAGE_KEY) is not None
+        activity_has_baggage = await workflow.execute_activity(
+            baggage_probe_activity,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        return [workflow_has_baggage, activity_has_baggage]
+
+
+_SYNTHETIC_FAILURE_DETAIL = "synthetic-customer-secret-must-not-export"
+
+
+@activity.defn
+async def failing_traced_activity() -> None:
+    raise ApplicationError(_SYNTHETIC_FAILURE_DETAIL, non_retryable=True)
+
+
+@workflow.defn(sandboxed=False)
+class FailingTracedWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.execute_activity(
+            failing_traced_activity,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+@pytest.fixture
+async def traced_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncGenerator[tuple[WorkflowEnvironment, InMemorySpanExporter], None]:
+    shutdown_platform_tracing()
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-api", exporter=exporter)
+    interceptor = temporal_tracing_interceptor()
+    assert interceptor is not None
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        interceptors=[interceptor]
+    ) as env:
+        yield env, exporter
+
+    shutdown_platform_tracing()
+
+
+@pytest.mark.anyio
+async def test_async_api_dispatch_keeps_one_temporal_activity_trace(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    env, exporter = traced_env
+    workflow_id = "synthetic-platform-trace"
+
+    async with Worker(
+        env.client,
+        task_queue="platform-tracing-test",
+        workflows=[TracedWorkflow],
+        activities=[traced_executor_activity],
+        max_cached_workflows=0,
+    ):
+        runtime = initialize_platform_tracing(
+            "tracecat-api",
+            exporter=exporter,
+        )
+        assert runtime is not None
+        with runtime.tracer("test.api").start_as_current_span(
+            "POST /workflow-executions"
+        ):
+            dispatch = asyncio.create_task(
+                env.client.execute_workflow(
+                    TracedWorkflow.run,
+                    id=workflow_id,
+                    task_queue="platform-tracing-test",
+                )
+            )
+
+        assert await dispatch == "ok"
+
+    spans = exporter.get_finished_spans()
+    assert all(span.context is not None for span in spans)
+    trace_ids = {span.context.trace_id for span in spans if span.context is not None}
+    assert len(trace_ids) == 1
+    span_names = {span.name for span in spans}
+    assert "POST /workflow-executions" in span_names
+    assert any("StartWorkflow" in name for name in span_names)
+    assert any("RunWorkflow" in name for name in span_names)
+    assert any("RunActivity" in name for name in span_names)
+
+    activity_spans = [span for span in spans if "RunActivity" in span.name]
+    assert len(activity_spans) == 1
+    activity_span = activity_spans[0]
+    assert activity_span.attributes is not None
+    assert activity_span.attributes["tracecat.workflow.execution.id"] == workflow_id
+    assert activity_span.attributes["tracecat.action.name"] == "core.test.trace"
+
+    workflow_spans = [span for span in spans if "RunWorkflow" in span.name]
+    assert len(workflow_spans) == 1
+
+
+@pytest.mark.anyio
+async def test_temporal_tracing_does_not_propagate_baggage(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    env, _ = traced_env
+
+    async with Worker(
+        env.client,
+        task_queue="platform-tracing-baggage-test",
+        workflows=[BaggageProbeWorkflow],
+        activities=[baggage_probe_activity],
+        max_cached_workflows=0,
+    ):
+        baggage_context = baggage.set_baggage(
+            _SYNTHETIC_BAGGAGE_KEY,
+            "synthetic-do-not-propagate",
+        )
+        token = context.attach(baggage_context)
+        try:
+            baggage_visibility = await env.client.execute_workflow(
+                BaggageProbeWorkflow.run,
+                id="synthetic-platform-baggage-test",
+                task_queue="platform-tracing-baggage-test",
+            )
+        finally:
+            context.detach(token)
+
+    assert baggage_visibility == [False, False]
+
+
+@pytest.mark.anyio
+async def test_temporal_tracing_does_not_export_failure_details(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    env, exporter = traced_env
+
+    async with Worker(
+        env.client,
+        task_queue="platform-tracing-failure-test",
+        workflows=[FailingTracedWorkflow],
+        activities=[failing_traced_activity],
+        max_cached_workflows=0,
+    ):
+        with pytest.raises(WorkflowFailureError):
+            await env.client.execute_workflow(
+                FailingTracedWorkflow.run,
+                id="synthetic-platform-failure-test",
+                task_queue="platform-tracing-failure-test",
+            )
+
+    failed_spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if "RunActivity" in span.name or "CompleteWorkflow" in span.name
+    ]
+    assert len(failed_spans) == 2
+    for span in failed_spans:
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.status.description is None
+        assert span.attributes is not None
+        assert span.attributes["error.type"] == "temporal.failure"
+        assert span.events == ()
+        assert _SYNTHETIC_FAILURE_DETAIL not in str(span)

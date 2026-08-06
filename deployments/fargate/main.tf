@@ -70,6 +70,9 @@ module "ecs" {
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
+  platform_otel_enabled                         = var.platform_otel_enabled
+  otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
+  otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
   log_level                                     = var.log_level
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags

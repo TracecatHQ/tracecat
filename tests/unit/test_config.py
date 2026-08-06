@@ -19,6 +19,14 @@ COMPOSE_ENV_FILES = (
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
+PLATFORM_OTEL_COMPOSE_ENV = (
+    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
+    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
+)
+PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
+    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
+)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -167,6 +175,28 @@ def test_boolean_env_values_preserve_defaults_and_compose_overrides() -> None:
         "`${VAR:-default}` instead of hardcoded literals so .env overrides still "
         "work: " + ", ".join(violations)
     )
+
+
+@pytest.mark.parametrize("path", COMPOSE_ENV_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("service", TRACED_COMPOSE_SERVICES)
+def test_platform_otel_env_is_forwarded_to_traced_compose_services(
+    path: Path, service: str
+) -> None:
+    source = path.read_text()
+    service_match = re.search(
+        rf"^  {re.escape(service)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        source,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert service_match is not None
+
+    service_body = service_match.group("body")
+    for env_line in PLATFORM_OTEL_COMPOSE_ENV:
+        assert env_line in service_body
+    if service == "executor":
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
+    else:
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
