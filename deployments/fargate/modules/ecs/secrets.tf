@@ -308,10 +308,11 @@ locals {
     local.platform_otel_headers_secret,
   )
 
-  executor_secrets = concat(
-    local.tracecat_temporal_secrets,
-    local.platform_otel_headers_secret,
-  )
+  # The direct executor backend passes its process environment to untrusted
+  # action subprocesses, so platform exporter credentials must stay out of the
+  # executor task. Operators can expose an unauthenticated collector endpoint
+  # on the executor's private network when executor spans are required.
+  executor_secrets = local.tracecat_temporal_secrets
 
   agent_executor_secrets = local.tracecat_temporal_secrets
 
