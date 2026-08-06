@@ -2282,6 +2282,8 @@ class Case(WorkspaceModel):
             "workspace_id",
             "case_number",
             name="uq_case_workspace_case_number",
+            deferrable=True,
+            initially="DEFERRED",
         ),
         Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
     )
@@ -2297,7 +2299,7 @@ class Case(WorkspaceModel):
         Integer,
         server_default=FetchedValue(),
         nullable=False,
-        doc="Server-generated workspace-scoped case number for human readable IDs like CASE-1234",
+        doc="Workspace-scoped case number for human-readable IDs like CASE-1234",
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
