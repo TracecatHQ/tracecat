@@ -26,7 +26,11 @@ from opentelemetry.trace import Span, TraceFlags
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from temporalio.contrib.opentelemetry import TracingInterceptor
+from temporalio.contrib.opentelemetry import (
+    TracingInterceptor,
+    TracingWorkflowInboundInterceptor,
+)
+from temporalio.worker import WorkflowInboundInterceptor, WorkflowInterceptorClassInput
 
 from tracecat import __version__, config
 
@@ -55,6 +59,7 @@ _EXCLUDED_FASTAPI_URLS: Final = ",".join(
 _NEVER_CAPTURE_HTTP_HEADER: Final = r"(?!)"
 _REDACTED_HTTP_PATH: Final = "/[REDACTED]"
 _REDACTED_ATTRIBUTE_VALUE: Final = "[REDACTED]"
+_TRACE_CONTEXT_PROPAGATOR: Final = TraceContextTextMapPropagator()
 
 
 @dataclass(frozen=True)
@@ -121,7 +126,7 @@ def initialize_platform_tracing(
             # Baggage is deliberately excluded from the platform propagation
             # contract so arbitrary caller-provided values do not cross service
             # and Temporal boundaries.
-            set_global_textmap(TraceContextTextMapPropagator())
+            set_global_textmap(_TRACE_CONTEXT_PROPAGATOR)
             _runtime = PlatformTracing(
                 service_name=service_name,
                 tracer_provider=provider,
@@ -168,10 +173,40 @@ def temporal_tracing_interceptor() -> TracingInterceptor | None:
     runtime = get_platform_tracing()
     if runtime is None:
         return None
-    return TracingInterceptor(
+    return _TraceContextOnlyTracingInterceptor(
         tracer=runtime.tracer("tracecat.temporal"),
         always_create_workflow_spans=False,
     )
+
+
+class _TraceContextOnlyWorkflowTracingInterceptor(TracingWorkflowInboundInterceptor):
+    """Extract and inject trace context without persisting OTel baggage."""
+
+    def __init__(self, next_interceptor: WorkflowInboundInterceptor) -> None:
+        super().__init__(next_interceptor)
+        self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
+
+
+class _TraceContextOnlyTracingInterceptor(TracingInterceptor):
+    """Temporal tracing interceptor with a trace-context-only carrier."""
+
+    def __init__(
+        self,
+        *,
+        tracer: trace.Tracer,
+        always_create_workflow_spans: bool,
+    ) -> None:
+        super().__init__(
+            tracer=tracer,
+            always_create_workflow_spans=always_create_workflow_spans,
+        )
+        self.text_map_propagator = _TRACE_CONTEXT_PROPAGATOR
+
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[TracingWorkflowInboundInterceptor]:
+        super().workflow_interceptor_class(input)
+        return _TraceContextOnlyWorkflowTracingInterceptor
 
 
 def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) -> None:
