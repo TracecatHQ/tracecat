@@ -46,7 +46,9 @@ TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
 PLATFORM_OTEL_COMPOSE_ENV = (
     "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
     "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
-    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}",
+)
+PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
+    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
 )
 
 
@@ -307,6 +309,10 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
     service_body = service_match.group("body")
     for env_line in PLATFORM_OTEL_COMPOSE_ENV:
         assert env_line in service_body
+    if service == "executor":
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
+    else:
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
