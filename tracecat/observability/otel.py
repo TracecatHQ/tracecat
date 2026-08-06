@@ -53,6 +53,7 @@ _EXCLUDED_FASTAPI_URLS: Final = ",".join(
 # A non-empty never-match pattern keeps platform tracing's no-header contract
 # intact even when those variables are set globally by an operator.
 _NEVER_CAPTURE_HTTP_HEADER: Final = r"(?!)"
+_REDACTED_HTTP_PATH: Final = "/[REDACTED]"
 
 
 @dataclass(frozen=True)
@@ -183,10 +184,11 @@ def set_current_span_attributes(attributes: dict[str, str | int | bool | None]) 
 
 
 def _sanitize_server_span(span: Span, scope: Scope) -> None:
-    """Remove query values from legacy and stable HTTP URL attributes."""
+    """Replace raw URLs with a credential-safe route template."""
     if not span.is_recording():
         return
-    path = str(scope.get("path") or "/")
+    route_path = getattr(scope.get("route"), "path", None)
+    path = route_path if isinstance(route_path, str) else _REDACTED_HTTP_PATH
     span.set_attribute("http.target", path)
     span.set_attribute("http.url", path)
     span.set_attribute("url.full", path)
@@ -207,7 +209,12 @@ class TraceResponseHeadersMiddleware:
 
         async def send_with_trace_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
-                span_context = trace.get_current_span().get_span_context()
+                span = trace.get_current_span()
+                # FastAPI resolves the route before starting the response, so
+                # this is the first safe point to replace the request hook's
+                # redacted placeholder with the parameterized route template.
+                _sanitize_server_span(span, scope)
+                span_context = span.get_span_context()
                 if span_context.is_valid:
                     headers = MutableHeaders(scope=message)
                     headers[TRACE_ID_HEADER] = f"{span_context.trace_id:032x}"
