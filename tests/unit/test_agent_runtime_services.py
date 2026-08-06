@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -58,7 +57,10 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
         Config=lambda *args, **kwargs: object(),
         Server=lambda config: SimpleNamespace(serve=fake_serve),
     )
-    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+    # Patch the module attribute, not sys.modules: runtime_services imports
+    # uvicorn at module scope, so it already holds a direct reference and a
+    # sys.modules swap would not reach it.
+    monkeypatch.setattr(runtime_services, "uvicorn", fake_uvicorn)
 
     with pytest.raises(RuntimeError, match="socket was not created"):
         await runtime_services.start_mcp_server()

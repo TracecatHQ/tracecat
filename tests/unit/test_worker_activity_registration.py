@@ -326,7 +326,9 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
         ) -> None:
             del exc_type, exc, tb
 
-    async def fake_start_runtime_services() -> object:
+    # Accept the keyword-only arguments the caller now passes
+    # (capture_internal_server_signals, temporal_client).
+    async def fake_start_runtime_services(**kwargs: object) -> object:
         executor_worker.runtime_failure_reason = "LLM gateway became unhealthy"
         return object()
 

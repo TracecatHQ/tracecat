@@ -42,13 +42,21 @@ def get_activities() -> list:
     ]
 
 
-async def _start_runtime_services() -> Client:
+async def _start_runtime_services(
+    *,
+    capture_internal_server_signals: bool = True,
+    temporal_client: Client | None = None,
+) -> Client:
     """Start shared runtime services needed by the agent executor worker."""
     logger.info("Starting runtime services")
+
+    async def resolve_temporal_client() -> Client:
+        return temporal_client or await get_temporal_client()
+
     _, _, client = await asyncio.gather(
         start_claude_runtime_broker(),
-        start_mcp_server(),
-        get_temporal_client(),
+        start_mcp_server(capture_signals=capture_internal_server_signals),
+        resolve_temporal_client(),
     )
     return client
 
@@ -74,7 +82,13 @@ async def _stop_runtime_services() -> None:
             )
 
 
-async def main(shutdown_event: asyncio.Event | None = None) -> None:
+async def main(
+    shutdown_event: asyncio.Event | None = None,
+    *,
+    close_storage_cache: bool = True,
+    capture_internal_server_signals: bool = True,
+    temporal_client: Client | None = None,
+) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
     if shutdown_event is None:
@@ -94,7 +108,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
 
     try:
-        client = await _start_runtime_services()
+        client = await _start_runtime_services(
+            capture_internal_server_signals=capture_internal_server_signals,
+            temporal_client=temporal_client,
+        )
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
                 client,
@@ -121,7 +138,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
-        await close_storage_client_cache()
+        if close_storage_cache:
+            await close_storage_client_cache()
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)

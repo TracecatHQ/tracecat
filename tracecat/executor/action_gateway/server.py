@@ -7,16 +7,25 @@ import os
 from pathlib import Path
 from typing import Any
 
+import uvicorn
+
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.logger import logger
+from tracecat.uvicorn_server import NoSignalUvicornServer
 
 
 class ActionGateway:
     """Executor-local gateway for action SDK calls backed by a Unix socket."""
 
-    def __init__(self, *, socket_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        socket_path: Path | None = None,
+        capture_signals: bool = True,
+    ) -> None:
         self._configured_socket_path = socket_path
+        self._capture_signals = capture_signals
         self._server: Any | None = None
         self._task: asyncio.Task[None] | None = None
         self._socket_path: Path | None = None
@@ -25,8 +34,6 @@ class ActionGateway:
         """Start the action gateway for this executor process."""
         if self._task is not None:
             return
-
-        import uvicorn
 
         socket_path = self._configured_socket_path or action_gateway_socket_path()
         socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,7 +45,10 @@ class ActionGateway:
             log_level="warning",
             lifespan="on",
         )
-        server = uvicorn.Server(uvicorn_config)
+        server_class = (
+            uvicorn.Server if self._capture_signals else NoSignalUvicornServer
+        )
+        server = server_class(uvicorn_config)
         self._server = server
         self._socket_path = socket_path
         self._task = asyncio.create_task(server.serve())
