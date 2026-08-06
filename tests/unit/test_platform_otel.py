@@ -136,6 +136,7 @@ def test_fastapi_span_uses_route_template_instead_of_path_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "http")
     exporter = InMemorySpanExporter()
     initialize_platform_tracing("tracecat-api", exporter=exporter)
     app = FastAPI()
@@ -159,6 +160,7 @@ def test_fastapi_span_uses_route_template_instead_of_path_credentials(
     assert span_attributes["http.target"] == "/webhooks/{workflow_id}/{secret}"
     assert span_attributes["http.url"] == "/webhooks/{workflow_id}/{secret}"
     assert span_attributes["url.full"] == "/webhooks/{workflow_id}/{secret}"
+    assert span_attributes["url.path"] == "/webhooks/{workflow_id}/{secret}"
     assert "synthetic-workflow-id" not in str(span_attributes)
     assert "synthetic-webhook-secret" not in str(span_attributes)
 

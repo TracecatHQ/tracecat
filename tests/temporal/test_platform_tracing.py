@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from datetime import timedelta
 
 import pytest
+from opentelemetry import baggage, context
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
@@ -45,6 +46,26 @@ class TracedWorkflow:
             traced_executor_activity,
             start_to_close_timeout=timedelta(seconds=10),
         )
+
+
+_SYNTHETIC_BAGGAGE_KEY = "synthetic-platform-baggage"
+
+
+@activity.defn
+async def baggage_probe_activity() -> bool:
+    return baggage.get_baggage(_SYNTHETIC_BAGGAGE_KEY) is not None
+
+
+@workflow.defn(sandboxed=False)
+class BaggageProbeWorkflow:
+    @workflow.run
+    async def run(self) -> list[bool]:
+        workflow_has_baggage = baggage.get_baggage(_SYNTHETIC_BAGGAGE_KEY) is not None
+        activity_has_baggage = await workflow.execute_activity(
+            baggage_probe_activity,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        return [workflow_has_baggage, activity_has_baggage]
 
 
 @pytest.fixture
@@ -117,3 +138,33 @@ async def test_async_api_dispatch_keeps_one_temporal_activity_trace(
 
     workflow_spans = [span for span in spans if "RunWorkflow" in span.name]
     assert len(workflow_spans) == 1
+
+
+@pytest.mark.anyio
+async def test_temporal_tracing_does_not_propagate_baggage(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    env, _ = traced_env
+
+    async with Worker(
+        env.client,
+        task_queue="platform-tracing-baggage-test",
+        workflows=[BaggageProbeWorkflow],
+        activities=[baggage_probe_activity],
+        max_cached_workflows=0,
+    ):
+        baggage_context = baggage.set_baggage(
+            _SYNTHETIC_BAGGAGE_KEY,
+            "synthetic-do-not-propagate",
+        )
+        token = context.attach(baggage_context)
+        try:
+            baggage_visibility = await env.client.execute_workflow(
+                BaggageProbeWorkflow.run,
+                id="synthetic-platform-baggage-test",
+                task_queue="platform-tracing-baggage-test",
+            )
+        finally:
+            context.detach(token)
+
+    assert baggage_visibility == [False, False]
