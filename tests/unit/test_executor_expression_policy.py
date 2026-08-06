@@ -243,6 +243,67 @@ def test_whole_structured_input_is_tree_masked_without_re_evaluation() -> None:
     }
 
 
+def test_reordered_runtime_mapping_masks_by_key() -> None:
+    # expects-model validation may reorder mapping keys; pairing must not
+    # rely on insertion order.
+    state = _state(
+        source_args={
+            "context": {
+                "safe": "plain",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "token": "runtime-secret",
+                "safe": "plain",
+            }
+        },
+    )
+
+    prepared = state.prepare_step_args(
+        "core.table.insert_row",
+        {"row_data": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "row_data": {
+            "token": MASK_VALUE,
+            "safe": "plain",
+        }
+    }
+
+
+def test_dynamic_authored_key_falls_back_to_conservative_mask() -> None:
+    state = _state(
+        source_args={
+            "context": {
+                "${{ VARS.col }}": "plain",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "events": "plain",
+                "token": "runtime-secret",
+            }
+        },
+        variables={"col": "events"},
+    )
+
+    prepared = state.prepare_step_args(
+        "core.table.insert_row",
+        {"row_data": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "row_data": {
+            "events": MASK_VALUE,
+            "token": MASK_VALUE,
+        }
+    }
+
+
 def test_secret_dependent_input_key_is_rejected_only_at_sink() -> None:
     state = _state(
         source_args={

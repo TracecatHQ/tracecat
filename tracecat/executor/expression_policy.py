@@ -279,8 +279,8 @@ def _redact_runtime_value(value: Any, dependency: SecretDependency) -> Any:
     """Mask materialized input data according to its authored dependency tree.
 
     Runtime containers retain their shape. Mapping dependencies are paired by
-    insertion order because non-secret expressions may change authored keys
-    during the caller's normal evaluation.
+    key; validation may reorder mappings, and authored keys that change under
+    evaluation fall back to the collapsed conservative mask.
     """
     match dependency:
         case bool():
@@ -308,18 +308,16 @@ def _redact_runtime_value(value: Any, dependency: SecretDependency) -> Any:
                     "Secret expressions are not allowed in dictionary keys",
                     detail={"code": "secret_expression_in_key"},
                 )
-            value_dependencies = [
-                item_dependency
+            value_dependencies = {
+                key: item_dependency
                 for key, item_dependency in dependency.items()
                 if key is not _SECRET_KEY_DEPENDENCY
-            ]
-            if not isinstance(value, Mapping) or len(value) != len(value_dependencies):
+            }
+            if not isinstance(value, Mapping) or set(value) != set(value_dependencies):
                 return _redact_runtime_value(value, has_secret_dependency(dependency))
             return {
-                key: _redact_runtime_value(item, item_dependency)
-                for (key, item), item_dependency in zip(
-                    value.items(), value_dependencies, strict=True
-                )
+                key: _redact_runtime_value(item, value_dependencies[key])
+                for key, item in value.items()
             }
 
 
