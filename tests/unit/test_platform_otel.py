@@ -132,6 +132,37 @@ def test_fastapi_request_emits_sanitized_span_and_trace_headers(
     assert "cookie" not in str(span.attributes).lower()
 
 
+def test_fastapi_span_uses_route_template_instead_of_path_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-api", exporter=exporter)
+    app = FastAPI()
+    app.add_api_route(
+        "/webhooks/{workflow_id}/{secret}",
+        lambda workflow_id, secret: {"status": "ok"},
+        methods=["POST"],
+    )
+    instrument_fastapi_app(app, service_name="tracecat-api")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/synthetic-workflow-id/synthetic-webhook-secret"
+        )
+
+    assert response.status_code == 200
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    assert spans[0].attributes is not None
+    span_attributes = spans[0].attributes
+    assert span_attributes["http.target"] == "/webhooks/{workflow_id}/{secret}"
+    assert span_attributes["http.url"] == "/webhooks/{workflow_id}/{secret}"
+    assert span_attributes["url.full"] == "/webhooks/{workflow_id}/{secret}"
+    assert "synthetic-workflow-id" not in str(span_attributes)
+    assert "synthetic-webhook-secret" not in str(span_attributes)
+
+
 def test_fastapi_header_capture_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
