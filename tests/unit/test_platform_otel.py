@@ -112,6 +112,7 @@ def test_fastapi_request_emits_sanitized_span_and_trace_headers(
             headers={
                 "Authorization": "Bearer synthetic-do-not-export",
                 "Cookie": "session=synthetic-do-not-export",
+                "User-Agent": "synthetic-user-agent-secret",
             },
         )
 
@@ -127,7 +128,10 @@ def test_fastapi_request_emits_sanitized_span_and_trace_headers(
     assert span.resource.attributes["service.name"] == "tracecat-api"
     assert span.attributes["url.full"] == "/items"
     assert span.attributes["url.query"] == "[REDACTED]"
+    assert span.attributes["http.user_agent"] == "[REDACTED]"
+    assert span.attributes["user_agent.original"] == "[REDACTED]"
     assert "do-not-export" not in str(span.attributes)
+    assert "synthetic-user-agent-secret" not in str(span.attributes)
     assert "authorization" not in str(span.attributes).lower()
     assert "cookie" not in str(span.attributes).lower()
 
