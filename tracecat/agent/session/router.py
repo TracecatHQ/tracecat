@@ -48,6 +48,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
@@ -90,7 +91,7 @@ def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | No
 
 def _require_session_write_access(
     role: WorkspaceActorRouteRole,
-    agent_session: Any,
+    agent_session: AgentSession,
 ) -> None:
     """Reject writes to sessions owned by another workspace actor."""
     if not is_session_readonly(role, agent_session.created_by):
