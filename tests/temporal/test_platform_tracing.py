@@ -9,7 +9,10 @@ from opentelemetry import baggage, context
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.trace import StatusCode
 from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -66,6 +69,24 @@ class BaggageProbeWorkflow:
             start_to_close_timeout=timedelta(seconds=10),
         )
         return [workflow_has_baggage, activity_has_baggage]
+
+
+_SYNTHETIC_FAILURE_DETAIL = "synthetic-customer-secret-must-not-export"
+
+
+@activity.defn
+async def failing_traced_activity() -> None:
+    raise ApplicationError(_SYNTHETIC_FAILURE_DETAIL, non_retryable=True)
+
+
+@workflow.defn(sandboxed=False)
+class FailingTracedWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.execute_activity(
+            failing_traced_activity,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
 
 
 @pytest.fixture
@@ -168,3 +189,38 @@ async def test_temporal_tracing_does_not_propagate_baggage(
             context.detach(token)
 
     assert baggage_visibility == [False, False]
+
+
+@pytest.mark.anyio
+async def test_temporal_tracing_does_not_export_failure_details(
+    traced_env: tuple[WorkflowEnvironment, InMemorySpanExporter],
+) -> None:
+    env, exporter = traced_env
+
+    async with Worker(
+        env.client,
+        task_queue="platform-tracing-failure-test",
+        workflows=[FailingTracedWorkflow],
+        activities=[failing_traced_activity],
+        max_cached_workflows=0,
+    ):
+        with pytest.raises(WorkflowFailureError):
+            await env.client.execute_workflow(
+                FailingTracedWorkflow.run,
+                id="synthetic-platform-failure-test",
+                task_queue="platform-tracing-failure-test",
+            )
+
+    failed_spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if "RunActivity" in span.name or "CompleteWorkflow" in span.name
+    ]
+    assert len(failed_spans) == 2
+    for span in failed_spans:
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.status.description is None
+        assert span.attributes is not None
+        assert span.attributes["error.type"] == "temporal.failure"
+        assert span.events == ()
+        assert _SYNTHETIC_FAILURE_DETAIL not in str(span)
