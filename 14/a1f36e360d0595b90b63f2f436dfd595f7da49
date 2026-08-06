@@ -1,0 +1,22 @@
+tests/unit/test_dsl_common.py
+  s_e8854e8f3d188f::t_9cca9f41f1390a 140,142-143,155,162,171
+  s_e8854e8f3d188f::t_2098fb086d00c1 18-23,144-154,156-161,163-164
+tests/unit/test_aws_assume_role.py
+  s_e8854e8f3d188f::t_9cca9f41f1390a 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "14a1f36e360d0595b90b63f2f436dfd595f7da49",
+  "prompts": {},
+  "sessions": {
+    "s_e8854e8f3d188f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd3af-1bab-7bb3-a4b3-3270e090a371",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
