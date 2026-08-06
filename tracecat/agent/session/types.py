@@ -4,6 +4,23 @@ import uuid
 from enum import StrEnum
 from typing import NamedTuple
 
+from tracecat.auth.types import Role
+from tracecat.identifiers import UserID
+
+
+def is_session_readonly(role: Role, created_by: UserID | None) -> bool:
+    """Return whether an actor may modify a session with this creator.
+
+    User-backed actors can only modify sessions they created. Service accounts
+    own sessions without a user creator. Unbound internal services remain
+    writable so background execution is not blocked.
+    """
+    if role.type == "service_account":
+        return created_by is not None
+    if role.user_id is not None:
+        return created_by != role.user_id
+    return False
+
 
 class TurnLifecycle(StrEnum):
     """In-memory reconnect decision derived live from Temporal.

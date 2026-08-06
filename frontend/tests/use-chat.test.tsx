@@ -105,7 +105,7 @@ describe("useUpdateChat", () => {
       createSessionReadVercel()
     )
     queryClient.setQueryData(
-      ["chats", "workspace-1", "case", "case-1", 50],
+      ["chats", "workspace-1", "case", "case-1", undefined, 50],
       [createSessionRead()]
     )
 
@@ -145,6 +145,7 @@ describe("useUpdateChat", () => {
         "workspace-1",
         "case",
         "case-1",
+        undefined,
         50,
       ])?.[0]?.tools
     ).toEqual(["core.cases.list_cases"])
@@ -177,7 +178,7 @@ describe("useUpdateChat", () => {
       })
     )
     queryClient.setQueryData(
-      ["chats", "workspace-1", "case", "case-1", 50],
+      ["chats", "workspace-1", "case", "case-1", undefined, 50],
       [
         createSessionRead({
           agent_preset_id: "preset-old",
@@ -231,6 +232,7 @@ describe("useUpdateChat", () => {
         "workspace-1",
         "case",
         "case-1",
+        undefined,
         50,
       ])?.[0]
     ).toMatchObject({

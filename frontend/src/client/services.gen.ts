@@ -6609,6 +6609,7 @@ export const agentSessionsCreateSession = (
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
+ * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
  * @param data.limit Maximum number of sessions to return
@@ -6627,6 +6628,7 @@ export const agentSessionsListSessions = (
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
+      created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
       parent_session_id: data.parentSessionId,
       limit: data.limit,
