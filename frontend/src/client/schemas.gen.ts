@@ -6475,6 +6475,37 @@ export const $CaseCommentDeleteMode = {
   enum: ["soft", "hard"],
 } as const
 
+export const $CaseCommentMentionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_type: {
+      type: "string",
+      title: "Target Type",
+    },
+    target_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Id",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "target_type", "target_id", "label", "created_at"],
+  title: "CaseCommentMentionRead",
+} as const
+
 export const $CaseCommentRead = {
   properties: {
     id: {
@@ -6556,6 +6587,13 @@ export const $CaseCommentRead = {
       type: "boolean",
       title: "Is Deleted",
       default: false,
+    },
+    mentions: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentMentionRead",
+      },
+      type: "array",
+      title: "Mentions",
     },
   },
   type: "object",
