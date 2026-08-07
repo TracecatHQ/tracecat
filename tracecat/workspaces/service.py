@@ -16,6 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.service import MembershipService
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
@@ -527,14 +528,9 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
-        # Create workspace membership
-        membership = Membership(
-            user_id=user_id,
-            workspace_id=invitation.workspace_id,
-        )
-        self.session.add(membership)
-
-        # Create RBAC role assignment for the workspace
+        # Create RBAC role assignment for the workspace. Accept is just another
+        # workspace-scoped write path: we write the role, then let the
+        # reconciler materialize the Membership row as the final step.
         ws_assignment = UserRoleAssignment(
             organization_id=organization_id,
             user_id=user_id,
@@ -562,7 +558,21 @@ class WorkspaceService(BaseOrgService):
                 self.session.add(org_assignment)
 
         await self.session.commit()
-        await self.session.refresh(membership)
+
+        # Final step: reconcile the membership dial against the role we wrote.
+        await MembershipService(self.session).reconcile_workspace_membership(
+            user_id, invitation.workspace_id
+        )
+        membership = await self.session.scalar(
+            select(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id == invitation.workspace_id,
+            )
+        )
+        if membership is None:
+            raise TracecatValidationError(
+                "Failed to materialize workspace membership after accepting invitation"
+            )
         return membership
 
     @require_scope("workspace:member:remove")

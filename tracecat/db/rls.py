@@ -17,6 +17,8 @@ Key features:
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -99,6 +101,12 @@ def _normalize_rls_context(
 def _cache_rls_context(session: AsyncSession, context: _RLSContext) -> None:
     """Store RLS context on the sync session so event hooks can reapply it."""
     session.sync_session.info[_RLS_CONTEXT_INFO_KEY] = context
+
+
+def _get_cached_rls_context(session: AsyncSession) -> _RLSContext | None:
+    """Read the RLS context currently cached on the session, if any."""
+    cached = session.sync_session.info.get(_RLS_CONTEXT_INFO_KEY)
+    return cached if isinstance(cached, _RLSContext) else None
 
 
 _RLS_CONTEXT_SQL = text(
@@ -252,6 +260,46 @@ async def clear_rls_context(session: AsyncSession) -> None:
         user_id=None,
         bypass=False,
     )
+
+
+@asynccontextmanager
+async def workspace_rls_context(
+    session: AsyncSession,
+    workspace_id: uuid.UUID | str,
+) -> AsyncGenerator[None, None]:
+    """Temporarily scope the session's RLS context to a workspace.
+
+    Org-level operators (e.g. an org admin acting through the RBAC routes) have
+    an org context but no ``app.current_workspace_id``. That context cannot
+    write workspace-scoped tables under enforce mode, even when the operator is
+    legitimately authorized to mutate rows for a workspace in their org. This
+    overrides the workspace dimension of the cached context for the duration of
+    the block (preserving org and user), then restores the prior context on
+    exit so the caller's surrounding transaction is unaffected.
+
+    The override is re-applied on every ``after_begin`` (it is cached), so it
+    survives the intermediate commits that membership reconciliation performs.
+    """
+    previous = _get_cached_rls_context(session)
+    scoped = _normalize_rls_context(
+        org_id=previous.org_id if previous else None,
+        workspace_id=workspace_id,
+        user_id=previous.user_id if previous else None,
+        # Preserve an existing bypass (e.g. platform superuser).
+        bypass=previous.bypass if previous else False,
+    )
+    # Enter the try before caching so the finally restores the caller's context
+    # even if applying the scoped context raises mid-flight.
+    try:
+        _cache_rls_context(session, scoped)
+        await _apply_rls_context_async(session, scoped)
+        yield
+    finally:
+        if previous is not None:
+            _cache_rls_context(session, previous)
+            await _apply_rls_context_async(session, previous)
+        else:
+            await clear_rls_context(session)
 
 
 async def verify_rls_access(
