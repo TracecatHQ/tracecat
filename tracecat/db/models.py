@@ -2479,6 +2479,52 @@ class CaseComment(WorkspaceModel):
         return self.deleted_at is not None
 
 
+class CaseCommentMention(WorkspaceModel):
+    """A parsed @mention target extracted from a case comment.
+
+    Immutable event-record semantics: rows are written once at comment
+    creation time and never mutated by comment edits.
+    """
+
+    __tablename__ = "case_comment_mention"
+    __table_args__ = (UniqueConstraint("comment_id", "target_type", "target_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_comment.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc='Polymorphic target kind, e.g. "agent". Currently only "agent" is supported.',
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Polymorphic target identifier; no FK since target_type varies.",
+    )
+    label: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Display label snapshot captured at write time.",
+    )
+
+
 class CaseEvent(WorkspaceModel):
     """A activity record for a case.
 

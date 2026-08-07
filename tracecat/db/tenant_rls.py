@@ -24,6 +24,7 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "tables",
     "case",
     "case_comment",
+    "case_comment_mention",
     "case_event",
     "case_task",
     "case_tag",

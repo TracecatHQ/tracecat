@@ -1687,6 +1687,14 @@ export type CaseCommentCreate = {
 
 export type CaseCommentDeleteMode = "soft" | "hard"
 
+export type CaseCommentMentionRead = {
+  id: string
+  target_type: string
+  target_id: string
+  label: string
+  created_at: string
+}
+
 export type CaseCommentRead = {
   id: string
   created_at: string
@@ -1698,6 +1706,7 @@ export type CaseCommentRead = {
   last_edited_at?: string | null
   deleted_at?: string | null
   is_deleted?: boolean
+  mentions?: Array<CaseCommentMentionRead>
 }
 
 export type CaseCommentThreadRead = {
