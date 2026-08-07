@@ -43,6 +43,8 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 
+MISSING_AGENT_TARGET_ID = uuid.UUID("00000000-0000-4000-8000-000000000099")
+
 pytestmark = pytest.mark.usefixtures("db")
 
 
@@ -98,7 +100,7 @@ async def _create_agent_preset(
     preset = AgentPreset(
         workspace_id=workspace_id,
         name=name,
-        slug=f"case-comment-mention-{uuid.uuid4().hex}",
+        slug=f"case-comment-mention-{name.lower().replace(' ', '-')}",
         model_name="gpt-4o-mini",
         model_provider="openai",
         deleted_at=deleted_at,
@@ -388,7 +390,7 @@ class TestCaseCommentsService:
             CaseCommentCreate(
                 content=" ".join(
                     [
-                        _mention_token("Missing agent", uuid.uuid4()),
+                        _mention_token("Missing agent", MISSING_AGENT_TARGET_ID),
                         _mention_token("Deleted agent", deleted_preset.id),
                     ]
                 )
