@@ -12728,6 +12728,10 @@ export type CasesSearchCasesData = {
    */
   includeRows?: boolean
   /**
+   * Include the exact filtered total (skip when totals come from the aggregates endpoint)
+   */
+  includeTotal?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number
