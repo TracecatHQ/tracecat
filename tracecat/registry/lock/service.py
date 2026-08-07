@@ -72,6 +72,7 @@ class RegistryLockService(BaseOrgService):
                 PlatformRegistryRepository.origin,
                 PlatformRegistryVersion.version,
                 PlatformRegistryVersion.manifest,
+                PlatformRegistryVersion.artifact_hash,
             )
             .join(
                 PlatformRegistryVersion,
@@ -88,7 +89,7 @@ class RegistryLockService(BaseOrgService):
         builtin_version = next(
             (
                 str(version)
-                for origin, version, _ in platform_rows
+                for origin, version, _, _ in platform_rows
                 if origin == DEFAULT_REGISTRY_ORIGIN
             ),
             None,
@@ -109,6 +110,7 @@ class RegistryLockService(BaseOrgService):
                 RegistryRepository.origin,
                 RegistryVersion.version,
                 RegistryVersion.manifest,
+                RegistryVersion.artifact_hash,
             )
             .join(
                 RegistryVersion,
@@ -146,17 +148,21 @@ class RegistryLockService(BaseOrgService):
         origin_manifests: dict[str, RegistryVersionManifest] = {}
         excluded_custom_origin_manifests: dict[str, RegistryVersionManifest] = {}
 
-        for origin, version, manifest_dict in rows:
+        for origin, version, manifest_dict, artifact_hash in rows:
             origin_str = str(origin)
             origins[origin_str] = str(version)
             manifest = RegistryVersionManifest.model_validate(manifest_dict)
             origin_manifests[origin_str] = manifest
-            fingerprint = registry_manifest_fingerprint(manifest)
+            fingerprint = (
+                str(artifact_hash)
+                if artifact_hash
+                else registry_manifest_fingerprint(manifest)
+            )
             origin_fingerprints[origin_str] = fingerprint
             if origin_str == DEFAULT_REGISTRY_ORIGIN and builtin_fingerprint is None:
                 builtin_fingerprint = fingerprint
         if not custom_registry_enabled:
-            for origin, _version, manifest_dict in org_rows:
+            for origin, _version, manifest_dict, _artifact_hash in org_rows:
                 origin_str = str(origin)
                 excluded_custom_origin_manifests[origin_str] = (
                     RegistryVersionManifest.model_validate(manifest_dict)

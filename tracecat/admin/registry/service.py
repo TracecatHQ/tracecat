@@ -472,6 +472,7 @@ class AdminRegistryService(BasePlatformService):
                     version=version.version,
                     commit_sha=version.commit_sha,
                     tarball_uri=version.tarball_uri,
+                    artifact_hash=version.artifact_hash,
                     created_at=version.created_at,
                     is_current=is_current,
                     artifacts_ready=artifacts_ready,

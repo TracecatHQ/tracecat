@@ -54,6 +54,7 @@ class RegistryVersionRead(BaseModel):
     version: str
     commit_sha: str | None
     tarball_uri: str | None
+    artifact_hash: str | None = None
     created_at: datetime
     is_current: bool = False
     artifacts_ready: bool = False
