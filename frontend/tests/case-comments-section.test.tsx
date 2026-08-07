@@ -759,6 +759,19 @@ describe("CommentSection", () => {
       expect(screen.getByText("Malware agent")).toBeInTheDocument()
     })
 
+    it("renders the popover above the composer and outside its form", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "@")
+
+      const content = screen.getByText("Triage agent").closest("[data-side]")
+      expect(content).toHaveAttribute("data-side", "top")
+      // Portaled, so the thread's overflow-hidden cannot clip the popover.
+      expect(getComposer().closest("form")).not.toContainElement(
+        content as HTMLElement | null
+      )
+    })
+
     it("filters presets by the mention query", () => {
       renderCommentSection()
 

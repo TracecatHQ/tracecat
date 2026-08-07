@@ -872,47 +872,48 @@ function CommentComposer({
             control={form.control}
             name="content"
             render={({ field }) => (
-              <FormItem className="relative">
-                <FormControl>
-                  <Textarea
-                    autoFocus={autoFocus}
-                    ref={(node) => {
-                      field.ref(node)
-                      textareaRef.current = node
-                    }}
-                    className={
-                      isInline
-                        ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
-                        : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                    }
-                    name={field.name}
-                    onBlur={() => {
-                      field.onBlur()
-                      mentions.dismiss()
-                    }}
-                    onChange={(event) => {
-                      field.onChange(event)
-                      adjustTextareaHeight()
-                      mentions.handleValueChange(
-                        event.target.value,
-                        event.target.selectionStart ?? event.target.value.length
-                      )
-                    }}
-                    onKeyDown={handleKeyDown}
-                    onPaste={(event) => void handlePaste(event)}
-                    placeholder={placeholder}
-                    value={field.value}
-                  />
-                </FormControl>
-                {mentions.isOpen ? (
-                  <AgentMentionPopover
-                    suggestions={mentions.suggestions}
-                    activeIndex={mentions.activeIndex}
-                    query={mentions.query}
-                    isLoading={mentions.isLoading}
-                    onSelect={mentions.selectPreset}
-                  />
-                ) : null}
+              <FormItem>
+                <AgentMentionPopover
+                  open={mentions.isOpen}
+                  suggestions={mentions.suggestions}
+                  activeIndex={mentions.activeIndex}
+                  query={mentions.query}
+                  isLoading={mentions.isLoading}
+                  onSelect={mentions.selectPreset}
+                >
+                  <FormControl>
+                    <Textarea
+                      autoFocus={autoFocus}
+                      ref={(node) => {
+                        field.ref(node)
+                        textareaRef.current = node
+                      }}
+                      className={
+                        isInline
+                          ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
+                          : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+                      }
+                      name={field.name}
+                      onBlur={() => {
+                        field.onBlur()
+                        mentions.dismiss()
+                      }}
+                      onChange={(event) => {
+                        field.onChange(event)
+                        adjustTextareaHeight()
+                        mentions.handleValueChange(
+                          event.target.value,
+                          event.target.selectionStart ??
+                            event.target.value.length
+                        )
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onPaste={(event) => void handlePaste(event)}
+                      placeholder={placeholder}
+                      value={field.value}
+                    />
+                  </FormControl>
+                </AgentMentionPopover>
                 <FormMessage />
               </FormItem>
             )}
