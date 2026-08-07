@@ -18,9 +18,10 @@ document it, recommend it, or factor it into executor design decisions.
 from __future__ import annotations
 
 import asyncio
+import functools
 import sys
 import threading
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from tracecat_registry import secrets as registry_secrets
@@ -28,6 +29,7 @@ from tracecat_registry.context import RegistryContext, set_context
 from tracecat_registry.sdk.client import TracecatClient
 
 from tracecat import config
+from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logger,
@@ -39,6 +41,9 @@ from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
+from tracecat.executor.registry_artifacts import (
+    compute_registry_artifact_cache_key,
+)
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -54,7 +59,7 @@ from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
@@ -121,20 +126,24 @@ class TestBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        artifact_paths = await self._ensure_registry_artifacts(input, role)
-        if artifact_paths:
-            logger.debug(
-                "Adding artifact paths to sys.path for test execution",
-                paths=artifact_paths,
-            )
-
         try:
-            with _temporary_sys_path(artifact_paths):
-                result = await asyncio.wait_for(
-                    self._execute_with_context(input, role, resolved_context),
-                    timeout=timeout,
+            # The leases are held for the whole in-process execution so cache
+            # eviction cannot delete a directory sys.path still points at.
+            async with AsyncExitStack() as leases:
+                artifact_paths = await self._lease_registry_artifacts(
+                    leases, input, role
                 )
-            return ExecutorResultSuccess(result=result)
+                if artifact_paths:
+                    logger.debug(
+                        "Adding artifact paths to sys.path for test execution",
+                        paths=artifact_paths,
+                    )
+                with _temporary_sys_path(artifact_paths):
+                    result = await asyncio.wait_for(
+                        self._execute_with_context(input, role, resolved_context),
+                        timeout=timeout,
+                    )
+                return ExecutorResultSuccess(result=result)
         except TimeoutError:
             logger.error(
                 "Test backend execution timed out",
@@ -224,12 +233,26 @@ class TestBackend(ExecutorBackend):
                 if asyncio.iscoroutinefunction(fn):
                     result = await fn(**args)
                 else:
-                    result = await asyncio.to_thread(fn, **args)
+                    result = await self._run_sync_udf(fn, args)
 
             log.trace("Result", result=result)
             return result
         finally:
             registry_secrets.reset_context(secrets_token)
+
+    async def _run_sync_udf(
+        self,
+        fn: Callable[..., Any],
+        args: dict[str, Any],
+    ) -> Any:
+        """Keep a non-interruptible UDF thread joined through cancellation.
+
+        TestBackend timeouts are necessarily soft for synchronous functions: a
+        Python thread cannot be killed safely. Rejoining it keeps registry
+        leases, temporary ``sys.path`` entries, and secret contexts alive until
+        the function actually stops.
+        """
+        return await run_blocking_rejoin_on_cancel(functools.partial(fn, **args))
 
     def _load_udf_callable(self, action_impl: ActionImplementation):
         """Load the UDF callable from action_impl metadata."""
@@ -247,10 +270,26 @@ class TestBackend(ExecutorBackend):
         )
         return load_udf_impl(udf_impl)
 
-    async def _ensure_registry_artifacts(
-        self, input: RunActionInput, role: Role
+    async def _lease_registry_artifacts(
+        self,
+        leases: AsyncExitStack,
+        input: RunActionInput,
+        role: Role,
     ) -> list[str]:
-        """Materialize registry artifacts, returning paths for sys.path."""
+        """Lease registry artifacts, returning paths for sys.path.
+
+        Each artifact is leased independently so one unavailable artifact only
+        drops its own paths: the remaining artifacts still load, matching the
+        best-effort behaviour tests rely on.
+
+        Args:
+            leases: Exit stack that owns the leases for the caller's execution.
+            input: Action input used to resolve artifact URIs.
+            role: Role used to resolve artifact URIs.
+
+        Returns:
+            Importable paths for every artifact that could be materialized.
+        """
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return []
 
@@ -259,21 +298,25 @@ class TestBackend(ExecutorBackend):
             logger.debug("No artifact URIs found, using empty paths")
             return []
 
-        runner = get_action_runner()
+        registry_artifacts = get_action_runner().registry_artifacts
         extracted_paths: list[str] = []
 
         for artifact_uri in artifact_uris:
             try:
-                extracted_paths.extend(
-                    str(p)
-                    for p in await runner.ensure_registry_environment(artifact_uri)
+                artifact_paths = await leases.enter_async_context(
+                    registry_artifacts.lease(
+                        [artifact_uri],
+                        paths_may_be_modified=True,
+                    )
                 )
             except Exception as e:
                 logger.warning(
                     "Failed to materialize artifact for test execution",
-                    artifact_uri=artifact_uri,
-                    error=str(e),
+                    cache_key=compute_registry_artifact_cache_key(artifact_uri),
+                    error_type=type(e).__name__,
                 )
+                continue
+            extracted_paths.extend(str(path) for path in artifact_paths)
 
         logger.debug(
             "Materialized registry artifacts for test execution",

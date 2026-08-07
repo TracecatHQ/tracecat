@@ -30,6 +30,7 @@ from tracecat.sandbox.types import (
     SandboxErrorCode,
     SandboxResult,
 )
+from tracecat.sandbox.utils import communicate_process_group
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
 """Path visible inside run_python nsjail for executor-owned SDK calls."""
@@ -466,20 +467,17 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             # Wait with timeout (add buffer for nsjail overhead)
             timeout = config.resources.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            # Kill the process if it times out
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
             ) from e
@@ -612,18 +610,16 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             timeout = timeout_seconds + 30  # Extra buffer for package downloads
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e
@@ -879,19 +875,17 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             # Wait with timeout (add buffer for nsjail overhead)
             timeout = config.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Action execution timed out after {config.timeout_seconds}s"
             ) from e
