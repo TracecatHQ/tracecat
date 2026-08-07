@@ -1647,15 +1647,19 @@ describe("ChatSessionPane", () => {
   })
 
   // Ownership swap at quiescent boundaries: while a turn streams the stream
-  // owns the transcript; the moment status returns to `ready` the pane adopts
-  // the server copy WHOLESALE (replace, never merge — DB and stream message ids
-  // differ by design). The backend guarantees DB history and any continuation
-  // stream never overlap, so adopting a shorter, longer, or same-length copy is
-  // uniformly correct.
+  // owns the transcript; once status returns to `ready` the pane adopts a
+  // caught-up server copy WHOLESALE (replace, never merge — DB and stream
+  // message ids differ by design). A finalize-race snapshot can still omit the
+  // final streamed assistant content, so length alone cannot prove it is safe.
   describe("adopt-on-ready ownership swap", () => {
     const userTurn = (id: string, text: string) => ({
       id,
       role: "user" as const,
+      parts: [{ type: "text" as const, text }],
+    })
+    const assistantTurn = (id: string, text: string) => ({
+      id,
+      role: "assistant" as const,
       parts: [{ type: "text" as const, text }],
     })
 
@@ -1736,17 +1740,26 @@ describe("ChatSessionPane", () => {
       expect(setMessages).not.toHaveBeenCalled()
     })
 
-    // Same length but different content (ids/text) is a distinct transcript and
-    // must be adopted too.
-    it("adopts a same-length server copy with different content", () => {
+    // DB row segmentation can make a stale snapshot equal-or-longer in count.
+    // Missing final assistant text still makes it unsafe to adopt immediately.
+    it("does not adopt a same-length copy missing final assistant content", () => {
       const setMessages = jest.fn()
-      mockLiveMessages([userTurn("m1", "hello")], setMessages)
+      mockLiveMessages(
+        [
+          userTurn("live-user", "Question"),
+          assistantTurn("live-assistant", "Final streamed answer"),
+        ],
+        setMessages
+      )
 
-      render(renderSubject([userTurn("s1", "server hello")]))
+      render(
+        renderSubject([
+          userTurn("server-user", "Question"),
+          assistantTurn("server-assistant", "Previous server answer"),
+        ])
+      )
 
-      expect(setMessages).toHaveBeenCalledTimes(1)
-      expect(setMessages.mock.calls[0][0]).toHaveLength(1)
-      expect(setMessages.mock.calls[0][0][0].id).toBe("s1")
+      expect(setMessages).not.toHaveBeenCalled()
     })
 
     // The stream owns the current turn: while status is streaming the pane must
