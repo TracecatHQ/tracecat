@@ -81,6 +81,8 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    build_cursor_page,
+    take_cursor_page,
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
@@ -1361,33 +1363,26 @@ class AgentPresetService(BaseWorkspaceService):
                 updated_at,
             ) in result.tuples().all()
         ]
-        has_more = len(versions) > params.limit
-        items = versions[: params.limit]
+        scanned, has_more = take_cursor_page(versions, limit=params.limit)
 
-        next_cursor = None
-        if has_more and items:
-            last_version = items[-1]
-            next_cursor = paginator.encode_cursor(
-                last_version.id,
+        page = build_cursor_page(
+            scanned,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            encode_cursor=lambda version: paginator.encode_cursor(
+                version.id,
                 sort_column="version",
-                sort_value=last_version.version,
-            )
-
-        prev_cursor = None
-        if params.cursor and items:
-            first_version = items[0]
-            prev_cursor = paginator.encode_cursor(
-                first_version.id,
-                sort_column="version",
-                sort_value=first_version.version,
-            )
+                sort_value=version.version,
+            ),
+        )
 
         return CursorPaginatedResponse(
-            items=list(items),
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=params.cursor is not None,
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)

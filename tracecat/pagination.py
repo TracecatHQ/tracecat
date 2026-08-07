@@ -2,8 +2,10 @@
 
 import base64
 import json
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeVar
+from typing import Any, Literal, TypeVar, overload
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -45,6 +47,94 @@ class CursorPaginatedResponse[T](BaseModel):
     )
 
 
+class InvalidCursorError(ValueError):
+    """A cursor that cannot be applied to the query it was submitted with.
+
+    Raised when the cursor's sort column or sort value does not line up with
+    the current sort, which happens when a client changes the sort without
+    restarting pagination. Dropping the cursor filter instead would silently
+    return the first page while still reporting ``has_previous``.
+
+    Subclasses ``ValueError`` so routers surface it as 400, the same way
+    ``decode_cursor`` already reports a structurally malformed cursor.
+    """
+
+
+@dataclass(slots=True)
+class CursorPage[T]:
+    """A single page of keyset-paginated rows in display order."""
+
+    items: list[T]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+
+
+def take_cursor_page[T](rows: Sequence[T], *, limit: int) -> tuple[list[T], bool]:
+    """Trim an over-fetched keyset scan to a page.
+
+    Args:
+        rows: Rows returned by a scan that requested ``limit + 1`` rows.
+        limit: Page size requested by the caller.
+
+    Returns:
+        The page rows (still in scan order) and whether the scan found more
+        rows beyond the page in the direction it was scanning.
+    """
+    has_more = len(rows) > limit
+    return list(rows[:limit]), has_more
+
+
+def build_cursor_page[T](
+    rows: Sequence[T],
+    *,
+    cursor: str | None,
+    reverse: bool,
+    has_more: bool,
+    encode_cursor: Callable[[T], str],
+) -> CursorPage[T]:
+    """Derive page items, cursors, and flags from a trimmed keyset scan.
+
+    Reverse pagination scans away from the cursor in the inverted sort order,
+    so the caller must invert its ``ORDER BY`` (and the cursor predicate) when
+    ``reverse`` is set. This function then puts the rows back into display
+    order and swaps the cursors and flags, since the scan's "more rows ahead"
+    is the page's "more rows behind".
+
+    Args:
+        rows: Page rows in scan order, already trimmed by ``take_cursor_page``.
+        cursor: The cursor the scan started from, if any.
+        reverse: Whether the scan ran backwards from ``cursor``.
+        has_more: Whether the scan found rows beyond the page.
+        encode_cursor: Encodes the cursor anchored at a given row.
+
+    Returns:
+        The page in display order with cursors and flags in forward semantics.
+    """
+    items = list(rows)
+    next_cursor = encode_cursor(items[-1]) if has_more and items else None
+    prev_cursor = encode_cursor(items[0]) if cursor is not None and items else None
+    has_previous = cursor is not None
+
+    if reverse:
+        items.reverse()
+        next_cursor, prev_cursor = prev_cursor, next_cursor
+        # In reverse mode "next" walks back toward the page we came from, which
+        # is only reachable when this page produced an anchor cursor. Tying it
+        # to a bare `cursor is not None` would advertise has_more=True with
+        # next_cursor=None on an empty page, enabling a dead pagination control.
+        has_more, has_previous = next_cursor is not None, has_more
+
+    return CursorPage(
+        items=items,
+        next_cursor=next_cursor,
+        prev_cursor=prev_cursor,
+        has_more=has_more,
+        has_previous=has_previous,
+    )
+
+
 class CursorData(BaseModel):
     """Internal structure for cursor data."""
 
@@ -71,6 +161,141 @@ class CursorData(BaseModel):
                 # Not a datetime string, return as-is
                 return v
         return v
+
+    @property
+    def has_sort_value(self) -> bool:
+        """Whether the cursor carries an explicit sort value.
+
+        ``encode_cursor`` always serializes ``sort_value``, so a cursor issued
+        by this server has the key even when the anchor row's sort column is
+        NULL. An absent key means a cursor from before sort-aware pagination
+        (or a hand-built one), which cannot filter anything. Keeping the two
+        apart is what lets a nullable sort follow its own ``sort_value: null``
+        cursor instead of rejecting it as malformed.
+        """
+        return "sort_value" in self.model_fields_set
+
+
+@overload
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = ...,
+    allow_null: Literal[False] = ...,
+) -> str | int | float | datetime: ...
+
+
+@overload
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = ...,
+    allow_null: Literal[True],
+) -> str | int | float | datetime | None: ...
+
+
+def validate_cursor_sort_column(
+    cursor: CursorData,
+    *,
+    sort_column: str,
+    expected_type: type | tuple[type, ...] | None = None,
+    allow_null: bool = False,
+) -> str | int | float | datetime | None:
+    """Return the cursor's sort value, or raise if it cannot filter this query.
+
+    Args:
+        cursor: The decoded cursor.
+        sort_column: The sort column of the current request.
+        expected_type: Type the sort value must have, when the column's cursor
+            representation is narrower than the query's column type (enum sorts
+            encode a rank, not the enum value).
+        allow_null: Whether the sort column admits NULLs. When set, a cursor
+            anchored on a NULL sort value returns ``None`` instead of raising,
+            and the caller must pair it with a NULL-aware keyset predicate (see
+            ``keyset_filter``). Legacy cursors that omit the field entirely are
+            still rejected.
+
+    Raises:
+        InvalidCursorError: The cursor belongs to a different sort, carries no
+            usable sort value, or carries one of the wrong type.
+    """
+    if cursor.sort_column != sort_column:
+        raise InvalidCursorError(
+            f"Cursor was created for sort column {cursor.sort_column!r}, "
+            f"but this request sorts by {sort_column!r}. "
+            "Restart pagination without a cursor after changing the sort."
+        )
+    if cursor.sort_value is None:
+        if allow_null and cursor.has_sort_value:
+            return None
+        raise InvalidCursorError(
+            f"Cursor is missing a sort value for column {sort_column!r}. "
+            "Restart pagination without a cursor."
+        )
+    if expected_type is not None and not isinstance(cursor.sort_value, expected_type):
+        raise InvalidCursorError(
+            f"Cursor sort value for column {sort_column!r} has the wrong type. "
+            "Restart pagination without a cursor."
+        )
+    return cursor.sort_value
+
+
+def keyset_filter(
+    sort_col: sa.ColumnElement[Any],
+    id_col: sa.ColumnElement[Any],
+    *,
+    sort_value: str | int | float | datetime | None,
+    id_value: Any,
+    ascending: bool,
+    nullable: bool = True,
+) -> sa.ColumnElement[bool]:
+    """Build the predicate selecting rows strictly after a cursor anchor.
+
+    Args:
+        sort_col: The column (or expression) the query sorts by.
+        id_col: The unique tie-breaker column, sorted alongside ``sort_col``.
+        sort_value: The anchor row's sort value; ``None`` anchors inside the
+            NULL block.
+        id_value: The anchor row's tie-breaker value.
+        ascending: The direction of the *scan*, not of the requested sort.
+            Reverse pagination inverts the scan so ``LIMIT`` keeps the rows
+            nearest the cursor, and this predicate must follow that inversion.
+        nullable: Whether ``sort_col`` can hold NULLs. Pass ``False`` for
+            NOT NULL columns to keep the predicate free of NULL branches; such
+            a column can never produce a ``sort_value`` of ``None``.
+
+    NULL placement follows PostgreSQL's defaults, which invert consistently:
+    ``ASC`` puts NULLs last and ``DESC`` puts them first, so ``ASC NULLS LAST``
+    reversed is exactly ``DESC NULLS FIRST``. An ascending scan therefore
+    treats NULL as greater than every value, a descending scan treats it as
+    less than every value, and inside the NULL block only ``id_col`` orders
+    rows. Callers must order by the matching ``nulls_last()``/``nulls_first()``.
+    """
+    if ascending:
+        if sort_value is None:
+            # NULLs sort last, so nothing outside the NULL block follows.
+            return sa.and_(sort_col.is_(None), id_col > id_value)
+        after = [sort_col > sort_value]
+        if nullable:
+            # NULLs sort after every value, and `>` is unknown against them.
+            after.append(sort_col.is_(None))
+        after.append(sa.and_(sort_col == sort_value, id_col > id_value))
+        return sa.or_(*after)
+
+    if sort_value is None:
+        # NULLs sort first, so every non-NULL row follows the NULL block.
+        return sa.or_(
+            sort_col.is_not(None),
+            sa.and_(sort_col.is_(None), id_col < id_value),
+        )
+    # NULLs sort before every value, so a non-NULL anchor already excludes
+    # them: `<` is unknown against NULL and drops those rows.
+    return sa.or_(
+        sort_col < sort_value,
+        sa.and_(sort_col == sort_value, id_col < id_value),
+    )
 
 
 class BaseCursorPaginator:

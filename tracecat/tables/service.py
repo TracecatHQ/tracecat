@@ -41,6 +41,11 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    InvalidCursorError,
+    build_cursor_page,
+    keyset_filter,
+    take_cursor_page,
+    validate_cursor_sort_column,
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
@@ -1444,6 +1449,21 @@ class BaseTablesService(BaseWorkspaceService):
 
         sort_col = sa.column(self._sanitize_identifier(sort_column))
 
+        # Custom columns default to nullable, so a page boundary can legitimately
+        # land on a NULL sort value. System columns are NOT NULL by construction.
+        if sort_column in _TABLE_SYSTEM_COLUMNS:
+            sort_column_nullable = False
+        else:
+            column_meta = next(
+                (col for col in table.columns if col.name == sort_column), None
+            )
+            sort_column_nullable = column_meta is None or column_meta.nullable
+
+        # Reverse pagination scans away from the cursor in the inverted sort
+        # order so LIMIT keeps the rows nearest the cursor; build_cursor_page
+        # puts them back into display order.
+        scan_ascending = (sort_direction == "asc") != params.reverse
+
         # Apply cursor-based pagination with sort-column-aware filtering
         if params.cursor:
             try:
@@ -1453,79 +1473,49 @@ class BaseTablesService(BaseWorkspaceService):
 
             cursor_id = UUID(cursor_data.id)
 
-            # Check if cursor was created with the same sort column
-            cursor_sort_value = cursor_data.sort_value
-            cursor_has_sort_value = (
-                cursor_data.sort_column == sort_column and cursor_sort_value is not None
+            # A cursor from a different sort cannot filter this query. Reject it
+            # instead of dropping the filter, which would silently return the
+            # first page while still reporting has_previous. A NULL sort value
+            # is accepted for nullable columns: this service issues such cursors
+            # whenever a page boundary falls inside the NULL block.
+            sort_cursor_value = validate_cursor_sort_column(
+                cursor_data, sort_column=sort_column, allow_null=True
+            )
+            if sort_cursor_value is None and not sort_column_nullable:
+                raise InvalidCursorError(
+                    f"Cursor carries a NULL sort value for NOT NULL column "
+                    f"{sort_column!r}. Restart pagination without a cursor."
+                )
+
+            # Composite filtering: (sort_col, id) matches ORDER BY
+            stmt = stmt.where(
+                keyset_filter(
+                    sort_col,
+                    sa.column("id"),
+                    sort_value=sort_cursor_value,
+                    id_value=cursor_id,
+                    ascending=scan_ascending,
+                    nullable=sort_column_nullable,
+                )
             )
 
-            if cursor_has_sort_value:
-                # Use sort column value for cursor filtering
-                sort_cursor_value = cursor_sort_value
-
-                # Composite filtering: (sort_col, id) matches ORDER BY
-                if sort_direction == "asc":
-                    if params.reverse:
-                        # Going backward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                else:
-                    # Descending order
-                    if params.reverse:
-                        # Going backward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col > sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") > cursor_id,
-                                ),
-                            )
-                        )
-                    else:
-                        # Going forward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            sa.or_(
-                                sort_col < sort_cursor_value,
-                                sa.and_(
-                                    sort_col == sort_cursor_value,
-                                    sa.column("id") < cursor_id,
-                                ),
-                            )
-                        )
-
-        # Apply sorting: (sort_col, id) for stable pagination
-        # Use id as tie-breaker unless we're already sorting by id
+        # Apply sorting: (sort_col, id) for stable pagination. NULL placement is
+        # spelled out so it matches the keyset predicate above rather than
+        # relying on the server default.
+        order_clause = (
+            sort_col.asc().nulls_last()
+            if scan_ascending
+            else sort_col.desc().nulls_first()
+        )
         if sort_column == "id":
             # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc())
+            stmt = stmt.order_by(order_clause)
         else:
             # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
-                stmt = stmt.order_by(sort_col.asc(), sa.column("id").asc())
-            else:
-                stmt = stmt.order_by(sort_col.desc(), sa.column("id").desc())
+            id_order = (
+                sa.column("id").asc() if scan_ascending else sa.column("id").desc()
+            )
+            stmt = stmt.order_by(order_clause, id_order)
 
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
@@ -1552,46 +1542,27 @@ class BaseTablesService(BaseWorkspaceService):
             raise
 
         # Check if there are more items
-        has_more = len(rows) > params.limit
-        if has_more:
-            rows = rows[: params.limit]
-        has_previous = params.cursor is not None
+        scanned_rows, has_more = take_cursor_page(rows, limit=params.limit)
 
         # Generate cursors with sort column info for proper pagination
-        next_cursor = None
-        prev_cursor = None
-
-        if rows:
-            if has_more:
-                # Generate next cursor from the last item
-                last_item = rows[-1]
-                next_cursor = BaseCursorPaginator.encode_cursor(
-                    last_item["id"],
-                    sort_column=sort_column,
-                    sort_value=last_item.get(sort_column),
-                )
-
-            if params.cursor:
-                # If we used a cursor to get here, we can go back
-                first_item = rows[0]
-                prev_cursor = BaseCursorPaginator.encode_cursor(
-                    first_item["id"],
-                    sort_column=sort_column,
-                    sort_value=first_item.get(sort_column),
-                )
-
-        # If we were doing reverse pagination, swap the cursors and reverse items
-        if params.reverse:
-            rows = list(reversed(rows))
-            next_cursor, prev_cursor = prev_cursor, next_cursor
-            has_more, has_previous = has_previous, has_more
+        page = build_cursor_page(
+            scanned_rows,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            encode_cursor=lambda row: BaseCursorPaginator.encode_cursor(
+                row["id"],
+                sort_column=sort_column,
+                sort_value=row.get(sort_column),
+            ),
+        )
 
         return CursorPaginatedResponse(
-            items=rows,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def batch_insert_rows(

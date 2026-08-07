@@ -24,7 +24,12 @@ from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
 from tracecat.cases.service import CaseEventsService
 from tracecat.db.models import Case, CaseTableRow, Table
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    build_cursor_page,
+    take_cursor_page,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
 
@@ -67,7 +72,6 @@ class CaseTableRowsService(BaseWorkspaceService):
                 CaseTableRow.case_id == case_id,
             )
             .options(selectinload(CaseTableRow.case))
-            .order_by(CaseTableRow.created_at.desc(), CaseTableRow.id.desc())
         )
 
         if cursor:
@@ -98,9 +102,6 @@ class CaseTableRowsService(BaseWorkspaceService):
                         ),
                     )
                 )
-                stmt = stmt.order_by(
-                    CaseTableRow.created_at.asc(), CaseTableRow.id.asc()
-                )
             else:
                 stmt = stmt.where(
                     or_(
@@ -112,44 +113,42 @@ class CaseTableRowsService(BaseWorkspaceService):
                     )
                 )
 
+        # Reverse pagination scans away from the cursor in ascending order so
+        # LIMIT keeps the rows nearest the cursor; build_cursor_page puts them
+        # back into display order.
+        if reverse:
+            stmt = stmt.order_by(CaseTableRow.created_at.asc(), CaseTableRow.id.asc())
+        else:
+            stmt = stmt.order_by(CaseTableRow.created_at.desc(), CaseTableRow.id.desc())
+
         stmt = stmt.limit(limit + 1)
         result = await self.session.execute(stmt)
         links = result.scalars().all()
 
-        has_more = len(links) > limit
-        items = links[:limit] if has_more else links
-        has_previous = cursor is not None
+        scanned_links, has_more = take_cursor_page(links, limit=limit)
 
-        if reverse:
-            items = list(reversed(items))
-
-        hydrated = await self._hydrate_links(items, include_row_data=include_row_data)
-
-        next_cursor = None
-        prev_cursor = None
-        if items and has_more:
-            next_cursor = paginator.encode_cursor(
-                items[-1].id,
+        page = build_cursor_page(
+            scanned_links,
+            cursor=cursor,
+            reverse=reverse,
+            has_more=has_more,
+            encode_cursor=lambda link: paginator.encode_cursor(
+                link.id,
                 sort_column="created_at",
-                sort_value=items[-1].created_at,
-            )
-        if items and cursor:
-            prev_cursor = paginator.encode_cursor(
-                items[0].id,
-                sort_column="created_at",
-                sort_value=items[0].created_at,
-            )
+                sort_value=link.created_at,
+            ),
+        )
 
-        if reverse:
-            next_cursor, prev_cursor = prev_cursor, next_cursor
-            has_more, has_previous = has_previous, has_more
+        hydrated = await self._hydrate_links(
+            page.items, include_row_data=include_row_data
+        )
 
         return CursorPaginatedResponse(
             items=hydrated,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def link_row(

@@ -23,7 +23,13 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.logger import logger
-from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    build_cursor_page,
+    take_cursor_page,
+    validate_cursor_sort_column,
+)
 from tracecat_ee.agent.types import AgentWorkflowID
 
 # The error signal is fully persisted (AgentSession.last_error), so Temporal is
@@ -291,8 +297,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             updated_after=updated_after,
         )
 
-        # Determine sort column and direction
-        sort_col = order_by or "created_at"
+        # Determine sort column and direction. Normalize to the two columns the
+        # query can actually order by, so an unrecognized `order_by` cannot mint
+        # a cursor labelled with a column the scan never sorted on.
+        sort_col = "updated_at" if order_by == "updated_at" else "created_at"
         sort_desc = sort != "asc"
         # Scan in the direction that walks toward the rows adjacent to the
         # cursor. Reverse pagination flips the scan so the LIMIT keeps the rows
@@ -312,7 +320,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
-                cursor_value = cursor_data.sort_value
+                # A cursor from a different sort cannot filter this query:
+                # applying a created_at anchor to updated_at skips or duplicates
+                # rows. Reject it instead of silently mis-filtering.
+                cursor_value = validate_cursor_sort_column(
+                    cursor_data, sort_column=sort_col, expected_type=datetime
+                )
                 cursor_id = uuid.UUID(cursor_data.id)
 
                 # Select the correct column based on sort_col
@@ -379,69 +392,39 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         stmt = base_stmt.order_by(order_clause, id_order).limit(limit + 1)
 
         result = await self.session.execute(stmt)
-        sessions = list(result.scalars().all())
+        scanned_sessions, has_more = take_cursor_page(
+            list(result.scalars().all()), limit=limit
+        )
 
-        # Check if there are more items
-        has_more = len(sessions) > limit
-        if has_more:
-            sessions = sessions[:limit]
-
-        # The scan ran in scan_desc order; reverse back into display order so
-        # the page reads in the requested sort regardless of pagination
-        # direction.
-        if reverse:
-            sessions.reverse()
+        # The scan ran in scan_desc order; build_cursor_page reverses the page
+        # back into display order so it reads in the requested sort regardless
+        # of pagination direction, and swaps the cursors and flags accordingly.
+        page = build_cursor_page(
+            scanned_sessions,
+            cursor=cursor,
+            reverse=reverse,
+            has_more=has_more,
+            encode_cursor=lambda session: self.encode_cursor(
+                id=session.id,
+                sort_column=sort_col,
+                # Use the correct column value based on sort_col
+                sort_value=(
+                    session.updated_at
+                    if sort_col == "updated_at"
+                    else session.created_at
+                ),
+            ),
+        )
 
         # Enrich sessions
-        items = await self._enrich_sessions(sessions)
-
-        # Generate cursors
-        next_cursor = None
-        prev_cursor = None
-
-        if items:
-            if has_more:
-                last_item = items[-1]
-                # Get the session for this item to access the sort column value
-                last_session = next(
-                    (s for s in sessions if s.id == last_item.source_id), None
-                )
-                if last_session:
-                    # Use the correct column value based on sort_col
-                    sort_value = (
-                        last_session.updated_at
-                        if sort_col == "updated_at"
-                        else last_session.created_at
-                    )
-                    next_cursor = self.encode_cursor(
-                        id=last_item.id,
-                        sort_column=sort_col,
-                        sort_value=sort_value,
-                    )
-            if cursor:
-                first_item = items[0]
-                first_session = next(
-                    (s for s in sessions if s.id == first_item.source_id), None
-                )
-                if first_session:
-                    # Use the correct column value based on sort_col
-                    sort_value = (
-                        first_session.updated_at
-                        if sort_col == "updated_at"
-                        else first_session.created_at
-                    )
-                    prev_cursor = self.encode_cursor(
-                        id=first_item.id,
-                        sort_column=sort_col,
-                        sort_value=sort_value,
-                    )
+        items = await self._enrich_sessions(page.items)
 
         return CursorPaginatedResponse(
             items=items,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=cursor is not None,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
             total_estimate=None,
         )
 
@@ -616,7 +599,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
-                last_key = (cursor_data.sort_value, uuid.UUID(cursor_data.id))
+                # Same cross-sort guard as the ungrouped path: a created_at
+                # anchor applied to an updated_at scan resumes at the wrong
+                # position and skips or repeats sessions.
+                scan_value = validate_cursor_sort_column(
+                    cursor_data, sort_column=sort_col, expected_type=datetime
+                )
+                last_key = (scan_value, uuid.UUID(cursor_data.id))
             except (ValueError, KeyError) as e:
                 # Surface malformed cursors as a client error so the router can
                 # return 400 instead of silently restarting the scan.

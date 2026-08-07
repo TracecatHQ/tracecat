@@ -128,6 +128,9 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    build_cursor_page,
+    take_cursor_page,
+    validate_cursor_sort_column,
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
@@ -495,81 +498,84 @@ class CasesService(BaseWorkspaceService):
             cursor_data = paginator.decode_cursor(params.cursor)
             cursor_id = uuid.UUID(cursor_data.id)
 
-            # Check if cursor was created with the same sort column (for proper pagination)
-            cursor_sort_value = cursor_data.sort_value
-            cursor_has_sort_value = (
-                cursor_data.sort_column == sort_column and cursor_sort_value is not None
+            # A cursor from a different sort cannot filter this query. Reject it
+            # instead of dropping the filter, which would silently return the
+            # first page while still reporting has_previous.
+            # Enum and task-count sorts order by a computed rank, so their
+            # cursors carry that rank rather than the column value.
+            sort_cursor_value = validate_cursor_sort_column(
+                cursor_data,
+                sort_column=sort_column,
+                expected_type=int
+                if sort_column == "tasks" or enum_sort_values is not None
+                else None,
             )
-            if cursor_has_sort_value and sort_column == "tasks":
-                cursor_has_sort_value = isinstance(cursor_sort_value, int)
-            elif cursor_has_sort_value and enum_sort_values is not None:
-                cursor_has_sort_value = isinstance(cursor_sort_value, int)
+            sort_filter_col = sort_attr
 
-            if cursor_has_sort_value:
-                sort_filter_col = sort_attr
-                sort_cursor_value = cursor_sort_value
-
-                # Composite filtering: (sort_col, id) matches ORDER BY
-                # Use id as tie-breaker since it's always unique
-                if sort_direction == "asc":
-                    if params.reverse:
-                        # Going backward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            or_(
-                                sort_filter_col < sort_cursor_value,
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.id < cursor_id,
-                                ),
-                            )
+            # Composite filtering: (sort_col, id) matches ORDER BY
+            # Use id as tie-breaker since it's always unique
+            if sort_direction == "asc":
+                if params.reverse:
+                    # Going backward: get records before cursor in sort order
+                    stmt = stmt.where(
+                        or_(
+                            sort_filter_col < sort_cursor_value,
+                            and_(
+                                sort_filter_col == sort_cursor_value,
+                                Case.id < cursor_id,
+                            ),
                         )
-                    else:
-                        # Going forward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            or_(
-                                sort_filter_col > sort_cursor_value,
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.id > cursor_id,
-                                ),
-                            )
-                        )
+                    )
                 else:
-                    # Descending order
-                    if params.reverse:
-                        # Going backward: get records after cursor in sort order
-                        stmt = stmt.where(
-                            or_(
-                                sort_filter_col > sort_cursor_value,
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.id > cursor_id,
-                                ),
-                            )
+                    # Going forward: get records after cursor in sort order
+                    stmt = stmt.where(
+                        or_(
+                            sort_filter_col > sort_cursor_value,
+                            and_(
+                                sort_filter_col == sort_cursor_value,
+                                Case.id > cursor_id,
+                            ),
                         )
-                    else:
-                        # Going forward: get records before cursor in sort order
-                        stmt = stmt.where(
-                            or_(
-                                sort_filter_col < sort_cursor_value,
-                                and_(
-                                    sort_filter_col == sort_cursor_value,
-                                    Case.id < cursor_id,
-                                ),
-                            )
+                    )
+            else:
+                # Descending order
+                if params.reverse:
+                    # Going backward: get records after cursor in sort order
+                    stmt = stmt.where(
+                        or_(
+                            sort_filter_col > sort_cursor_value,
+                            and_(
+                                sort_filter_col == sort_cursor_value,
+                                Case.id > cursor_id,
+                            ),
                         )
+                    )
+                else:
+                    # Going forward: get records before cursor in sort order
+                    stmt = stmt.where(
+                        or_(
+                            sort_filter_col < sort_cursor_value,
+                            and_(
+                                sort_filter_col == sort_cursor_value,
+                                Case.id < cursor_id,
+                            ),
+                        )
+                    )
 
         # Apply sorting: (sort_col, id) for stable pagination
-        # Use id as tie-breaker unless we're already sorting by id
+        # Reverse pagination scans away from the cursor in the inverted sort
+        # order, so the rows nearest the cursor are the ones kept by LIMIT.
+        # build_cursor_page puts them back into display order.
+        scan_ascending = (sort_direction == "asc") != params.reverse
         if sort_column == "id":
             # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
+            if scan_ascending:
                 stmt = stmt.order_by(sort_attr.asc())
             else:
                 stmt = stmt.order_by(sort_attr.desc())
         else:
             # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
+            if scan_ascending:
                 stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
             else:
                 stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
@@ -579,17 +585,10 @@ class CasesService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         all_cases = result.scalars().all()
 
-        # Check if there are more items
-        has_more = len(all_cases) > params.limit
-        cases = all_cases[: params.limit] if has_more else all_cases
+        scanned_cases, has_more = take_cursor_page(all_cases, limit=params.limit)
 
         # Fetch task counts for all cases in one query (needed for cursor generation if sorting by tasks)
-        task_counts = await self.get_task_counts([case.id for case in cases])
-
-        # Generate cursors with sort column info for proper pagination
-        next_cursor = None
-        prev_cursor = None
-        has_previous = params.cursor is not None
+        task_counts = await self.get_task_counts([case.id for case in scanned_cases])
 
         def get_cursor_sort_value(case: Case) -> datetime | str | int | float | None:
             """Encode cursor sort values using the same semantics as ORDER BY."""
@@ -601,31 +600,19 @@ class CasesService(BaseWorkspaceService):
                 )
             return getattr(case, sort_column, None)
 
-        if has_more and cases:
-            last_case = cases[-1]
-            sort_value = get_cursor_sort_value(last_case)
-            next_cursor = paginator.encode_cursor(
-                last_case.id,
+        # Generate cursors with sort column info for proper pagination
+        page = build_cursor_page(
+            scanned_cases,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            encode_cursor=lambda case: paginator.encode_cursor(
+                case.id,
                 sort_column=sort_column,
-                sort_value=sort_value,
-            )
-
-        if params.cursor and cases:
-            first_case = cases[0]
-            sort_value = get_cursor_sort_value(first_case)
-            # For reverse pagination, swap the cursor meaning
-            if params.reverse:
-                next_cursor = paginator.encode_cursor(
-                    first_case.id,
-                    sort_column=sort_column,
-                    sort_value=sort_value,
-                )
-            else:
-                prev_cursor = paginator.encode_cursor(
-                    first_case.id,
-                    sort_column=sort_column,
-                    sort_value=sort_value,
-                )
+                sort_value=get_cursor_sort_value(case),
+            ),
+        )
+        cases = page.items
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
@@ -687,10 +674,10 @@ class CasesService(BaseWorkspaceService):
 
         return CursorPaginatedResponse(
             items=case_items,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=has_previous,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
             total_estimate=total_estimate,
         )
 
