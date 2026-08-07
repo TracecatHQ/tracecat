@@ -45,6 +45,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_WORK_DIR,
+    job_uv_cache_dir,
 )
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
@@ -209,6 +210,7 @@ async def spawn_jailed_runtime(
             init_payload_path=init_payload_path,
             control_socket_required=control_socket_required,
             pipe_stdin=pipe_stdin,
+            job_dir=job_dir,
             session_home_dir=session_home_dir,
             session_work_dir=session_work_dir,
             skills_dir=skills_dir,
@@ -270,6 +272,7 @@ async def _spawn_direct_runtime(
     init_payload_path: Path,
     control_socket_required: bool,
     pipe_stdin: bool,
+    job_dir: Path | None,
     session_home_dir: Path | None,
     session_work_dir: Path | None,
     skills_dir: Path | None,
@@ -314,6 +317,9 @@ async def _spawn_direct_runtime(
         # Point the runtime at the per-job init payload file without changing cwd.
         "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
     }
+    uv_cache_dir = job_uv_cache_dir(job_dir or init_payload_path.parent)
+    uv_cache_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    env["UV_CACHE_DIR"] = str(uv_cache_dir)
     if control_socket_required:
         env["TRACECAT__AGENT_CONTROL_SOCKET_PATH"] = str(control_socket_path)
     if llm_socket_path is not None:
@@ -399,6 +405,7 @@ async def _spawn_nsjail_runtime(
         job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
     else:
         job_dir.mkdir(parents=True, exist_ok=True)
+    job_uv_cache_dir(job_dir).mkdir(mode=0o700, exist_ok=True)
     jailed_init_payload_path = job_dir / "init.json"
 
     try:

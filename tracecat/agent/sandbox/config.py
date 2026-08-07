@@ -39,7 +39,9 @@ from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
+    JAILED_AGENT_UV_CACHE_DIR,
     JAILED_AGENT_WORK_DIR,
+    job_uv_cache_dir,
 )
 
 # Valid environment variable name pattern (POSIX compliant)
@@ -120,6 +122,10 @@ AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
     "USER": "agent",
+    # Keep package downloads scoped to one turn instead of the stable session home.
+    "UV_CACHE_DIR": str(JAILED_AGENT_UV_CACHE_DIR),
+    # Do not link installed package files back to the ephemeral cache.
+    "UV_LINK_MODE": "copy",
     "TRACECAT__DISABLE_NSJAIL": "false",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
@@ -264,6 +270,8 @@ def build_agent_nsjail_config(
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
+    uv_cache_dir = job_uv_cache_dir(job_dir)
+    _validate_path(uv_cache_dir, "uv_cache_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
     if llm_socket_path is not None:
@@ -363,9 +371,10 @@ def build_agent_nsjail_config(
             "",
             "# Tracecat job mountpoint namespace",
             "# The tmpfs only backs files placed directly under this directory;",
-            "# /run/tracecat/job is a separate read-only bind mount from the host.",
+            "# job data and its UV cache are separate bind mounts from the host.",
             f'mount {{ dst: "{AGENT_RUNTIME_DIR}" fstype: "tmpfs" rw: true options: "size=1M" }}',
             f'mount {{ src: "{job_dir}" dst: "{JAILED_AGENT_JOB_DIR}" is_bind: true rw: false }}',
+            f'mount {{ src: "{uv_cache_dir}" dst: "{JAILED_AGENT_UV_CACHE_DIR}" is_bind: true rw: true }}',
         ]
     )
     lines.extend(

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.sandbox.config import (
     AgentSandboxConfig,
+    build_agent_env_map,
     build_agent_nsjail_config,
 )
 
@@ -25,9 +29,28 @@ def test_build_agent_nsjail_config_separates_job_and_agent_dirs() -> None:
         in config_text
     )
     assert 'dst: "/run/tracecat/job" is_bind: true rw: false' in config_text
+    assert (
+        'src: "/tmp/agent-job/uv-cache" dst: "/run/tracecat/uv-cache" '
+        "is_bind: true rw: true"
+    ) in config_text
     assert 'dst: "/work" is_bind: true rw: true' in config_text
     assert 'dst: "/home/agent" is_bind: true rw: true' in config_text
     assert 'src: "/tmp/agent-job" dst: "/work"' not in config_text
+
+
+def test_build_agent_env_map_protects_ephemeral_uv_cache_settings() -> None:
+    env = build_agent_env_map(AgentSandboxConfig())
+
+    assert env["UV_CACHE_DIR"] == "/run/tracecat/uv-cache"
+    assert env["UV_LINK_MODE"] == "copy"
+
+    with pytest.raises(
+        AgentSandboxValidationError,
+        match="Cannot override protected env var: UV_CACHE_DIR",
+    ):
+        build_agent_env_map(
+            AgentSandboxConfig(env_vars={"UV_CACHE_DIR": "/tmp/shared-cache"})
+        )
 
 
 def test_build_agent_nsjail_config_mounts_workspace_skills_into_agent_home() -> None:
