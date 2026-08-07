@@ -906,7 +906,11 @@ class TestClaudeAgentRuntimeRun:
                             "name": "local-tools",
                             "command": "npx",
                             "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-                            "env": {"ROOT": "/tmp"},
+                            "env": {
+                                "ROOT": "/tmp",
+                                "UV_CACHE_DIR": "/work/.uv-cache",
+                                "UV_LINK_MODE": "symlink",
+                            },
                             "timeout": 15,
                         }
                     ]

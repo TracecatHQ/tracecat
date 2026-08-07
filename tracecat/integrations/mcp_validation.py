@@ -7,11 +7,13 @@ command injection and other security vulnerabilities.
 import re
 import uuid
 
+from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
+
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
 
 # Environment variables that cannot be overridden
-PROTECTED_ENV_VARS = frozenset(
+PROTECTED_ENV_VARS = AGENT_RUNTIME_PROTECTED_ENV_VARS | frozenset(
     {
         "PATH",
         "LD_PRELOAD",

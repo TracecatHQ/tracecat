@@ -50,6 +50,7 @@ from claude_agent_sdk.types import (
 )
 
 from tracecat.agent.common.config import (
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__DISABLE_NSJAIL,
 )
@@ -521,7 +522,19 @@ class ClaudeAgentRuntime:
             if args := stdio_config.get("args"):
                 server_config["args"] = args
             if env := stdio_config.get("env"):
-                server_config["env"] = env
+                protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
+                if protected_env_keys:
+                    logger.warning(
+                        "Ignoring protected stdio MCP environment variables",
+                        server_name=server_name,
+                        env_keys=sorted(protected_env_keys),
+                    )
+                if sanitized_env := {
+                    key: value
+                    for key, value in env.items()
+                    if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+                }:
+                    server_config["env"] = sanitized_env
             if (timeout := stdio_config.get("timeout")) is not None:
                 server_config["timeout"] = timeout
             servers[server_name] = cast(McpStdioServerConfig, server_config)
