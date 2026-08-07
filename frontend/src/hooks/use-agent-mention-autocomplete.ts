@@ -6,6 +6,10 @@ import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import {
+  type CaretCoordinates,
+  getTextareaCaretCoordinates,
+} from "@/lib/textarea-caret"
 
 /** Maximum number of agent presets listed in the mention popover. */
 const MAX_AGENT_MENTION_RESULTS = 8
@@ -15,6 +19,25 @@ export interface AgentMentionToken {
   start: number
   end: number
   query: string
+}
+
+/**
+ * Mention sources the popover can group by. Only `agents` is populated today;
+ * the rest are declared so later sources slot in without reshaping the model.
+ */
+export type MentionSectionKey = "agents" | "users" | "cases" | "tables"
+
+export interface MentionSuggestion {
+  id: string
+  label: string
+  /** Markdown token inserted in place of the `@query`. */
+  token: string
+}
+
+export interface MentionSection {
+  section: MentionSectionKey
+  label: string
+  items: MentionSuggestion[]
 }
 
 /**
@@ -77,20 +100,28 @@ export interface UseAgentMentionAutocompleteOptions {
 export interface AgentMentionAutocomplete {
   /** True when the popover should be rendered. */
   isOpen: boolean
-  /** Presets matching the active query, capped for display. */
-  suggestions: AgentPresetReadMinimal[]
+  /** Grouped suggestions; sections with no items are omitted. */
+  sections: MentionSection[]
+  /** Total selectable items across every section. */
+  itemCount: number
+  /** Index into the flattened item list, spanning sections. */
   activeIndex: number
+  /** Caret position within the textarea, used to anchor the popover. */
+  caret: CaretCoordinates | undefined
   query: string
   isLoading: boolean
-  /** Call from `onChange` with the textarea's next value and caret offset. */
-  handleValueChange: (next: string, caret: number) => void
+  /** Call whenever the value or the selection moves. */
+  handleCaretChange: () => void
   /** Returns true when the popover consumed the key event. */
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
-  selectPreset: (preset: AgentPresetReadMinimal) => void
+  selectSuggestion: (suggestion: MentionSuggestion) => void
   dismiss: () => void
 }
 
-type ActiveMention = AgentMentionToken & { activeIndex: number }
+type ActiveMention = AgentMentionToken & {
+  activeIndex: number
+  caret: CaretCoordinates
+}
 
 /**
  * `@`-autocomplete for agent presets in a plain `<Textarea>`.
@@ -119,52 +150,67 @@ export function useAgentMentionAutocomplete({
   })
   const [mention, setMention] = useState<ActiveMention | undefined>(undefined)
 
-  const suggestions = useMemo(() => {
+  const sections = useMemo<MentionSection[]>(() => {
     if (!mention) {
       return []
     }
     const query = mention.query.toLowerCase()
-    const matches = (presets ?? []).filter((preset) =>
-      preset.name.toLowerCase().includes(query)
-    )
-    return matches.slice(0, MAX_AGENT_MENTION_RESULTS)
+    const items = (presets ?? [])
+      .filter((preset) => preset.name.toLowerCase().includes(query))
+      .slice(0, MAX_AGENT_MENTION_RESULTS)
+      .map((preset: AgentPresetReadMinimal) => ({
+        id: preset.id,
+        label: preset.name,
+        token: formatAgentMentionToken(preset),
+      }))
+    if (items.length === 0) {
+      return []
+    }
+    return [{ section: "agents", label: "Agents", items }]
   }, [mention, presets])
+
+  const items = useMemo(
+    () => sections.flatMap((section) => section.items),
+    [sections]
+  )
 
   // Clamp on read so a shrinking suggestion list cannot strand the highlight.
   const activeIndex = mention
-    ? Math.min(mention.activeIndex, Math.max(suggestions.length - 1, 0))
+    ? Math.min(mention.activeIndex, Math.max(items.length - 1, 0))
     : 0
   const isOpen = mentionsEnabled && mention !== undefined
 
   const dismiss = useCallback(() => setMention(undefined), [])
 
-  const handleValueChange = useCallback(
-    (next: string, caret: number) => {
-      if (!mentionsEnabled) {
-        setMention(undefined)
-        return
-      }
-      const token = getAgentMentionToken(next, caret)
-      if (!token) {
-        setMention(undefined)
-        return
-      }
-      setMention((current) => ({
-        ...token,
-        activeIndex: current?.activeIndex ?? 0,
-      }))
-    },
-    [mentionsEnabled]
-  )
+  const handleCaretChange = useCallback(() => {
+    const node = textareaRef.current
+    if (!mentionsEnabled || !node) {
+      setMention(undefined)
+      return
+    }
+    const token = getAgentMentionToken(
+      node.value,
+      node.selectionStart ?? node.value.length
+    )
+    if (!token) {
+      setMention(undefined)
+      return
+    }
+    const caret = getTextareaCaretCoordinates(node, token.end)
+    setMention((current) => ({
+      ...token,
+      caret,
+      activeIndex: current?.activeIndex ?? 0,
+    }))
+  }, [mentionsEnabled, textareaRef])
 
-  const selectPreset = useCallback(
-    (preset: AgentPresetReadMinimal) => {
+  const selectSuggestion = useCallback(
+    (suggestion: MentionSuggestion) => {
       if (!mention) {
         return
       }
-      const token = formatAgentMentionToken(preset)
-      const next = `${value.slice(0, mention.start)}${token}${value.slice(mention.end)}`
-      const caret = mention.start + token.length
+      const next = `${value.slice(0, mention.start)}${suggestion.token}${value.slice(mention.end)}`
+      const caret = mention.start + suggestion.token.length
       setMention(undefined)
       onValueChange(next)
       requestAnimationFrame(() => {
@@ -193,45 +239,44 @@ export function useAgentMentionAutocomplete({
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault()
-        if (suggestions.length === 0) {
+        if (items.length === 0) {
           return true
         }
-        const step = event.key === "ArrowDown" ? 1 : suggestions.length - 1
+        const step = event.key === "ArrowDown" ? 1 : items.length - 1
         setMention((current) =>
           current
-            ? {
-                ...current,
-                activeIndex: (activeIndex + step) % suggestions.length,
-              }
+            ? { ...current, activeIndex: (activeIndex + step) % items.length }
             : current
         )
         return true
       }
 
       if (event.key === "Enter") {
-        const selected = suggestions[activeIndex]
-        if (!selected) {
-          return false
-        }
+        // Swallow Enter while open so it neither submits nor adds a newline.
         event.preventDefault()
-        selectPreset(selected)
+        const selected = items[activeIndex]
+        if (selected) {
+          selectSuggestion(selected)
+        }
         return true
       }
 
       return false
     },
-    [activeIndex, isOpen, selectPreset, suggestions]
+    [activeIndex, isOpen, items, selectSuggestion]
   )
 
   return {
     isOpen,
-    suggestions,
+    sections,
+    itemCount: items.length,
     activeIndex,
+    caret: mention?.caret,
     query: mention?.query ?? "",
     isLoading: presetsIsLoading,
-    handleValueChange,
+    handleCaretChange,
     handleKeyDown,
-    selectPreset,
+    selectSuggestion,
     dismiss,
   }
 }

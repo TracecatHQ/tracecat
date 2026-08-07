@@ -875,11 +875,12 @@ function CommentComposer({
               <FormItem>
                 <AgentMentionPopover
                   open={mentions.isOpen}
-                  suggestions={mentions.suggestions}
+                  caret={mentions.caret}
+                  sections={mentions.sections}
+                  itemCount={mentions.itemCount}
                   activeIndex={mentions.activeIndex}
-                  query={mentions.query}
                   isLoading={mentions.isLoading}
-                  onSelect={mentions.selectPreset}
+                  onSelect={mentions.selectSuggestion}
                 >
                   <FormControl>
                     <Textarea
@@ -901,13 +902,10 @@ function CommentComposer({
                       onChange={(event) => {
                         field.onChange(event)
                         adjustTextareaHeight()
-                        mentions.handleValueChange(
-                          event.target.value,
-                          event.target.selectionStart ??
-                            event.target.value.length
-                        )
+                        mentions.handleCaretChange()
                       }}
                       onKeyDown={handleKeyDown}
+                      onSelect={mentions.handleCaretChange}
                       onPaste={(event) => void handlePaste(event)}
                       placeholder={placeholder}
                       value={field.value}

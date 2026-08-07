@@ -759,7 +759,7 @@ describe("CommentSection", () => {
       expect(screen.getByText("Malware agent")).toBeInTheDocument()
     })
 
-    it("renders the popover above the composer and outside its form", () => {
+    it("renders the popover above the caret and outside the composer form", () => {
       renderCommentSection()
 
       typeInto(getComposer(), "@")
@@ -770,6 +770,31 @@ describe("CommentSection", () => {
       expect(getComposer().closest("form")).not.toContainElement(
         content as HTMLElement | null
       )
+      // Anchored to a caret marker rather than the composer itself.
+      expect(
+        getComposer().parentElement?.querySelector("span[aria-hidden]")
+      ).toBeInTheDocument()
+    })
+
+    it("groups suggestions under a section header", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "@")
+
+      expect(screen.getByText("Agents")).toBeInTheDocument()
+    })
+
+    it("keeps the popover open with an empty state when nothing matches", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@zzz")
+
+      expect(screen.getByText("No agents found")).toBeInTheDocument()
+      expect(screen.queryByText("Agents")).not.toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Escape" })
+      expect(screen.queryByText("No agents found")).not.toBeInTheDocument()
     })
 
     it("filters presets by the mention query", () => {
