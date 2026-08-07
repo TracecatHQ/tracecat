@@ -45,6 +45,13 @@ from tracecat.exceptions import (
 )
 from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.expression_policy import (
+    SourceProvenance,
+    TemplateExecutionState,
+    derive_source_provenance,
+    partition_action_args,
+    prepare_action_args,
+)
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
@@ -446,6 +453,7 @@ async def _execute_template_action(
     ctx: DispatchActionContext,
     resolved_context: ResolvedContext,
     timeout: float,
+    source_provenance: Mapping[str, SourceProvenance],
 ) -> Any:
     """Execute a template action by orchestrating its steps.
 
@@ -461,6 +469,7 @@ async def _execute_template_action(
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
         timeout: Execution timeout
+        source_provenance: Caller-boundary provenance for this invocation's args
 
     Returns:
         The evaluated returns expression result
@@ -504,6 +513,7 @@ async def _execute_template_action(
         inputs=validated_input_args,
         steps={},
     )
+    state = TemplateExecutionState(template_context, source_provenance)
 
     logger.info(
         "Executing template action via backend",
@@ -519,11 +529,7 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Evaluate step args with template context
-        evaled_args = cast(
-            dict[str, Any],
-            eval_templated_object(step.args, operand=template_context),
-        )
+        evaled_args = state.prepare_step_args(step.action, step.args)
 
         # Prepare step context (reuses parent secrets, no re-fetch)
         step_resolved = await _prepare_step_context(
@@ -534,6 +540,13 @@ async def _execute_template_action(
             role=role,
         )
 
+        # Nested templates receive provenance derived in this scope.
+        child_provenance = (
+            state.child_provenance(step.args)
+            if step_resolved.action_impl.type == "template"
+            else {}
+        )
+
         # Execute step via _invoke_step (handles nested templates)
         try:
             step_result = await _invoke_step(
@@ -542,6 +555,7 @@ async def _execute_template_action(
                 input=input,
                 ctx=ctx,
                 timeout=timeout,
+                source_provenance=child_provenance,
             )
         except ExecutionError:
             # Re-raise with step context preserved
@@ -559,9 +573,10 @@ async def _execute_template_action(
             ) from e
 
         # Store step result for subsequent steps (materialized for expression access)
-        template_context["steps"][step.ref] = TaskResult.from_result(
-            step_result
-        ).to_materialized_dict()
+        state.record_step(
+            step.ref,
+            TaskResult.from_result(step_result).to_materialized_dict(),
+        )
         logger.trace("Template step completed", step_ref=step.ref)
 
     # Evaluate returns expression with final template context
@@ -574,6 +589,7 @@ async def _invoke_step(
     input: RunActionInput,
     ctx: DispatchActionContext,
     timeout: float,
+    source_provenance: Mapping[str, SourceProvenance],
 ) -> Any:
     """Execute a template step. Skips masking (done at root level).
 
@@ -587,6 +603,7 @@ async def _invoke_step(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         timeout: Execution timeout
+        source_provenance: Caller-boundary provenance for this invocation's args
 
     Returns:
         The step execution result (unmasked)
@@ -600,6 +617,7 @@ async def _invoke_step(
                 ctx=ctx,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                source_provenance=source_provenance,
             )
         case "udf":
             # Leaf node - execute via backend
@@ -628,6 +646,7 @@ class PreparedContext:
 
     resolved_context: ResolvedContext
     mask_values: set[str] | None
+    source_provenance: Mapping[str, SourceProvenance] | None = None
 
 
 async def _get_template_secret_projection(
@@ -679,8 +698,11 @@ async def prepare_resolved_context(
         action_name, input.registry_lock, role.organization_id
     )
 
-    # Collect expressions to know what secrets/variables are needed
-    collected = collect_expressions(task.args)
+    # Apply field policy before expression collection: preserved source is
+    # excluded, while secret-dependent occurrences in durable content are
+    # replaced before any argument-driven secret lookup.
+    partitioned_args = partition_action_args(action_name, task.args)
+    collected = collect_expressions(partitioned_args.resolvable)
 
     # Fetch secrets and variables
     secrets = await secrets_manager.get_action_secrets(
@@ -721,8 +743,13 @@ async def prepare_resolved_context(
             has_interaction=input.interaction_context is not None,
         )
 
-        # Evaluate templated args (now with logical_time and interaction context set)
-        evaluated_args = evaluate_templated_args(task, context)
+        evaluated_args = prepare_action_args(action_name, task.args, context)
+        # Preserve authored dependencies for policy-aware template steps.
+        source_provenance = (
+            derive_source_provenance(task.args)
+            if action_impl.type == "template"
+            else None
+        )
     finally:
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
@@ -762,7 +789,11 @@ async def prepare_resolved_context(
         secret_projection=secret_projection,
     )
 
-    return PreparedContext(resolved_context=resolved_context, mask_values=mask_values)
+    return PreparedContext(
+        resolved_context=resolved_context,
+        mask_values=mask_values,
+        source_provenance=source_provenance,
+    )
 
 
 async def invoke_once(
@@ -813,6 +844,7 @@ async def invoke_once(
             input=input,
             ctx=ctx,
             timeout=timeout,
+            source_provenance=prepared.source_provenance or {},
         )
 
     except ExecutionError as e:
