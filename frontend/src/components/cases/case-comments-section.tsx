@@ -29,6 +29,7 @@ import {
   type WorkflowReadMinimal,
   workflowsListWorkflows,
 } from "@/client"
+import { AgentMentionPopover } from "@/components/agents/agent-mention-popover"
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -79,6 +80,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
@@ -783,6 +785,21 @@ function CommentComposer({
 
   const content = form.watch("content")
   const trimmedContent = content.trim()
+  const setContent = useCallback(
+    (next: string) => {
+      form.setValue("content", next, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [form]
+  )
+  const mentions = useAgentMentionAutocomplete({
+    workspaceId,
+    value: content,
+    onValueChange: setContent,
+    textareaRef,
+  })
   const selectedWorkflow = useMemo(
     () =>
       selectedWorkflowId
@@ -826,7 +843,11 @@ function CommentComposer({
     }
   }
 
-  const handleKeyDown = (event: React.KeyboardEvent) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The mention popover owns Enter and arrow keys while it is open.
+    if (mentions.handleKeyDown(event)) {
+      return
+    }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       if (createCommentIsPending || imageUploading) {
@@ -851,7 +872,7 @@ function CommentComposer({
             control={form.control}
             name="content"
             render={({ field }) => (
-              <FormItem>
+              <FormItem className="relative">
                 <FormControl>
                   <Textarea
                     autoFocus={autoFocus}
@@ -865,10 +886,17 @@ function CommentComposer({
                         : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
                     }
                     name={field.name}
-                    onBlur={field.onBlur}
+                    onBlur={() => {
+                      field.onBlur()
+                      mentions.dismiss()
+                    }}
                     onChange={(event) => {
                       field.onChange(event)
                       adjustTextareaHeight()
+                      mentions.handleValueChange(
+                        event.target.value,
+                        event.target.selectionStart ?? event.target.value.length
+                      )
                     }}
                     onKeyDown={handleKeyDown}
                     onPaste={(event) => void handlePaste(event)}
@@ -876,6 +904,15 @@ function CommentComposer({
                     value={field.value}
                   />
                 </FormControl>
+                {mentions.isOpen ? (
+                  <AgentMentionPopover
+                    suggestions={mentions.suggestions}
+                    activeIndex={mentions.activeIndex}
+                    query={mentions.query}
+                    isLoading={mentions.isLoading}
+                    onSelect={mentions.selectPreset}
+                  />
+                ) : null}
                 <FormMessage />
               </FormItem>
             )}

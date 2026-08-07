@@ -11,11 +11,18 @@ import {
   within,
 } from "@testing-library/react"
 import {
+  type AgentPresetReadMinimal,
   type CaseCommentThreadRead,
   foldersListFolders,
   workflowsListWorkflows,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CommentSection } from "@/components/cases/case-comments-section"
+import {
+  formatAgentMentionToken,
+  getAgentMentionToken,
+} from "@/hooks/use-agent-mention-autocomplete"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
@@ -42,6 +49,14 @@ jest.mock("@/hooks/use-auth", () => ({
 
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: jest.fn(),
+}))
+
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(),
+}))
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -74,6 +89,12 @@ jest.mock("@/components/ui/use-toast", () => ({
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>
 const mockUseEntitlements = useEntitlements as jest.MockedFunction<
   typeof useEntitlements
+>
+const mockUseAgentPresets = useAgentPresets as jest.MockedFunction<
+  typeof useAgentPresets
+>
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
 >
 const mockUseCaseComments = useCaseComments as jest.MockedFunction<
   typeof useCaseComments
@@ -196,6 +217,50 @@ function createThreadFixtures(): CaseCommentThreadRead[] {
   ]
 }
 
+function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
+  return [
+    {
+      id: "preset-1",
+      workspace_id: "workspace-1",
+      name: "Triage agent",
+      slug: "triage-agent",
+      description: "Triages new cases",
+      model_provider: "openai",
+      model_name: "gpt-4o",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    },
+    {
+      id: "preset-2",
+      workspace_id: "workspace-1",
+      name: "Malware agent",
+      slug: "malware-agent",
+      description: null,
+      model_provider: "openai",
+      model_name: "gpt-4o",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    },
+  ]
+}
+
+function mockAgentPresets(presets: AgentPresetReadMinimal[]) {
+  mockUseAgentPresets.mockReturnValue({
+    presets,
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  } as unknown as ReturnType<typeof useAgentPresets>)
+}
+
+function mockEntitlements(keys: string[]) {
+  mockUseEntitlements.mockReturnValue({
+    hasEntitlement: jest.fn().mockImplementation((key) => keys.includes(key)),
+    isLoading: false,
+    hasEntitlementData: true,
+  })
+}
+
 describe("CommentSection", () => {
   beforeEach(() => {
     const fixtures = createThreadFixtures()
@@ -213,13 +278,9 @@ describe("CommentSection", () => {
       userIsLoading: false,
       userError: null,
     } as ReturnType<typeof useAuth>)
-    mockUseEntitlements.mockReturnValue({
-      hasEntitlement: jest
-        .fn()
-        .mockImplementation((key) => key === "case_addons"),
-      isLoading: false,
-      hasEntitlementData: true,
-    })
+    mockEntitlements(["case_addons"])
+    mockUseScopeCheck.mockReturnValue(true)
+    mockAgentPresets(createAgentPresetFixtures())
     mockUseCaseComments.mockReturnValue({
       caseComments: [firstThread.comment, firstReply, secondThread.comment],
       caseCommentsIsLoading: false,
@@ -672,5 +733,180 @@ describe("CommentSection", () => {
       "href",
       "/workspaces/workspace-1/workflows/wf_789/executions/exec_999"
     )
+  })
+
+  describe("agent mention autocomplete", () => {
+    beforeEach(() => {
+      mockEntitlements(["case_addons", "agent_addons"])
+    })
+
+    function typeInto(textarea: HTMLElement, value: string) {
+      fireEvent.change(textarea, {
+        target: { value, selectionStart: value.length },
+      })
+    }
+
+    function getComposer() {
+      return screen.getByPlaceholderText("Leave a comment...")
+    }
+
+    it("opens the popover and lists agent presets", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "@")
+
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.getByText("Malware agent")).toBeInTheDocument()
+    })
+
+    it("filters presets by the mention query", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "Ping @mal")
+
+      expect(screen.getByText("Malware agent")).toBeInTheDocument()
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("ignores @ that does not follow whitespace", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "email@tri")
+
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("dismisses on whitespace in the query and on Escape", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@tri ")
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+
+      typeInto(composer, "@tri")
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Escape" })
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("selects with the keyboard without submitting the comment", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @")
+      fireEvent.keyDown(composer, { key: "ArrowDown" })
+      fireEvent.keyDown(composer, { key: "Enter" })
+
+      await waitFor(() =>
+        expect(composer).toHaveValue(
+          "Ping [@Malware agent](mention://agent/preset-2)"
+        )
+      )
+      expect(createComment).not.toHaveBeenCalled()
+      expect(screen.queryByText("Malware agent")).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect((composer as HTMLTextAreaElement).selectionStart).toBe(
+          "Ping [@Malware agent](mention://agent/preset-2)".length
+        )
+      )
+    })
+
+    it("wraps keyboard navigation with ArrowUp", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@")
+      fireEvent.keyDown(composer, { key: "ArrowUp" })
+      fireEvent.keyDown(composer, { key: "Enter" })
+
+      await waitFor(() =>
+        expect(composer).toHaveValue(
+          "[@Malware agent](mention://agent/preset-2)"
+        )
+      )
+    })
+
+    it("selects with the mouse from the inline reply composer", async () => {
+      renderCommentSection()
+      const reply = screen.getByPlaceholderText("Leave a reply...")
+
+      typeInto(reply, "@tri")
+      fireEvent.click(screen.getByText("Triage agent"))
+
+      await waitFor(() =>
+        expect(reply).toHaveValue("[@Triage agent](mention://agent/preset-1)")
+      )
+      expect(getComposer()).toHaveValue("")
+    })
+
+    it("stays closed without the agent:execute scope", () => {
+      mockUseScopeCheck.mockReturnValue(false)
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(getComposer()).toHaveValue("@")
+    })
+
+    it.each(["case_addons", "agent_addons"])(
+      "stays closed when only the %s entitlement is present",
+      (entitlement) => {
+        mockEntitlements([entitlement])
+
+        renderCommentSection()
+        typeInto(getComposer(), "@")
+
+        expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      }
+    )
+  })
+})
+
+describe("getAgentMentionToken", () => {
+  it("matches @ at the start of the text", () => {
+    expect(getAgentMentionToken("@tri", 4)).toEqual({
+      start: 0,
+      end: 4,
+      query: "tri",
+    })
+  })
+
+  it("matches @ after whitespace", () => {
+    expect(getAgentMentionToken("ping @tri", 9)).toEqual({
+      start: 5,
+      end: 9,
+      query: "tri",
+    })
+  })
+
+  it("returns undefined without an @, after a non-space, or with whitespace", () => {
+    expect(getAgentMentionToken("ping", 4)).toBeUndefined()
+    expect(getAgentMentionToken("email@tri", 9)).toBeUndefined()
+    expect(getAgentMentionToken("@tri agent", 10)).toBeUndefined()
+  })
+
+  it("ignores text after the caret", () => {
+    expect(getAgentMentionToken("@tri tail", 4)).toEqual({
+      start: 0,
+      end: 4,
+      query: "tri",
+    })
+  })
+})
+
+describe("formatAgentMentionToken", () => {
+  it("renders the shared mention token format", () => {
+    expect(
+      formatAgentMentionToken({ id: "preset-1", name: "Triage agent" })
+    ).toBe("[@Triage agent](mention://agent/preset-1)")
   })
 })
