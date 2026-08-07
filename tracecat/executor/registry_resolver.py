@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 
 from aiocache import Cache, cached
+from async_lru import alru_cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
@@ -35,6 +36,15 @@ from tracecat.registry.versions.schemas import (
 )
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+
+PLATFORM_MANIFEST_CACHE_SIZE = 8
+ORG_MANIFEST_CACHE_SIZE = 32
+MANIFEST_CACHE_TTL_SECONDS = 3600
+
+type ManifestCacheEntry = tuple[
+    RegistryVersionManifest,
+    dict[str, ActionImplementation],
+]
 
 
 def _build_impl_index(
@@ -76,7 +86,7 @@ async def _fetch_manifest(
     session: AsyncSession,
     origin: str,
     version: str,
-    organization_id: OrganizationID,
+    organization_id: OrganizationID | None,
 ) -> RegistryVersionManifest:
     """Fetch manifest from database for a specific origin and version.
 
@@ -110,6 +120,8 @@ async def _fetch_manifest(
 
     # Add org filter only for org-scoped tables
     if not is_platform:
+        if organization_id is None:
+            raise ValueError("organization_id is required for org registry manifests")
         statement = statement.where(
             RegistryRepository.organization_id == organization_id,
             RegistryVersion.organization_id == organization_id,
@@ -127,30 +139,12 @@ async def _fetch_manifest(
     return RegistryVersionManifest.model_validate(manifest_dict)
 
 
-def _manifest_key_builder(
-    fn: object,
+async def _load_manifest_entry(
     origin: str,
     version: str,
-    organization_id: OrganizationID,
-) -> str:
-    """Build cache key for manifest entries."""
-    return f"manifest:{organization_id}:{origin}:{version}"
-
-
-@cached(
-    ttl=60,
-    cache=Cache.MEMORY,
-    key_builder=_manifest_key_builder,
-)
-async def _get_manifest_entry(
-    origin: str,
-    version: str,
-    organization_id: OrganizationID,
-) -> tuple[RegistryVersionManifest, dict[str, ActionImplementation]]:
-    """Fetch manifest and build impl index (cached with TTL).
-
-    This function handles its own DB session and caching via aiocache.
-    """
+    organization_id: OrganizationID | None,
+) -> ManifestCacheEntry:
+    """Fetch one immutable manifest and build its action implementation index."""
     async with get_async_session_bypass_rls_context_manager() as session:
         manifest = await _fetch_manifest(session, origin, version, organization_id)
         impl_index = _build_impl_index(manifest, origin)
@@ -163,6 +157,42 @@ async def _get_manifest_entry(
         )
 
         return (manifest, impl_index)
+
+
+@alru_cache(
+    maxsize=PLATFORM_MANIFEST_CACHE_SIZE,
+    ttl=MANIFEST_CACHE_TTL_SECONDS,
+)
+async def _get_platform_manifest_entry(
+    origin: str,
+    version: str,
+) -> ManifestCacheEntry:
+    """Load a platform manifest shared by every organization in this process."""
+    return await _load_manifest_entry(origin, version, None)
+
+
+@alru_cache(
+    maxsize=ORG_MANIFEST_CACHE_SIZE,
+    ttl=MANIFEST_CACHE_TTL_SECONDS,
+)
+async def _get_org_manifest_entry(
+    origin: str,
+    version: str,
+    organization_id: OrganizationID,
+) -> ManifestCacheEntry:
+    """Load an organization-scoped manifest for this process."""
+    return await _load_manifest_entry(origin, version, organization_id)
+
+
+async def _get_manifest_entry(
+    origin: str,
+    version: str,
+    organization_id: OrganizationID,
+) -> ManifestCacheEntry:
+    """Route manifest loads through the correctly scoped single-flight cache."""
+    if origin == DEFAULT_REGISTRY_ORIGIN:
+        return await _get_platform_manifest_entry(origin, version)
+    return await _get_org_manifest_entry(origin, version, organization_id)
 
 
 def _custom_registry_entitlement_key_builder(
@@ -214,7 +244,7 @@ async def prefetch_lock(lock: RegistryLock, organization_id: OrganizationID) -> 
     """Prefetch all manifests for a registry lock into cache.
 
     Call this once at the start of action execution to warm the cache.
-    Uses aiocache with TTL - no session needed (managed internally).
+    Uses bounded process-local async LRU caches; no caller session is needed.
     """
     await _require_custom_registry_entitlement_if_needed(lock, organization_id)
 
@@ -240,7 +270,7 @@ async def resolve_action(
     """Resolve action implementation from registry lock.
 
     O(1) lookup using action-level bindings in the lock.
-    Uses aiocache - returns cached value on hit, fetches on miss.
+    Returns the process-local cached value on hit and fetches on miss.
 
     Args:
         action_name: Full action name (e.g., "core.transform.reshape")
@@ -400,5 +430,6 @@ async def _collect_secrets_recursive(
 
 async def clear_cache() -> None:
     """Clear the manifest cache. Useful for testing."""
-    await _get_manifest_entry.cache.clear()  # pyright: ignore[reportAttributeAccessIssue]
+    _get_platform_manifest_entry.cache_clear()
+    _get_org_manifest_entry.cache_clear()
     await _has_custom_registry_entitlement.cache.clear()  # pyright: ignore[reportAttributeAccessIssue]
