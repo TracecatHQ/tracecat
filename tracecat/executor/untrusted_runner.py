@@ -32,6 +32,7 @@ from tracecat.contexts import (
     ctx_session_id,
 )
 from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.minimal_runner import materialize_annotated_field_defaults
 from tracecat.executor.schemas import ResolvedContext
 from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
@@ -163,12 +164,13 @@ async def _run_udf(
     fn = getattr(mod, function_name)
     sanitized_args = dict(args)
     sanitized_args.pop("__tracecat", None)
+    call_args = materialize_annotated_field_defaults(fn, sanitized_args)
 
     # Check if async and run appropriately
     if asyncio.iscoroutinefunction(fn):
-        return await fn(**sanitized_args)
+        return await fn(**call_args)
     else:
-        return await asyncio.to_thread(fn, **sanitized_args)
+        return await asyncio.to_thread(fn, **call_args)
 
 
 def _setup_registry_sdk_context() -> None:
