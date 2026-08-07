@@ -148,6 +148,19 @@ function SettingsModalContent() {
     !scopesLoading &&
     hasGrantedScope("workspace:update", userScopes?.scopes ?? [])
 
+  // Managing a workspace's available models calls organization-level endpoints
+  // (agent:create / agent:delete), so this tab must be gated on org-level
+  // scopes — not the workspace-scoped scopes above. A workspace-admin who is
+  // only an organization member would otherwise see an editable tab whose
+  // saves the API rejects with 403.
+  const { userScopes: orgScopes, isLoading: orgScopesLoading } = useUserScopes(
+    undefined,
+    { enabled: !!workspaceId }
+  )
+  const canManageWorkspaceModels =
+    !orgScopesLoading &&
+    hasGrantedScope("agent:create", orgScopes?.scopes ?? [])
+
   useEffect(() => {
     if (
       contextWorkspaceId ||
@@ -247,13 +260,15 @@ function SettingsModalContent() {
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
                       />
-                      <NavItem
-                        icon={Cpu}
-                        label="AI models"
-                        section="workspace-models"
-                        activeSection={displayedSection}
-                        onSelect={setActiveSection}
-                      />
+                      {canManageWorkspaceModels && (
+                        <NavItem
+                          icon={Cpu}
+                          label="AI models"
+                          section="workspace-models"
+                          activeSection={displayedSection}
+                          onSelect={setActiveSection}
+                        />
+                      )}
                       <NavItem
                         icon={FileIcon}
                         label="Files"
