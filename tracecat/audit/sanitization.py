@@ -12,7 +12,12 @@ _ALLOWED_METADATA_KEYS = frozenset(
         "auth_method",
         "changed_fields",
         "delete_mode",
+        "decision",
+        "decision_timestamp",
+        "denial_reason",
         "operation",
+        "source",
+        "tool_name",
         "trigger_type",
         "workflow_status",
     }
@@ -79,6 +84,8 @@ def _is_allowed_metadata(key: str, value: AuditMetadataValue) -> bool:
     if key in _ALLOWED_METADATA_KEYS:
         return isinstance(value, str) or value is None
     if key.startswith(("is_", "has_", "uses_")):
+        return isinstance(value, bool)
+    if key == "arguments_overridden":
         return isinstance(value, bool)
     if key.endswith("_count"):
         return isinstance(value, int) and not isinstance(value, bool)

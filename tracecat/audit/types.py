@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -23,6 +24,7 @@ AuditAction = Literal[
     "reset",
     "rotate",
     "accept",
+    "reject",
     "revoke",
     "sign_in",
     "sync",
@@ -54,6 +56,7 @@ AuditResourceType = Literal[
     "agent_model_access",
     "agent_preset",
     "agent_session",
+    "agent_approval",
     "organization_domain",
     "organization_member",
     "organization_session",
@@ -77,6 +80,18 @@ AuditResourceType = Literal[
     "platform_registry_version",
     "tier",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEventInput:
+    """One event in a bulk audit delivery request."""
+
+    resource_type: AuditResourceType
+    action: AuditAction
+    resource_id: uuid.UUID | None = None
+    status: AuditEventStatus = AuditEventStatus.SUCCESS
+    data: AuditMetadata | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuditEvent(BaseModel):
