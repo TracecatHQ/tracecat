@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
-from tracecat.exceptions import RegistryError, RegistryNotFound
+from tracecat.exceptions import RegistryError, RegistryNotFound, ScopeDeniedError
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -122,6 +122,16 @@ class RegistryReposService(BaseOrgService):
         if repository.organization_id != self.organization_id:
             raise RegistryNotFound("Registry repository not found")
 
+        target_commit_sha = sync_params.target_commit_sha if sync_params else None
+        force = sync_params.force if sync_params else False
+        if force and not has_scope(
+            self.role.scopes or frozenset(), "org:registry:delete"
+        ):
+            raise ScopeDeniedError(
+                required_scopes=["org:registry:delete"],
+                missing_scopes=["org:registry:delete"],
+            )
+
         if repository.origin != DEFAULT_REGISTRY_ORIGIN:
             await check_entitlement(
                 self.session, self.role, Entitlement.CUSTOM_REGISTRY
@@ -129,8 +139,6 @@ class RegistryReposService(BaseOrgService):
 
         actions_service = RegistryActionsService(self.session, self.role)
         last_synced_at = datetime.now(UTC)
-        target_commit_sha = sync_params.target_commit_sha if sync_params else None
-        force = sync_params.force if sync_params else False
 
         is_git_ssh = repository.origin.startswith("git+ssh://")
         git_repo_package_name: str | None = None
