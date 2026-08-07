@@ -245,7 +245,7 @@ class RBACService(BaseOrgService):
             await self._set_role_scopes(role.id, scope_ids)
 
         await self.session.commit()
-        await self.session.refresh(role, ["scopes"])
+        await self.session.refresh(role, ["updated_at", "scopes"])
         return role
 
     @require_scope("org:rbac:delete")
@@ -397,7 +397,7 @@ class RBACService(BaseOrgService):
             group.description = description
 
         await self.session.commit()
-        await self.session.refresh(group, ["members"])
+        await self.session.refresh(group, ["updated_at", "members"])
         return group
 
     @require_scope("org:rbac:delete")

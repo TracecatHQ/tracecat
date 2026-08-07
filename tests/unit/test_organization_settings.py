@@ -1,4 +1,5 @@
 from typing import Any
+from unittest.mock import MagicMock
 
 import orjson
 import pytest
@@ -11,6 +12,7 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import OrganizationDomain
 from tracecat.organization.domains import normalize_domain
+from tracecat.settings import service as settings_service_module
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.router import (
     check_other_auth_enabled,
@@ -229,15 +231,23 @@ async def test_update_git_settings(
 @pytest.mark.anyio
 async def test_update_audit_settings(
     settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ensure audit webhook updates persist."""
     service = settings_service_with_defaults
+    clear_audit_cache = MagicMock()
+    monkeypatch.setattr(
+        settings_service_module,
+        "clear_audit_setting_cache",
+        clear_audit_cache,
+    )
     await service.update_audit_settings(
         AuditSettingsUpdate(audit_webhook_url="https://example.com/audit")
     )
     settings = await service.list_org_settings(keys={"audit_webhook_url"})
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
     assert settings_dict["audit_webhook_url"] == "https://example.com/audit"
+    clear_audit_cache.assert_called_once_with()
 
 
 @pytest.mark.anyio

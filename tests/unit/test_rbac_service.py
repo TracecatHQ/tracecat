@@ -238,6 +238,7 @@ class TestRBACServiceRoles:
         )
         assert updated.name == "Updated Name"
         assert updated.description == "New description"
+        assert updated.updated_at >= updated.created_at
 
     async def test_delete_role(
         self,
@@ -295,6 +296,25 @@ class TestRBACServiceGroups:
         assert group.name == "Engineering Team"
         assert group.organization_id == org.id
         assert group.created_by == role.user_id
+
+    async def test_update_group(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Updated groups expose server-generated timestamps without lazy IO."""
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Original Group")
+
+        updated = await service.update_group(
+            group.id,
+            name="Updated Group",
+            description="New description",
+        )
+
+        assert updated.name == "Updated Group"
+        assert updated.description == "New description"
+        assert updated.updated_at >= updated.created_at
 
     async def test_add_member_to_group(
         self,

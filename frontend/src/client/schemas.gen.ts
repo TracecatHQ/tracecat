@@ -5501,7 +5501,7 @@ export const $AuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [
@@ -18971,7 +18971,7 @@ export const $PlatformAuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [

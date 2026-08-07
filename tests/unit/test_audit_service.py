@@ -59,9 +59,9 @@ def audit_service(role: Role) -> AuditService:
 @pytest.fixture(autouse=True)
 def clear_audit_setting_cache() -> Iterator[None]:
     """Isolate the module-level audit-setting TTL cache between tests."""
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
     yield
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
 
 
 class _AuditedService(BaseService):
@@ -881,7 +881,7 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
 
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
 
     assert await audit_service._get_webhook_url() == "https://second.example.com/audit"
     assert fetch.await_count == 2
@@ -900,7 +900,14 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch.setattr(
         audit_service,
         "_get_custom_payload",
-        AsyncMock(return_value={"resource_type": "organization", "custom": "yes"}),
+        AsyncMock(
+            return_value={
+                "resource_type": "organization",
+                "resource_id": "not-a-uuid",
+                "status": "INVALID_STATUS",
+                "custom": "yes",
+            }
+        ),
     )
     monkeypatch.setattr(
         audit_service,
@@ -947,7 +954,9 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     assert args[0] == webhook_url
     assert kwargs["headers"] == {"X-Custom-Header": "custom-value"}
     assert kwargs["json"]["custom"] == "yes"
-    assert kwargs["json"]["resource_type"] == "organization"
+    assert kwargs["json"]["resource_type"] == "workflow"
+    assert kwargs["json"]["resource_id"] == str(event.resource_id)
+    assert kwargs["json"]["status"] == "SUCCESS"
     assert kwargs["json"]["actor_label"] == "user@example.com"
 
 
@@ -1638,6 +1647,37 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
 
     resource_ids = [call["resource_id"] for call in create_event_calls]
     assert resource_ids == [invitation_id, invitation_id]
+
+
+@pytest.mark.anyio
+async def test_audit_log_extracts_id_from_keyword_object(role: Role) -> None:
+    resource_id = uuid.uuid4()
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="organization_secret", action="update")
+        async def update_secret(self, *, secret: SimpleNamespace) -> None:
+            return None
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.update_secret(secret=SimpleNamespace(id=resource_id))
+    finally:
+        ctx_role.reset(token)
+
+    assert [call["resource_id"] for call in create_event_calls] == [
+        resource_id,
+        resource_id,
+    ]
 
 
 @pytest.mark.anyio
