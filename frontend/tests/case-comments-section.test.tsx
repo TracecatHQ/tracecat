@@ -906,6 +906,30 @@ describe("CommentSection", () => {
       )
     })
 
+    it("selects with tab without moving focus or submitting", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+      composer.focus()
+
+      typeInto(composer, "Ping @")
+      // Shift+Tab falls through to native focus handling, so nothing is picked.
+      fireEvent.keyDown(composer, { key: "Tab", shiftKey: true })
+      expect(composer).toHaveValue("Ping @")
+
+      fireEvent.keyDown(composer, { key: "Tab" })
+
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+      expect(createComment).not.toHaveBeenCalled()
+      expect(composer).toHaveFocus()
+    })
+
     it("wraps keyboard navigation with ArrowUp", async () => {
       renderCommentSection()
       const composer = getComposer()

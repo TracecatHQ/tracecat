@@ -256,8 +256,10 @@ export function useCommentMentions({
           return true
         }
 
-        if (event.key === "Enter") {
-          // Swallow Enter while open so it neither submits nor adds a newline.
+        if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
+          // Swallow Enter and Tab while open so they select instead of
+          // submitting, adding a newline, or moving focus. Shift+Tab falls
+          // through to native focus handling.
           event.preventDefault()
           const selected = items[activeIndex]
           if (selected) {
