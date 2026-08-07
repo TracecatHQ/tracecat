@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useMemo } from "react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
-import type { MentionSection } from "@/hooks/use-agent-mention-autocomplete"
+import type { MentionSection } from "@/hooks/use-comment-mentions"
 import type { CaretCoordinates } from "@/lib/textarea-caret"
 import { cn } from "@/lib/utils"
 

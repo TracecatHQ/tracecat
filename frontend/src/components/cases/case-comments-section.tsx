@@ -81,11 +81,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import {
-  type MentionSelection,
-  useAgentMentionAutocomplete,
-} from "@/hooks/use-agent-mention-autocomplete"
 import { useAuth } from "@/hooks/use-auth"
+import { useCommentMentions } from "@/hooks/use-comment-mentions"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
@@ -93,15 +90,7 @@ import {
   extractImageFiles,
   useCaseImageUpload,
 } from "@/lib/cases/use-case-image-upload"
-import {
-  diffTextSplice,
-  findMentionEndingAt,
-  type MentionRange,
-  mentionDisplayText,
-  remapMentions,
-  serializeMentions,
-  type TextSplice,
-} from "@/lib/comment-mentions"
+import type { TextSplice } from "@/lib/comment-mentions"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -797,24 +786,9 @@ function CommentComposer({
     textarea.style.overflowY = "hidden"
   }, [isInline])
 
-  // Mentions live as display text (`@Label`) in the textarea; these ranges map
+  // Mentions live as display text (`@Label`) in the textarea; the hook maps
   // them back to wire tokens on submit.
-  const [mentionRanges, setMentionRanges] = useState<MentionRange[]>([])
-  const applySplice = useCallback((splice: TextSplice) => {
-    setMentionRanges((current) => remapMentions(current, splice))
-  }, [])
-
-  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
-    caseId,
-    workspaceId,
-    form,
-    textareaRef,
-    adjustTextareaHeight,
-    onSplice: applySplice,
-  })
-
-  const content = form.watch("content")
-  const trimmedContent = content.trim()
+  const getContent = useCallback(() => form.getValues("content"), [form])
   const setContent = useCallback(
     (next: string) => {
       form.setValue("content", next, {
@@ -824,46 +798,24 @@ function CommentComposer({
     },
     [form]
   )
-
-  const handleMentionSelect = useCallback(
-    ({ token, suggestion }: MentionSelection) => {
-      const display = mentionDisplayText(suggestion.label)
-      const inserted = `${display} `
-      const current = form.getValues("content")
-      const next =
-        current.slice(0, token.start) + inserted + current.slice(token.end)
-      setMentionRanges((ranges) => [
-        ...remapMentions(ranges, {
-          start: token.start,
-          deleted: token.end - token.start,
-          inserted: inserted.length,
-        }),
-        {
-          start: token.start,
-          end: token.start + display.length,
-          label: suggestion.label,
-          targetId: suggestion.id,
-        },
-      ])
-      setContent(next)
-      const caret = token.start + inserted.length
-      requestAnimationFrame(() => {
-        const node = textareaRef.current
-        if (!node) {
-          return
-        }
-        node.focus()
-        node.setSelectionRange(caret, caret)
-      })
-    },
-    [form, setContent]
-  )
-
-  const mentions = useAgentMentionAutocomplete({
+  const mentions = useCommentMentions({
     workspaceId,
     textareaRef,
-    onSelect: handleMentionSelect,
+    getText: getContent,
+    setText: setContent,
   })
+
+  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
+    caseId,
+    workspaceId,
+    form,
+    textareaRef,
+    adjustTextareaHeight,
+    onSplice: mentions.applySplice,
+  })
+
+  const content = form.watch("content")
+  const trimmedContent = content.trim()
   const selectedWorkflow = useMemo(
     () =>
       selectedWorkflowId
@@ -891,7 +843,7 @@ function CommentComposer({
   const handleSubmit = async (values: CommentFormSchema) => {
     // Length limits apply to what the API receives, not the shorter display
     // text, so validate the serialized value.
-    const nextContent = serializeMentions(values.content, mentionRanges).trim()
+    const nextContent = mentions.serialize(values.content).trim()
     if (!nextContent) {
       return
     }
@@ -909,7 +861,7 @@ function CommentComposer({
         ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
       })
       form.reset({ content: "" })
-      setMentionRanges([])
+      mentions.reset()
       setSelectedWorkflowId(null)
       onSubmitted?.()
     } catch (error) {
@@ -917,39 +869,9 @@ function CommentComposer({
     }
   }
 
-  /** Backspace just after a mention removes the whole mention at once. */
-  const handleMentionBackspace = (
-    event: React.KeyboardEvent<HTMLTextAreaElement>
-  ) => {
-    const node = event.currentTarget
-    if (node.selectionStart !== node.selectionEnd) {
-      return false
-    }
-    const mention = findMentionEndingAt(mentionRanges, node.selectionStart)
-    if (!mention) {
-      return false
-    }
-    event.preventDefault()
-    const current = form.getValues("content")
-    applySplice({
-      start: mention.start,
-      deleted: mention.end - mention.start,
-      inserted: 0,
-    })
-    setContent(current.slice(0, mention.start) + current.slice(mention.end))
-    requestAnimationFrame(() => {
-      node.focus()
-      node.setSelectionRange(mention.start, mention.start)
-    })
-    return true
-  }
-
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // The mention popover owns Enter and arrow keys while it is open.
+    // The mention layer owns popover keys and atomic mention backspace.
     if (mentions.handleKeyDown(event)) {
-      return
-    }
-    if (event.key === "Backspace" && handleMentionBackspace(event)) {
       return
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -988,7 +910,7 @@ function CommentComposer({
                 >
                   <CommentMentionOverlay
                     text={content}
-                    mentions={mentionRanges}
+                    mentions={mentions.ranges}
                     className={textMetricsClassName}
                   />
                   <FormControl>
@@ -1011,20 +933,16 @@ function CommentComposer({
                         mentions.dismiss()
                       }}
                       onChange={(event) => {
-                        applySplice(
-                          diffTextSplice(
-                            form.getValues("content"),
-                            event.target.value,
-                            event.target.selectionStart ??
-                              event.target.value.length
-                          )
+                        mentions.handleTextChange(
+                          event.target.value,
+                          event.target.selectionStart ??
+                            event.target.value.length
                         )
                         field.onChange(event)
                         adjustTextareaHeight()
-                        mentions.handleCaretChange()
                       }}
                       onKeyDown={handleKeyDown}
-                      onSelect={mentions.handleCaretChange}
+                      onSelect={mentions.handleSelectionChange}
                       onPaste={(event) => void handlePaste(event)}
                       placeholder={placeholder}
                       value={field.value}

@@ -18,7 +18,6 @@ import {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CommentSection } from "@/components/cases/case-comments-section"
-import { getAgentMentionToken } from "@/hooks/use-agent-mention-autocomplete"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -770,11 +769,20 @@ describe("CommentSection", () => {
       return screen.getByPlaceholderText("Leave a comment...")
     }
 
-    it("opens the popover and lists agent presets", () => {
+    function getCaretMarker(textarea: HTMLElement) {
+      const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
+      if (!(marker instanceof HTMLElement)) {
+        throw new Error("Expected a caret marker next to the composer")
+      }
+      return marker
+    }
+
+    it("opens the popover listing presets under a section header", () => {
       renderCommentSection()
 
       typeInto(getComposer(), "@")
 
+      expect(screen.getByText("Agents")).toBeInTheDocument()
       expect(screen.getByText("Triage agent")).toBeInTheDocument()
       expect(screen.getByText("Malware agent")).toBeInTheDocument()
     })
@@ -791,18 +799,8 @@ describe("CommentSection", () => {
         content as HTMLElement | null
       )
       // Anchored to a caret marker rather than the composer itself.
-      expect(
-        getComposer().parentElement?.querySelector("span[aria-hidden]")
-      ).toBeInTheDocument()
+      expect(getCaretMarker(getComposer())).toBeInTheDocument()
     })
-
-    function getCaretMarker(textarea: HTMLElement) {
-      const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
-      if (!(marker instanceof HTMLElement)) {
-        throw new Error("Expected a caret marker next to the composer")
-      }
-      return marker
-    }
 
     it("pins the anchor to the @ offset and holds it as the query grows", () => {
       renderCommentSection()
@@ -834,14 +832,6 @@ describe("CommentSection", () => {
       expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(2)
       expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 8)
       expect(getCaretMarker(composer).style.left).toBe("18px")
-    })
-
-    it("groups suggestions under a section header", () => {
-      renderCommentSection()
-
-      typeInto(getComposer(), "@")
-
-      expect(screen.getByText("Agents")).toBeInTheDocument()
     })
 
     it("keeps the popover open with an empty state when nothing matches", () => {
@@ -1019,37 +1009,5 @@ describe("CommentSection", () => {
         expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
       }
     )
-  })
-})
-
-describe("getAgentMentionToken", () => {
-  it("matches @ at the start of the text", () => {
-    expect(getAgentMentionToken("@tri", 4)).toEqual({
-      start: 0,
-      end: 4,
-      query: "tri",
-    })
-  })
-
-  it("matches @ after whitespace", () => {
-    expect(getAgentMentionToken("ping @tri", 9)).toEqual({
-      start: 5,
-      end: 9,
-      query: "tri",
-    })
-  })
-
-  it("returns undefined without an @, after a non-space, or with whitespace", () => {
-    expect(getAgentMentionToken("ping", 4)).toBeUndefined()
-    expect(getAgentMentionToken("email@tri", 9)).toBeUndefined()
-    expect(getAgentMentionToken("@tri agent", 10)).toBeUndefined()
-  })
-
-  it("ignores text after the caret", () => {
-    expect(getAgentMentionToken("@tri tail", 4)).toEqual({
-      start: 0,
-      end: 4,
-      query: "tri",
-    })
   })
 })

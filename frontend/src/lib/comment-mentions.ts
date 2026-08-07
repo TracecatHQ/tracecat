@@ -188,3 +188,98 @@ export function findMentionEndingAt(
 ): MentionRange | undefined {
   return mentions.find((mention) => mention.end === caret)
 }
+
+/** Caret-anchored `@query` span that drives the mention popover. */
+export interface AgentMentionToken {
+  start: number
+  end: number
+  query: string
+}
+
+/**
+ * Locate the `@query` token immediately before the caret.
+ *
+ * The `@` must sit at the start of the text or directly after whitespace, and
+ * any whitespace inside the query dismisses the token.
+ */
+export function getAgentMentionToken(
+  text: string,
+  caret: number
+): AgentMentionToken | undefined {
+  const beforeCaret = text.slice(0, caret)
+  const atIndex = beforeCaret.lastIndexOf("@")
+  if (atIndex < 0) {
+    return undefined
+  }
+
+  const priorChar = atIndex === 0 ? " " : (beforeCaret[atIndex - 1] ?? " ")
+  if (priorChar.trim() !== "") {
+    return undefined
+  }
+
+  const query = beforeCaret.slice(atIndex + 1)
+  if (/\s/.test(query)) {
+    return undefined
+  }
+
+  return {
+    start: atIndex,
+    end: caret,
+    query,
+  }
+}
+
+/** Result of a pure text-plus-ranges edit, with the caret's landing offset. */
+export interface MentionEdit {
+  text: string
+  mentions: MentionRange[]
+  caret: number
+}
+
+/**
+ * Replace the `@query` token with a mention's display text plus a trailing
+ * space, registering the new mention range.
+ */
+export function applyMentionInsertion(
+  text: string,
+  mentions: MentionRange[],
+  token: AgentMentionToken,
+  mention: { label: string; targetId: string }
+): MentionEdit {
+  const display = mentionDisplayText(mention.label)
+  const inserted = `${display} `
+  return {
+    text: text.slice(0, token.start) + inserted + text.slice(token.end),
+    mentions: [
+      ...remapMentions(mentions, {
+        start: token.start,
+        deleted: token.end - token.start,
+        inserted: inserted.length,
+      }),
+      {
+        start: token.start,
+        end: token.start + display.length,
+        label: mention.label,
+        targetId: mention.targetId,
+      },
+    ],
+    caret: token.start + inserted.length,
+  }
+}
+
+/** Remove `mention` and its text entirely, for atomic backspace. */
+export function applyMentionRemoval(
+  text: string,
+  mentions: MentionRange[],
+  mention: MentionRange
+): MentionEdit {
+  return {
+    text: text.slice(0, mention.start) + text.slice(mention.end),
+    mentions: remapMentions(mentions, {
+      start: mention.start,
+      deleted: mention.end - mention.start,
+      inserted: 0,
+    }),
+    caret: mention.start,
+  }
+}

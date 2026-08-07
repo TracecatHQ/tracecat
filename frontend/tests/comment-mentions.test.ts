@@ -1,8 +1,11 @@
 import {
+  applyMentionInsertion,
+  applyMentionRemoval,
   buildMentionSegments,
   diffTextSplice,
   findMentionEndingAt,
   formatAgentMentionToken,
+  getAgentMentionToken,
   type MentionRange,
   mentionDisplayText,
   remapMentions,
@@ -180,5 +183,76 @@ describe("buildMentionSegments", () => {
     expect(buildMentionSegments("plain", [])).toEqual([
       { start: 0, text: "plain", mention: undefined },
     ])
+  })
+})
+
+describe("getAgentMentionToken", () => {
+  it("matches @ at the start of the text", () => {
+    expect(getAgentMentionToken("@tri", 4)).toEqual({
+      start: 0,
+      end: 4,
+      query: "tri",
+    })
+  })
+
+  it("matches @ after whitespace", () => {
+    expect(getAgentMentionToken("ping @tri", 9)).toEqual({
+      start: 5,
+      end: 9,
+      query: "tri",
+    })
+  })
+
+  it("returns undefined without an @, after a non-space, or with whitespace", () => {
+    expect(getAgentMentionToken("ping", 4)).toBeUndefined()
+    expect(getAgentMentionToken("email@tri", 9)).toBeUndefined()
+    expect(getAgentMentionToken("@tri agent", 10)).toBeUndefined()
+  })
+
+  it("ignores text after the caret", () => {
+    expect(getAgentMentionToken("@tri tail", 4)).toEqual({
+      start: 0,
+      end: 4,
+      query: "tri",
+    })
+  })
+})
+
+describe("applyMentionInsertion", () => {
+  it("replaces the @query with display text and registers the range", () => {
+    const edit = applyMentionInsertion(
+      "Ping @tri now",
+      [],
+      { start: 5, end: 9, query: "tri" },
+      { label: "Triage agent", targetId: "preset-1" }
+    )
+    expect(edit.text).toBe("Ping @Triage agent  now")
+    expect(edit.mentions).toEqual([mention(5, "Triage agent")])
+    expect(edit.caret).toBe("Ping @Triage agent ".length)
+  })
+
+  it("shifts existing mentions that follow the insertion point", () => {
+    const later = mention(10, "Malware agent", "preset-2")
+    const edit = applyMentionInsertion(
+      "Ping @tri x",
+      [later],
+      { start: 5, end: 9, query: "tri" },
+      { label: "Triage agent", targetId: "preset-1" }
+    )
+    expect(edit.mentions).toEqual([
+      { ...later, start: 20, end: later.end + 10 },
+      mention(5, "Triage agent"),
+    ])
+  })
+})
+
+describe("applyMentionRemoval", () => {
+  it("removes the mention text and range, landing the caret at its start", () => {
+    const edit = applyMentionRemoval(
+      "Ping @Triage agent now",
+      [mention(5, "Triage agent")],
+      mention(5, "Triage agent")
+    )
+    expect(edit).toEqual({ text: "Ping  now", mentions: [], caret: 5 })
   })
 })
