@@ -102,6 +102,10 @@ export function CaseDescriptionEditor({
   )
 }
 
+/**
+ * Read-only renderer for a case comment. `mention://` links render as inline
+ * mention chips here; the comment composer keeps them as editable markdown.
+ */
 export function CaseCommentViewer({
   content,
   className,
@@ -121,6 +125,7 @@ export function CaseCommentViewer({
         className="case-comment-viewer"
         enableImages={Boolean(workspaceId)}
         imageWorkspaceId={workspaceId ?? null}
+        enableMentions
       />
     </div>
   )

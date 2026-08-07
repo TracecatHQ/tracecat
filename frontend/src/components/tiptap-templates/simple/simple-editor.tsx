@@ -27,6 +27,7 @@ import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/ho
 import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-image-node"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
+import { Mention } from "@/components/tiptap-node/mention-node/mention-node"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
@@ -523,6 +524,12 @@ export interface SimpleEditorProps {
    * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
    */
   onImageUpload?: (file: File) => Promise<string>
+  /**
+   * Render `mention://` links as inline mention chips. Intended for read-only
+   * viewers; editable surfaces keep the raw markdown link so it stays editable.
+   * @default false
+   */
+  enableMentions?: boolean
 }
 
 export function SimpleEditor({
@@ -544,6 +551,7 @@ export function SimpleEditor({
   enableImages = false,
   imageWorkspaceId = null,
   onImageUpload,
+  enableMentions = false,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -561,6 +569,10 @@ export function SimpleEditor({
 
   const extensions = React.useMemo(
     () => [
+      // Must stay ahead of StarterKit: the markdown manager registers handlers
+      // in extension order and consults only the first one per token type, so
+      // Mention has to claim `link` tokens before StarterKit's Link mark does.
+      ...(enableMentions ? [Mention] : []),
       StarterKit.configure({
         horizontalRule: false,
         codeBlock: false,
@@ -611,7 +623,7 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
+    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId, enableMentions]
   )
 
   const editor = useEditor({
