@@ -1117,6 +1117,25 @@ ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
 
+# === Lite mode === #
+TRACECAT__LITE_MODE = env_bool("TRACECAT__LITE_MODE", default=False)
+"""Development-only: run the control plane without data-plane dependencies.
+
+When enabled, the API skips the startup work that requires Temporal, blob
+storage, or Redis, so it boots and serves control-plane features (auth,
+workspaces, secrets, settings, tables, RBAC, workflow CRUD, cases) with none of
+them deployed.
+
+This flag is deliberately confined to startup. Request-time code paths are left
+untouched: calls that need a missing dependency simply fail as they already do
+when a service is down. Do not add guards to the client singletons or to request
+handlers on the strength of this flag.
+
+Always read this as `config.TRACECAT__LITE_MODE` at call time. Never import the
+name directly or bind it as a default argument, or it will be evaluated once at
+import and never respond to the environment.
+"""
+
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
 for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
