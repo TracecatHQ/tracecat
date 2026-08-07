@@ -57,7 +57,11 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
+import {
+  useAppInfo,
+  useAwsAssumeRoleAccess,
+  useWorkspaceSecrets,
+} from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -272,7 +276,11 @@ const validatePemField = (
   }
 }
 
-const createSecretSchema = z
+// When the secrets backend is read-only (e.g. Vault), secret values live in
+// the external backend and are not entered in Tracecat; the form registers
+// key names only, so value/PEM validation is skipped.
+const makeCreateSecretSchema = (secretsReadonly: boolean) =>
+  z
   .object({
     name: z
       .string()
@@ -396,8 +404,9 @@ const createSecretSchema = z
           })
         }
         // Only validate value if it's not an optional field from a template
-        // or if user has entered something
-        if (!item.isOptional && !item.value?.trim()) {
+        // or if user has entered something. Skipped entirely when the secrets
+        // backend is read-only (value comes from the external backend).
+        if (!secretsReadonly && !item.isOptional && !item.value?.trim()) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["keys", index, "value"],
@@ -405,6 +414,13 @@ const createSecretSchema = z
           })
         }
       })
+    }
+
+    // Structured secret types (ssh_key/mtls/ca_cert) require their PEM values
+    // only when Tracecat stores the values; in read-only mode the row is a
+    // value-less registration.
+    if (secretsReadonly) {
+      return
     }
 
     if (values.type === "ssh_key") {
@@ -449,7 +465,7 @@ const createSecretSchema = z
     }
   })
 
-type CreateSecretForm = z.infer<typeof createSecretSchema>
+type CreateSecretForm = z.infer<ReturnType<typeof makeCreateSecretSchema>>
 
 interface CreateCredentialDialogProps extends DialogProps {
   template?: SecretDefinition | null
@@ -466,6 +482,8 @@ export function CreateCredentialDialog({
 }: CreateCredentialDialogProps) {
   const selectedTool = template
   const workspaceId = useWorkspaceId()
+  const { appInfo } = useAppInfo()
+  const secretsReadonly = appInfo?.secrets_backend_readonly === true
   const { createSecret } = useWorkspaceSecrets(workspaceId, {
     listEnabled: false,
   })
@@ -485,6 +503,10 @@ export function CreateCredentialDialog({
   })
 
   // Form handling
+  const createSecretSchema = React.useMemo(
+    () => makeCreateSecretSchema(secretsReadonly),
+    [secretsReadonly]
+  )
   const methods = useForm<CreateSecretForm>({
     resolver: zodResolver(createSecretSchema),
     defaultValues: {
@@ -903,6 +925,17 @@ export function CreateCredentialDialog({
         </DialogHeader>
 
         <CreateSecretTooltip />
+        {secretsReadonly && (
+          <Alert>
+            <ShieldCheck className="size-4" />
+            <AlertTitle>Managed by an external secrets backend</AlertTitle>
+            <AlertDescription>
+              This deployment resolves secret values from an external backend
+              (e.g. Vault). Register the secret name and its key names here;
+              store the values in the external backend.
+            </AlertDescription>
+          </Alert>
+        )}
         <Form {...methods}>
           <form
             onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
@@ -1479,14 +1512,18 @@ export function CreateCredentialDialog({
                                   {...register(
                                     `${inputKey}.${index}.value` as const,
                                     {
-                                      required: !field.isOptional,
+                                      required:
+                                        !field.isOptional && !secretsReadonly,
                                     }
                                   )}
                                   placeholder={
-                                    field.isOptional
-                                      ? "Value (optional)"
-                                      : "Value"
+                                    secretsReadonly
+                                      ? "Managed in Vault"
+                                      : field.isOptional
+                                        ? "Value (optional)"
+                                        : "Value"
                                   }
+                                  disabled={secretsReadonly}
                                   type="password"
                                 />
                               </FormControl>

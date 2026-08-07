@@ -679,6 +679,13 @@ class BaseSecret(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     encrypted_keys: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    backend: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="db", server_default="db"
+    )
+    """Secrets backend the secret was created under. For external backends
+    (e.g. 'vault') the row is a value-less registration. Dispatch is global
+    via TRACECAT__SECRETS_BACKEND; this marker guards against serving
+    registrations as values and enables future per-secret dispatch."""
     environment: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
