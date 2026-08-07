@@ -1437,6 +1437,54 @@ class TestTableRows:
         assert reverse_page.has_more is True
         assert reverse_page.has_previous is False
 
+    async def test_list_rows_reverse_pagination_returns_adjacent_page(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Paging backward must return the rows immediately before the cursor.
+
+        Regression test: without flipping the scan direction for reverse
+        pagination, LIMIT kept the first rows of the whole backward prefix,
+        so "previous page" jumped to page 1 from any page 3 or deeper.
+        """
+        for i in range(7):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"User{i}", "age": i})
+            )
+
+        all_rows = await _list_rows(tables_service, table)
+        ids = [row["id"] for row in all_rows]
+
+        page1 = await _list_rows_page(tables_service, table, limit=2)
+        page2 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page1.next_cursor
+        )
+        page3 = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page2.next_cursor
+        )
+        assert [row["id"] for row in page3.items] == ids[4:6]
+        assert page3.prev_cursor is not None
+
+        # Going back from page 3 must return page 2, not page 1
+        back = await _list_rows_page(
+            tables_service, table, limit=2, cursor=page3.prev_cursor, reverse=True
+        )
+        assert [row["id"] for row in back.items] == ids[2:4]
+        assert back.has_more is True
+        assert back.has_previous is True
+
+        # The swapped cursors must keep pointing the right way
+        forward_again = await _list_rows_page(
+            tables_service, table, limit=2, cursor=back.next_cursor
+        )
+        assert [row["id"] for row in forward_again.items] == ids[4:6]
+
+        back_to_first = await _list_rows_page(
+            tables_service, table, limit=2, cursor=back.prev_cursor, reverse=True
+        )
+        assert [row["id"] for row in back_to_first.items] == ids[0:2]
+        assert back_to_first.has_more is True
+        assert back_to_first.has_previous is False
+
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table
     ) -> None:
