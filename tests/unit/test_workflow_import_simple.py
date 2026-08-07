@@ -127,13 +127,14 @@ class TestWorkflowImportServiceSimple:
         inputs = yaml.safe_load(action.inputs)
         assert inputs == {"value": "test_value"}
 
+    @pytest.mark.parametrize("invalid_id", ["invalid-id-format", "wf_"])
     @pytest.mark.anyio
-    async def test_validation_basic(self):
+    async def test_validation_basic(self, invalid_id: str):
         """Test basic validation without complex workflow creation."""
         # Test with invalid workflow ID pattern
         try:
             RemoteWorkflowDefinition(
-                id="invalid-id-format",  # Should fail pattern validation
+                id=invalid_id,  # Should fail pattern validation
                 definition=DSLInput(
                     title="Test",
                     description="Test",
