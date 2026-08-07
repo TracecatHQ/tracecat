@@ -33,6 +33,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { getTextareaCaretCoordinates } from "@/lib/textarea-caret"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
@@ -58,6 +59,14 @@ jest.mock("@/hooks/use-agent-presets", () => ({
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: jest.fn(),
 }))
+
+jest.mock("@/lib/textarea-caret", () => {
+  const actual = jest.requireActual("@/lib/textarea-caret")
+  return {
+    ...actual,
+    getTextareaCaretCoordinates: jest.fn(),
+  }
+})
 
 jest.mock("@/lib/hooks", () => ({
   useCaseComments: jest.fn(),
@@ -96,6 +105,10 @@ const mockUseAgentPresets = useAgentPresets as jest.MockedFunction<
 const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
   typeof useScopeCheck
 >
+const mockGetCaretCoordinates =
+  getTextareaCaretCoordinates as jest.MockedFunction<
+    typeof getTextareaCaretCoordinates
+  >
 const mockUseCaseComments = useCaseComments as jest.MockedFunction<
   typeof useCaseComments
 >
@@ -280,6 +293,12 @@ describe("CommentSection", () => {
     } as ReturnType<typeof useAuth>)
     mockEntitlements(["case_addons"])
     mockUseScopeCheck.mockReturnValue(true)
+    // Derive coordinates from the measured offset so a re-measure is visible.
+    mockGetCaretCoordinates.mockImplementation((_textarea, position) => ({
+      top: 100 + position,
+      left: 10 + position,
+      height: 16,
+    }))
     mockAgentPresets(createAgentPresetFixtures())
     mockUseCaseComments.mockReturnValue({
       caseComments: [firstThread.comment, firstReply, secondThread.comment],
@@ -774,6 +793,46 @@ describe("CommentSection", () => {
       expect(
         getComposer().parentElement?.querySelector("span[aria-hidden]")
       ).toBeInTheDocument()
+    })
+
+    function getCaretMarker(textarea: HTMLElement) {
+      const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
+      if (!(marker instanceof HTMLElement)) {
+        throw new Error("Expected a caret marker next to the composer")
+      }
+      return marker
+    }
+
+    it("pins the anchor to the @ offset and holds it as the query grows", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @")
+
+      // Measured once, at the offset of the `@` rather than the caret.
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(1)
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 5)
+      const marker = getCaretMarker(composer)
+      expect(marker.style.left).toBe("15px")
+
+      typeInto(composer, "Ping @tri")
+
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(1)
+      expect(getCaretMarker(composer).style.left).toBe("15px")
+    })
+
+    it("re-measures when a new mention session starts", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@a")
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 0)
+
+      typeInto(composer, "@a done @")
+
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(2)
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 8)
+      expect(getCaretMarker(composer).style.left).toBe("18px")
     })
 
     it("groups suggestions under a section header", () => {

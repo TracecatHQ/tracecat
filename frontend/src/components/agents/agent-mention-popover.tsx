@@ -11,10 +11,10 @@ import { cn } from "@/lib/utils"
 /**
  * Suggestion list for the `@` mention autocomplete.
  *
- * Anchors to a marker pinned at the caret so the popover tracks the text rather
- * than the composer, and portals out of the comment thread, which clips its own
- * overflow. `open` is fully controlled by the caller, so Radix never dismisses
- * the popover on its own.
+ * Anchors to a marker pinned at the `@` trigger so the popover holds still for
+ * the whole mention session, and portals out of the comment thread, which clips
+ * its own overflow. `open` is fully controlled by the caller, so Radix never
+ * dismisses the popover on its own.
  */
 export function AgentMentionPopover({
   open,

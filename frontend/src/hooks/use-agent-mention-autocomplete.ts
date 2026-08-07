@@ -106,7 +106,7 @@ export interface AgentMentionAutocomplete {
   itemCount: number
   /** Index into the flattened item list, spanning sections. */
   activeIndex: number
-  /** Caret position within the textarea, used to anchor the popover. */
+  /** Position of the `@` trigger, measured once per mention session. */
   caret: CaretCoordinates | undefined
   query: string
   isLoading: boolean
@@ -182,6 +182,9 @@ export function useAgentMentionAutocomplete({
 
   const dismiss = useCallback(() => setMention(undefined), [])
 
+  const activeStart = mention?.start
+  const activeCaret = mention?.caret
+
   const handleCaretChange = useCallback(() => {
     const node = textareaRef.current
     if (!mentionsEnabled || !node) {
@@ -196,13 +199,17 @@ export function useAgentMentionAutocomplete({
       setMention(undefined)
       return
     }
-    const caret = getTextareaCaretCoordinates(node, token.end)
+    // The anchor is pinned to the `@` for the life of one mention session, so
+    // the popover holds still while the query grows. Measuring only when the
+    // session starts also keeps this off the per-keystroke path.
+    const pinnedCaret = activeStart === token.start ? activeCaret : undefined
+    const caret = pinnedCaret ?? getTextareaCaretCoordinates(node, token.start)
     setMention((current) => ({
       ...token,
       caret,
-      activeIndex: current?.activeIndex ?? 0,
+      activeIndex: pinnedCaret ? (current?.activeIndex ?? 0) : 0,
     }))
-  }, [mentionsEnabled, textareaRef])
+  }, [activeCaret, activeStart, mentionsEnabled, textareaRef])
 
   const selectSuggestion = useCallback(
     (suggestion: MentionSuggestion) => {
