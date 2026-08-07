@@ -584,6 +584,7 @@ class AgentPresetService(BaseWorkspaceService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        environment: str | None = None,
     ) -> AgentConfig:
         """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
         version = await self.resolve_agent_preset_version(
@@ -592,7 +593,7 @@ class AgentPresetService(BaseWorkspaceService):
             preset_version_id=preset_version_id,
             preset_version=preset_version,
         )
-        return await self._version_to_agent_config(version)
+        return await self._version_to_agent_config(version, environment=environment)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_version(
@@ -771,7 +772,10 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
     async def resolve_mcp_integrations(
-        self, mcp_integrations: list[str] | None
+        self,
+        mcp_integrations: list[str] | None,
+        *,
+        environment: str | None = None,
     ) -> list[MCPServerConfig] | None:
         """Resolve MCP integrations into MCP server configs."""
         if not mcp_integrations:
@@ -834,6 +838,7 @@ class AgentPresetService(BaseWorkspaceService):
                             stdio_env=stdio_env,
                             mcp_integration_id=mcp_integration.id,
                             mcp_integration_slug=mcp_integration.slug,
+                            environment=environment,
                         )
                     except Exception as e:
                         logger.warning(
@@ -911,13 +916,17 @@ class AgentPresetService(BaseWorkspaceService):
         return mcp_servers
 
     async def resolve_mcp_integration_refs(
-        self, mcp_integrations: list[str] | None
+        self,
+        mcp_integrations: list[str] | None,
+        *,
+        environment: str | None = None,
     ) -> list[MCPServerConfig] | None:
         """Resolve MCP integration IDs into ``MCPServerConfig``s without secrets.
 
         Returns metadata only — ``headers`` and stdio ``env`` are intentionally
-        omitted. Each config carries its source ``id`` so trusted callers can
-        re-resolve secrets per use via :meth:`resolve_mcp_integration_secrets`.
+        omitted. Each config carries its source ``id`` and, when provided, the
+        effective ``environment`` so trusted callers can re-resolve secrets per
+        use via :meth:`resolve_mcp_integration_secrets`.
 
         Safe to serialize across Temporal boundaries.
 
@@ -1001,6 +1010,8 @@ class AgentPresetService(BaseWorkspaceService):
                     stdio_ref["args"] = mcp_integration.stdio_args
                 if mcp_integration.timeout is not None:
                     stdio_ref["timeout"] = mcp_integration.timeout
+                if environment is not None:
+                    stdio_ref["environment"] = environment
                 stored_tools = MCPToolSummary.validate_stored(
                     mcp_integration.tools,
                     mcp_integration_id=mcp_integration.id,
@@ -1036,6 +1047,8 @@ class AgentPresetService(BaseWorkspaceService):
             }
             if mcp_integration.timeout is not None:
                 http_ref["timeout"] = mcp_integration.timeout
+            if environment is not None:
+                http_ref["environment"] = environment
             refs.append(http_ref)
 
         if not refs:
@@ -1071,7 +1084,10 @@ class AgentPresetService(BaseWorkspaceService):
         return policies
 
     async def resolve_mcp_integration_secrets(
-        self, mcp_integration_id: uuid.UUID
+        self,
+        mcp_integration_id: uuid.UUID,
+        *,
+        environment: str | None = None,
     ) -> dict[str, str] | None:
         """Resolve the secret material for a single MCP integration.
 
@@ -1111,6 +1127,7 @@ class AgentPresetService(BaseWorkspaceService):
                     stdio_env=stdio_env,
                     mcp_integration_id=mcp_integration.id,
                     mcp_integration_slug=mcp_integration.slug,
+                    environment=environment,
                 )
             except Exception as e:
                 logger.warning(
@@ -1160,6 +1177,7 @@ class AgentPresetService(BaseWorkspaceService):
         stdio_env: dict[str, str],
         mcp_integration_id: uuid.UUID,
         mcp_integration_slug: str,
+        environment: str | None = None,
     ) -> dict[str, str]:
         """Resolve template expressions in stdio_env using workspace secrets/vars."""
         collected = collect_expressions(stdio_env)
@@ -1169,10 +1187,12 @@ class AgentPresetService(BaseWorkspaceService):
         secrets = await secrets_manager.get_action_secrets(
             secret_exprs=collected.secrets,
             action_secrets=set(),
+            environment=environment,
         )
         vars_map = await get_workspace_variables(
             variable_exprs=collected.variables,
             role=self.role,
+            environment=environment,
         )
 
         context = create_default_execution_context()
@@ -1903,14 +1923,20 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def _version_to_agent_config(
-        self, version: AgentPresetVersion
+        self,
+        version: AgentPresetVersion,
+        *,
+        environment: str | None = None,
     ) -> AgentConfig:
         use_latest_resource_versions = await self.use_latest_resource_versions()
         # Resolve refs only — no headers / stdio env. The resulting
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
-        mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
+        mcp_servers = await self.resolve_mcp_integration_refs(
+            version.mcp_integrations,
+            environment=environment,
+        )
         model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id,

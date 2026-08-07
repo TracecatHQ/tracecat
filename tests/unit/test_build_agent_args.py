@@ -421,8 +421,44 @@ class TestBuildAgentArgsMcpResolution:
         ) as mock_resolve:
             result = await DSLActivities.build_agent_args_activity(input)
 
-        mock_resolve.assert_awaited_once_with([integration_id], role=role)
+        mock_resolve.assert_awaited_once_with(
+            [integration_id],
+            role=role,
+            environment="default",
+        )
         assert result.mcp_servers == [resolved]
+
+    @pytest.mark.anyio
+    async def test_mcp_resolution_uses_effective_task_environment(self, role: Role):
+        """MCP refs carry the action override used for later header resolution."""
+        integration_id = str(uuid.uuid4())
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment="staging",
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_awaited_once_with(
+            [integration_id],
+            role=role,
+            environment="staging",
+        )
+        assert result.environment == "staging"
 
     @pytest.mark.anyio
     async def test_mcp_integration_ids_not_present_on_result(self, role: Role):
@@ -522,7 +558,11 @@ class TestBuildAgentArgsMcpResolution:
         ) as mock_resolve:
             result = await DSLActivities.build_agent_args_activity(input)
 
-        mock_resolve.assert_awaited_once_with([id1, id2], role=role)
+        mock_resolve.assert_awaited_once_with(
+            [id1, id2],
+            role=role,
+            environment="default",
+        )
         assert result.mcp_servers == resolved
         assert len(result.mcp_servers) == 2  # type: ignore[arg-type]
 
@@ -671,10 +711,11 @@ class TestBuildPresetAgentArgsActivity:
             new_callable=AsyncMock,
             return_value={"prompts": {"default": "Analyze this alert"}},
         ) as mock_get_vars:
-            await DSLActivities.build_preset_agent_args_activity(input)
+            result = await DSLActivities.build_preset_agent_args_activity(input)
 
         mock_get_vars.assert_called_once_with(
             variable_exprs={"prompts"},
             environment="staging",
             role=role,
         )
+        assert result.environment == "staging"

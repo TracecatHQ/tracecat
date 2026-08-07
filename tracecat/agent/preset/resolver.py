@@ -44,6 +44,7 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        environment: str | None = None,
     ) -> Awaitable[AgentConfig]: ...
 
 
@@ -125,6 +126,7 @@ async def resolve_agents_config(
     parent_slug: str | None = None,
     include_runtime_config: bool = False,
     follow_latest_versions: bool = False,
+    environment: str | None = None,
 ) -> ResolvedAgentsConfigResult:
     """Resolve and validate preset-backed subagent refs."""
 
@@ -214,6 +216,7 @@ async def resolve_agents_config(
             preset = await service.get_preset(version.preset_id)
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id,
+                environment=environment,
             )
             description = (
                 ref.description

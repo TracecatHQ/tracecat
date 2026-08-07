@@ -326,8 +326,11 @@ class TestBuildToolDefinitionsActivity:
             async def resolve_mcp_integration_secrets(
                 self,
                 mcp_integration_id: uuid.UUID,
+                *,
+                environment: str | None = None,
             ) -> dict[str, str]:
                 assert mcp_integration_id == integration_id
+                assert environment == "staging"
                 return {"authorization": "Bearer test-token"}
 
         class _PresetContext:
@@ -395,6 +398,7 @@ class TestBuildToolDefinitionsActivity:
                         "name": "Jira",
                         "url": "https://mcp.example.com/mcp",
                         "id": str(integration_id),
+                        "environment": "staging",
                     }
                 ],
             )
@@ -404,6 +408,7 @@ class TestBuildToolDefinitionsActivity:
         assert result.tool_approvals == {"mcp.Jira.getIssue": True}
         assert result.user_mcp_claims is not None
         assert result.user_mcp_claims[0].id == integration_id
+        assert result.user_mcp_claims[0].environment == "staging"
         assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
@@ -468,7 +473,10 @@ class TestBuildToolDefinitionsActivity:
             async def resolve_mcp_integration_secrets(
                 self,
                 mcp_integration_id: uuid.UUID,
+                *,
+                environment: str | None = None,
             ) -> dict[str, str]:
+                _ = environment
                 return {}
 
         class _PresetContext:

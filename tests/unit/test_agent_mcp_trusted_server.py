@@ -130,8 +130,14 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+        async def resolve_mcp_integration_secrets(
+            self,
+            resolved_integration_id,
+            *,
+            environment=None,
+        ):
             assert resolved_integration_id == integration_id
+            assert environment == "staging"
             return {"Authorization": "Bearer secret"}
 
     monkeypatch.setattr(
@@ -163,7 +169,13 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
         {"key": "SEC-1"},
         _build_claims(
             allowed_actions=["mcp__Jira__getIssue"],
-            user_mcp_servers=[UserMCPServerClaim(name="Jira", id=integration_id)],
+            user_mcp_servers=[
+                UserMCPServerClaim(
+                    name="Jira",
+                    id=integration_id,
+                    environment="staging",
+                )
+            ],
         ),
     )
 
@@ -550,8 +562,14 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+        async def resolve_mcp_integration_secrets(
+            self,
+            resolved_integration_id,
+            *,
+            environment=None,
+        ):
             assert resolved_integration_id == integration_id
+            assert environment is None
             return {}
 
     discovered_config_names: list[list[str]] = []

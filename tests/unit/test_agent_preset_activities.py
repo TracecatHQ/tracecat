@@ -4,15 +4,19 @@ import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from tracecat.agent.preset.activities import (
+    ResolveAgentPresetConfigWithEnvironmentActivityInput,
     ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
+    ResolveAgentsConfigWithEnvironmentActivityInput,
+    resolve_agent_preset_config_with_environment_activity,
     resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
+    resolve_agents_config_with_environment_activity,
     resolve_custom_model_provider_config_activity,
 )
 from tracecat.agent.preset.resolver import (
@@ -115,6 +119,46 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     agents_binding = result.to_agents_binding()
     assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_config_uses_action_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    config = AgentConfig(
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        retries=3,
+    )
+    with_preset_config = Mock(return_value=_AsyncContext(config))
+    service = SimpleNamespace(with_preset_config=with_preset_config)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    result = await resolve_agent_preset_config_with_environment_activity(
+        ResolveAgentPresetConfigWithEnvironmentActivityInput(
+            role=role,
+            preset_slug="triage-agent",
+            environment="staging",
+        )
+    )
+
+    with_preset_config.assert_called_once_with(
+        preset_id=None,
+        slug="triage-agent",
+        preset_version_id=None,
+        preset_version=None,
+        environment="staging",
+    )
+    assert result.model_name == "gpt-4o-mini"
 
 
 @pytest.mark.anyio
@@ -227,6 +271,66 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
     service.use_latest_resource_versions.assert_awaited_once()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
     assert result.subagents[0].binding.preset_version == 4
+
+
+@pytest.mark.anyio
+async def test_resolve_subagent_config_uses_action_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    version = SimpleNamespace(
+        id=preset_version_id,
+        preset_id=preset_id,
+        version=4,
+        agents={"enabled": False},
+        tool_approvals={},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
+        resolve_agent_preset_config=AsyncMock(
+            return_value=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+            )
+        ),
+        use_latest_resource_versions=AsyncMock(return_value=False),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    await resolve_agents_config_with_environment_activity(
+        ResolveAgentsConfigWithEnvironmentActivityInput(
+            role=role,
+            agents=AgentSubagentsConfig(
+                enabled=True,
+                subagents=[
+                    ResolvedAttachedSubagentRef(
+                        preset="analyst",
+                        preset_version=4,
+                        preset_id=preset_id,
+                        preset_version_id=preset_version_id,
+                    )
+                ],
+            ),
+            environment="staging",
+        )
+    )
+
+    service.resolve_agent_preset_config.assert_awaited_once_with(
+        preset_version_id=preset_version_id,
+        environment="staging",
+    )
 
 
 @pytest.mark.anyio
