@@ -1,5 +1,5 @@
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import orjson
@@ -44,7 +44,7 @@ from tracecat.settings.schemas import (
 VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
-AUDIT_SETTINGS_KEYS = AuditSettingsUpdate.keys()
+AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
 
 def _deserialize_setting_value(
@@ -141,7 +141,7 @@ class SettingsService(BaseOrgService):
     async def list_org_settings(
         self,
         *,
-        keys: set[str] | None = None,
+        keys: Collection[str] | None = None,
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
