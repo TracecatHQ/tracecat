@@ -1430,6 +1430,12 @@ RETRY_POLICIES = {
         maximum_attempts=1,
         non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
     ),
+    "activity:agent_turn": RetryPolicy(
+        # One retry for infrastructure failures (worker loss, heartbeat timeout).
+        # Application errors are excluded via NON_RETRYABLE_ERROR_TYPES.
+        maximum_attempts=2,
+        non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+    ),
     "activity:fail_slow": RetryPolicy(maximum_attempts=6),
     "workflow:fail_fast": RetryPolicy(
         # XXX: Do not set max attempts to 0, it will default to unlimited

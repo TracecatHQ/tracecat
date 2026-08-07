@@ -1336,7 +1336,7 @@ class DurableAgentWorkflow:
                         seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
                     ),
                     heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    retry_policy=RETRY_POLICIES["activity:agent_turn"],
                 )
             else:
                 activity_handle = workflow.start_activity(
@@ -1348,7 +1348,7 @@ class DurableAgentWorkflow:
                         seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
                     ),
                     heartbeat_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    retry_policy=RETRY_POLICIES["activity:agent_turn"],
                 )
                 # ActivityHandle is an asyncio.Task subclass, so .done() is
                 # valid. Neither wait_condition nor the handle poll emits
