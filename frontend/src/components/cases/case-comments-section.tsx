@@ -45,6 +45,7 @@ import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
+import { CommentMentionOverlay } from "@/components/cases/comment-mention-overlay"
 import { TagBadge } from "@/components/tag-badge"
 import {
   AlertDialog,
@@ -80,7 +81,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete"
+import {
+  type MentionSelection,
+  useAgentMentionAutocomplete,
+} from "@/hooks/use-agent-mention-autocomplete"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
@@ -89,6 +93,15 @@ import {
   extractImageFiles,
   useCaseImageUpload,
 } from "@/lib/cases/use-case-image-upload"
+import {
+  diffTextSplice,
+  findMentionEndingAt,
+  type MentionRange,
+  mentionDisplayText,
+  remapMentions,
+  serializeMentions,
+  type TextSplice,
+} from "@/lib/comment-mentions"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -666,12 +679,15 @@ function useCommentImagePaste({
   form,
   textareaRef,
   adjustTextareaHeight,
+  onSplice,
 }: {
   caseId: string
   workspaceId: string
   form: UseFormReturn<CommentFormSchema>
   textareaRef: RefObject<HTMLTextAreaElement | null>
   adjustTextareaHeight: () => void
+  /** Reports the edit so callers can keep mention offsets aligned. */
+  onSplice?: (splice: TextSplice) => void
 }) {
   const { uploadImage } = useCaseImageUpload(caseId, workspaceId)
   const [uploadingCount, setUploadingCount] = useState(0)
@@ -683,6 +699,7 @@ function useCommentImagePaste({
       const start = textarea?.selectionStart ?? current.length
       const end = textarea?.selectionEnd ?? current.length
       const next = current.slice(0, start) + text + current.slice(end)
+      onSplice?.({ start, deleted: end - start, inserted: text.length })
       form.setValue("content", next, {
         shouldDirty: true,
         shouldValidate: true,
@@ -697,7 +714,7 @@ function useCommentImagePaste({
         adjustTextareaHeight()
       })
     },
-    [adjustTextareaHeight, form, textareaRef]
+    [adjustTextareaHeight, form, onSplice, textareaRef]
   )
 
   const handlePaste = useCallback(
@@ -751,6 +768,11 @@ function CommentComposer({
     workspaceId,
   })
   const isInline = mode === "inline"
+  // Shared by the textarea and its highlight overlay. If these drift apart the
+  // two layers wrap differently and the caret stops matching the visible text.
+  const textMetricsClassName = isInline
+    ? "px-0 py-1 text-sm"
+    : "px-0 py-0 text-sm"
   const [selectorOpen, setSelectorOpen] = useState(false)
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
@@ -775,12 +797,20 @@ function CommentComposer({
     textarea.style.overflowY = "hidden"
   }, [isInline])
 
+  // Mentions live as display text (`@Label`) in the textarea; these ranges map
+  // them back to wire tokens on submit.
+  const [mentionRanges, setMentionRanges] = useState<MentionRange[]>([])
+  const applySplice = useCallback((splice: TextSplice) => {
+    setMentionRanges((current) => remapMentions(current, splice))
+  }, [])
+
   const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
     caseId,
     workspaceId,
     form,
     textareaRef,
     adjustTextareaHeight,
+    onSplice: applySplice,
   })
 
   const content = form.watch("content")
@@ -794,11 +824,45 @@ function CommentComposer({
     },
     [form]
   )
+
+  const handleMentionSelect = useCallback(
+    ({ token, suggestion }: MentionSelection) => {
+      const display = mentionDisplayText(suggestion.label)
+      const inserted = `${display} `
+      const current = form.getValues("content")
+      const next =
+        current.slice(0, token.start) + inserted + current.slice(token.end)
+      setMentionRanges((ranges) => [
+        ...remapMentions(ranges, {
+          start: token.start,
+          deleted: token.end - token.start,
+          inserted: inserted.length,
+        }),
+        {
+          start: token.start,
+          end: token.start + display.length,
+          label: suggestion.label,
+          targetId: suggestion.id,
+        },
+      ])
+      setContent(next)
+      const caret = token.start + inserted.length
+      requestAnimationFrame(() => {
+        const node = textareaRef.current
+        if (!node) {
+          return
+        }
+        node.focus()
+        node.setSelectionRange(caret, caret)
+      })
+    },
+    [form, setContent]
+  )
+
   const mentions = useAgentMentionAutocomplete({
     workspaceId,
-    value: content,
-    onValueChange: setContent,
     textareaRef,
+    onSelect: handleMentionSelect,
   })
   const selectedWorkflow = useMemo(
     () =>
@@ -825,8 +889,17 @@ function CommentComposer({
   }, [adjustTextareaHeight, content])
 
   const handleSubmit = async (values: CommentFormSchema) => {
-    const nextContent = values.content.trim()
+    // Length limits apply to what the API receives, not the shorter display
+    // text, so validate the serialized value.
+    const nextContent = serializeMentions(values.content, mentionRanges).trim()
     if (!nextContent) {
+      return
+    }
+    const serialized = commentFormSchema.safeParse({ content: nextContent })
+    if (!serialized.success) {
+      form.setError("content", {
+        message: serialized.error.issues[0]?.message,
+      })
       return
     }
     try {
@@ -836,6 +909,7 @@ function CommentComposer({
         ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
       })
       form.reset({ content: "" })
+      setMentionRanges([])
       setSelectedWorkflowId(null)
       onSubmitted?.()
     } catch (error) {
@@ -843,9 +917,39 @@ function CommentComposer({
     }
   }
 
+  /** Backspace just after a mention removes the whole mention at once. */
+  const handleMentionBackspace = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    const node = event.currentTarget
+    if (node.selectionStart !== node.selectionEnd) {
+      return false
+    }
+    const mention = findMentionEndingAt(mentionRanges, node.selectionStart)
+    if (!mention) {
+      return false
+    }
+    event.preventDefault()
+    const current = form.getValues("content")
+    applySplice({
+      start: mention.start,
+      deleted: mention.end - mention.start,
+      inserted: 0,
+    })
+    setContent(current.slice(0, mention.start) + current.slice(mention.end))
+    requestAnimationFrame(() => {
+      node.focus()
+      node.setSelectionRange(mention.start, mention.start)
+    })
+    return true
+  }
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // The mention popover owns Enter and arrow keys while it is open.
     if (mentions.handleKeyDown(event)) {
+      return
+    }
+    if (event.key === "Backspace" && handleMentionBackspace(event)) {
       return
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -882,6 +986,11 @@ function CommentComposer({
                   isLoading={mentions.isLoading}
                   onSelect={mentions.selectSuggestion}
                 >
+                  <CommentMentionOverlay
+                    text={content}
+                    mentions={mentionRanges}
+                    className={textMetricsClassName}
+                  />
                   <FormControl>
                     <Textarea
                       autoFocus={autoFocus}
@@ -889,17 +998,27 @@ function CommentComposer({
                         field.ref(node)
                         textareaRef.current = node
                       }}
-                      className={
-                        isInline
-                          ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
-                          : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                      }
+                      // Text is painted by the overlay behind, so only the
+                      // caret stays visible here.
+                      className={cn(
+                        "relative resize-none border-none bg-transparent text-transparent caret-foreground shadow-none focus-visible:ring-0",
+                        textMetricsClassName,
+                        isInline ? "min-h-9" : "min-h-[72px]"
+                      )}
                       name={field.name}
                       onBlur={() => {
                         field.onBlur()
                         mentions.dismiss()
                       }}
                       onChange={(event) => {
+                        applySplice(
+                          diffTextSplice(
+                            form.getValues("content"),
+                            event.target.value,
+                            event.target.selectionStart ??
+                              event.target.value.length
+                          )
+                        )
                         field.onChange(event)
                         adjustTextareaHeight()
                         mentions.handleCaretChange()

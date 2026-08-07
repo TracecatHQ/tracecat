@@ -28,10 +28,9 @@ export interface AgentMentionToken {
 export type MentionSectionKey = "agents" | "users" | "cases" | "tables"
 
 export interface MentionSuggestion {
+  /** Identifier of the mention target, e.g. the agent preset id. */
   id: string
   label: string
-  /** Markdown token inserted in place of the `@query`. */
-  token: string
 }
 
 export interface MentionSection {
@@ -73,26 +72,17 @@ export function getAgentMentionToken(
   }
 }
 
-/**
- * Render an agent preset as a mention token.
- *
- * The `[@Name](mention://agent/<preset_id>)` shape is a shared contract with
- * the comment renderer, so keep it byte-for-byte stable.
- */
-export function formatAgentMentionToken(preset: {
-  id: string
-  name: string
-}): string {
-  return `[@${preset.name}](mention://agent/${preset.id})`
+/** A chosen suggestion together with the `@query` span it replaces. */
+export interface MentionSelection {
+  token: AgentMentionToken
+  suggestion: MentionSuggestion
 }
 
 export interface UseAgentMentionAutocompleteOptions {
   workspaceId: string
-  /** Current textarea value. */
-  value: string
-  /** Applies the value produced by selecting a mention. */
-  onValueChange: (next: string) => void
   textareaRef: RefObject<HTMLTextAreaElement | null>
+  /** Applies the selection; the caller owns the text and mention offsets. */
+  onSelect: (selection: MentionSelection) => void
   /** Set to false to keep the popover closed regardless of permissions. */
   enabled?: boolean
 }
@@ -132,9 +122,8 @@ type ActiveMention = AgentMentionToken & {
  */
 export function useAgentMentionAutocomplete({
   workspaceId,
-  value,
-  onValueChange,
   textareaRef,
+  onSelect,
   enabled = true,
 }: UseAgentMentionAutocompleteOptions): AgentMentionAutocomplete {
   const canExecuteAgents = useScopeCheck("agent:execute")
@@ -161,7 +150,6 @@ export function useAgentMentionAutocomplete({
       .map((preset: AgentPresetReadMinimal) => ({
         id: preset.id,
         label: preset.name,
-        token: formatAgentMentionToken(preset),
       }))
     if (items.length === 0) {
       return []
@@ -216,20 +204,11 @@ export function useAgentMentionAutocomplete({
       if (!mention) {
         return
       }
-      const next = `${value.slice(0, mention.start)}${suggestion.token}${value.slice(mention.end)}`
-      const caret = mention.start + suggestion.token.length
+      const { start, end, query } = mention
       setMention(undefined)
-      onValueChange(next)
-      requestAnimationFrame(() => {
-        const node = textareaRef.current
-        if (!node) {
-          return
-        }
-        node.focus()
-        node.setSelectionRange(caret, caret)
-      })
+      onSelect({ token: { start, end, query }, suggestion })
     },
-    [mention, onValueChange, textareaRef, value]
+    [mention, onSelect]
   )
 
   const handleKeyDown = useCallback(

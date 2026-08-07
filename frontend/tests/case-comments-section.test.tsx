@@ -18,10 +18,7 @@ import {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CommentSection } from "@/components/cases/case-comments-section"
-import {
-  formatAgentMentionToken,
-  getAgentMentionToken,
-} from "@/hooks/use-agent-mention-autocomplete"
+import { getAgentMentionToken } from "@/hooks/use-agent-mention-autocomplete"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -759,9 +756,13 @@ describe("CommentSection", () => {
       mockEntitlements(["case_addons", "agent_addons"])
     })
 
-    function typeInto(textarea: HTMLElement, value: string) {
+    function typeInto(
+      textarea: HTMLElement,
+      value: string,
+      caret = value.length
+    ) {
       fireEvent.change(textarea, {
-        target: { value, selectionStart: value.length },
+        target: { value, selectionStart: caret },
       })
     }
 
@@ -902,16 +903,15 @@ describe("CommentSection", () => {
       fireEvent.keyDown(composer, { key: "ArrowDown" })
       fireEvent.keyDown(composer, { key: "Enter" })
 
-      await waitFor(() =>
-        expect(composer).toHaveValue(
-          "Ping [@Malware agent](mention://agent/preset-2)"
-        )
-      )
+      // The textarea holds display text, not the wire token.
+      await waitFor(() => expect(composer).toHaveValue("Ping @Malware agent "))
       expect(createComment).not.toHaveBeenCalled()
-      expect(screen.queryByText("Malware agent")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Malware agent" })
+      ).not.toBeInTheDocument()
       await waitFor(() =>
         expect((composer as HTMLTextAreaElement).selectionStart).toBe(
-          "Ping [@Malware agent](mention://agent/preset-2)".length
+          "Ping @Malware agent ".length
         )
       )
     })
@@ -924,11 +924,7 @@ describe("CommentSection", () => {
       fireEvent.keyDown(composer, { key: "ArrowUp" })
       fireEvent.keyDown(composer, { key: "Enter" })
 
-      await waitFor(() =>
-        expect(composer).toHaveValue(
-          "[@Malware agent](mention://agent/preset-2)"
-        )
-      )
+      await waitFor(() => expect(composer).toHaveValue("@Malware agent "))
     })
 
     it("selects with the mouse from the inline reply composer", async () => {
@@ -936,12 +932,70 @@ describe("CommentSection", () => {
       const reply = screen.getByPlaceholderText("Leave a reply...")
 
       typeInto(reply, "@tri")
-      fireEvent.click(screen.getByText("Triage agent"))
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+
+      await waitFor(() => expect(reply).toHaveValue("@Triage agent "))
+      expect(getComposer()).toHaveValue("")
+    })
+
+    it("highlights the inserted mention in the overlay", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+
+      await waitFor(() => expect(composer).toHaveValue("@Triage agent "))
+      const overlay = composer.parentElement?.querySelector(
+        "[data-testid='comment-mention-overlay']"
+      )
+      const highlighted = overlay?.querySelector("[data-mention-target]")
+      expect(highlighted).toHaveTextContent("@Triage agent")
+      expect(highlighted).toHaveAttribute("data-mention-target", "preset-1")
+      expect(highlighted).toHaveClass("text-primary")
+      // No bold: it would change glyph widths and desync the caret.
+      expect(highlighted).not.toHaveClass("font-bold")
+    })
+
+    it("serializes mentions to wire tokens on submit", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
 
       await waitFor(() =>
-        expect(reply).toHaveValue("[@Triage agent](mention://agent/preset-1)")
+        expect(createComment).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: "Ping [@Triage agent](mention://agent/preset-1)",
+          })
+        )
       )
-      expect(getComposer()).toHaveValue("")
+    })
+
+    it("deletes a whole mention on backspace after it", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+
+      // Caret immediately after the mention, before the trailing space.
+      typeInto(composer, "Ping @Triage agent", 18)
+      fireEvent.keyDown(composer, { key: "Backspace" })
+
+      await waitFor(() => expect(composer).toHaveValue("Ping "))
     })
 
     it("stays closed without the agent:execute scope", () => {
@@ -997,13 +1051,5 @@ describe("getAgentMentionToken", () => {
       end: 4,
       query: "tri",
     })
-  })
-})
-
-describe("formatAgentMentionToken", () => {
-  it("renders the shared mention token format", () => {
-    expect(
-      formatAgentMentionToken({ id: "preset-1", name: "Triage agent" })
-    ).toBe("[@Triage agent](mention://agent/preset-1)")
   })
 })
