@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: List pins
+  description: List pinned messages in a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/pins.list
+  namespace: tools.slack
+  name: list_pins
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to list pins for.
+  steps:
+    - ref: list_pins
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: pins_list
+        params:
+          channel: ${{ inputs.channel }}
+  returns: ${{ steps.list_pins.result }}
