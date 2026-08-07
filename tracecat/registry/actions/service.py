@@ -103,7 +103,7 @@ class _IndexSelectRow(NamedTuple):
 
 
 class _ActionIndexRow(NamedTuple):
-    """Action index row with manifest: get_action_from_index, get_actions_from_index."""
+    """Action index row with manifest: get_action_from_index."""
 
     id: uuid.UUID
     namespace: str
@@ -119,6 +119,34 @@ class _ActionIndexRow(NamedTuple):
     manifest: dict
     origin: str
     repo_id: uuid.UUID
+    source: str
+
+
+class _ActionMetadataRow(NamedTuple):
+    """Action metadata row for batched index lookups."""
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict[str, object]
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    registry_version_id: uuid.UUID
+    origin: str
+    repo_id: uuid.UUID
+    source: str
+
+
+class _VersionManifestRow(NamedTuple):
+    """One manifest payload for a selected registry version."""
+
+    registry_version_id: uuid.UUID
+    manifest: dict[str, object]
     source: str
 
 
@@ -670,6 +698,25 @@ class RegistryActionsService(BaseOrgService):
             Dict mapping action_name -> IndexedActionResult.
             Actions not found are omitted from the result.
         """
+        actions = await self._get_actions_from_index_once(action_names)
+        if actions is not None:
+            return actions
+
+        actions = await self._get_actions_from_index_once(action_names)
+        if actions is None:
+            raise RegistryError(
+                "Manifest missing for a selected registry action version"
+            )
+        return actions
+
+    async def _get_actions_from_index_once(
+        self,
+        action_names: list[str],
+    ) -> dict[str, IndexedActionResult] | None:
+        """Run one metadata and manifest lookup attempt.
+
+        Returns ``None`` when a selected version disappears between statements.
+        """
         if not action_names:
             return {}
 
@@ -711,7 +758,7 @@ class RegistryActionsService(BaseOrgService):
                 RegistryIndex.doc_url,
                 RegistryIndex.author,
                 RegistryIndex.deprecated,
-                RegistryVersion.manifest,
+                RegistryIndex.registry_version_id,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
                 literal("org", type_=String).label("source"),
@@ -745,7 +792,7 @@ class RegistryActionsService(BaseOrgService):
                 PlatformRegistryIndex.doc_url,
                 PlatformRegistryIndex.author,
                 PlatformRegistryIndex.deprecated,
-                PlatformRegistryVersion.manifest,
+                PlatformRegistryIndex.registry_version_id,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
                 literal("platform", type_=String).label("source"),
@@ -770,21 +817,41 @@ class RegistryActionsService(BaseOrgService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        rows = typing_cast(list[_ActionIndexRow], result.all())
+        rows = typing_cast(list[_ActionMetadataRow], result.all())
         allow_custom_origins = await self._allow_custom_origins_for_rows(
             row.origin for row in rows
         )
 
-        actions: dict[str, IndexedActionResult] = {}
+        selected_rows: dict[str, _ActionMetadataRow] = {}
         for row in rows:
             if not allow_custom_origins and self._is_custom_origin(row.origin):
                 continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip if already found (org-scoped takes precedence)
-            if action_name in actions:
+            if action_name in selected_rows:
                 continue
+            selected_rows[action_name] = row
 
-            manifest = RegistryVersionManifest.model_validate(row.manifest)
+        required_any: set[str] = set()
+        for row in selected_rows.values():
+            required_any |= self._normalize_required_entitlements(row.options or {})
+        if required_any:
+            enabled = await self._get_enabled_entitlements()
+            selected_rows = {
+                name: row
+                for name, row in selected_rows.items()
+                if self._normalize_required_entitlements(row.options or {}).issubset(
+                    enabled
+                )
+            }
+
+        manifests = await self._load_action_manifests(list(selected_rows.values()))
+
+        actions: dict[str, IndexedActionResult] = {}
+        for action_name, row in selected_rows.items():
+            manifest = manifests.get((row.source, row.registry_version_id))
+            if manifest is None:
+                return None
             actions[action_name] = IndexedActionResult(
                 index_entry=IndexEntry(
                     id=row.id,
@@ -804,22 +871,47 @@ class RegistryActionsService(BaseOrgService):
                 repository_id=row.repo_id,
             )
 
-        required_any: set[str] = set()
-        for result in actions.values():
-            required_any |= self._normalize_required_entitlements(
-                result.index_entry.options
-            )
-        if required_any:
-            enabled = await self._get_enabled_entitlements()
-            actions = {
-                name: result
-                for name, result in actions.items()
-                if self._normalize_required_entitlements(
-                    result.index_entry.options
-                ).issubset(enabled)
-            }
-
         return actions
+
+    async def _load_action_manifests(
+        self,
+        rows: Sequence[_ActionMetadataRow],
+    ) -> dict[tuple[str, uuid.UUID], RegistryVersionManifest]:
+        """Load and validate each registry version manifest once."""
+        if not rows:
+            return {}
+
+        org_version_ids = {
+            row.registry_version_id for row in rows if row.source == "org"
+        }
+        platform_version_ids = {
+            row.registry_version_id for row in rows if row.source == "platform"
+        }
+
+        org_statement = select(
+            RegistryVersion.id.label("registry_version_id"),
+            RegistryVersion.manifest,
+            literal("org", type_=String).label("source"),
+        ).where(
+            RegistryVersion.organization_id == self.organization_id,
+            RegistryVersion.id.in_(org_version_ids),
+        )
+        platform_statement = select(
+            PlatformRegistryVersion.id.label("registry_version_id"),
+            PlatformRegistryVersion.manifest,
+            literal("platform", type_=String).label("source"),
+        ).where(PlatformRegistryVersion.id.in_(platform_version_ids))
+
+        result = await self.session.execute(
+            union_all(org_statement, platform_statement)
+        )
+        manifest_rows = typing_cast(list[_VersionManifestRow], result.all())
+        return {
+            (row.source, row.registry_version_id): (
+                RegistryVersionManifest.model_validate(row.manifest)
+            )
+            for row in manifest_rows
+        }
 
     async def search_actions_from_index(
         self,
