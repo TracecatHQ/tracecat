@@ -30,6 +30,7 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import { getWorkspaceSyncPushErrorNotice } from "@/components/workspace-sync/push-error"
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
@@ -198,10 +199,11 @@ export function WorkspaceResourceSyncActions({
       })
       setOpen(false)
     } catch (error) {
+      const notice = getWorkspaceSyncPushErrorNotice(error)
       toast({
-        title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
-        variant: "destructive",
+        title: notice.title,
+        description: notice.description,
+        variant: notice.isDestructive ? "destructive" : "default",
       })
     }
   }
