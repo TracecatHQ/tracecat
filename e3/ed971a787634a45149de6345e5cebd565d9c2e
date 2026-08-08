@@ -1,0 +1,22 @@
+docs/automations/core-actions/request-actions/http.mdx
+  s_d28a207c1e8aa7::t_3a8b543110d1c4 334-339
+  s_d28a207c1e8aa7::t_7fcb7e6bfc1e89 340
+docs/automations/core-actions/_manifest.yaml
+  s_d28a207c1e8aa7::t_3a8b543110d1c4 50-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "e3ed971a787634a45149de6345e5cebd565d9c2e",
+  "prompts": {},
+  "sessions": {
+    "s_d28a207c1e8aa7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd48c-d8e6-7a13-b55e-745e8c588ad5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
