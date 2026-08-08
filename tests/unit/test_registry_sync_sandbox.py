@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +12,7 @@ from tracecat.exceptions import RegistryError
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.sandbox import RegistrySyncSandbox
 from tracecat.registry.sync.schemas import SyncResultError, SyncResultSuccess
+from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import SandboxConfig, SandboxResult
 from tracecat.ssh import SshEnv
 
@@ -86,12 +88,13 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
     tmp_path: Path,
     mocker,
 ) -> None:
-    known_hosts = tmp_path / "known_hosts"
-    known_hosts.write_text("[git.example.test]:2222 ssh-ed25519 AAAAC3NzaSynthetic\n")
+    hashed_host_keys = "|1|synthetic-salt|synthetic-hash ssh-ed25519 synthetic-key"
     resolved_sha = "a" * 40
+    events: list[str] = []
 
     @asynccontextmanager
     async def fake_agent(*, socket_dir: Path):
+        events.append("agent")
         socket_dir.mkdir(parents=True)
         socket_path = socket_dir / "agent.sock"
         socket_path.touch()
@@ -104,6 +107,29 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
         script_name: str = "wrapper.py",
     ) -> SandboxResult:
         assert cache_key is None
+        if script_name == "keyscan.py":
+            events.append("keyscan")
+            assert job_dir == tmp_path / "sync" / "sandbox-keyscan"
+            assert sandbox_config.network_enabled is True
+            assert sandbox_config.resources.timeout_seconds == 30
+            assert sandbox_config.resources.cpu_seconds == 30
+            assert sandbox_config.env_vars == {}
+            assert sandbox_config.bind_mounts == []
+            assert sandbox_config.python_path_dirs == []
+            assert sandbox_config.action_gateway_socket is None
+            assert json.loads((job_dir / "inputs.json").read_text()) == {
+                "host": "git.example.test",
+                "port": 2222,
+            }
+            keyscan_script = (job_dir / "keyscan.py").read_text()
+            assert 'command = ["ssh-keyscan", "-H"]' in keyscan_script
+            assert 'command.extend(["-p", str(inputs["port"])])' in keyscan_script
+            assert "timeout=30.0" in keyscan_script
+            assert "fake-private-key" not in repr(sandbox_config)
+            return SandboxResult(success=True, output=hashed_host_keys)
+
+        events.append("clone")
+        assert events == ["keyscan", "agent", "clone"]
         assert script_name == "wrapper.py"
         assert sandbox_config.network_enabled is True
         assert sandbox_config.env_vars["SSH_AUTH_SOCK"] == (
@@ -120,6 +146,16 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
             Path("/run/registry-agent"),
             Path("/run/registry-ssh/known_hosts"),
         }
+        known_hosts_mount = next(
+            mount
+            for mount in sandbox_config.bind_mounts
+            if mount.destination == Path("/run/registry-ssh/known_hosts")
+        )
+        assert known_hosts_mount.source == (
+            tmp_path / "sync" / "registry-ssh" / "known_hosts"
+        )
+        assert known_hosts_mount.source.read_text() == f"{hashed_host_keys}\n"
+        assert stat.S_IMODE(known_hosts_mount.source.stat().st_mode) == 0o600
         clone_inputs = json.loads((job_dir / "inputs.json").read_text())
         assert clone_inputs == {
             "clone_url": "ssh://git@git.example.test:2222/acme/registry.git",
@@ -143,14 +179,12 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
         "tracecat.registry.sync.sandbox.temporary_ssh_agent",
         side_effect=fake_agent,
     )
-    mocker.patch(
+    executor_cls = mocker.patch(
         "tracecat.registry.sync.sandbox.NsjailExecutor",
         return_value=mocker.Mock(execute=mocker.AsyncMock(side_effect=execute)),
     )
 
-    clone_path, commit_sha = await RegistrySyncSandbox(
-        known_hosts_path=known_hosts
-    ).clone_repository(
+    clone_path, commit_sha = await RegistrySyncSandbox().clone_repository(
         git_url="git+ssh://git@git.example.test:2222/acme/registry.git",
         commit_sha=resolved_sha,
         ssh_key="fake-private-key",
@@ -160,6 +194,8 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
 
     assert clone_path == tmp_path / "sync" / "sandbox-clone" / "work" / "repo"
     assert commit_sha == resolved_sha
+    assert executor_cls.call_count == 2
+    known_hosts = tmp_path / "sync" / "registry-ssh" / "known_hosts"
     add_key.assert_awaited_once_with(
         "fake-private-key",
         mocker.ANY,
@@ -170,13 +206,21 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
 
 
 @pytest.mark.anyio
-async def test_registry_clone_fails_closed_without_trusted_host_keys(
+async def test_registry_clone_stops_when_keyscan_times_out(
     tmp_path: Path,
+    mocker,
 ) -> None:
-    with pytest.raises(RegistryError, match="trusted known_hosts"):
-        await RegistrySyncSandbox(
-            known_hosts_path=tmp_path / "missing-known-hosts"
-        ).clone_repository(
+    execute = mocker.AsyncMock(
+        side_effect=SandboxTimeoutError("synthetic keyscan timeout")
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
+
+    with pytest.raises(RegistryError, match="host key scan timed out"):
+        await RegistrySyncSandbox().clone_repository(
             git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
             ssh_key="fake-private-key",
@@ -184,22 +228,103 @@ async def test_registry_clone_fails_closed_without_trusted_host_keys(
             timeout_seconds=90,
         )
 
+    execute.assert_awaited_once()
+    temporary_agent.assert_not_called()
+
 
 @pytest.mark.anyio
-async def test_registry_clone_rejects_ssh_option_injection_in_host(
+async def test_registry_clone_stops_when_keyscan_command_fails(
     tmp_path: Path,
+    mocker,
 ) -> None:
-    known_hosts = tmp_path / "known_hosts"
-    known_hosts.write_text("git.example.test ssh-ed25519 synthetic\n")
+    execute = mocker.AsyncMock(
+        return_value=SandboxResult(
+            success=False,
+            error="RuntimeError: synthetic ssh-keyscan failure",
+        )
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(RegistryError, match="Git host is invalid"):
-        await RegistrySyncSandbox(known_hosts_path=known_hosts).clone_repository(
-            git_url="git+ssh://git@-oProxyCommand=evil/acme/registry.git",
+    with pytest.raises(RegistryError, match="host key scan failed"):
+        await RegistrySyncSandbox().clone_repository(
+            git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
             ssh_key="fake-private-key",
             work_dir=tmp_path / "sync",
             timeout_seconds=90,
         )
+
+    execute.assert_awaited_once()
+    temporary_agent.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_registry_clone_stops_when_keyscan_returns_empty_output(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    execute = mocker.AsyncMock(return_value=SandboxResult(success=True, output="\n"))
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
+
+    with pytest.raises(RegistryError, match="returned no host keys"):
+        await RegistrySyncSandbox().clone_repository(
+            git_url="git+ssh://git@git.example.test/acme/registry.git",
+            commit_sha="a" * 40,
+            ssh_key="fake-private-key",
+            work_dir=tmp_path / "sync",
+            timeout_seconds=90,
+        )
+
+    execute.assert_awaited_once()
+    temporary_agent.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("git_url", "error"),
+    [
+        (
+            "git+ssh://git@-oProxyCommand=evil/acme/registry.git",
+            "Git host is invalid",
+        ),
+        (
+            "git+ssh://-oProxyCommand=evil@git.example.test/acme/registry.git",
+            "Git SSH user is invalid",
+        ),
+        (
+            "git+ssh://git@git.example.test:70000/acme/registry.git",
+            "Git port is invalid",
+        ),
+    ],
+)
+async def test_registry_clone_rejects_invalid_ssh_target_before_keyscan(
+    tmp_path: Path,
+    mocker,
+    git_url: str,
+    error: str,
+) -> None:
+    executor_cls = mocker.patch("tracecat.registry.sync.sandbox.NsjailExecutor")
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
+
+    with pytest.raises(RegistryError, match=error):
+        await RegistrySyncSandbox().clone_repository(
+            git_url=git_url,
+            commit_sha="a" * 40,
+            ssh_key="fake-private-key",
+            work_dir=tmp_path / "sync",
+            timeout_seconds=90,
+        )
+
+    executor_cls.assert_not_called()
+    temporary_agent.assert_not_called()
 
 
 @pytest.mark.anyio

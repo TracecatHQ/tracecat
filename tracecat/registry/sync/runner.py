@@ -1,15 +1,17 @@
 """RegistrySyncRunner - Orchestrates sandboxed registry sync phases.
 
 This module implements the core logic for syncing a registry repository
-with nsjail sandboxing. It coordinates five phases:
+with nsjail sandboxing. It coordinates six phases:
 
-1. Git clone (fresh nsjail, network + scoped SSH agent) - for git origins only
-2. Package install (nsjail + network) - install dependencies
-3. Action discovery (nsjail, NO network) - import and discover actions
-4. Artifact packaging (fresh nsjail, NO network)
-5. Artifact upload (trusted worker code, outside nsjail)
+1. SSH host-key acquisition (fresh nsjail + network, no credentials)
+2. Git clone (fresh nsjail, network + scoped SSH agent) - for git origins only
+3. Package install (nsjail + network) - install dependencies
+4. Action discovery (nsjail, NO network) - import and discover actions
+5. Artifact packaging (fresh nsjail, NO network)
+6. Artifact upload (trusted worker code, outside nsjail)
 
 Security model:
+- The host-key jail has network access but no SSH agent or worker credentials
 - A dedicated one-key SSH agent socket is exposed ONLY to the clone jail
 - DB credentials are NEVER passed to sandbox
 - Discovery and packaging have network disabled
@@ -193,7 +195,8 @@ class RegistrySyncRunner:
         ) as temp_dir:
             work_dir = Path(temp_dir)
 
-            # Phase 1: Resolve package path based on origin type
+            # Phases 1-2: Resolve the package path. Git origins first acquire
+            # host keys and then clone in separate jails.
             if request.origin_type == "builtin":
                 package_path = await self._get_builtin_package_path()
                 commit_sha = None
@@ -256,7 +259,7 @@ class RegistrySyncRunner:
             artifact_output_dir = work_dir / "artifact"
             sandbox = self._sandbox
             if sandbox is not None:
-                # Phase 2: Install with package-network access but no SSH agent.
+                # Phase 3: Install with package-network access but no SSH agent.
                 installed_site_packages = await sandbox.install_package(
                     package_path=package_path,
                     output_dir=artifact_output_dir,
@@ -280,7 +283,7 @@ class RegistrySyncRunner:
                     artifact_size_bytes=artifact_result.artifact_size_bytes,
                 )
 
-            # Phase 3: Discover actions from the installed packages, or load the
+            # Phase 4: Discover actions from the installed packages, or load the
             # release-built manifest for builtin registries.
             prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
                 origin=request.origin,
@@ -331,7 +334,7 @@ class RegistrySyncRunner:
             if validation_errors:
                 raise RegistrySyncValidationError(validation_errors)
 
-            # Phase 4: Package in a fresh no-network jail only after discovery
+            # Phase 5: Package in a fresh no-network jail only after discovery
             # and validation have succeeded.
             if artifact_result is None:
                 if sandbox is None or installed_site_packages is None:
@@ -349,7 +352,7 @@ class RegistrySyncRunner:
                     artifact_size_bytes=artifact_result.artifact_size_bytes,
                 )
 
-            # Phase 5: Upload from trusted worker code.
+            # Phase 6: Upload from trusted worker code.
             artifact_uri = await self._upload_squashfs(
                 squashfs_path=artifact_result.squashfs_path,
                 repository_origin=request.origin,

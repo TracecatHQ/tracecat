@@ -1196,8 +1196,9 @@ TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
 """Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
 
 When True (default), registry sync operations run on the ExecutorWorker. When
-nsjail is available, clone, installation, discovery, and packaging use separate
-phase-specific jails. Artifact upload remains in trusted worker code.
+nsjail is available, host-key acquisition, clone, installation, discovery, and
+packaging use separate phase-specific jails. Artifact upload remains in trusted
+worker code.
 
 The ExecutorWorker retains the subprocess fallback on hosts without nsjail.
 
@@ -1217,12 +1218,6 @@ TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT") or 120
 )
 """Timeout for Git clone/fetch/checkout during registry sync in seconds."""
-
-TRACECAT__REGISTRY_SYNC_KNOWN_HOSTS_PATH = (
-    os.environ.get("TRACECAT__REGISTRY_SYNC_KNOWN_HOSTS_PATH")
-    or "/etc/ssh/ssh_known_hosts"
-)
-"""Trusted known_hosts file used for strict registry Git host verification."""
 
 TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT") or 600

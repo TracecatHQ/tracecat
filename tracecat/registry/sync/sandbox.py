@@ -9,6 +9,7 @@ import re
 import shutil
 import stat
 import sysconfig
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -30,12 +31,14 @@ from tracecat.registry.sync.schemas import (
     SyncResultError,
     SyncResultSuccess,
 )
+from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxBindMount, SandboxConfig
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 from tracecat.ssh import add_ssh_key_to_agent, temporary_ssh_agent
 
 _INSTALL_CACHE_KEY = "0" * 16
+_KEYSCAN_TIMEOUT_SECONDS = 30
 _GIT_OBJECT_ID_PATTERN = re.compile(r"^[0-9a-fA-F]{7,64}$")
 _SSH_HOST_PATTERN = re.compile(
     r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$"
@@ -43,6 +46,38 @@ _SSH_HOST_PATTERN = re.compile(
 _SSH_USER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _GIT_PATH_PATTERN = re.compile(r"^[A-Za-z0-9._/-]+$")
 _SQUASHFS_MEMORY_PATTERN = re.compile(r"^[1-9][0-9]*[KMG]$")
+
+_KEYSCAN_SCRIPT = """
+import json
+import subprocess
+from pathlib import Path
+
+inputs = json.loads(Path("/work/inputs.json").read_text())
+command = ["ssh-keyscan", "-H"]
+if inputs["port"] is not None:
+    command.extend(["-p", str(inputs["port"])])
+command.append(inputs["host"])
+
+result_payload = {"success": False, "output": None, "error": None}
+try:
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30.0,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or "ssh-keyscan exited unsuccessfully"
+        raise RuntimeError(detail)
+    result_payload["success"] = True
+    result_payload["output"] = completed.stdout
+except Exception as exc:
+    result_payload["error"] = f"{type(exc).__name__}: {exc}"
+
+Path("/work/result.json").write_text(json.dumps(result_payload))
+raise SystemExit(0 if result_payload["success"] else 1)
+"""
 
 _CLONE_SCRIPT = """
 import re
@@ -202,8 +237,17 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validated_git_destination(git_url: GitUrl) -> str:
-    """Return an SSH-agent destination after validating URL components.
+@dataclass(frozen=True, slots=True)
+class _ValidatedGitSshTarget:
+    """Validated connection data shared by keyscan and SSH-agent constraints."""
+
+    host: str
+    port: int | None
+    destination: str
+
+
+def _validate_git_ssh_target(git_url: GitUrl) -> _ValidatedGitSshTarget:
+    """Return validated SSH keyscan and agent-destination components.
 
     OpenSSH constrains agent use to an SSH destination, not to a repository
     path. The provisioned registry key must therefore be a server-side,
@@ -227,7 +271,11 @@ def _validated_git_destination(git_url: GitUrl) -> str:
     ):
         raise RegistryError("Registry sync Git repository path is invalid")
     destination_host = f"[{host}]:{port}" if port else host
-    return f"{git_url.user}@{destination_host}"
+    return _ValidatedGitSshTarget(
+        host=host,
+        port=int(port) if port else None,
+        destination=f"{git_url.user}@{destination_host}",
+    )
 
 
 def _host_site_packages_paths() -> list[Path]:
@@ -260,10 +308,59 @@ def _trusted_runtime_package_paths() -> list[Path]:
 class RegistrySyncSandbox:
     """Run untrusted registry installation and imports inside NsJail."""
 
-    def __init__(self, *, known_hosts_path: Path | None = None) -> None:
-        self.known_hosts_path = known_hosts_path or Path(
-            config.TRACECAT__REGISTRY_SYNC_KNOWN_HOSTS_PATH
+    async def _scan_host_keys(
+        self,
+        *,
+        target: _ValidatedGitSshTarget,
+        work_dir: Path,
+    ) -> Path:
+        """Acquire hashed SSH host keys in a networked jail without credentials."""
+        keyscan_dir = work_dir / "sandbox-keyscan"
+        keyscan_dir.mkdir(parents=True, exist_ok=True)
+        (keyscan_dir / "keyscan.py").write_text(_KEYSCAN_SCRIPT, encoding="utf-8")
+        (keyscan_dir / "inputs.json").write_text(
+            json.dumps({"host": target.host, "port": target.port}),
+            encoding="utf-8",
         )
+
+        try:
+            result = await NsjailExecutor().execute(
+                keyscan_dir,
+                SandboxConfig(
+                    network_enabled=True,
+                    resources=ResourceLimits(
+                        timeout_seconds=_KEYSCAN_TIMEOUT_SECONDS,
+                        cpu_seconds=_KEYSCAN_TIMEOUT_SECONDS,
+                        memory_mb=128,
+                        max_file_size_mb=1,
+                        max_processes=16,
+                    ),
+                ),
+                script_name="keyscan.py",
+            )
+        except SandboxTimeoutError as exc:
+            raise RegistryError(
+                "Sandboxed SSH host key scan timed out after 30 seconds"
+            ) from exc
+
+        if not result.success:
+            detail = result.error or result.stderr or "Unknown ssh-keyscan error"
+            raise RegistryError(f"Sandboxed SSH host key scan failed: {detail[:2000]}")
+        if not isinstance(result.output, str) or not result.output.strip():
+            raise RegistryError("Sandboxed SSH host key scan returned no host keys")
+
+        ssh_dir = work_dir / "registry-ssh"
+        ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+        ssh_dir.chmod(0o700)
+        known_hosts_path = ssh_dir / "known_hosts"
+        known_hosts_path.touch(mode=0o600, exist_ok=False)
+        output = result.output
+        known_hosts_path.write_text(
+            output if output.endswith("\n") else f"{output}\n",
+            encoding="utf-8",
+        )
+        known_hosts_path.chmod(0o600)
+        return known_hosts_path
 
     async def clone_repository(
         self,
@@ -275,20 +372,11 @@ class RegistrySyncSandbox:
         timeout_seconds: int,
     ) -> tuple[Path, str]:
         """Clone one Git repository in a credential-scoped networked jail."""
-        if not self.known_hosts_path.is_file():
-            raise RegistryError(
-                "Sandboxed Git clone requires a trusted known_hosts file at "
-                f"{self.known_hosts_path}. Configure "
-                "TRACECAT__REGISTRY_SYNC_KNOWN_HOSTS_PATH."
-            )
-        if self.known_hosts_path.stat().st_size == 0:
-            raise RegistryError("Registry sync known_hosts file must not be empty")
-
         try:
             parsed_url = parse_git_url(git_url)
         except ValueError as exc:
             raise RegistryError("Invalid Git SSH URL for registry sync") from exc
-        destination = _validated_git_destination(parsed_url)
+        target = _validate_git_ssh_target(parsed_url)
 
         if commit_sha is not None and not _GIT_OBJECT_ID_PATTERN.fullmatch(commit_sha):
             raise RegistryError("Registry sync commit SHA is invalid")
@@ -301,6 +389,11 @@ class RegistrySyncSandbox:
             user=parsed_url.user,
         ).to_url()
         clone_url = normalized_url.replace("git+ssh://", "ssh://", 1)
+
+        known_hosts_path = await self._scan_host_keys(
+            target=target,
+            work_dir=work_dir,
+        )
 
         clone_root = work_dir / "sandbox-clone"
         job_dir = clone_root / "work"
@@ -323,8 +416,8 @@ class RegistrySyncSandbox:
                 ssh_key,
                 ssh_env,
                 lifetime_seconds=timeout_seconds + 30,
-                destination=destination,
-                known_hosts_path=self.known_hosts_path,
+                destination=target.destination,
+                known_hosts_path=known_hosts_path,
             )
             agent_socket = Path(ssh_env.ssh_auth_sock)
             sandbox_agent_dir = Path("/run/registry-agent")
@@ -382,7 +475,7 @@ class RegistrySyncSandbox:
                             destination=sandbox_agent_dir,
                         ),
                         SandboxBindMount(
-                            source=self.known_hosts_path,
+                            source=known_hosts_path,
                             destination=sandbox_known_hosts,
                         ),
                     ],
