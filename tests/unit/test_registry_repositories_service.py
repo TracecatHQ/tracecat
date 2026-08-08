@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import RegistryNotFound, ScopeDeniedError
+from tracecat.registry.actions.service import RepositorySyncOutcome
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.ssh import SshEnv
@@ -171,7 +172,9 @@ async def test_temporal_git_sync_skips_api_ssh_context(
     )
     actions_service = mocker.Mock(
         sync_actions_from_repository=mocker.AsyncMock(
-            return_value=("a" * 40, "2026.08.07")
+            return_value=RepositorySyncOutcome(
+                commit_sha="a" * 40, version="2026.08.07"
+            )
         ),
         list_actions_from_index_by_repository=mocker.AsyncMock(return_value=[]),
     )
@@ -221,7 +224,9 @@ async def test_direct_git_sync_preserves_api_ssh_context(
     )
     actions_service = mocker.Mock(
         sync_actions_from_repository=mocker.AsyncMock(
-            return_value=("b" * 40, "2026.08.07")
+            return_value=RepositorySyncOutcome(
+                commit_sha="b" * 40, version="2026.08.07"
+            )
         ),
         list_actions_from_index_by_repository=mocker.AsyncMock(return_value=[]),
     )

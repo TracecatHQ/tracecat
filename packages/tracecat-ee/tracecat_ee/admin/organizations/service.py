@@ -831,9 +831,6 @@ class AdminOrgService(BasePlatformService):
 
         is_git_ssh = repo.origin.startswith("git+ssh://")
 
-        version: str | None = None
-        commit_sha: str | None = None
-
         if is_git_ssh:
             allowed_domains_setting = await get_setting(
                 "git_allowed_domains", role=org_role
@@ -844,24 +841,18 @@ class AdminOrgService(BasePlatformService):
             async with ssh_context(
                 role=org_role, git_url=git_url, session=self.session
             ) as ssh_env:
-                (
-                    commit_sha,
-                    version,
-                ) = await actions_service.sync_actions_from_repository(
+                sync_outcome = await actions_service.sync_actions_from_repository(
                     repo, ssh_env=ssh_env
                 )
         else:
-            (
-                commit_sha,
-                version,
-            ) = await actions_service.sync_actions_from_repository(repo)
+            sync_outcome = await actions_service.sync_actions_from_repository(repo)
 
         # Update repository
         self.session.expire(repo)
         await repos_service.update_repository(
             repo,
             RegistryRepositoryUpdate(
-                last_synced_at=last_synced_at, commit_sha=commit_sha
+                last_synced_at=last_synced_at, commit_sha=sync_outcome.commit_sha
             ),
         )
 
@@ -879,8 +870,8 @@ class AdminOrgService(BasePlatformService):
             success=True,
             repository_id=repo.id,
             origin=repo.origin,
-            version=version,
-            commit_sha=commit_sha,
+            version=sync_outcome.version,
+            commit_sha=sync_outcome.commit_sha,
             actions_count=actions_count,
             forced=force,
         )
