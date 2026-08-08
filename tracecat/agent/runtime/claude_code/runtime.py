@@ -1496,25 +1496,6 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = "true"
         return env
 
-    @staticmethod
-    def _sdk_settings() -> str:
-        """Pin protected runtime environment in trusted Claude settings."""
-        protected_env: dict[str, str] = {}
-        missing_env_vars: list[str] = []
-        for key in sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS):
-            if value := os.environ.get(key):
-                protected_env[key] = value
-            else:
-                missing_env_vars.append(key)
-
-        if missing_env_vars:
-            raise AgentSandboxValidationError(
-                "Missing protected agent runtime environment variables: "
-                f"{', '.join(missing_env_vars)}"
-            )
-
-        return orjson.dumps({"env": protected_env}).decode("utf-8")
-
     def _build_options(
         self,
         *,
@@ -1550,7 +1531,6 @@ class ClaudeAgentRuntime:
                 else {"type": "disabled"}
             ),
             setting_sources=["user"],
-            settings=self._sdk_settings(),
             env=self._sdk_env(payload),
             model=get_litellm_route_model(
                 model_provider=payload.config.model_provider,
