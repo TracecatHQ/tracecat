@@ -4,10 +4,8 @@ pages:
     imports: |
       import OAuthTokenExpressions from "/snippets/oauth-token-expressions.mdx";
     info: |
-      Tracecat offers actions for one-off HTTP requests, condition-based polling,
-      and automatic pagination across API pages. Configure headers, query
-      parameters, JSON or form bodies, redirects, timeouts, and TLS options for
-      each request.
+      Connect to any REST API with the `core.http_request`, `core.http_poll`, and
+      `core.http_paginate` actions.
 
       ## Authentication
 
@@ -50,10 +48,24 @@ pages:
           `poll_condition` receives a response with `data`, `status_code`, and
           `headers`. The action stops polling when the lambda returns `True`.
 
-          Stop when a JSON status field is complete:
+          Prefer a negative condition that stops polling when the API leaves an
+          active state:
 
           ```python
-          lambda response: response["data"].get("status") == "completed"
+          lambda response: response["data"].get("status") != "processing"
+          ```
+
+          This handles success, failure, cancellation, and unexpected terminal
+          states. A positive condition such as `status == "completed"` can keep
+          polling if the API stops in another state.
+
+          Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
+          condition never matches.
+
+          If the API documents every terminal state, use `in` to match them:
+
+          ```python
+          lambda response: response["data"].get("status") in ["completed", "failed", "cancelled"]
           ```
 
           Stop on an HTTP status code:
