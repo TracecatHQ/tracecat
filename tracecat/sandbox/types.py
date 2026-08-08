@@ -33,6 +33,21 @@ class ResourceLimits:
     timeout_seconds: int = 300
 
 
+@dataclass(frozen=True, slots=True)
+class SandboxBindMount:
+    """One explicit host-to-sandbox bind mount.
+
+    Attributes:
+        source: Existing host path to expose inside the sandbox.
+        destination: Absolute path at which the source is visible in the sandbox.
+        writable: Whether the sandbox may modify the mounted host path.
+    """
+
+    source: Path
+    destination: Path
+    writable: bool = False
+
+
 @dataclass
 class SandboxConfig:
     """Configuration for sandbox execution.
@@ -43,6 +58,7 @@ class SandboxConfig:
         env_vars: Environment variables to inject into the sandbox.
         dependencies: Python packages to install before execution.
         python_path_dirs: Host directories to mount read-only and add to PYTHONPATH.
+        bind_mounts: Additional explicit bind mounts for phase-scoped capabilities.
         action_gateway_socket: Optional host-side action gateway Unix socket to
             bind into nsjail for internal Tracecat SDK calls.
     """
@@ -52,6 +68,7 @@ class SandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)
     python_path_dirs: list[Path] = field(default_factory=list)
+    bind_mounts: list[SandboxBindMount] = field(default_factory=list)
     action_gateway_socket: Path | None = None
 
 

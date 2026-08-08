@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError, RegistryNotFound
@@ -161,9 +162,10 @@ class RegistryReposService(BaseOrgService):
             allowed_domains = allowed_domains_setting or {"github.com"}
             git_url = parse_git_url(repository.origin, allowed_domains=allowed_domains)
 
-            async with ssh_context(
-                role=self.role, git_url=git_url, session=self.session
-            ) as ssh_env:
+            if config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED:
+                # The ExecutorWorker fetches the organization key and acquires
+                # host keys inside the registry-sync activity. Avoid creating a
+                # redundant API-side agent or running an API-side keyscan.
                 (
                     commit_sha,
                     version,
@@ -171,8 +173,20 @@ class RegistryReposService(BaseOrgService):
                     repository,
                     target_commit_sha=target_commit_sha,
                     git_repo_package_name=git_repo_package_name,
-                    ssh_env=ssh_env,
                 )
+            else:
+                async with ssh_context(
+                    role=self.role, git_url=git_url, session=self.session
+                ) as ssh_env:
+                    (
+                        commit_sha,
+                        version,
+                    ) = await actions_service.sync_actions_from_repository(
+                        repository,
+                        target_commit_sha=target_commit_sha,
+                        git_repo_package_name=git_repo_package_name,
+                        ssh_env=ssh_env,
+                    )
         else:
             commit_sha, version = await actions_service.sync_actions_from_repository(
                 repository,

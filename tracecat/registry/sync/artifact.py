@@ -44,6 +44,7 @@ class RegistryArtifactBuildResult:
     squashfs_name: str
     content_hash: str
     artifact_size_bytes: int
+    site_packages_path: Path | None = None
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -501,6 +502,7 @@ async def build_artifact_from_path(
         squashfs_name=squashfs_name,
         content_hash=content_hash,
         artifact_size_bytes=artifact_size,
+        site_packages_path=site_packages,
     )
 
 

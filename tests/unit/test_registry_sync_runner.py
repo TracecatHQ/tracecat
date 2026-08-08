@@ -23,10 +23,12 @@ from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
+    GitCloneError,
     RegistrySyncRunner,
+    RegistrySyncRunnerError,
     RegistrySyncValidationError,
 )
-from tracecat.registry.sync.schemas import RegistrySyncRequest
+from tracecat.registry.sync.schemas import RegistrySyncRequest, SyncResultSuccess
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
@@ -97,12 +99,24 @@ def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
     assert "ssh_key" not in request.model_dump()
 
 
+def test_resolve_package_name_ignores_git_ref_suffix(tmp_path: Path) -> None:
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="git+ssh://git@git.example.test/acme/registry.git@feature/ref",
+        origin_type="git",
+        git_url="git+ssh://git@git.example.test/acme/registry.git@feature/ref",
+        organization_id=uuid4(),
+    )
+
+    assert RegistrySyncRunner._resolve_package_name(request, tmp_path) == "registry"
+
+
 @pytest.mark.anyio
 async def test_runner_passes_resolved_commit_sha_to_discovery(
     tmp_path,
     mocker,
 ) -> None:
-    runner = RegistrySyncRunner()
+    runner = RegistrySyncRunner(sandbox_mode="off")
     organization_id = uuid4()
     request = RegistrySyncRequest(
         repository_id=uuid4(),
@@ -158,9 +172,260 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
         validate=True,
         git_repo_package_name=None,
         organization_id=organization_id,
+        installed_site_packages=None,
+        package_name="internal-registry",
     )
     upload_tarball.assert_awaited_once()
     assert result.commit_sha == "resolved-sha"
+
+
+@pytest.mark.anyio
+async def test_runner_routes_git_clone_through_nsjail_when_available(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    resolved_sha = "b" * 40
+    requested_sha = "a" * 40
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type="git",
+        git_url="git+ssh://git@git.example.test/acme/registry.git",
+        commit_sha=requested_sha,
+        organization_id=uuid4(),
+    )
+    artifact_result = _make_artifact_result(tmp_path)
+    installed_site_packages = tmp_path / "site-packages"
+    sandbox = mocker.Mock(
+        clone_repository=mocker.AsyncMock(
+            return_value=(tmp_path / "sandbox-clone" / "repo", resolved_sha)
+        ),
+        install_package=mocker.AsyncMock(return_value=installed_site_packages),
+        package_site_packages=mocker.AsyncMock(return_value=artifact_result),
+    )
+    runner = RegistrySyncRunner(clone_timeout=75, sandbox_mode="off")
+    runner._sandbox = sandbox
+    fetch_key = mocker.patch.object(
+        runner,
+        "_fetch_registry_ssh_key",
+        mocker.AsyncMock(return_value="fake-private-key"),
+    )
+    legacy_clone = mocker.patch.object(
+        runner,
+        "_clone_repository",
+        mocker.AsyncMock(),
+    )
+    build_execution_artifact = mocker.patch.object(
+        runner,
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
+    )
+    discover = mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(return_value=([], {})),
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value="s3://registry/site-packages.squashfs"),
+    )
+
+    result = await runner.run(request)
+
+    fetch_key.assert_awaited_once_with(request.organization_id)
+    sandbox.clone_repository.assert_awaited_once_with(
+        git_url=request.git_url,
+        commit_sha=requested_sha,
+        ssh_key="fake-private-key",
+        work_dir=mocker.ANY,
+        timeout_seconds=75,
+    )
+    legacy_clone.assert_not_awaited()
+    build_execution_artifact.assert_not_awaited()
+    sandbox.install_package.assert_awaited_once_with(
+        package_path=tmp_path / "sandbox-clone" / "repo",
+        output_dir=mocker.ANY,
+        timeout_seconds=runner.install_timeout,
+    )
+    discover.assert_awaited_once_with(
+        repository_id=request.repository_id,
+        origin=request.origin,
+        commit_sha=resolved_sha,
+        validate=False,
+        git_repo_package_name=None,
+        organization_id=request.organization_id,
+        installed_site_packages=installed_site_packages,
+        package_name="registry",
+    )
+    sandbox.package_site_packages.assert_awaited_once_with(
+        site_packages=installed_site_packages,
+        output_dir=mocker.ANY,
+        timeout_seconds=runner.install_timeout,
+    )
+    assert result.commit_sha == resolved_sha
+
+
+@pytest.mark.anyio
+async def test_runner_required_mode_fails_closed_without_nsjail(
+    mocker,
+) -> None:
+    mocker.patch(
+        "tracecat.registry.sync.runner.is_nsjail_available",
+        return_value=False,
+    )
+    runner = RegistrySyncRunner(sandbox_mode="required")
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(RegistrySyncRunnerError, match="requires nsjail"):
+        await runner.run(request)
+
+
+def test_runner_auto_mode_selects_nsjail_when_available(mocker) -> None:
+    sandbox = mocker.Mock()
+    mocker.patch(
+        "tracecat.registry.sync.runner.is_nsjail_available",
+        return_value=True,
+    )
+    sandbox_cls = mocker.patch(
+        "tracecat.registry.sync.runner.RegistrySyncSandbox",
+        return_value=sandbox,
+    )
+
+    runner = RegistrySyncRunner(sandbox_mode="auto")
+
+    assert runner._sandbox is sandbox
+    sandbox_cls.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
+    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner._sandbox = mocker.Mock(
+        clone_repository=mocker.AsyncMock(
+            side_effect=RegistryError("host key verification failed")
+        )
+    )
+    mocker.patch.object(
+        runner,
+        "_fetch_registry_ssh_key",
+        mocker.AsyncMock(return_value="fake-private-key"),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type="git",
+        git_url="git+ssh://git@git.example.test/acme/registry.git",
+        commit_sha="a" * 40,
+        organization_id=uuid4(),
+    )
+
+    with pytest.raises(GitCloneError, match="host key verification failed"):
+        await runner.run(request)
+
+
+@pytest.mark.anyio
+async def test_runner_decreases_privileges_across_sandbox_phases(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    events: list[str] = []
+    installed_site_packages = tmp_path / "site-packages"
+    artifact_result = _make_artifact_result(tmp_path)
+
+    async def install_package(**_kwargs) -> Path:
+        events.append("install")
+        return installed_site_packages
+
+    async def discover_actions(**_kwargs):
+        events.append("discover")
+        return [], {}
+
+    async def package_site_packages(**_kwargs) -> RegistryArtifactBuildResult:
+        events.append("package")
+        return artifact_result
+
+    async def upload_squashfs(**_kwargs) -> str:
+        events.append("upload")
+        return "s3://registry/site-packages.squashfs"
+
+    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner._sandbox = mocker.Mock(
+        install_package=mocker.AsyncMock(side_effect=install_package),
+        package_site_packages=mocker.AsyncMock(side_effect=package_site_packages),
+    )
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(side_effect=discover_actions),
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(side_effect=upload_squashfs),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    await runner.run(request)
+
+    assert events == ["install", "discover", "package", "upload"]
+
+
+@pytest.mark.anyio
+async def test_runner_does_not_package_invalid_sandbox_discovery(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    installed_site_packages = tmp_path / "site-packages"
+    validation_error = RegistryActionValidationErrorInfo(
+        type=TemplateActionValidationErrorType.SERIALIZATION_ERROR,
+        details=["Synthetic validation failure"],
+        is_template=False,
+        loc_primary="tools.example.action",
+        loc_secondary=None,
+    )
+    package_site_packages = mocker.AsyncMock()
+    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner._sandbox = mocker.Mock(
+        install_package=mocker.AsyncMock(return_value=installed_site_packages),
+        package_site_packages=package_site_packages,
+    )
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(
+            return_value=([], {"tools.example.action": [validation_error]})
+        ),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+        validate_actions=True,
+    )
+
+    with pytest.raises(RegistrySyncValidationError):
+        await runner.run(request)
+
+    package_site_packages.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -252,6 +517,7 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
     mocker,
 ) -> None:
     runner = RegistrySyncRunner()
+    runner._sandbox = None
     mocker.patch(
         "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
         mocker.AsyncMock(
@@ -274,6 +540,7 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
 @pytest.mark.anyio
 async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> None:
     runner = RegistrySyncRunner()
+    runner._sandbox = None
     mocker.patch(
         "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
         mocker.AsyncMock(
@@ -290,6 +557,55 @@ async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> Non
         )
 
     assert exc_info.value.non_retryable is False
+
+
+@pytest.mark.anyio
+async def test_runner_uses_nsjail_for_install_and_discovery(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    runner = RegistrySyncRunner(install_timeout=123, discover_timeout=45)
+    artifact_result = _make_artifact_result(tmp_path)
+    artifact_result.site_packages_path = tmp_path / "site-packages"
+    sandbox = mocker.Mock(
+        build_execution_artifact=mocker.AsyncMock(return_value=artifact_result),
+        discover_actions=mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
+    )
+    runner._sandbox = sandbox
+
+    built = await runner._build_execution_artifact(
+        package_path=tmp_path,
+        output_dir=tmp_path / "output",
+    )
+    actions, validation_errors = await runner._discover_actions(
+        repository_id=uuid4(),
+        origin="custom_registry",
+        commit_sha="abc123",
+        validate=True,
+        git_repo_package_name="custom_registry",
+        organization_id=None,
+        installed_site_packages=artifact_result.site_packages_path,
+        package_name="custom_registry",
+    )
+
+    assert built == artifact_result
+    assert actions == []
+    assert validation_errors == {}
+    sandbox.build_execution_artifact.assert_awaited_once_with(
+        package_path=tmp_path,
+        output_dir=tmp_path / "output",
+        timeout_seconds=123,
+    )
+    sandbox.discover_actions.assert_awaited_once_with(
+        site_packages=artifact_result.site_packages_path,
+        origin="custom_registry",
+        package_name="custom_registry",
+        repository_id=mocker.ANY,
+        commit_sha="abc123",
+        validate=True,
+        organization_id=None,
+        timeout_seconds=45,
+    )
 
 
 @pytest.mark.anyio
@@ -414,6 +730,8 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
         validate=True,
         git_repo_package_name=None,
         organization_id=None,
+        installed_site_packages=None,
+        package_name=DEFAULT_REGISTRY_ORIGIN,
     )
     upload_tarball.assert_awaited_once()
 
@@ -544,6 +862,8 @@ async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
         validate=True,
         git_repo_package_name=None,
         organization_id=None,
+        installed_site_packages=None,
+        package_name=DEFAULT_REGISTRY_ORIGIN,
     )
 
 
