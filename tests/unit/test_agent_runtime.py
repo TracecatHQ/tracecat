@@ -906,7 +906,11 @@ class TestClaudeAgentRuntimeRun:
                             "name": "local-tools",
                             "command": "npx",
                             "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-                            "env": {"ROOT": "/tmp"},
+                            "env": {
+                                "ROOT": "/tmp",
+                                "UV_CACHE_DIR": "/work/.uv-cache",
+                                "UV_LINK_MODE": "symlink",
+                            },
                             "timeout": 15,
                         }
                     ]
@@ -947,6 +951,65 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__local-tools__*",
+        }
+        assert options.setting_sources == ["user"]
+
+    @pytest.mark.anyio
+    async def test_root_agent_strips_protected_uvx_options_from_legacy_config(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "legacy-tools",
+                            "command": "uvx",
+                            "args": [
+                                "--cache-dir=/work/uv-cache",
+                                "--link-mode",
+                                "symlink",
+                                "example-mcp",
+                                "--",
+                                "--cache-dir",
+                                "/work/server-cache",
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=_mock_client_ctor,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].mcp_servers["legacy-tools"] == {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "example-mcp",
+                "--",
+                "--cache-dir",
+                "/work/server-cache",
+            ],
         }
 
     @pytest.mark.anyio

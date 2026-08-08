@@ -27,6 +27,9 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 ).lower() in ("true", "1")
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
+AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset({"UV_CACHE_DIR", "UV_LINK_MODE"})
+"""Environment variables reserved for Tracecat's agent runtime isolation."""
+
 # === Well-known runtime paths (internal to agent worker) === #
 
 AGENT_RUNTIME_DIR = Path("/run/tracecat")

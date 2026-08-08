@@ -45,6 +45,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_WORK_DIR,
+    job_uv_cache_dir,
 )
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
@@ -77,7 +78,7 @@ class SpawnedRuntime:
     """The spawned subprocess."""
 
     job_dir: Path | None
-    """Temp directory for nsjail job (None in direct subprocess mode)."""
+    """Runtime-owned job directory for cleanup, if one was allocated."""
 
 
 def cleanup_spawned_runtime(result: SpawnedRuntime) -> None:
@@ -164,6 +165,8 @@ async def spawn_jailed_runtime(
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
+        job_dir: Optional caller-owned job directory. When omitted, this function
+            allocates one and returns it on ``SpawnedRuntime`` for cleanup.
 
     Returns:
         SpawnedRuntime containing the subprocess and job directory.
@@ -200,43 +203,61 @@ async def spawn_jailed_runtime(
     if not socket_dir.exists():
         raise AgentSandboxExecutionError(f"Socket directory not found: {socket_dir}")
 
-    # Direct subprocess mode for testing (no nsjail)
-    if TRACECAT__DISABLE_NSJAIL:
-        return await _spawn_direct_runtime(
-            socket_dir=socket_dir,
-            llm_socket_path=llm_socket_path,
-            mcp_socket_path=mcp_socket_path,
-            init_payload_path=init_payload_path,
-            control_socket_required=control_socket_required,
-            pipe_stdin=pipe_stdin,
-            session_home_dir=session_home_dir,
-            session_work_dir=session_work_dir,
-            skills_dir=skills_dir,
-            inherited_fds=inherited_fds,
-        )
+    owns_job_dir = job_dir is None
+    if job_dir is None:
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = Path(tempfile.mkdtemp(prefix=f"agent-runtime-{job_id}-"))
 
-    # NSJail mode for production - isolated runs require the per-job LLM socket.
-    if llm_socket_path is None and not enable_internet_access:
-        raise AgentSandboxExecutionError(
-            "llm_socket_path is required in production mode (NSJail) when network isolation is enabled"
-        )
+    try:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        job_uv_cache_dir(job_dir).mkdir(mode=0o700, exist_ok=True)
 
-    # NSJail mode for production
-    return await _spawn_nsjail_runtime(
-        socket_dir=socket_dir,
-        llm_socket_path=llm_socket_path,
-        mcp_socket_path=mcp_socket_path,
-        init_payload_path=init_payload_path,
-        config=config,
-        nsjail_path=nsjail_path,
-        rootfs_path=rootfs_path,
-        control_socket_required=control_socket_required,
-        pipe_stdin=pipe_stdin,
-        job_dir=job_dir,
-        session_home_dir=session_home_dir,
-        session_work_dir=session_work_dir,
-        enable_internet_access=enable_internet_access,
-        skills_dir=skills_dir,
+        # Direct subprocess mode for testing (no nsjail)
+        if TRACECAT__DISABLE_NSJAIL:
+            process = await _spawn_direct_runtime(
+                socket_dir=socket_dir,
+                llm_socket_path=llm_socket_path,
+                mcp_socket_path=mcp_socket_path,
+                init_payload_path=init_payload_path,
+                control_socket_required=control_socket_required,
+                pipe_stdin=pipe_stdin,
+                job_dir=job_dir,
+                session_home_dir=session_home_dir,
+                session_work_dir=session_work_dir,
+                skills_dir=skills_dir,
+                inherited_fds=inherited_fds,
+            )
+        else:
+            # NSJail mode for production - isolated runs require the per-job LLM socket.
+            if llm_socket_path is None and not enable_internet_access:
+                raise AgentSandboxExecutionError(
+                    "llm_socket_path is required in production mode (NSJail) when network isolation is enabled"
+                )
+
+            process = await _spawn_nsjail_runtime(
+                socket_dir=socket_dir,
+                llm_socket_path=llm_socket_path,
+                mcp_socket_path=mcp_socket_path,
+                init_payload_path=init_payload_path,
+                config=config,
+                nsjail_path=nsjail_path,
+                rootfs_path=rootfs_path,
+                control_socket_required=control_socket_required,
+                pipe_stdin=pipe_stdin,
+                job_dir=job_dir,
+                session_home_dir=session_home_dir,
+                session_work_dir=session_work_dir,
+                enable_internet_access=enable_internet_access,
+                skills_dir=skills_dir,
+            )
+    except BaseException:
+        if owns_job_dir:
+            _cleanup_job_dir(job_dir)
+        raise
+
+    return SpawnedRuntime(
+        process=process,
+        job_dir=job_dir if owns_job_dir else None,
     )
 
 
@@ -270,11 +291,12 @@ async def _spawn_direct_runtime(
     init_payload_path: Path,
     control_socket_required: bool,
     pipe_stdin: bool,
+    job_dir: Path,
     session_home_dir: Path | None,
     session_work_dir: Path | None,
     skills_dir: Path | None,
     inherited_fds: tuple[int, ...] = (),
-) -> SpawnedRuntime:
+) -> asyncio.subprocess.Process:
     """Spawn the Claude shim as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs the same standalone shim script in the current
@@ -314,6 +336,7 @@ async def _spawn_direct_runtime(
         # Point the runtime at the per-job init payload file without changing cwd.
         "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
     }
+    env["UV_CACHE_DIR"] = str(job_uv_cache_dir(job_dir))
     if control_socket_required:
         env["TRACECAT__AGENT_CONTROL_SOCKET_PATH"] = str(control_socket_path)
     if llm_socket_path is not None:
@@ -348,7 +371,7 @@ async def _spawn_direct_runtime(
         limit=CLAUDE_SHIM_STDIO_LIMIT_BYTES,
     )
 
-    return SpawnedRuntime(process=process, job_dir=None)
+    return process
 
 
 async def _spawn_nsjail_runtime(
@@ -362,12 +385,12 @@ async def _spawn_nsjail_runtime(
     *,
     control_socket_required: bool,
     pipe_stdin: bool,
-    job_dir: Path | None,
+    job_dir: Path,
     session_home_dir: Path | None,
     session_work_dir: Path | None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
-) -> SpawnedRuntime:
+) -> asyncio.subprocess.Process:
     """Spawn the Claude shim inside an NSJail sandbox (production mode).
 
     The host copies the standalone shim script into the job directory and the
@@ -392,13 +415,6 @@ async def _spawn_nsjail_runtime(
     site_packages_dir = _get_site_packages_dir()
     tracecat_pkg_dir = _get_tracecat_pkg_dir()
 
-    # Create temp directory for nsjail job
-    owns_job_dir = job_dir is None
-    if job_dir is None:
-        job_id = uuid.uuid4().hex[:12]
-        job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
-    else:
-        job_dir.mkdir(parents=True, exist_ok=True)
     jailed_init_payload_path = job_dir / "init.json"
 
     try:
@@ -487,15 +503,9 @@ async def _spawn_nsjail_runtime(
             limit=CLAUDE_SHIM_STDIO_LIMIT_BYTES,
         )
 
-        # Return result with job_dir for caller to clean up after process completes
-        return SpawnedRuntime(
-            process=process, job_dir=job_dir if owns_job_dir else None
-        )
+        return process
 
     except Exception as e:
-        # Clean up job directory on spawn failure
-        if owns_job_dir:
-            _cleanup_job_dir(job_dir)
         raise AgentSandboxExecutionError(f"Failed to spawn jailed runtime: {e}") from e
 
 

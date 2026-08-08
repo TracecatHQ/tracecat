@@ -102,6 +102,7 @@ class _FakeClaudeOptions:
     stderr: Callable[[str], None] | None = None
     mcp_servers: object = None
     agents: object = None
+    settings: str | None = None
 
 
 def _agent_config(**kwargs: Any) -> AgentConfig:
