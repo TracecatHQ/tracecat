@@ -1684,7 +1684,7 @@ class IntegrationService(BaseWorkspaceService):
         # Calculate expiration time if expires_in is provided
         expires_at = None
         if expires_in is not None:
-            expires_at = datetime.now() + timedelta(seconds=expires_in)
+            expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
 
         provider_impl = get_provider_class(provider_key)
         default_authorization = (
