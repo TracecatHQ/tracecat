@@ -11,13 +11,6 @@ and automatic pagination across API pages. Configure headers, query
 parameters, JSON or form bodies, redirects, timeouts, and TLS options for
 each request.
 
-<Tip>
-  For large lists, request a bounded page and process each batch in a
-  [While loop](/automations/core-actions/workflow-actions/while-loops)
-  until the API returns no next cursor or no items. This avoids returning
-  the full dataset at once.
-</Tip>
-
 ## Authentication
 
 Authenticate requests with an API key or a managed OAuth access token.
@@ -337,6 +330,13 @@ Default: `true`.
 ## `core.http_paginate`
 
 Paginate through a HTTP response.
+
+<Tip>
+  For large lists, request a bounded page and process each batch in a
+  [While loop](/automations/core-actions/workflow-actions/while-loops)
+  until the API returns no next cursor or no items. This avoids returning
+  the full dataset at once.
+</Tip>
 
 ### Inputs
 
