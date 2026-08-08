@@ -19,15 +19,18 @@ from tracecat.config import (
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
 from tracecat.sandbox.networking import (
-    pasta_dns_mount_config_lines,
-    pasta_user_net_config_lines,
-    write_pasta_network_files,
+    configured_sandbox_network_policy,
+    nstun_user_net_config_lines,
+    sandbox_dns_mount_config_lines,
+    write_sandbox_network_files,
 )
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
+    SandboxNetworkMode,
+    SandboxNetworkPolicy,
     SandboxResult,
 )
 from tracecat.sandbox.utils import communicate_process_group
@@ -52,6 +55,7 @@ class ActionSandboxConfig:
         action_gateway_socket: Optional host-side action gateway Unix socket to bind
             into the sandbox for SDK calls.
         action_gateway_socket_mount_path: Socket path visible inside the sandbox.
+        network_policy: Trusted egress policy. None uses the deployment policy.
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
     """
@@ -64,6 +68,7 @@ class ActionSandboxConfig:
     action_gateway_socket_mount_path: Path = Path(
         "/var/run/tracecat/action-gateway.sock"
     )
+    network_policy: SandboxNetworkPolicy | None = None
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
 
@@ -98,8 +103,8 @@ _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(r"/dev/net/tun|TUN|tun", re.IGNORECASE),
-        "Userspace networking (pasta) may require /dev/net/tun. Ensure the container/pod "
-        "has the TUN device available and passt/pasta is installed in the image.",
+        "NSTUN userspace networking requires /dev/net/tun. Ensure the container/pod "
+        "has the TUN device available.",
     ),
 ]
 
@@ -180,12 +185,16 @@ class NsjailExecutor:
         nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
         rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
+        network_policy: SandboxNetworkPolicy | None = None,
     ):
         self.nsjail_path = Path(nsjail_path)
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
+        self.default_network_policy = (
+            network_policy or configured_sandbox_network_policy()
+        )
 
     def _build_config(
         self,
@@ -237,10 +246,19 @@ class NsjailExecutor:
         # - Execute phase: per config.network_enabled
         network_enabled = phase == "install" or config.network_enabled
 
+        network_policy = (
+            config.network_policy or self.default_network_policy
+            if network_enabled
+            else SandboxNetworkPolicy(mode=SandboxNetworkMode.DISABLED)
+        )
+        network_files = None
+        if network_policy.mode is not SandboxNetworkMode.DISABLED:
+            network_files = write_sandbox_network_files(job_dir)
+
         # Network behavior:
-        # - always isolate network namespace for private loopback
-        # - network enabled: add pasta userspace networking for outbound access
-        # - network disabled: no route out of the isolated namespace
+        # - always isolate the network namespace and its private loopback
+        # - network enabled: NSTUN applies the trusted outbound policy
+        # - network disabled: no user_net backend and no route out
         lines = [
             'name: "python_sandbox"',
             "mode: ONCE",
@@ -256,8 +274,12 @@ class NsjailExecutor:
             "clone_newuts: true",
         ]
 
-        if network_enabled:
-            lines.extend(pasta_user_net_config_lines())
+        lines.extend(
+            nstun_user_net_config_lines(
+                network_policy,
+                network_files.dns_routes if network_files is not None else (),
+            )
+        )
 
         lines.extend(
             [
@@ -290,9 +312,8 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        if network_enabled:
-            network_files = write_pasta_network_files(job_dir)
-            lines.extend(pasta_dns_mount_config_lines(network_files))
+        if network_files is not None:
+            lines.extend(sandbox_dns_mount_config_lines(network_files))
 
         lines.extend(
             [
@@ -709,6 +730,11 @@ class NsjailExecutor:
                 "action_gateway_socket_mount_path",
             )
 
+        network_policy = config.network_policy or self.default_network_policy
+        network_files = None
+        if network_policy.mode is not SandboxNetworkMode.DISABLED:
+            network_files = write_sandbox_network_files(job_dir)
+
         lines = [
             'name: "action_sandbox"',
             "mode: ONCE",
@@ -737,7 +763,12 @@ class NsjailExecutor:
             f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
         ]
 
-        lines.extend(pasta_user_net_config_lines())
+        lines.extend(
+            nstun_user_net_config_lines(
+                network_policy,
+                network_files.dns_routes if network_files is not None else (),
+            )
+        )
 
         # Optional mounts - only include if the directories exist in rootfs
         lib64_path = self.rootfs / "lib64"
@@ -752,8 +783,8 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        network_files = write_pasta_network_files(job_dir)
-        lines.extend(pasta_dns_mount_config_lines(network_files))
+        if network_files is not None:
+            lines.extend(sandbox_dns_mount_config_lines(network_files))
 
         lines.extend(
             [
