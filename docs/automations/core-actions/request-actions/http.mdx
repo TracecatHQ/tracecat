@@ -183,6 +183,29 @@ Default: `true`.
 
 Perform a HTTP request to a given URL with optional polling.
 
+### Poll condition examples
+
+`poll_condition` receives a response with `data`, `status_code`, and
+`headers`. The action stops polling when the lambda returns `True`.
+
+Stop when a JSON status field is complete:
+
+```python
+lambda response: response["data"].get("status") == "completed"
+```
+
+Stop on an HTTP status code:
+
+```python
+lambda response: response["status_code"] == 200
+```
+
+Stop when a response header has the expected value:
+
+```python
+lambda response: response["headers"].get("x-status") == "completed"
+```
+
 ### Secrets
 
 Optional secrets:
