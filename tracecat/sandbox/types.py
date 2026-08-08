@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,41 @@ class SandboxErrorCode(StrEnum):
     """Machine-readable reasons for sandbox execution failures."""
 
     TIMEOUT = "timeout"
+
+
+type IPNetwork = IPv4Network | IPv6Network
+
+
+class SandboxNetworkMode(StrEnum):
+    """Outbound network behavior for an nsjail sandbox."""
+
+    DISABLED = "disabled"
+    FILTERED = "filtered"
+    UNRESTRICTED = "unrestricted"
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxNetworkPolicy:
+    """Trusted outbound network policy for an nsjail sandbox.
+
+    Attributes:
+        mode: Whether networking is disabled, filtered, or unrestricted.
+        allowed_cidrs: Administrator-approved exceptions evaluated before blocks.
+        blocked_cidrs: Deployment-specific networks rejected in filtered mode.
+    """
+
+    mode: SandboxNetworkMode = SandboxNetworkMode.FILTERED
+    allowed_cidrs: tuple[IPNetwork, ...] = ()
+    blocked_cidrs: tuple[IPNetwork, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Reject CIDR rules that cannot affect the selected mode."""
+        if not isinstance(self.mode, SandboxNetworkMode):
+            raise ValueError("mode must be a SandboxNetworkMode")
+        if self.mode is not SandboxNetworkMode.FILTERED and (
+            self.allowed_cidrs or self.blocked_cidrs
+        ):
+            raise ValueError("CIDR rules are only valid for filtered networking")
 
 
 @dataclass(frozen=True)
@@ -39,6 +75,7 @@ class SandboxConfig:
 
     Attributes:
         network_enabled: Whether to allow network access during script execution.
+        network_policy: Trusted egress policy. None uses the deployment policy.
         resources: Resource limits for the sandbox.
         env_vars: Environment variables to inject into the sandbox.
         dependencies: Python packages to install before execution.
@@ -48,6 +85,7 @@ class SandboxConfig:
     """
 
     network_enabled: bool = False
+    network_policy: SandboxNetworkPolicy | None = None
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     env_vars: dict[str, str] = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)

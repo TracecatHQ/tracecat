@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from enum import StrEnum
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
 from tracecat.auth.enums import AuthType
@@ -644,6 +645,42 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
     if url.strip()
 ]
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
+
+
+def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """Parse a comma-separated environment variable into validated IP networks.
+
+    Args:
+        name: Environment variable name.
+
+    Returns:
+        Parsed IPv4 and IPv6 networks in configured order.
+
+    Raises:
+        ValueError: If any configured value is not a valid CIDR or IP address.
+    """
+    raw_value = os.environ.get(name, "")
+    networks: list[IPv4Network | IPv6Network] = []
+    for value in raw_value.split(","):
+        stripped = value.strip()
+        if not stripped:
+            continue
+        try:
+            networks.append(ip_network(stripped))
+        except ValueError as exc:
+            raise ValueError(f"{name} contains an invalid CIDR: {stripped!r}") from exc
+    return tuple(networks)
+
+
+TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS"
+)
+"""Administrator-approved private CIDRs reachable from filtered nsjail sandboxes."""
+
+TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS"
+)
+"""Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
 TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead.

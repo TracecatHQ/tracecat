@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import tracecat.config as tracecat_config
-from tracecat.config import bound_env, env_bool
+from tracecat.config import bound_env, env_bool, env_networks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
@@ -95,6 +95,32 @@ def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ValueError, match="TEST_BOOL_ENV must be a boolean"):
         env_bool("TEST_BOOL_ENV", default=True)
+
+
+def test_env_networks_parses_ipv4_and_ipv6_cidrs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TEST_NETWORKS_ENV",
+        "10.42.0.0/16, 203.0.113.10, 2001:db8::/48",
+    )
+
+    networks = env_networks("TEST_NETWORKS_ENV")
+
+    assert tuple(str(network) for network in networks) == (
+        "10.42.0.0/16",
+        "203.0.113.10/32",
+        "2001:db8::/48",
+    )
+
+
+def test_env_networks_rejects_invalid_cidr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_NETWORKS_ENV", "10.42.0.0/16,not-a-cidr")
+
+    with pytest.raises(ValueError, match="TEST_NETWORKS_ENV contains an invalid CIDR"):
+        env_networks("TEST_NETWORKS_ENV")
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:

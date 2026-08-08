@@ -4,7 +4,7 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network namespace always isolated for private loopback; pasta enables outbound access
+- Network namespace always isolated for private loopback; NSTUN controls outbound access
 - LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LLM gateway
 - Namespace isolation (PID, user, mount, IPC, UTS namespaces)
 - Fresh read-only /proc inside the jail PID namespace
@@ -241,9 +241,9 @@ def build_agent_nsjail_config(
             and mount_control_socket is True, defaults to socket_dir/control.sock.
         session_home_dir: Optional host directory mounted as the jailed agent home.
         session_work_dir: Optional host directory mounted as the jailed work dir.
-        enable_internet_access: If True, enables pasta userspace networking for
-            outbound internet access. Default is False (network isolated with
-            private loopback only).
+        enable_internet_access: If True, enables filtered NSTUN userspace
+            networking for outbound internet access. Default is False (network
+            isolated with private loopback only).
         skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
@@ -255,9 +255,10 @@ def build_agent_nsjail_config(
     # Import lazily so sandboxed runtime imports of this module do not require
     # the full tracecat.sandbox package to be mounted inside the jail.
     from tracecat.sandbox.networking import (
-        pasta_dns_mount_config_lines,
-        pasta_user_net_config_lines,
-        write_pasta_network_files,
+        configured_sandbox_network_policy,
+        nstun_user_net_config_lines,
+        sandbox_dns_mount_config_lines,
+        write_sandbox_network_files,
     )
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
@@ -291,10 +292,14 @@ def build_agent_nsjail_config(
     _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
 
+    network_files = (
+        write_sandbox_network_files(socket_dir) if enable_internet_access else None
+    )
+
     # Network behavior:
-    # - always isolate network namespace for private loopback
-    # - internet enabled: add pasta userspace networking for outbound access
-    # - internet disabled: no route out of the isolated namespace
+    # - always isolate the network namespace and its private loopback
+    # - internet enabled: NSTUN applies the deployment-owned outbound policy
+    # - internet disabled: no user_net backend and no route out
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
@@ -323,8 +328,13 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
 
-    if enable_internet_access:
-        lines.extend(pasta_user_net_config_lines())
+    if network_files is not None:
+        lines.extend(
+            nstun_user_net_config_lines(
+                configured_sandbox_network_policy(),
+                network_files.dns_routes,
+            )
+        )
 
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
@@ -339,9 +349,8 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
         )
 
-    if enable_internet_access:
-        network_files = write_pasta_network_files(socket_dir)
-        lines.extend(pasta_dns_mount_config_lines(network_files))
+    if network_files is not None:
+        lines.extend(sandbox_dns_mount_config_lines(network_files))
 
     # Fresh procfs avoids leaking executor-container process metadata. Docker
     # runtimes must run these containers with systempaths=unconfined; otherwise
