@@ -43,6 +43,8 @@ MAX_ENV_KEY_LENGTH = 64
 MAX_ENV_VALUE_LENGTH = 4096
 MAX_SERVER_NAME_LENGTH = 64
 
+_PROTECTED_UVX_OPTIONS = frozenset({"--cache-dir", "--link-mode"})
+
 
 class MCPValidationError(ValueError):
     """Raised when MCP configuration validation fails."""
@@ -157,6 +159,49 @@ def validate_mcp_args(args: list[str] | None) -> None:
             validate_mcp_arg(arg)
         except MCPValidationError as e:
             raise MCPValidationError(f"Invalid argument at index {i}: {e}") from e
+
+
+def sanitize_mcp_command_args(
+    *,
+    command: str,
+    args: list[str] | None,
+) -> tuple[list[str], frozenset[str]]:
+    """Remove command options reserved for Tracecat's runtime isolation.
+
+    The returned option names are safe to log because option values are never
+    included. Arguments after an explicit ``--`` separator belong to the MCP
+    command and remain untouched. New configurations reject protected options,
+    while the runtime uses this helper to contain legacy persisted configs.
+
+    Args:
+        command: The executable used by the stdio MCP server.
+        args: Optional command arguments.
+
+    Returns:
+        The sanitized arguments and protected option names that were removed.
+    """
+    if command != "uvx" or not args:
+        return list(args or ()), frozenset()
+
+    sanitized_args: list[str] = []
+    protected_options: set[str] = set()
+    arg_index = 0
+    while arg_index < len(args):
+        arg = args[arg_index]
+        if arg == "--":
+            sanitized_args.extend(args[arg_index:])
+            break
+
+        option, separator, _value = arg.partition("=")
+        if option not in _PROTECTED_UVX_OPTIONS:
+            sanitized_args.append(arg)
+            arg_index += 1
+            continue
+
+        protected_options.add(option)
+        arg_index += 1 if separator else 2
+
+    return sanitized_args, frozenset(protected_options)
 
 
 def validate_mcp_env_key(key: str) -> None:
@@ -293,6 +338,12 @@ def validate_mcp_command_config(
     """
     validate_mcp_command(command)
     validate_mcp_args(args)
+    _, protected_options = sanitize_mcp_command_args(command=command, args=args)
+    if protected_options:
+        options = ", ".join(sorted(protected_options))
+        raise MCPValidationError(
+            f"Cannot override protected {command} option(s): {options}"
+        )
     validate_mcp_env(env)
     if name is not None:
         validate_mcp_server_name(name)

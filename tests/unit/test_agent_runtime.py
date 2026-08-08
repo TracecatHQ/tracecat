@@ -28,6 +28,7 @@ from claude_agent_sdk.types import (
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
+from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
@@ -52,6 +53,12 @@ from tracecat.agent.runtime.claude_code.runtime import (
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+
+
+@pytest.fixture
+def protected_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UV_CACHE_DIR", "/run/tracecat/uv-cache")
+    monkeypatch.setenv("UV_LINK_MODE", "copy")
 
 
 @pytest.fixture
@@ -111,6 +118,7 @@ def sample_shared_tool_definitions(
 def sample_init_payload(
     sample_sandbox_config: SandboxAgentConfig,
     sample_shared_tool_definitions: dict[str, MCPToolDefinition],
+    protected_runtime_env: None,
 ) -> RuntimeInitPayload:
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
@@ -952,6 +960,72 @@ class TestClaudeAgentRuntimeRun:
             "mcp__tracecat-registry__core__http_request",
             "mcp__local-tools__*",
         }
+        assert options.setting_sources == ["user"]
+        assert options.settings is not None
+        assert orjson.loads(options.settings) == {
+            "env": {
+                "UV_CACHE_DIR": "/run/tracecat/uv-cache",
+                "UV_LINK_MODE": "copy",
+            }
+        }
+
+    @pytest.mark.anyio
+    async def test_root_agent_strips_protected_uvx_options_from_legacy_config(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "legacy-tools",
+                            "command": "uvx",
+                            "args": [
+                                "--cache-dir=/work/uv-cache",
+                                "--link-mode",
+                                "symlink",
+                                "example-mcp",
+                                "--",
+                                "--cache-dir",
+                                "/work/server-cache",
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=_mock_client_ctor,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].mcp_servers["legacy-tools"] == {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "example-mcp",
+                "--",
+                "--cache-dir",
+                "/work/server-cache",
+            ],
+        }
 
     @pytest.mark.anyio
     async def test_root_agent_uses_verified_stdio_tool_inventory(
@@ -1237,6 +1311,21 @@ class TestClaudeAgentRuntimeRun:
         env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
 
         assert env["ENABLE_TOOL_SEARCH"] == "true"
+
+    @pytest.mark.parametrize("missing_key", sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS))
+    def test_rejects_missing_protected_runtime_env(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        protected_runtime_env: None,
+        missing_key: str,
+    ) -> None:
+        monkeypatch.delenv(missing_key)
+
+        with pytest.raises(
+            AgentSandboxValidationError,
+            match=f"Missing protected agent runtime environment variables: {missing_key}",
+        ):
+            ClaudeAgentRuntime._sdk_settings()
 
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(

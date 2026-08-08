@@ -90,6 +90,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_meta_session_line,
     is_synthetic_session_line,
 )
+from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
@@ -520,7 +521,19 @@ class ClaudeAgentRuntime:
                 "command": stdio_config["command"],
             }
             if args := stdio_config.get("args"):
-                server_config["args"] = args
+                sanitized_args, protected_options = sanitize_mcp_command_args(
+                    command=stdio_config["command"],
+                    args=args,
+                )
+                if protected_options:
+                    logger.warning(
+                        "Ignoring protected stdio MCP command options",
+                        server_name=server_name,
+                        command=stdio_config["command"],
+                        options=sorted(protected_options),
+                    )
+                if sanitized_args:
+                    server_config["args"] = sanitized_args
             if env := stdio_config.get("env"):
                 protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
                 if protected_env_keys:
@@ -1483,6 +1496,25 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = "true"
         return env
 
+    @staticmethod
+    def _sdk_settings() -> str:
+        """Pin protected runtime environment in trusted Claude settings."""
+        protected_env: dict[str, str] = {}
+        missing_env_vars: list[str] = []
+        for key in sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS):
+            if value := os.environ.get(key):
+                protected_env[key] = value
+            else:
+                missing_env_vars.append(key)
+
+        if missing_env_vars:
+            raise AgentSandboxValidationError(
+                "Missing protected agent runtime environment variables: "
+                f"{', '.join(missing_env_vars)}"
+            )
+
+        return orjson.dumps({"env": protected_env}).decode("utf-8")
+
     def _build_options(
         self,
         *,
@@ -1518,6 +1550,7 @@ class ClaudeAgentRuntime:
                 else {"type": "disabled"}
             ),
             setting_sources=["user"],
+            settings=self._sdk_settings(),
             env=self._sdk_env(payload),
             model=get_litellm_route_model(
                 model_provider=payload.config.model_provider,
