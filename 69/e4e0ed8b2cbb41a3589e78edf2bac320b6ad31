@@ -1,0 +1,21 @@
+docs/automations/integrations/oauth-integrations.mdx
+  s_d28a207c1e8aa7::t_9bda0fa058c7f0 41
+docs/snippets/oauth-token-expressions.mdx
+  s_d28a207c1e8aa7::t_9bda0fa058c7f0 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "69e4e0ed8b2cbb41a3589e78edf2bac320b6ad31",
+  "prompts": {},
+  "sessions": {
+    "s_d28a207c1e8aa7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fd48c-d8e6-7a13-b55e-745e8c588ad5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
