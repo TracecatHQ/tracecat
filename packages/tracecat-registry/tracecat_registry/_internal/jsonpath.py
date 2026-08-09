@@ -4,14 +4,34 @@ This module provides a lightweight JSONPath evaluation function that avoids
 importing heavy tracecat modules during SDK-style invocation.
 """
 
+import threading
+from functools import lru_cache
 from typing import Any
 
-import jsonpath_ng.ext
 import jsonpath_ng.jsonpath as jsonpath_nodes
 from jsonpath_ng.exceptions import JsonPathParserError
+from jsonpath_ng.ext.parser import ExtentedJsonPathParser
 
 from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry._internal.logger import logger
+
+# jsonpath_ng builds a new PLY parser per parse() call, and without a shipped
+# parsetab module every call re-imports the missing table module and regenerates
+# the LALR table. That import-lock traffic can deadlock the process if a Temporal
+# activity thread is cancelled while holding the import lock. Build one parser at
+# import time (before any worker threads exist) and serialize access: PLY's
+# LRParser mutates shared state during parse and is not thread-safe. Parsed
+# expression trees are immutable, so caching and sharing them across threads is
+# safe.
+_JSONPATH_PARSER = ExtentedJsonPathParser()
+_JSONPATH_PARSER_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=4096)
+def _parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
+    """Parse a jsonpath expression using the shared process-wide parser."""
+    with _JSONPATH_PARSER_LOCK:
+        return _JSONPATH_PARSER.parse(expr)
 
 
 def eval_jsonpath(
@@ -29,7 +49,7 @@ def eval_jsonpath(
         )
     try:
         # Try to evaluate the expression
-        jsonpath_expr = jsonpath_ng.ext.parse(expr)
+        jsonpath_expr = _parse_jsonpath(expr)
     except JsonPathParserError as e:
         logger.error(f"Invalid jsonpath expression: {expr!r}")
         raise TracecatExpressionError(f"Invalid jsonpath {expr!r}") from e
