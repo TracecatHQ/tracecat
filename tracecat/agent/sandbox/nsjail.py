@@ -36,6 +36,7 @@ from tracecat.agent.common.config import (
     CONTROL_SOCKET_NAME,
     TRACECAT__AGENT_MCP_SOCKET_PATH,
     TRACECAT__DISABLE_NSJAIL,
+    build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import (
     AgentSandboxExecutionError,
@@ -45,7 +46,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
     JAILED_AGENT_WORK_DIR,
-    job_uv_cache_dir,
+    job_uv_state_dir,
 )
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
@@ -210,7 +211,7 @@ async def spawn_jailed_runtime(
 
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
-        job_uv_cache_dir(job_dir).mkdir(mode=0o700, exist_ok=True)
+        job_uv_state_dir(job_dir).mkdir(mode=0o700, exist_ok=True)
 
         # Direct subprocess mode for testing (no nsjail)
         if TRACECAT__DISABLE_NSJAIL:
@@ -336,7 +337,7 @@ async def _spawn_direct_runtime(
         # Point the runtime at the per-job init payload file without changing cwd.
         "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
     }
-    env["UV_CACHE_DIR"] = str(job_uv_cache_dir(job_dir))
+    env.update(build_agent_runtime_uv_env(job_uv_state_dir(job_dir)))
     if control_socket_required:
         env["TRACECAT__AGENT_CONTROL_SOCKET_PATH"] = str(control_socket_path)
     if llm_socket_path is not None:

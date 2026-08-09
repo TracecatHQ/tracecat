@@ -27,8 +27,36 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 ).lower() in ("true", "1")
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
-AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset({"UV_CACHE_DIR", "UV_LINK_MODE"})
+_AGENT_RUNTIME_UV_PATH_ENV_VARS = (
+    ("UV_CACHE_DIR", "cache"),
+    ("UV_CREDENTIALS_DIR", "credentials"),
+    ("UV_PYTHON_INSTALL_DIR", "python"),
+    ("UV_PYTHON_BIN_DIR", "bin"),
+    ("UV_TOOL_DIR", "tools"),
+    ("UV_TOOL_BIN_DIR", "bin"),
+)
+
+AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
+    {
+        "UV_LINK_MODE",
+        # Keep uv's optional managed-Python archive cache disabled. Setting this
+        # variable would opt into storing a second copy of each downloaded archive.
+        "UV_PYTHON_CACHE_DIR",
+        *(key for key, _relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS),
+    }
+)
 """Environment variables reserved for Tracecat's agent runtime isolation."""
+
+
+def build_agent_runtime_uv_env(uv_state_dir: Path) -> dict[str, str]:
+    """Build job-scoped environment settings for UV-managed runtime storage."""
+    env = {
+        key: str(uv_state_dir / relative_path)
+        for key, relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS
+    }
+    env["UV_LINK_MODE"] = "copy"
+    return env
+
 
 # === Well-known runtime paths (internal to agent worker) === #
 

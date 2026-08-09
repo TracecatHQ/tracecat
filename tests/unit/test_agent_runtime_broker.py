@@ -18,6 +18,7 @@ from claude_agent_sdk.types import (
     McpStdioServerConfig,
 )
 
+from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.executor.loopback import LoopbackResult
@@ -282,16 +283,16 @@ def test_build_path_mapping_is_stable_per_session(
 
 
 @pytest.mark.parametrize(
-    ("use_jailed_paths", "expected_cache_dir"),
+    ("use_jailed_paths", "expected_state_dir"),
     [
-        pytest.param(True, "/run/tracecat/uv-cache", id="nsjail"),
-        pytest.param(False, "job/uv-cache", id="direct"),
+        pytest.param(True, "/run/tracecat/uv-state", id="nsjail"),
+        pytest.param(False, "job/uv-state", id="direct"),
     ],
 )
 def test_transport_pins_protected_uv_settings_for_runtime_paths(
     tmp_path: Path,
     use_jailed_paths: bool,
-    expected_cache_dir: str,
+    expected_state_dir: str,
 ) -> None:
     transport = _make_transport(tmp_path / "job", use_jailed_paths=use_jailed_paths)
 
@@ -300,14 +301,11 @@ def test_transport_pins_protected_uv_settings_for_runtime_paths(
     )
 
     assert options.settings is not None
-    expected_path = (
-        expected_cache_dir if use_jailed_paths else str(tmp_path / expected_cache_dir)
+    expected_path = Path(
+        expected_state_dir if use_jailed_paths else tmp_path / expected_state_dir
     )
     assert orjson.loads(options.settings) == {
-        "env": {
-            "UV_CACHE_DIR": expected_path,
-            "UV_LINK_MODE": "copy",
-        }
+        "env": build_agent_runtime_uv_env(expected_path)
     }
 
 
@@ -525,10 +523,7 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     command_settings = captured_command_options[0].settings
     assert command_settings is not None
     assert orjson.loads(command_settings) == {
-        "env": {
-            "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
-            "UV_LINK_MODE": "copy",
-        }
+        "env": build_agent_runtime_uv_env(tmp_path / "uv-state")
     }
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)

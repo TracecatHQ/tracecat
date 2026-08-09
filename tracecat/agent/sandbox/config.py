@@ -28,20 +28,22 @@ from pathlib import Path
 
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_DIR,
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     CONTROL_SOCKET_NAME,
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
+    build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
-    JAILED_AGENT_UV_CACHE_DIR,
+    JAILED_AGENT_UV_STATE_DIR,
     JAILED_AGENT_WORK_DIR,
-    job_uv_cache_dir,
+    job_uv_state_dir,
 )
 
 # Valid environment variable name pattern (POSIX compliant)
@@ -122,10 +124,8 @@ AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
     "USER": "agent",
-    # Keep package downloads scoped to one turn instead of the stable session home.
-    "UV_CACHE_DIR": str(JAILED_AGENT_UV_CACHE_DIR),
-    # Do not link installed package files back to the ephemeral cache.
-    "UV_LINK_MODE": "copy",
+    # Keep UV caches, credentials, managed Pythons, and tools out of stable home.
+    **build_agent_runtime_uv_env(JAILED_AGENT_UV_STATE_DIR),
     "TRACECAT__DISABLE_NSJAIL": "false",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
@@ -270,8 +270,8 @@ def build_agent_nsjail_config(
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
-    uv_cache_dir = job_uv_cache_dir(job_dir)
-    _validate_path(uv_cache_dir, "uv_cache_dir")
+    uv_state_dir = job_uv_state_dir(job_dir)
+    _validate_path(uv_state_dir, "uv_state_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
     if llm_socket_path is not None:
@@ -371,10 +371,10 @@ def build_agent_nsjail_config(
             "",
             "# Tracecat job mountpoint namespace",
             "# The tmpfs only backs files placed directly under this directory;",
-            "# job data and its UV cache are separate bind mounts from the host.",
+            "# job data and its UV-managed state are separate host bind mounts.",
             f'mount {{ dst: "{AGENT_RUNTIME_DIR}" fstype: "tmpfs" rw: true options: "size=1M" }}',
             f'mount {{ src: "{job_dir}" dst: "{JAILED_AGENT_JOB_DIR}" is_bind: true rw: false }}',
-            f'mount {{ src: "{uv_cache_dir}" dst: "{JAILED_AGENT_UV_CACHE_DIR}" is_bind: true rw: true }}',
+            f'mount {{ src: "{uv_state_dir}" dst: "{JAILED_AGENT_UV_STATE_DIR}" is_bind: true rw: true }}',
         ]
     )
     lines.extend(
@@ -514,7 +514,7 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
     for key, value in config.env_vars.items():
         _validate_env_key(key)
         _validate_env_value(key, value)
-        if key in AGENT_SANDBOX_BASE_ENV:
+        if key in AGENT_SANDBOX_BASE_ENV or key in AGENT_RUNTIME_PROTECTED_ENV_VARS:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"
             )

@@ -25,14 +25,14 @@ from claude_agent_sdk._version import __version__
 from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
 from tracecat.agent.common.config import (
-    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
+    build_agent_runtime_uv_env,
 )
 from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_UV_STATE_DIR,
     AgentSandboxPathMapping,
-    job_uv_cache_dir,
+    job_uv_state_dir,
 )
-from tracecat.agent.sandbox.config import AGENT_SANDBOX_BASE_ENV
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
     cleanup_spawned_runtime,
@@ -455,12 +455,12 @@ class SandboxedCLITransport(Transport):
         options: ClaudeAgentOptions,
     ) -> ClaudeAgentOptions:
         """Pin Tracecat-owned UV settings at the CLI child-exec boundary."""
-        protected_env = {
-            key: AGENT_SANDBOX_BASE_ENV[key]
-            for key in sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS)
-        }
-        if not self._use_jailed_paths:
-            protected_env["UV_CACHE_DIR"] = str(job_uv_cache_dir(self._job_dir))
+        uv_state_dir = (
+            JAILED_AGENT_UV_STATE_DIR
+            if self._use_jailed_paths
+            else job_uv_state_dir(self._job_dir)
+        )
+        protected_env = build_agent_runtime_uv_env(uv_state_dir)
 
         return replace(
             options,

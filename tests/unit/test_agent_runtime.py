@@ -909,7 +909,13 @@ class TestClaudeAgentRuntimeRun:
                             "env": {
                                 "ROOT": "/tmp",
                                 "UV_CACHE_DIR": "/work/.uv-cache",
+                                "UV_CREDENTIALS_DIR": "/home/agent/.local/uv-auth",
                                 "UV_LINK_MODE": "symlink",
+                                "UV_PYTHON_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_PYTHON_CACHE_DIR": "/home/agent/.cache/python",
+                                "UV_PYTHON_INSTALL_DIR": "/home/agent/.local/python",
+                                "UV_TOOL_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_TOOL_DIR": "/home/agent/.local/tools",
                             },
                             "timeout": 15,
                         }

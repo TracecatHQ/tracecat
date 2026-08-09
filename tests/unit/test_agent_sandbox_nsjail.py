@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.sandbox.config import AgentSandboxConfig
 from tracecat.agent.sandbox.nsjail import (
     SESSION_HOME_ENV_VAR,
@@ -50,8 +51,8 @@ async def test_spawn_direct_runtime_sets_explicit_agent_session_paths(
     assert cmd[1].endswith("tracecat/agent/sandbox/shim_entrypoint.py")
     env = create_subprocess_exec.await_args.kwargs["env"]
     assert env["HOME"] == str(session_home_dir)
-    assert env["UV_CACHE_DIR"] == str(tmp_path / "uv-cache")
-    assert env["UV_LINK_MODE"] == "copy"
+    expected_uv_env = build_agent_runtime_uv_env(tmp_path / "uv-state")
+    assert {key: env[key] for key in expected_uv_env} == expected_uv_env
     assert env["TRACECAT__AGENT_MCP_SOCKET_PATH"] == str(
         tmp_path / "sockets" / "mcp.sock"
     )
@@ -60,7 +61,7 @@ async def test_spawn_direct_runtime_sets_explicit_agent_session_paths(
     assert env[SESSION_WORK_DIR_ENV_VAR] == str(session_work_dir)
     assert session_home_dir.is_dir()
     assert session_work_dir.is_dir()
-    assert (tmp_path / "uv-cache").is_dir()
+    assert (tmp_path / "uv-state").is_dir()
 
 
 @pytest.mark.anyio
@@ -119,10 +120,11 @@ async def test_spawn_direct_runtime_owns_implicit_job_directory(
     assert result.job_dir is not None
     owned_job_dir = result.job_dir
     assert owned_job_dir.is_dir()
-    assert (owned_job_dir / "uv-cache").is_dir()
+    assert (owned_job_dir / "uv-state").is_dir()
     assert create_subprocess_exec.await_args is not None
     env = create_subprocess_exec.await_args.kwargs["env"]
-    assert env["UV_CACHE_DIR"] == str(owned_job_dir / "uv-cache")
+    expected_uv_env = build_agent_runtime_uv_env(owned_job_dir / "uv-state")
+    assert {key: env[key] for key in expected_uv_env} == expected_uv_env
 
     cleanup_spawned_runtime(result)
     assert not owned_job_dir.exists()
@@ -163,7 +165,7 @@ async def test_spawn_direct_runtime_cleans_implicit_job_directory_on_failure(
 
 
 @pytest.mark.anyio
-async def test_spawn_nsjail_runtime_mounts_job_scoped_uv_cache(
+async def test_spawn_nsjail_runtime_mounts_job_scoped_uv_state(
     tmp_path: Path,
 ) -> None:
     rootfs = tmp_path / "rootfs"
@@ -203,13 +205,13 @@ async def test_spawn_nsjail_runtime_mounts_job_scoped_uv_cache(
             session_work_dir=None,
         )
 
-    uv_cache_dir = job_dir / "uv-cache"
-    assert uv_cache_dir.is_dir()
+    uv_state_dir = job_dir / "uv-state"
+    assert uv_state_dir.is_dir()
     assert result.job_dir is None
     assert create_subprocess_exec.await_args is not None
     env = create_subprocess_exec.await_args.kwargs["env"]
-    assert env["UV_CACHE_DIR"] == "/run/tracecat/uv-cache"
-    assert env["UV_LINK_MODE"] == "copy"
+    expected_uv_env = build_agent_runtime_uv_env(Path("/run/tracecat/uv-state"))
+    assert {key: env[key] for key in expected_uv_env} == expected_uv_env
     assert (
-        f'src: "{uv_cache_dir}" dst: "/run/tracecat/uv-cache" is_bind: true rw: true'
+        f'src: "{uv_state_dir}" dst: "/run/tracecat/uv-state" is_bind: true rw: true'
     ) in (job_dir / "nsjail.cfg").read_text()
