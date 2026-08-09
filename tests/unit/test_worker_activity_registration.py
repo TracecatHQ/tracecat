@@ -143,6 +143,71 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 
 
 @pytest.mark.anyio
+async def test_dsl_worker_shuts_down_when_app_io_runtime_dies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lost app I/O runtime must end the worker instead of failing forever.
+
+    Every storage activity depends on that runtime, so the process should ask
+    for shutdown and let the orchestrator restart it.
+    """
+    from tracecat.dsl import worker
+
+    shutdown_event = asyncio.Event()
+    worker_exited = threading.Event()
+
+    class _FakeWorker:
+        def __init__(self, _client: object, **kwargs: object) -> None:
+            del kwargs
+
+        async def __aenter__(self) -> _FakeWorker:
+            # Simulate the app I/O loop dying underneath a running worker.
+            app_runtime = get_app_async_runtime()
+            assert app_runtime is not None
+            runtime_loop = app_runtime._loop
+            assert runtime_loop is not None
+            runtime_loop.call_soon_threadsafe(runtime_loop.stop)
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+            worker_exited.set()
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(worker, "_APP_RUNTIME_WATCHDOG_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    close_storage_client_cache = AsyncMock()
+    monkeypatch.setattr(
+        worker,
+        "close_storage_client_cache",
+        close_storage_client_cache,
+    )
+
+    with pytest.raises(RuntimeError, match="failed during shutdown") as exc_info:
+        await asyncio.wait_for(
+            worker.main(shutdown_event=shutdown_event),
+            timeout=10,
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == (
+        "App async runtime loop stopped outside close()"
+    )
+    assert shutdown_event.is_set()
+    assert worker_exited.is_set()
+    close_storage_client_cache.assert_not_awaited()
+    assert get_app_async_runtime() is None
+
+
+@pytest.mark.anyio
 async def test_dsl_worker_closes_app_io_after_activity_pool_drains(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -386,3 +386,36 @@ def test_app_async_runtime_reports_loop_start_failure() -> None:
     assert isinstance(exc_info.value.__cause__, LookupError)
     assert runtime.state is AppAsyncRuntimeState.FAILED
     assert runtime.health.thread_alive is False
+
+
+def test_app_async_runtime_failed_close_cancels_stranded_submissions() -> None:
+    """A dead loop must not leave close() waiting forever on orphaned Futures."""
+    runtime = AppAsyncRuntime(name="test-app-io")
+    stranded: Future[None] = Future()
+
+    runtime.start()
+    with runtime._lock:
+        runtime._pending.add(stranded)
+    runtime_loop = runtime._loop
+    runtime_thread = runtime._thread
+    assert runtime_loop is not None
+    assert runtime_thread is not None
+
+    runtime_loop.call_soon_threadsafe(runtime_loop.stop)
+    runtime_thread.join(timeout=5)
+    assert runtime_thread.is_alive() is False
+    assert runtime.state is AppAsyncRuntimeState.FAILED
+
+    # Numeric thread identifiers may be reused after the owner thread exits.
+    # close() must compare Thread objects instead of rejecting this caller.
+    with runtime._lock:
+        runtime._thread_id = threading.get_ident()
+
+    with pytest.raises(RuntimeError, match="failed during shutdown") as exc_info:
+        runtime.close(timeout=1)
+
+    assert stranded.cancelled() is True
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == (
+        "App async runtime loop stopped outside close()"
+    )

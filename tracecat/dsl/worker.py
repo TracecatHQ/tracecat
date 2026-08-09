@@ -1,8 +1,9 @@
 import asyncio
 import dataclasses
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import timedelta
 
 from temporalio import workflow
@@ -16,6 +17,7 @@ from tracecat import __version__ as APP_VERSION
 
 _MIN_CONCURRENT_ACTIVITIES = 1
 _MIN_CONCURRENT_WORKFLOW_TASKS = 2
+_APP_RUNTIME_WATCHDOG_INTERVAL_SECONDS = 5.0
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
@@ -25,7 +27,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_version_ref_activity,
     )
-    from tracecat.async_runtime import AppAsyncRuntime, use_app_async_runtime
+    from tracecat.async_runtime import (
+        AppAsyncRuntime,
+        AppAsyncRuntimeState,
+        use_app_async_runtime,
+    )
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
@@ -106,6 +112,71 @@ def get_activities() -> list[Callable]:
     return activities
 
 
+async def _watch_app_async_runtime(
+    app_runtime: AppAsyncRuntime,
+    shutdown_event: asyncio.Event,
+    *,
+    interval_seconds: float,
+) -> None:
+    """Shut the worker down if it loses the app I/O runtime.
+
+    Every activity that touches blob storage depends on that runtime, so a dead
+    runtime would otherwise leave this process consuming task slots while
+    failing every storage activity. Request a graceful shutdown instead and let
+    the orchestrator restart the worker.
+    """
+    while not shutdown_event.is_set():
+        state = app_runtime.state
+        # Normal shutdown sets shutdown_event and cancels this task before the
+        # runtime enters STOPPING. Any non-RUNNING state here is unexpected.
+        if state is not AppAsyncRuntimeState.RUNNING:
+            logger.critical(
+                "App async runtime is no longer running; shutting down worker",
+                app_runtime_state=state.value,
+            )
+            shutdown_event.set()
+            return
+        try:
+            async with asyncio.timeout(interval_seconds):
+                await shutdown_event.wait()
+        except TimeoutError:
+            continue
+
+
+@asynccontextmanager
+async def _app_async_runtime_lifespan(
+    shutdown_event: asyncio.Event,
+    *,
+    watchdog_interval_seconds: float,
+) -> AsyncIterator[AppAsyncRuntime]:
+    """Own the worker's application runtime and its watchdog."""
+    app_runtime = AppAsyncRuntime(
+        name="tracecat-worker-app-io",
+        loop_factory=uvloop.new_event_loop,
+    )
+    app_runtime.start()
+    try:
+        with use_app_async_runtime(app_runtime):
+            runtime_watchdog = asyncio.create_task(
+                _watch_app_async_runtime(
+                    app_runtime,
+                    shutdown_event,
+                    interval_seconds=watchdog_interval_seconds,
+                ),
+                name="app-async-runtime-watchdog",
+            )
+            try:
+                yield app_runtime
+            finally:
+                runtime_watchdog.cancel()
+                try:
+                    await runtime_watchdog
+                except asyncio.CancelledError:
+                    pass
+    finally:
+        await app_runtime.aclose(cleanup=close_storage_client_cache)
+
+
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
@@ -162,44 +233,39 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
         )
 
-    app_runtime = AppAsyncRuntime(
-        name="tracecat-worker-app-io",
-        loop_factory=uvloop.new_event_loop,
-    )
-    app_runtime.start()
-    try:
-        with use_app_async_runtime(app_runtime):
-            with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-                workflows: list[type] = [DSLWorkflow]
+    async with _app_async_runtime_lifespan(
+        shutdown_event,
+        watchdog_interval_seconds=_APP_RUNTIME_WATCHDOG_INTERVAL_SECONDS,
+    ) as app_runtime:
+        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+            workflows: list[type] = [DSLWorkflow]
 
-                async with Worker(
-                    client,
-                    task_queue=os.environ.get(
-                        "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
-                    ),
-                    activities=activities,
-                    workflows=workflows,
-                    workflow_runner=new_sandbox_runner(),
-                    interceptors=interceptors,
+            async with Worker(
+                client,
+                task_queue=os.environ.get(
+                    "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
+                ),
+                activities=activities,
+                workflows=workflows,
+                workflow_runner=new_sandbox_runner(),
+                interceptors=interceptors,
+                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                activity_executor=executor,
+                max_concurrent_activities=max_concurrent_activities,
+                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                graceful_shutdown_timeout=timedelta(seconds=30),
+            ):
+                logger.info(
+                    "Worker started, ctrl+c to exit",
                     disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                    activity_executor=executor,
+                    threadpool_max_workers=threadpool_max_workers,
                     max_concurrent_activities=max_concurrent_activities,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                    graceful_shutdown_timeout=timedelta(seconds=30),
-                ):
-                    logger.info(
-                        "Worker started, ctrl+c to exit",
-                        disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                        threadpool_max_workers=threadpool_max_workers,
-                        max_concurrent_activities=max_concurrent_activities,
-                        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                        app_io_thread_id=app_runtime.thread_id,
-                    )
-                    await shutdown_event.wait()
-                    logger.info("Worker shutdown requested")
-                logger.info("Temporal Worker context exited")
-    finally:
-        await app_runtime.aclose(cleanup=close_storage_client_cache)
+                    app_io_thread_id=app_runtime.thread_id,
+                )
+                await shutdown_event.wait()
+                logger.info("Worker shutdown requested")
+            logger.info("Temporal Worker context exited")
 
 
 if __name__ == "__main__":

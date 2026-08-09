@@ -153,6 +153,14 @@ class AppAsyncRuntime:
                 self._thread_id = threading.get_ident()
             loop.call_soon(self._mark_running)
             loop.run_forever()
+            with self._lock:
+                stopping = self._state is AppAsyncRuntimeState.STOPPING
+            if not stopping:
+                # Only close() stops the loop on purpose. Anything else means
+                # the runtime silently lost its I/O loop and must report it.
+                self._record_failure(
+                    RuntimeError("App async runtime loop stopped outside close()")
+                )
         except BaseException as exc:
             self._record_failure(exc)
             self._ready.set()
@@ -281,6 +289,16 @@ class AppAsyncRuntime:
                     # instead of being mistaken for this bridge's poll tick.
                     if future.done():
                         return future.result()
+                    with self._lock:
+                        state = self._state
+                        failure = self._failure
+                    if state in (
+                        AppAsyncRuntimeState.FAILED,
+                        AppAsyncRuntimeState.STOPPED,
+                    ):
+                        raise RuntimeError(
+                            "App async runtime stopped while a submission was pending"
+                        ) from failure
         except BaseException:
             future.cancel()
             raise
@@ -306,7 +324,9 @@ class AppAsyncRuntime:
         timeout: float = 30.0,
     ) -> None:
         """Stop intake, drain submissions, clean up, and join the loop thread."""
-        if threading.get_ident() == self.thread_id:
+        with self._lock:
+            runtime_thread = self._thread
+        if threading.current_thread() is runtime_thread:
             raise RuntimeError("App async runtime cannot close from its own thread")
 
         with self._close_lock:
@@ -330,21 +350,35 @@ class AppAsyncRuntime:
                 raise RuntimeError("App async runtime cannot close while starting")
             if self._state is AppAsyncRuntimeState.RUNNING:
                 self._state = AppAsyncRuntimeState.STOPPING
+            # A failed runtime has already lost its loop, so draining and
+            # loop-owned cleanup are impossible; only join and report.
+            failed = self._state is AppAsyncRuntimeState.FAILED
             loop = self._loop
             thread = self._thread
             pending = list(self._pending)
 
         cleanup_error: BaseException | None = None
         try:
-            if pending:
+            if failed:
+                # There is no live loop left to finish accepted submissions.
+                # Cancel their thread-safe Futures so blocked callers wake up,
+                # then join the owner thread and report the original failure.
+                for future in pending:
+                    future.cancel()
+            elif pending:
                 wait(pending)
-            if loop is not None and loop.is_running():
+            if not failed and loop is not None and loop.is_running():
                 drain_future = self._submit(
                     self._drain_loop_tasks(),
                     allow_stopping=True,
                 )
                 drain_future.result()
-            if cleanup is not None and loop is not None and loop.is_running():
+            if (
+                not failed
+                and cleanup is not None
+                and loop is not None
+                and loop.is_running()
+            ):
                 cleanup_future = self._submit(cleanup(), allow_stopping=True)
                 cleanup_future.result()
         except BaseException as exc:
