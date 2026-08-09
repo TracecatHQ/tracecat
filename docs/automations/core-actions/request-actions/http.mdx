@@ -186,25 +186,26 @@ Perform a HTTP request to a given URL with optional polling.
 `poll_condition` receives a response with `data`, `status_code`, and
 `headers`. The action stops polling when the lambda returns `True`.
 
-Prefer a negative condition that stops polling when the API leaves an
-active state:
+Prefer `!=` over a single success check when the API has exactly one
+nonterminal state. Default a missing status to that state so a transient
+response does not stop polling:
 
 ```python
-lambda response: response["data"].get("status") != "processing"
+lambda response: response["data"].get("status", "processing") != "processing"
 ```
 
-This handles success, failure, cancellation, and unexpected terminal
-states. A positive condition such as `status == "completed"` can keep
-polling if the API stops in another state.
+This stops on failures and cancellations that a positive
+`status == "completed"` check would miss.
 
-Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
-condition never matches.
-
-If the API documents every terminal state, use `in` to match them:
+If the API also uses nonterminal states such as `queued` or `pending`,
+list its terminal states with `in`:
 
 ```python
 lambda response: response["data"].get("status") in ["completed", "failed", "cancelled"]
 ```
+
+Keep `poll_max_attempts` above `0` to prevent indefinite polling if the
+condition never matches.
 
 Stop on an HTTP status code:
 
@@ -347,7 +348,7 @@ Default: `true`.
 
 ### Examples
 
-**Poll until complete**
+**Poll until terminal status**
 
 ```yaml
 - ref: wait_for_export
@@ -359,7 +360,7 @@ Default: `true`.
       Authorization: Bearer ${{ SECRETS.exports.API_TOKEN }}
     poll_interval: 5
     poll_max_attempts: 24
-    poll_condition: "lambda response: response['data'].get('status') != 'processing'"
+    poll_condition: "lambda response: response['data'].get('status') in ['completed', 'failed', 'cancelled']"
 ```
 
 ## `core.http_paginate`
