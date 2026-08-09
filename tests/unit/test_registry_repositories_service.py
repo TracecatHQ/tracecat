@@ -13,7 +13,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import RegistryNotFound, ScopeDeniedError
-from tracecat.registry.actions.service import RepositorySyncOutcome
+from tracecat.registry.actions.types import RepositorySyncOutcome
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.ssh import SshEnv

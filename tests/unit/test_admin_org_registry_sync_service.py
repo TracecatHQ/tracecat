@@ -12,7 +12,7 @@ from tracecat_ee.admin.organizations.service import AdminOrgService
 
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import RegistryRepository
-from tracecat.registry.actions.service import RepositorySyncOutcome
+from tracecat.registry.actions.types import RepositorySyncOutcome
 from tracecat.ssh import SshEnv
 
 

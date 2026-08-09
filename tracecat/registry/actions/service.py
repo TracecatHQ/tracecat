@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
@@ -65,7 +64,11 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )
-from tracecat.registry.actions.types import IndexedActionResult, IndexEntry
+from tracecat.registry.actions.types import (
+    IndexedActionResult,
+    IndexEntry,
+    RepositorySyncOutcome,
+)
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.loaders import (
     LoaderMode,
@@ -83,12 +86,6 @@ from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
-
-
-@dataclass(frozen=True, slots=True)
-class RepositorySyncOutcome:
-    commit_sha: str | None
-    version: str | None
 
 
 # NamedTuple types for UNION ALL query results.
