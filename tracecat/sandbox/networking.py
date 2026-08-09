@@ -281,11 +281,11 @@ def build_sandbox_dns_config(
                 host_address = ip_address(address_text)
             except ValueError:
                 continue
-            if (
-                host_address.is_unspecified
-                or host_address.is_multicast
-                or host_address.is_link_local
-            ):
+            if host_address.is_unspecified or host_address.is_multicast:
+                continue
+            # Scoped IPv6 link-local resolvers require an interface identifier,
+            # which NSTUN cannot represent in its address-only policy rules.
+            if isinstance(host_address, IPv6Address) and host_address.is_link_local:
                 continue
 
             guest_address: IPAddress = host_address

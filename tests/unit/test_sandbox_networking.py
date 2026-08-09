@@ -55,6 +55,31 @@ def test_build_sandbox_dns_config_preserves_non_loopback_resolver(
     )
 
 
+def test_build_sandbox_dns_config_preserves_ipv4_link_local_resolver(
+    tmp_path: Path,
+) -> None:
+    host_resolv = tmp_path / "host-resolv.conf"
+    host_resolv.write_text("nameserver 169.254.20.10\n")
+
+    dns_config = build_sandbox_dns_config(host_resolv)
+
+    assert dns_config.resolv_conf == "nameserver 169.254.20.10\n"
+    assert dns_config.routes == (
+        SandboxDnsRoute(
+            guest_address=IPv4Address("169.254.20.10"),
+            host_address=IPv4Address("169.254.20.10"),
+        ),
+    )
+
+    config_text = "\n".join(
+        nstun_user_net_config_lines(SandboxNetworkPolicy(), dns_config.routes)
+    )
+    assert config_text.count('dst_ip: "169.254.20.10/32"') == 2
+    assert config_text.index('dst_ip: "169.254.20.10/32"') < config_text.index(
+        'dst_ip: "169.254.0.0/16"'
+    )
+
+
 def test_build_sandbox_dns_config_redirects_parent_loopback_resolvers(
     tmp_path: Path,
 ) -> None:
