@@ -86,7 +86,10 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
               {availableWorkflows.map((workflow) => (
                 <CommandItem
                   key={workflow.id}
-                  value={`${workflow.title} ${workflow.alias ?? ""}`.trim()}
+                  value={workflow.id}
+                  keywords={[
+                    `${workflow.title} ${workflow.alias ?? ""}`.trim(),
+                  ]}
                   onSelect={() => {
                     setSelectedWorkflowId(workflow.id)
                     setSelectedWorkflowTitle(workflow.title)

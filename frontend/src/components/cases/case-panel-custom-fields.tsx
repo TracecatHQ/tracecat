@@ -644,10 +644,11 @@ export function CustomFieldInner({
                           No option found
                         </CommandEmpty>
                         <CommandGroup>
-                          {options.map((option) => (
+                          {options.map((option, index) => (
                             <CommandItem
                               key={option}
-                              value={option}
+                              value={`${index}`}
+                              keywords={[option]}
                               className="text-sm"
                               onSelect={() => {
                                 field.onChange(option)
@@ -771,10 +772,11 @@ export function CustomFieldInner({
                           No option found
                         </CommandEmpty>
                         <CommandGroup>
-                          {options.map((option) => (
+                          {options.map((option, index) => (
                             <CommandItem
                               key={option}
-                              value={option}
+                              value={`${index}`}
+                              keywords={[option]}
                               className="text-sm"
                               onSelect={() => toggleOption(option)}
                             >

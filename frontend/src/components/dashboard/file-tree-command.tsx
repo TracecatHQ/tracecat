@@ -49,7 +49,7 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
       return (
         <React.Fragment key={item.path}>
           <CommandItem
-            value={item.path}
+            value={encodeURIComponent(item.path)}
             onSelect={() => {
               setSelectedItem(item.path)
               if (onSelect) {

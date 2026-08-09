@@ -272,7 +272,8 @@ function TagFilterSelect({
                 return (
                   <CommandItem
                     key={tag.id}
-                    value={`${tag.name} ${tag.ref}`}
+                    value={tag.id}
+                    keywords={[`${tag.name} ${tag.ref}`]}
                     onSelect={() => {
                       const nextValue = isSelected
                         ? value.filter((item) => item !== tag.ref)

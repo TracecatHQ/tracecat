@@ -209,12 +209,13 @@ export function FilterMultiSelect<T extends string>({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => {
+              {options.map((option, index) => {
                 const isSelected = valueSet.has(option.value)
                 return (
                   <CommandItem
                     key={option.value}
-                    value={`${option.label} ${option.value}`}
+                    value={`${index}`}
+                    keywords={[`${option.label} ${option.value}`]}
                     onSelect={() => {
                       const nextValue = isSelected
                         ? value.filter((item) => item !== option.value)

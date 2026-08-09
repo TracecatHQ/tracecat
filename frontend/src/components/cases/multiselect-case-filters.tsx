@@ -92,13 +92,14 @@ export function CaseFilterMultiSelect<T extends string>({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => {
+              {options.map((option, index) => {
                 const isSelected = valueSet.has(option.value)
                 const Icon = option.icon
                 return (
                   <CommandItem
                     key={option.value}
-                    value={`${option.label} ${option.value}`}
+                    value={`${index}`}
+                    keywords={[`${option.label} ${option.value}`]}
                     className="flex items-center gap-2 text-xs"
                     onSelect={() => {
                       const nextValue = isSelected

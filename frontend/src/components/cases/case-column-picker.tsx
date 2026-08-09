@@ -74,7 +74,8 @@ function ColumnOption({
   return (
     <CommandItem
       key={columnId}
-      value={searchValue}
+      value={columnId}
+      keywords={[searchValue]}
       onSelect={() => !isDisabled && onToggle(columnId)}
       disabled={isDisabled}
       className="text-xs"

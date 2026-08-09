@@ -381,12 +381,13 @@ function MultiSelectCellEditor({
           <CommandList>
             <CommandEmpty>No options found.</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => {
+              {options.map((option, index) => {
                 const isSelected = valueSet.has(option)
                 return (
                   <CommandItem
                     key={option}
-                    value={option}
+                    value={`${index}`}
+                    keywords={[option]}
                     className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-xs outline-none [&_svg]:size-3.5"
                     onSelect={() => {
                       const nextValue = isSelected
