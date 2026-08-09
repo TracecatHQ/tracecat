@@ -297,8 +297,8 @@ class BaseRegistrySyncService[
             git_repo_package_name: Optional package name override for git repos.
             commit: Whether to commit the transaction.
             bypass_temporal: If True, always use subprocess sync instead of Temporal
-                workflow, even when sandbox mode is enabled. Use this for platform
-                registry startup sync where Temporal may not be available yet.
+                workflow, even when executor-hosted sync is enabled. Use this for
+                platform registry startup sync where Temporal may not be available yet.
             defer_artifact_build: If True, create the registry version using the
                 deterministic artifact URI without building the artifact inline.
                 This is only safe for builtin startup sync because the current

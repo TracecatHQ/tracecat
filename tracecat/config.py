@@ -1193,26 +1193,14 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
 TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
     "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", default=True
 )
-"""Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
+"""Enable executor-hosted registry sync via Temporal.
 
-When True (default), registry sync operations run on the ExecutorWorker. When
-nsjail is available, host-key acquisition, clone, installation, discovery, and
-packaging use separate phase-specific jails. Artifact upload remains in trusted
-worker code.
-
-The ExecutorWorker retains the subprocess fallback on hosts without nsjail.
+When True (default), registry sync operations run on the ExecutorWorker.
+NsJail isolation on that worker is controlled separately by
+TRACECAT__DISABLE_NSJAIL.
 
 When False, uses the existing subprocess approach from the API service.
 """
-
-TRACECAT__REGISTRY_SYNC_SANDBOX_MODE = (
-    os.environ.get("TRACECAT__REGISTRY_SYNC_SANDBOX_MODE") or "auto"
-).lower()
-"""Registry-sync nsjail availability policy: required, auto, or off."""
-if TRACECAT__REGISTRY_SYNC_SANDBOX_MODE not in {"required", "auto", "off"}:
-    raise ValueError(
-        "TRACECAT__REGISTRY_SYNC_SANDBOX_MODE must be required, auto, or off"
-    )
 
 TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT") or 120

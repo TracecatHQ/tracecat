@@ -15,7 +15,7 @@ Security model:
 - A dedicated one-key SSH agent socket is exposed ONLY to the clone jail
 - DB credentials are NEVER passed to sandbox
 - Discovery and packaging have network disabled
-- Sandbox mode can be configured to fail closed when nsjail is unavailable
+- Enabling nsjail globally makes registry sync fail closed when it is unavailable
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import asyncio
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import aiofiles
@@ -134,7 +134,6 @@ class RegistrySyncRunner:
         install_timeout: int | None = None,
         discover_timeout: int | None = None,
         clone_timeout: int | None = None,
-        sandbox_mode: Literal["required", "auto", "off"] | None = None,
     ):
         """Initialize the runner.
 
@@ -142,7 +141,6 @@ class RegistrySyncRunner:
             install_timeout: Timeout for package installation (default from config).
             discover_timeout: Timeout for action discovery (default from config).
             clone_timeout: Timeout for Git clone operations (default from config).
-            sandbox_mode: NsJail availability policy (default from config).
         """
         self.install_timeout = (
             install_timeout or config.TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT
@@ -153,15 +151,11 @@ class RegistrySyncRunner:
         self.clone_timeout = (
             clone_timeout or config.TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT
         )
-        self.sandbox_mode = sandbox_mode or config.TRACECAT__REGISTRY_SYNC_SANDBOX_MODE
-        nsjail_available = is_nsjail_available()
-        self._sandbox = (
-            RegistrySyncSandbox()
-            if self.sandbox_mode != "off" and nsjail_available
-            else None
-        )
-        self._sandbox_required_but_unavailable = (
-            self.sandbox_mode == "required" and not nsjail_available
+        self._nsjail_disabled = config.TRACECAT__DISABLE_NSJAIL
+        nsjail_available = not self._nsjail_disabled and is_nsjail_available()
+        self._sandbox = RegistrySyncSandbox() if nsjail_available else None
+        self._nsjail_enabled_but_unavailable = (
+            not self._nsjail_disabled and not nsjail_available
         )
 
     async def run(self, request: RegistrySyncRequest) -> RegistrySyncResult:
@@ -176,7 +170,7 @@ class RegistrySyncRunner:
         Raises:
             RegistrySyncRunnerError: If any phase fails.
         """
-        if self._sandbox_required_but_unavailable:
+        if self._nsjail_enabled_but_unavailable:
             raise RegistrySyncRunnerError(
                 "Registry sync requires nsjail, but nsjail is unavailable on this "
                 "ExecutorWorker"
@@ -228,9 +222,9 @@ class RegistrySyncRunner:
                             ) from exc
                     else:
                         logger.warning(
-                            "NsJail is disabled or unavailable; registry Git clone is "
+                            "NsJail is explicitly disabled; registry Git clone is "
                             "not sandboxed",
-                            sandbox_mode=self.sandbox_mode,
+                            disable_nsjail=self._nsjail_disabled,
                         )
                         package_path, commit_sha = await self._clone_repository(
                             git_url=request.git_url,
@@ -583,9 +577,9 @@ class RegistrySyncRunner:
             )
 
         logger.warning(
-            "NsJail is disabled or unavailable; registry package installation is "
-            "not sandboxed",
-            sandbox_mode=self.sandbox_mode,
+            "NsJail is explicitly disabled; registry package installation is not "
+            "sandboxed",
+            disable_nsjail=self._nsjail_disabled,
         )
         return await build_artifact_from_path(package_path, output_dir)
 
@@ -623,8 +617,8 @@ class RegistrySyncRunner:
     ]:
         """Discover actions from the repository.
 
-        This uses NsJail without network when available and retains the legacy
-        subprocess path for environments that cannot run NsJail.
+        This uses NsJail without network when nsjail is enabled globally and
+        retains the legacy subprocess path when nsjail is explicitly disabled.
 
         Args:
             repository_id: Database repository ID.
@@ -659,9 +653,9 @@ class RegistrySyncRunner:
                 return result.actions, result.validation_errors
 
             logger.warning(
-                "NsJail is disabled or unavailable; registry action discovery is "
-                "not sandboxed",
-                sandbox_mode=self.sandbox_mode,
+                "NsJail is explicitly disabled; registry action discovery is not "
+                "sandboxed",
+                disable_nsjail=self._nsjail_disabled,
             )
             result = await fetch_actions_from_subprocess(
                 origin=origin,

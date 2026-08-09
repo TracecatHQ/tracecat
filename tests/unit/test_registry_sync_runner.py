@@ -116,7 +116,7 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     tmp_path,
     mocker,
 ) -> None:
-    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner = RegistrySyncRunner()
     organization_id = uuid4()
     request = RegistrySyncRequest(
         repository_id=uuid4(),
@@ -203,7 +203,7 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
         install_package=mocker.AsyncMock(return_value=installed_site_packages),
         package_site_packages=mocker.AsyncMock(return_value=artifact_result),
     )
-    runner = RegistrySyncRunner(clone_timeout=75, sandbox_mode="off")
+    runner = RegistrySyncRunner(clone_timeout=75)
     runner._sandbox = sandbox
     fetch_key = mocker.patch.object(
         runner,
@@ -267,14 +267,15 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
 
 
 @pytest.mark.anyio
-async def test_runner_required_mode_fails_closed_without_nsjail(
+async def test_runner_fails_closed_when_nsjail_enabled_but_unavailable(
     mocker,
 ) -> None:
+    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
     mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=False,
     )
-    runner = RegistrySyncRunner(sandbox_mode="required")
+    runner = RegistrySyncRunner()
     request = RegistrySyncRequest(
         repository_id=uuid4(),
         origin="tracecat_registry",
@@ -285,8 +286,9 @@ async def test_runner_required_mode_fails_closed_without_nsjail(
         await runner.run(request)
 
 
-def test_runner_auto_mode_selects_nsjail_when_available(mocker) -> None:
+def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
     sandbox = mocker.Mock()
+    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
     mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=True,
@@ -296,15 +298,30 @@ def test_runner_auto_mode_selects_nsjail_when_available(mocker) -> None:
         return_value=sandbox,
     )
 
-    runner = RegistrySyncRunner(sandbox_mode="auto")
+    runner = RegistrySyncRunner()
 
     assert runner._sandbox is sandbox
     sandbox_cls.assert_called_once_with()
 
 
+def test_runner_skips_nsjail_when_explicitly_disabled(mocker) -> None:
+    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", True)
+    availability_check = mocker.patch(
+        "tracecat.registry.sync.runner.is_nsjail_available",
+        return_value=False,
+    )
+    sandbox_cls = mocker.patch("tracecat.registry.sync.runner.RegistrySyncSandbox")
+
+    runner = RegistrySyncRunner()
+
+    assert runner._sandbox is None
+    availability_check.assert_not_called()
+    sandbox_cls.assert_not_called()
+
+
 @pytest.mark.anyio
 async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
-    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner = RegistrySyncRunner()
     runner._sandbox = mocker.Mock(
         clone_repository=mocker.AsyncMock(
             side_effect=RegistryError("host key verification failed")
@@ -353,7 +370,7 @@ async def test_runner_decreases_privileges_across_sandbox_phases(
         events.append("upload")
         return "s3://registry/site-packages.squashfs"
 
-    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner = RegistrySyncRunner()
     runner._sandbox = mocker.Mock(
         install_package=mocker.AsyncMock(side_effect=install_package),
         package_site_packages=mocker.AsyncMock(side_effect=package_site_packages),
@@ -398,7 +415,7 @@ async def test_runner_does_not_package_invalid_sandbox_discovery(
         loc_secondary=None,
     )
     package_site_packages = mocker.AsyncMock()
-    runner = RegistrySyncRunner(sandbox_mode="off")
+    runner = RegistrySyncRunner()
     runner._sandbox = mocker.Mock(
         install_package=mocker.AsyncMock(return_value=installed_site_packages),
         package_site_packages=package_site_packages,
