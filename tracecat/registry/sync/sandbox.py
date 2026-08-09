@@ -238,6 +238,31 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_installed_site_packages(site_packages: Path) -> None:
+    """Reject installer-controlled symlinks before binding output into a new jail."""
+    install_root = site_packages.parent.parent
+    if (
+        install_root.name != "sandbox-install"
+        or site_packages.parent.name != "cache"
+        or site_packages.name != "site-packages"
+    ):
+        raise RegistryArtifactBuildError(
+            "Installed site-packages path is outside the expected sandbox layout"
+        )
+
+    for component in (install_root, site_packages.parent, site_packages):
+        try:
+            mode = component.lstat().st_mode
+        except OSError as exc:
+            raise RegistryArtifactBuildError(
+                "Installed site-packages path contains a missing or inaccessible component"
+            ) from exc
+        if not stat.S_ISDIR(mode):
+            raise RegistryArtifactBuildError(
+                "Installed site-packages path contains an unsafe component"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class _ValidatedGitSshTarget:
     """Validated connection data shared by keyscan and SSH-agent constraints."""
@@ -555,6 +580,7 @@ class RegistrySyncSandbox:
             raise RegistryArtifactBuildError(
                 f"Sandboxed registry package installation failed: {detail[:2000]}"
             )
+        _validate_installed_site_packages(site_packages)
         return site_packages
 
     async def package_site_packages(
@@ -569,10 +595,7 @@ class RegistrySyncSandbox:
             raise RegistryArtifactBuildError(
                 "Cannot build registry artifact because SquashFS is disabled"
             )
-        if not site_packages.is_dir() or site_packages.is_symlink():
-            raise RegistryArtifactBuildError(
-                f"Installed site-packages directory does not exist: {site_packages}"
-            )
+        _validate_installed_site_packages(site_packages)
         if not _SQUASHFS_MEMORY_PATTERN.fullmatch(
             config.TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM
         ):
@@ -654,6 +677,7 @@ class RegistrySyncSandbox:
         timeout_seconds: int,
     ) -> SyncResultSuccess:
         """Import and serialize installed registry actions without network access."""
+        _validate_installed_site_packages(site_packages)
         # The install jail can write throughout its /work mount. Keep trusted
         # discovery scripts in a fresh host-created directory that was never
         # exposed to the untrusted installer, preventing pre-planted symlinks.

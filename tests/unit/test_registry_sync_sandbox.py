@@ -9,7 +9,10 @@ from uuid import uuid4
 import pytest
 
 from tracecat.exceptions import RegistryError
-from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryArtifactBuildResult,
+)
 from tracecat.registry.sync.sandbox import RegistrySyncSandbox
 from tracecat.registry.sync.schemas import SyncResultError, SyncResultSuccess
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -332,8 +335,8 @@ async def test_registry_packaging_runs_in_fresh_no_network_jail(
     tmp_path: Path,
     mocker,
 ) -> None:
-    site_packages = tmp_path / "site-packages"
-    site_packages.mkdir()
+    site_packages = tmp_path / "sandbox-install" / "cache" / "site-packages"
+    site_packages.mkdir(parents=True)
     (site_packages / "untrusted.py").write_text("VALUE = 1\n")
     output_dir = tmp_path / "output"
 
@@ -516,6 +519,44 @@ async def test_registry_discovery_ignores_installer_planted_symlinks(
     assert (old_job_dir / "script.py").is_symlink()
     assert len(discovery_job_dirs) == 1
     assert not discovery_job_dirs[0].exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("symlinked_component", ["cache", "site-packages"])
+async def test_registry_discovery_rejects_symlinked_installation_components(
+    tmp_path: Path,
+    mocker,
+    symlinked_component: str,
+) -> None:
+    install_root = tmp_path / "sandbox-install"
+    cache_dir = install_root / "cache"
+    site_packages = cache_dir / "site-packages"
+    executor_owned_dir = tmp_path / "executor-owned"
+    executor_owned_dir.mkdir()
+
+    install_root.mkdir()
+    if symlinked_component == "cache":
+        (executor_owned_dir / "site-packages").mkdir()
+        cache_dir.symlink_to(executor_owned_dir, target_is_directory=True)
+    else:
+        cache_dir.mkdir()
+        site_packages.symlink_to(executor_owned_dir, target_is_directory=True)
+
+    executor_cls = mocker.patch("tracecat.registry.sync.sandbox.NsjailExecutor")
+
+    with pytest.raises(RegistryArtifactBuildError, match="unsafe component"):
+        await RegistrySyncSandbox().discover_actions(
+            site_packages=site_packages,
+            origin="tracecat_registry",
+            package_name="tracecat_registry",
+            repository_id=uuid4(),
+            commit_sha=None,
+            validate=True,
+            organization_id=None,
+            timeout_seconds=45,
+        )
+
+    executor_cls.assert_not_called()
 
 
 @pytest.mark.anyio
