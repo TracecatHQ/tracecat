@@ -309,6 +309,54 @@ async def test_app_async_runtime_drains_cancelled_task_before_cleanup() -> None:
     assert runtime.health.pending_submissions == 0
 
 
+@pytest.mark.anyio
+async def test_app_async_runtime_close_timeout_bounds_cancelled_finalizer() -> None:
+    """One shutdown deadline bounds draining, cleanup, and thread joining."""
+    runtime = AppAsyncRuntime(name="test-app-io")
+    started = threading.Event()
+    finalizing = threading.Event()
+    release_finalizer = threading.Event()
+    cleanup_called = threading.Event()
+
+    async def cancellable_work() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            finalizing.set()
+            await asyncio.to_thread(release_finalizer.wait)
+
+    async def cleanup() -> None:
+        cleanup_called.set()
+
+    runtime.start()
+    runtime_thread = runtime._thread
+    assert runtime_thread is not None
+    caller_task = asyncio.create_task(runtime.run_async(cancellable_work()))
+    assert await asyncio.to_thread(started.wait, 5)
+    caller_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller_task
+    assert await asyncio.to_thread(finalizing.wait, 5)
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="did not stop within 0.05 seconds",
+        ) as exc_info:
+            await asyncio.wait_for(
+                runtime.aclose(cleanup=cleanup, timeout=0.05),
+                timeout=1,
+            )
+        assert isinstance(exc_info.value.__cause__, TimeoutError)
+        assert cleanup_called.is_set() is False
+    finally:
+        release_finalizer.set()
+        await asyncio.to_thread(runtime_thread.join, 5)
+
+    assert runtime_thread.is_alive() is False
+
+
 def test_app_async_runtime_sync_interruption_cancels_submitted_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

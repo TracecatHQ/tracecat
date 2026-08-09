@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import wraps
+from time import monotonic
 from typing import Any
 
 
@@ -340,6 +341,8 @@ class AppAsyncRuntime:
     ) -> None:
         """Serialize close calls while performing ordered loop shutdown."""
 
+        deadline = monotonic() + timeout
+
         with self._lock:
             if self._state is AppAsyncRuntimeState.NEW:
                 self._state = AppAsyncRuntimeState.STOPPED
@@ -357,7 +360,8 @@ class AppAsyncRuntime:
             thread = self._thread
             pending = list(self._pending)
 
-        cleanup_error: BaseException | None = None
+        shutdown_error: BaseException | None = None
+        shutdown_futures: list[Future[Any]] = []
         try:
             if failed:
                 # There is no live loop left to finish accepted submissions.
@@ -366,13 +370,22 @@ class AppAsyncRuntime:
                 for future in pending:
                     future.cancel()
             elif pending:
-                wait(pending)
+                _, incomplete = wait(
+                    pending,
+                    timeout=max(0.0, deadline - monotonic()),
+                )
+                if incomplete:
+                    raise TimeoutError(
+                        "App async runtime timed out while draining "
+                        f"{len(incomplete)} accepted submission(s)"
+                    )
             if not failed and loop is not None and loop.is_running():
                 drain_future = self._submit(
                     self._drain_loop_tasks(),
                     allow_stopping=True,
                 )
-                drain_future.result()
+                shutdown_futures.append(drain_future)
+                drain_future.result(timeout=max(0.0, deadline - monotonic()))
             if (
                 not failed
                 and cleanup is not None
@@ -380,21 +393,30 @@ class AppAsyncRuntime:
                 and loop.is_running()
             ):
                 cleanup_future = self._submit(cleanup(), allow_stopping=True)
-                cleanup_future.result()
+                shutdown_futures.append(cleanup_future)
+                cleanup_future.result(timeout=max(0.0, deadline - monotonic()))
         except BaseException as exc:
-            cleanup_error = exc
+            shutdown_error = exc
         finally:
+            # Cancel every stage that could not finish within the shared
+            # deadline before asking the owning loop to stop.
+            for future in (*pending, *shutdown_futures):
+                if not future.done():
+                    future.cancel()
             if loop is not None and loop.is_running():
                 loop.call_soon_threadsafe(loop.stop)
             if thread is not None:
-                thread.join(timeout=timeout)
+                thread.join(timeout=max(0.0, deadline - monotonic()))
 
         if thread is not None and thread.is_alive():
-            raise RuntimeError(
+            thread_error = RuntimeError(
                 f"App async runtime thread did not stop within {timeout} seconds"
             )
-        if cleanup_error is not None:
-            raise cleanup_error
+            if shutdown_error is not None:
+                raise thread_error from shutdown_error
+            raise thread_error
+        if shutdown_error is not None:
+            raise shutdown_error
         with self._lock:
             failure = self._failure
         if failure is not None:
