@@ -832,6 +832,9 @@ class AdminOrgService(BasePlatformService):
         is_git_ssh = repo.origin.startswith("git+ssh://")
 
         if is_git_ssh:
+            git_repo_package_name = await get_setting(
+                "git_repo_package_name", role=org_role
+            )
             allowed_domains_setting = await get_setting(
                 "git_allowed_domains", role=org_role
             )
@@ -842,7 +845,9 @@ class AdminOrgService(BasePlatformService):
                 role=org_role, git_url=git_url, session=self.session
             ) as ssh_env:
                 sync_outcome = await actions_service.sync_actions_from_repository(
-                    repo, ssh_env=ssh_env
+                    repo,
+                    git_repo_package_name=git_repo_package_name,
+                    ssh_env=ssh_env,
                 )
         else:
             sync_outcome = await actions_service.sync_actions_from_repository(repo)
