@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.async_runtime import AppAsyncRuntime, use_app_async_runtime
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
@@ -161,37 +162,44 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
         )
 
+    app_runtime = AppAsyncRuntime(
+        name="tracecat-worker-app-io",
+        loop_factory=uvloop.new_event_loop,
+    )
+    app_runtime.start()
     try:
-        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DSLWorkflow]
+        with use_app_async_runtime(app_runtime):
+            with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+                workflows: list[type] = [DSLWorkflow]
 
-            async with Worker(
-                client,
-                task_queue=os.environ.get(
-                    "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
-                ),
-                activities=activities,
-                workflows=workflows,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
-                max_concurrent_activities=max_concurrent_activities,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                graceful_shutdown_timeout=timedelta(seconds=30),
-            ):
-                logger.info(
-                    "Worker started, ctrl+c to exit",
+                async with Worker(
+                    client,
+                    task_queue=os.environ.get(
+                        "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
+                    ),
+                    activities=activities,
+                    workflows=workflows,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
                     disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                    threadpool_max_workers=threadpool_max_workers,
+                    activity_executor=executor,
                     max_concurrent_activities=max_concurrent_activities,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                )
-                await shutdown_event.wait()
-                logger.info("Worker shutdown requested")
-            logger.info("Temporal Worker context exited")
+                    graceful_shutdown_timeout=timedelta(seconds=30),
+                ):
+                    logger.info(
+                        "Worker started, ctrl+c to exit",
+                        disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                        threadpool_max_workers=threadpool_max_workers,
+                        max_concurrent_activities=max_concurrent_activities,
+                        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                        app_io_thread_id=app_runtime.thread_id,
+                    )
+                    await shutdown_event.wait()
+                    logger.info("Worker shutdown requested")
+                logger.info("Temporal Worker context exited")
     finally:
-        await close_storage_client_cache()
+        await app_runtime.aclose(cleanup=close_storage_client_cache)
 
 
 if __name__ == "__main__":

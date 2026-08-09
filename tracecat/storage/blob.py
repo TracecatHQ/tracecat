@@ -20,7 +20,9 @@ from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 
 from tracecat import config
+from tracecat.async_runtime import run_on_app_async_runtime
 from tracecat.logger import logger
+from tracecat.storage.transport import is_retryable_storage_transport_error
 
 if TYPE_CHECKING:
     from aiobotocore.response import StreamingBody
@@ -35,11 +37,13 @@ DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_MAX_CONCURRENCY = 4
 DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE = 2
+STORAGE_CLIENT_MAX_POOL_CONNECTIONS = 10
 
 # Shared S3/MinIO client config: explicit standard-mode retries so transient
 # failures (throttling, 5xx, connection resets) are retried with backoff instead
 # of surfacing on the first error.
 _STORAGE_CLIENT_CONFIG = AioConfig(
+    max_pool_connections=STORAGE_CLIENT_MAX_POOL_CONNECTIONS,
     retries={
         # botocore's "max_attempts" means retries-after-initial; use
         # "total_max_attempts" so the knob is the total request count.
@@ -49,13 +53,28 @@ _STORAGE_CLIENT_CONFIG = AioConfig(
 )
 
 
-@dataclass
+@dataclass(eq=False, slots=True, weakref_slot=True)
 class _StorageClientEntry:
     context: AbstractAsyncContextManager[S3Client] | None = field(
         default=None, repr=False
     )
     client: S3Client | None = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    idle: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    active_users: int = 0
+    closing: bool = False
+
+    def __post_init__(self) -> None:
+        self.idle.set()
+
+
+@dataclass(frozen=True, slots=True)
+class StorageClientCacheHealth:
+    """Thread-safe storage-client ownership snapshot."""
+
+    loop_count: int
+    entered_client_count: int
+    active_user_count: int
 
 
 # aiobotocore clients own the aiohttp ClientSession/TCPConnector that opens file
@@ -65,6 +84,7 @@ class _StorageClientEntry:
 _STORAGE_CLIENTS: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, _StorageClientEntry
 ] = weakref.WeakKeyDictionary()
+_STORAGE_CLIENT_ENTRIES: weakref.WeakSet[_StorageClientEntry] = weakref.WeakSet()
 _STORAGE_CLIENT_CLOSE_HOOK_LOOPS: weakref.WeakSet[asyncio.AbstractEventLoop] = (
     weakref.WeakSet()
 )
@@ -94,28 +114,52 @@ def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
     return session.client("s3", config=_STORAGE_CLIENT_CONFIG)
 
 
-async def _get_storage_client() -> S3Client:
+async def _acquire_storage_client() -> tuple[_StorageClientEntry, S3Client]:
     loop = asyncio.get_running_loop()
-    with _STORAGE_CLIENTS_LOCK:
-        entry = _STORAGE_CLIENTS.get(loop)
-        if entry is None:
-            entry = _StorageClientEntry()
-            _STORAGE_CLIENTS[loop] = entry
-            _ensure_storage_client_loop_close_hook(loop)
+    while True:
+        with _STORAGE_CLIENTS_LOCK:
+            entry = _STORAGE_CLIENTS.get(loop)
+            if entry is None:
+                entry = _StorageClientEntry()
+                _STORAGE_CLIENTS[loop] = entry
+                _STORAGE_CLIENT_ENTRIES.add(entry)
+                _ensure_storage_client_loop_close_hook(loop)
 
-    async with entry.lock:
-        client = entry.client
-        if client is None:
-            context = _create_storage_client_context()
-            try:
-                client = await context.__aenter__()
-            except Exception:
-                entry.context = None
-                entry.client = None
-                raise
-            entry.context = context
-            entry.client = client
-        return client
+        async with entry.lock:
+            # Invalidation removes an entry before waiting for its active users.
+            # A caller that captured that entry just before removal must retry
+            # against the replacement instead of acquiring a closing client.
+            if entry.closing:
+                continue
+            client = entry.client
+            if client is None:
+                context = _create_storage_client_context()
+                try:
+                    client = await context.__aenter__()
+                except Exception:
+                    with _STORAGE_CLIENTS_LOCK:
+                        entry.context = None
+                        entry.client = None
+                    raise
+                with _STORAGE_CLIENTS_LOCK:
+                    entry.context = context
+                    entry.client = client
+            with _STORAGE_CLIENTS_LOCK:
+                entry.active_users += 1
+                entry.idle.clear()
+            return entry, client
+
+
+def _release_storage_client(entry: _StorageClientEntry) -> None:
+    # Every entry is owned by one event loop, so release is deliberately
+    # synchronous. A second cancellation cannot interrupt lease accounting and
+    # leave shutdown waiting forever for an already-exited operation.
+    with _STORAGE_CLIENTS_LOCK:
+        entry.active_users -= 1
+        if entry.active_users < 0:
+            raise RuntimeError("Storage client active-user count became negative")
+        if entry.active_users == 0:
+            entry.idle.set()
 
 
 def clear_storage_session_cache() -> None:
@@ -129,10 +173,29 @@ def clear_storage_session_cache() -> None:
         _STORAGE_CLIENTS.clear()
 
 
+def storage_client_cache_health() -> StorageClientCacheHealth:
+    """Return the number of owning loops and entered storage clients."""
+    with _STORAGE_CLIENTS_LOCK:
+        loop_count = len(_STORAGE_CLIENTS)
+        entries = list(_STORAGE_CLIENT_ENTRIES)
+    return StorageClientCacheHealth(
+        loop_count=loop_count,
+        entered_client_count=sum(entry.client is not None for entry in entries),
+        active_user_count=sum(entry.active_users for entry in entries),
+    )
+
+
 def _pop_storage_client_entries_for_loop_shutdown(
     loop: asyncio.AbstractEventLoop,
+    *,
+    expected_entry: _StorageClientEntry | None = None,
 ) -> list[_StorageClientEntry]:
     with _STORAGE_CLIENTS_LOCK:
+        if (
+            expected_entry is not None
+            and _STORAGE_CLIENTS.get(loop) is not expected_entry
+        ):
+            return []
         entry = _STORAGE_CLIENTS.pop(loop, None)
     return [entry] if entry is not None else []
 
@@ -153,11 +216,16 @@ def _pop_storage_client_entries_for_cache_shutdown(
 
 async def _close_storage_client_entry(entry: _StorageClientEntry) -> None:
     async with entry.lock:
-        context = entry.context
-        entry.context = None
-        entry.client = None
+        entry.closing = True
+    await entry.idle.wait()
+    async with entry.lock:
+        with _STORAGE_CLIENTS_LOCK:
+            context = entry.context
         if context is not None:
             await context.__aexit__(None, None, None)
+        with _STORAGE_CLIENTS_LOCK:
+            entry.context = None
+            entry.client = None
 
 
 async def _close_storage_client_entries(
@@ -204,6 +272,29 @@ async def close_storage_client_cache() -> None:
     await _close_storage_client_entries(entries)
 
 
+async def _invalidate_storage_client_for_current_loop(
+    *,
+    expected_entry: _StorageClientEntry | None = None,
+) -> None:
+    loop = asyncio.get_running_loop()
+    entries = _pop_storage_client_entries_for_loop_shutdown(
+        loop,
+        expected_entry=expected_entry,
+    )
+    await _close_storage_client_entries(entries)
+
+
+@run_on_app_async_runtime
+async def invalidate_storage_client() -> None:
+    """Discard the current loop's client after a transport failure.
+
+    The next storage operation creates and enters a fresh client on the same
+    owning loop. This must execute on the app runtime when one is installed so
+    a caller never tries to close a client owned by another event loop.
+    """
+    await _invalidate_storage_client_for_current_loop()
+
+
 @asynccontextmanager
 async def get_storage_client() -> AsyncIterator[S3Client]:
     """Get a configured S3 client for either AWS S3.
@@ -211,9 +302,28 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
     Yields:
         Configured aioboto3 S3 client
     """
-    yield await _get_storage_client()
+    entry, client = await _acquire_storage_client()
+    transport_failed = False
+    try:
+        yield client
+    except Exception as exc:
+        # Only transport failures retire the connector; S3 service responses
+        # and application errors leave the healthy client reusable.
+        transport_failed = is_retryable_storage_transport_error(exc)
+        raise
+    finally:
+        _release_storage_client(entry)
+        if transport_failed:
+            try:
+                await _invalidate_storage_client_for_current_loop(expected_entry=entry)
+            except Exception as close_error:
+                logger.warning(
+                    "Failed to invalidate storage client after transport error",
+                    error=close_error,
+                )
 
 
+@run_on_app_async_runtime
 async def ensure_bucket_exists(bucket: str) -> None:
     """Ensure the storage bucket exists, creating it if necessary.
 
@@ -248,6 +358,7 @@ async def ensure_bucket_exists(bucket: str) -> None:
                 raise
 
 
+@run_on_app_async_runtime
 async def get_bucket_lifecycle(
     bucket: str,
 ) -> GetBucketLifecycleConfigurationOutputTypeDef | None:
@@ -277,6 +388,7 @@ async def get_bucket_lifecycle(
             raise
 
 
+@run_on_app_async_runtime
 async def configure_bucket_lifecycle(
     bucket: str,
     expiration_days: int,
@@ -346,6 +458,7 @@ async def configure_bucket_lifecycle(
             raise
 
 
+@run_on_app_async_runtime
 async def generate_presigned_download_url(
     key: str,
     bucket: str,
@@ -409,6 +522,7 @@ async def generate_presigned_download_url(
             raise
 
 
+@run_on_app_async_runtime
 async def generate_presigned_upload_url(
     key: str,
     bucket: str,
@@ -460,6 +574,7 @@ async def generate_presigned_upload_url(
             raise
 
 
+@run_on_app_async_runtime
 async def upload_file(
     content: bytes,
     key: str,
@@ -505,6 +620,7 @@ async def upload_file(
         raise
 
 
+@run_on_app_async_runtime
 async def upload_file_from_path(
     path: Path,
     key: str,
@@ -562,6 +678,7 @@ async def upload_file_from_path(
         raise
 
 
+@run_on_app_async_runtime
 async def copy_file(
     *,
     source_key: str,
@@ -600,6 +717,7 @@ async def copy_file(
         raise
 
 
+@run_on_app_async_runtime
 async def download_file(key: str, bucket: str) -> bytes:
     """Download a file from S3.
 
@@ -627,6 +745,7 @@ async def download_file(key: str, bucket: str) -> bytes:
     return content
 
 
+@run_on_app_async_runtime
 async def download_file_range(
     *,
     key: str,
@@ -750,6 +869,7 @@ async def open_download_stream(
         raise
 
 
+@run_on_app_async_runtime
 async def download_file_to_path(
     *,
     key: str,
@@ -839,6 +959,7 @@ async def download_file_to_path(
     return bytes_written
 
 
+@run_on_app_async_runtime
 async def delete_file(key: str, bucket: str) -> None:
     """Delete a file from S3.
 
@@ -868,6 +989,7 @@ async def delete_file(key: str, bucket: str) -> None:
         raise
 
 
+@run_on_app_async_runtime
 async def file_exists(key: str, bucket: str) -> bool:
     """Check if a file exists in S3.
 
@@ -888,6 +1010,7 @@ async def file_exists(key: str, bucket: str) -> bool:
         raise
 
 
+@run_on_app_async_runtime
 async def select_object_content(
     key: str,
     bucket: str,

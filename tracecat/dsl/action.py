@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-import weakref
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 import dateparser
@@ -15,6 +13,7 @@ from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 from tracecat import config
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.async_runtime import run_sync as run_sync
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.dsl.common import (
@@ -55,7 +54,9 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.collection import (
     materialize_collection_values,
+    materialize_collection_values_sync,
     store_collection,
+    store_collection_sync,
 )
 from tracecat.storage.object import (
     CollectionObject,
@@ -66,40 +67,11 @@ from tracecat.storage.object import (
     collection_item_key,
     get_object_storage,
     retrieve_stored_object,
+    retrieve_stored_object_sync,
 )
 from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
-
-_thread_local = threading.local()
-
-
-def _close_asyncio_runner(runner: asyncio.Runner) -> None:
-    try:
-        runner.close()
-    except Exception as e:
-        logger.warning(
-            "Failed to close thread-local asyncio runner",
-            error=e,
-        )
-
-
-# ThreadPoolExecutor clears thread locals when worker threads exit; closing the
-# runner there lets storage loop-close hooks drain clients without per-call churn.
-class _ThreadLocalRunner:
-    def __init__(self) -> None:
-        runner = asyncio.Runner()
-        runner.__enter__()  # create & keep loop
-        self._runner = runner
-        self._finalizer = weakref.finalize(self, _close_asyncio_runner, runner)
-        self._finalizer.atexit = False
-
-    def run[T: Any](self, coro: Coroutine[Any, Any, T]) -> T:
-        return self._runner.run(coro)
-
-    def close(self) -> None:
-        if self._finalizer.alive:
-            self._finalizer()
 
 
 async def _resolve_mcp_integrations(
@@ -270,15 +242,6 @@ class PrepareSubflowActivityInput(BaseModel):
     """Use committed WorkflowDefinition alias (True) or draft Workflow alias (False)."""
 
 
-def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
-    """Run a coroutine in the current thread."""
-    runner = getattr(_thread_local, "runner", None)
-    if runner is None:
-        runner = _ThreadLocalRunner()
-        _thread_local.runner = runner
-    return runner.run(coro)
-
-
 async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
     """Store collection items as StoredObject handles and persist refs in chunks."""
     storage = get_object_storage()
@@ -287,6 +250,19 @@ async def _store_collection_as_refs(prefix: str, items: list[Any]) -> Collection
         stored = await storage.store(collection_item_key(prefix, i), item)
         refs.append(stored.model_dump())
     return await store_collection(prefix, refs, element_kind="stored_object")
+
+
+def _store_collection_as_refs_sync(
+    prefix: str,
+    items: list[Any],
+) -> CollectionObject:
+    """Store collection items while keeping CPU work on the caller thread."""
+    storage = get_object_storage()
+    refs = [
+        storage.store_sync(collection_item_key(prefix, index), item).model_dump()
+        for index, item in enumerate(items)
+    ]
+    return store_collection_sync(prefix, refs, element_kind="stored_object")
 
 
 async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskResult:
@@ -320,6 +296,43 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
                 )
             else:
                 raw_result = await materialize_collection_values(collection)
+        case _:
+            raise TypeError(
+                "Expected TaskResult.result to be a StoredObject, "
+                f"got {type(task_result.result).__name__}"
+            )
+
+    return MaterializedTaskResult(
+        result=raw_result,
+        result_typename=task_result.result_typename,
+        error=task_result.error,
+        error_typename=task_result.error_typename,
+        interaction=task_result.interaction,
+        interaction_id=task_result.interaction_id,
+        interaction_type=task_result.interaction_type,
+    )
+
+
+def _materialize_task_result_sync(
+    task_result: TaskResult,
+) -> MaterializedTaskResult:
+    """Materialize a task result from a synchronous activity thread."""
+    storage = get_object_storage()
+    match task_result.result:
+        case InlineObject(data=data):
+            if task_result.collection_index is not None and isinstance(data, list):
+                raw_result = data[task_result.collection_index]
+            else:
+                raw_result = data
+        case ExternalObject():
+            raw_result = storage.retrieve_sync(task_result.result)
+        case CollectionObject() as collection:
+            if task_result.collection_index is not None:
+                raw_result = storage.retrieve_sync(
+                    collection.at(task_result.collection_index)
+                )
+            else:
+                raw_result = materialize_collection_values_sync(collection)
         case _:
             raise TypeError(
                 "Expected TaskResult.result to be a StoredObject, "
@@ -426,6 +439,53 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     return result
 
 
+def materialize_context_sync(
+    ctx: ExecutionContext,
+) -> MaterializedExecutionContext:
+    """Materialize context while keeping CPU work on the activity thread."""
+    result: MaterializedExecutionContext = {}
+    logger.debug("Materializing context", ctx=ctx, typ=type(ctx))
+
+    try:
+        if actions := ctx.get("ACTIONS"):
+            result["ACTIONS"] = {
+                ref: _materialize_task_result_sync(
+                    TaskResult.model_validate(task_result)
+                )
+                for ref, task_result in actions.items()
+            }
+        if trigger := ctx.get("TRIGGER"):
+            validated = StoredObjectValidator.validate_python(trigger)
+            result["TRIGGER"] = retrieve_stored_object_sync(validated)
+    except Exception as e:
+        retryable = is_retryable_storage_transport_error(e)
+        logger.warning(
+            "Error materializing context",
+            error=e,
+            retryable=retryable,
+        )
+        if retryable:
+            raise ApplicationError(
+                "Failed to materialize context",
+                non_retryable=False,
+                type="StorageMaterializationError",
+            ) from e
+        raise ApplicationError(
+            "Failed to materialize context",
+            non_retryable=True,
+        ) from e
+
+    if env := ctx.get("ENV"):
+        result["ENV"] = env
+    if secrets := ctx.get("SECRETS"):
+        result["SECRETS"] = secrets
+    if vars := ctx.get("VARS"):
+        result["VARS"] = vars
+    if var := ctx.get("var"):
+        result["var"] = var
+    return result
+
+
 class ValidateActionActivityInput(BaseModel):
     role: Role
     task: ActionStatement
@@ -511,7 +571,7 @@ class DSLActivities:
         to the calling workflow.
         """
         # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(operand))
+        materialized = materialize_context_sync(operand)
 
         expr_str = expression.strip()
 
@@ -539,9 +599,9 @@ class DSLActivities:
         that expressions evaluate against raw values even when results are externalized.
         """
         # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
+        materialized = materialize_context_sync(input.operand)
         result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
+        stored = get_object_storage().store_sync(input.key, result)
         return stored
 
     @staticmethod
@@ -568,7 +628,7 @@ class DSLActivities:
     ) -> int:
         """Evaluate for_each expression to get iteration count for looped subflows."""
         # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
+        materialized = materialize_context_sync(input.operand)
 
         # Get iterables from for_each expression
         iterators = get_iterables_from_expression(
@@ -765,9 +825,9 @@ class DSLActivities:
         that expressions evaluate against raw values even when results are externalized.
         """
         # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
+        materialized = materialize_context_sync(input.operand)
         result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
+        stored = get_object_storage().store_sync(input.key, result)
         return stored
 
     @staticmethod
@@ -780,9 +840,9 @@ class DSLActivities:
             value = {}
             storage = get_object_storage()
             if inputs.trigger_inputs is not None:
-                value = run_sync(storage.retrieve(inputs.trigger_inputs))
+                value = storage.retrieve_sync(inputs.trigger_inputs)
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
-            stored = run_sync(storage.store(inputs.key, normalized))
+            stored = storage.store_sync(inputs.key, normalized)
             return stored
         except ValidationError as e:
             logger.info("Validation error when normalizing trigger inputs", error=e)
@@ -827,7 +887,7 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     Returns CollectionObject if externalized, InlineObject otherwise.
     """
     # Materialize any StoredObjects in operand
-    materialized = run_sync(materialize_context(input.operand))
+    materialized = materialize_context_sync(input.operand)
     result = eval_templated_object(input.collection, operand=materialized)
 
     # Treat None as empty collection (will be handled by empty check below)
@@ -843,7 +903,7 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     # Guard CollectionObject: only use chunked storage when externalization
     # is enabled. Fall back to inline list for non-externalized deployments.
     if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        return run_sync(_store_collection_as_refs(input.key, items))
+        return _store_collection_as_refs_sync(input.key, items)
     else:
         return InlineObject(data=items, typename="list")
 
@@ -931,7 +991,7 @@ def _resolve_subflow_batch(
         )
 
     # Materialize any StoredObjects in operand
-    materialized = run_sync(materialize_context(input.operand))
+    materialized = materialize_context_sync(input.operand)
 
     # Get iterables from for_each expression
     iterators = get_iterables_from_expression(expr=task.for_each, operand=materialized)
@@ -987,7 +1047,7 @@ def _resolve_subflow_batch(
     trigger_inputs_stored: list[StoredObject] = []
     for i, trigger_input in enumerate(trigger_inputs_list):
         key = collection_item_key(input.key, i)
-        stored = run_sync(storage.store(key, trigger_input))
+        stored = storage.store_sync(key, trigger_input)
         trigger_inputs_stored.append(stored)
 
     return ResolvedSubflowBatch(

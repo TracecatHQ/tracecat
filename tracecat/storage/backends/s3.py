@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from typing import Any
 
+from tracecat.async_runtime import run_sync
 from tracecat.logger import logger
 from tracecat.storage import blob
 from tracecat.storage.collection import (
     get_collection_item,
+    get_collection_item_sync,
     materialize_collection_values,
+    materialize_collection_values_sync,
 )
 from tracecat.storage.object import (
     CollectionObject,
@@ -24,6 +29,27 @@ from tracecat.storage.utils import (
     deserialize_object,
     serialize_object,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedPayload:
+    content: bytes
+    sha256: str
+
+
+def _prepare_payload(data: Any) -> _PreparedPayload:
+    content = serialize_object(data)
+    return _PreparedPayload(content=content, sha256=compute_sha256(content))
+
+
+def _verify_and_deserialize(content: bytes, *, expected_sha256: str, key: str) -> Any:
+    actual_sha256 = compute_sha256(content)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            f"Integrity check failed for {key}: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
+    return deserialize_object(content)
 
 
 class S3ObjectStorage(ObjectStorage):
@@ -47,37 +73,31 @@ class S3ObjectStorage(ObjectStorage):
         self.bucket = bucket
         self.threshold_bytes = threshold_bytes
 
-    async def store(
+    def _inline_result(
         self,
+        *,
         key: str,
         data: Any,
-    ) -> StoredObject:
-        """Store data, externalizing if over threshold."""
-        # Serialize to JSON
-        serialized = serialize_object(data)
-        size_bytes = len(serialized)
-
-        # Keep inline if under threshold
-        if size_bytes <= self.threshold_bytes:
-            logger.debug(
-                "Keeping data inline",
-                key=key,
-                size_bytes=size_bytes,
-                threshold_bytes=self.threshold_bytes,
-            )
-            return InlineObject(data=data)
-
-        # Externalize to S3
-        sha256 = compute_sha256(serialized)
-
-        await blob.ensure_bucket_exists(self.bucket)
-        await blob.upload_file(
-            content=serialized,
+        size_bytes: int,
+    ) -> InlineObject | None:
+        if size_bytes > self.threshold_bytes:
+            return None
+        logger.debug(
+            "Keeping data inline",
             key=key,
-            bucket=self.bucket,
-            content_type="application/json",
+            size_bytes=size_bytes,
+            threshold_bytes=self.threshold_bytes,
         )
+        return InlineObject(data=data)
 
+    def _external_result(
+        self,
+        *,
+        key: str,
+        data: Any,
+        prepared: _PreparedPayload,
+    ) -> ExternalObject:
+        size_bytes = len(prepared.content)
         logger.info(
             "Externalized large object to S3",
             key=key,
@@ -85,18 +105,62 @@ class S3ObjectStorage(ObjectStorage):
             size_bytes=size_bytes,
             threshold_bytes=self.threshold_bytes,
         )
-
-        ref = ObjectRef(
-            backend="s3",
-            bucket=self.bucket,
-            key=key,
-            size_bytes=size_bytes,
-            sha256=sha256,
-            content_type="application/json",
-            encoding="json",
+        return ExternalObject(
+            ref=ObjectRef(
+                backend="s3",
+                bucket=self.bucket,
+                key=key,
+                size_bytes=size_bytes,
+                sha256=prepared.sha256,
+                content_type="application/json",
+                encoding="json",
+            ),
+            typename=type(data).__name__,
         )
 
-        return ExternalObject(ref=ref, typename=type(data).__name__)
+    async def store(
+        self,
+        key: str,
+        data: Any,
+    ) -> StoredObject:
+        """Store data, externalizing if over threshold."""
+        # Serialization and hashing can be substantial for multi-megabyte
+        # workflow payloads. Keep that CPU work off both the Temporal loop and
+        # the dedicated app I/O loop.
+        prepared = await asyncio.to_thread(_prepare_payload, data)
+        size_bytes = len(prepared.content)
+
+        if inline := self._inline_result(key=key, data=data, size_bytes=size_bytes):
+            return inline
+
+        # Externalize to S3
+        await blob.ensure_bucket_exists(self.bucket)
+        await blob.upload_file(
+            content=prepared.content,
+            key=key,
+            bucket=self.bucket,
+            content_type="application/json",
+        )
+
+        return self._external_result(key=key, data=data, prepared=prepared)
+
+    def store_sync(self, key: str, data: Any) -> StoredObject:
+        """Store data while keeping CPU work on the activity thread."""
+        prepared = _prepare_payload(data)
+        size_bytes = len(prepared.content)
+        if inline := self._inline_result(key=key, data=data, size_bytes=size_bytes):
+            return inline
+
+        run_sync(blob.ensure_bucket_exists(self.bucket))
+        run_sync(
+            blob.upload_file(
+                content=prepared.content,
+                key=key,
+                bucket=self.bucket,
+                content_type="application/json",
+            )
+        )
+        return self._external_result(key=key, data=data, prepared=prepared)
 
     async def retrieve(self, stored: StoredObject) -> Any:
         """Retrieve data from StoredObject (inline or from S3)."""
@@ -116,15 +180,14 @@ class S3ObjectStorage(ObjectStorage):
                     key=ref.key,
                 )
 
-                # Verify integrity (still needed - cache may return stale data on hash collision)
-                actual_sha256 = compute_sha256(content)
-                if actual_sha256 != ref.sha256:
-                    raise ValueError(
-                        f"Integrity check failed for {ref.key}: "
-                        f"expected {ref.sha256}, got {actual_sha256}"
-                    )
-
-                return deserialize_object(content)
+                # Integrity verification and JSON decoding are CPU work, so do
+                # not serialize concurrent large payloads on either event loop.
+                return await asyncio.to_thread(
+                    _verify_and_deserialize,
+                    content,
+                    expected_sha256=ref.sha256,
+                    key=ref.key,
+                )
             case CollectionObject() as coll:
                 if coll.index is not None:
                     # Retrieve specific item by index
@@ -132,3 +195,30 @@ class S3ObjectStorage(ObjectStorage):
                 else:
                     # Retrieve and materialize entire collection
                     return await materialize_collection_values(coll)
+
+    def retrieve_sync(self, stored: StoredObject) -> Any:
+        """Retrieve data while keeping verification on the activity thread."""
+        match stored:
+            case InlineObject(data=data):
+                return data
+            case ExternalObject(ref=ref):
+                if ref.backend != "s3":
+                    raise ValueError(
+                        f"S3ObjectStorage cannot retrieve from backend: {ref.backend}"
+                    )
+                content = run_sync(
+                    cached_blob_download(
+                        sha256=ref.sha256,
+                        bucket=ref.bucket,
+                        key=ref.key,
+                    )
+                )
+                return _verify_and_deserialize(
+                    content,
+                    expected_sha256=ref.sha256,
+                    key=ref.key,
+                )
+            case CollectionObject() as coll:
+                if coll.index is not None:
+                    return get_collection_item_sync(coll, coll.index)
+                return materialize_collection_values_sync(coll)

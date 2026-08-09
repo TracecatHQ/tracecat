@@ -104,7 +104,6 @@ class TestBlobStorageTransportRetries:
             "tracecat.storage.utils.blob.download_file",
             fake_download_file,
         )
-
         content = await cached_blob_download(
             sha256="retry-http-client-error-sha",
             bucket="bucket",
@@ -215,6 +214,17 @@ class TestSizedMemoryCache:
         assert result == b"hello"
         assert cache.total_bytes == 5
         assert cache.item_count == 1
+
+    @pytest.mark.anyio
+    async def test_clear_releases_all_entries(self) -> None:
+        cache = SizedMemoryCache(max_bytes=1024, ttl=300.0)
+        await cache.set("key1", b"hello")
+        await cache.set("key2", b"world")
+
+        await cache.clear()
+
+        assert cache.total_bytes == 0
+        assert cache.item_count == 0
 
     @pytest.mark.anyio
     async def test_get_missing_key_returns_none(self):

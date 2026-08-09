@@ -39,6 +39,7 @@ from pydantic import (
 )
 
 from tracecat import config
+from tracecat.async_runtime import run_sync
 from tracecat.logger import logger
 
 # === Types === #
@@ -276,6 +277,19 @@ class ObjectStorage(ABC):
         """
         raise NotImplementedError
 
+    def store_sync(
+        self,
+        key: str,
+        data: Any,
+    ) -> StoredObject:
+        """Store data from a synchronous activity thread.
+
+        Built-in backends override this to keep CPU work on the caller thread.
+        The fallback preserves compatibility for custom async-only backends by
+        bridging their coroutine onto the application runtime.
+        """
+        return run_sync(self.store(key, data))
+
     @abstractmethod
     async def retrieve(self, stored: StoredObject) -> Any:
         """Retrieve data from a StoredObject.
@@ -291,6 +305,13 @@ class ObjectStorage(ABC):
             FileNotFoundError: If the object doesn't exist (for externalized data)
         """
         raise NotImplementedError
+
+    def retrieve_sync(self, stored: StoredObject) -> Any:
+        """Retrieve data from a synchronous activity thread.
+
+        Built-in backends override this to keep CPU work on the caller thread.
+        """
+        return run_sync(self.retrieve(stored))
 
 
 def get_object_storage_for(stored: StoredObject) -> ObjectStorage:
@@ -321,6 +342,18 @@ async def retrieve_stored_object(stored: StoredObject) -> Any:
         case ExternalObject() | CollectionObject():
             storage = get_object_storage_for(stored)
             return await storage.retrieve(stored)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
+
+
+def retrieve_stored_object_sync(stored: StoredObject) -> Any:
+    """Retrieve a StoredObject from a synchronous activity thread."""
+    match stored:
+        case InlineObject(data=data):
+            return data
+        case ExternalObject() | CollectionObject():
+            storage = get_object_storage_for(stored)
+            return storage.retrieve_sync(stored)
         case _:
             raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
 
