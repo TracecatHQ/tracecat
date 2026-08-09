@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -841,14 +842,20 @@ class AdminOrgService(BasePlatformService):
             allowed_domains = allowed_domains_setting or {"github.com"}
             git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
 
-            async with ssh_context(
-                role=org_role, git_url=git_url, session=self.session
-            ) as ssh_env:
+            if config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED:
                 sync_outcome = await actions_service.sync_actions_from_repository(
                     repo,
                     git_repo_package_name=git_repo_package_name,
-                    ssh_env=ssh_env,
                 )
+            else:
+                async with ssh_context(
+                    role=org_role, git_url=git_url, session=self.session
+                ) as ssh_env:
+                    sync_outcome = await actions_service.sync_actions_from_repository(
+                        repo,
+                        git_repo_package_name=git_repo_package_name,
+                        ssh_env=ssh_env,
+                    )
         else:
             sync_outcome = await actions_service.sync_actions_from_repository(repo)
 

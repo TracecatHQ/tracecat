@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
+from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import RegistryRepository
 from tracecat.registry.actions.types import RepositorySyncOutcome
@@ -17,7 +18,11 @@ from tracecat.ssh import SshEnv
 
 
 @pytest.mark.anyio
-async def test_admin_git_sync_forwards_configured_package_name(mocker) -> None:
+@pytest.mark.parametrize("sandbox_enabled", [True, False])
+async def test_admin_git_sync_forwards_configured_package_name(
+    mocker,
+    sandbox_enabled: bool,
+) -> None:
     organization_id = uuid.uuid4()
     repository_id = uuid.uuid4()
     repository = RegistryRepository(
@@ -83,7 +88,12 @@ async def test_admin_git_sync_forwards_configured_package_name(mocker) -> None:
     async def fake_ssh_context(**_kwargs):
         yield ssh_env
 
-    mocker.patch("tracecat.ssh.ssh_context", side_effect=fake_ssh_context)
+    ssh_context = mocker.patch("tracecat.ssh.ssh_context", side_effect=fake_ssh_context)
+    mocker.patch.object(
+        config,
+        "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED",
+        sandbox_enabled,
+    )
 
     service = AdminOrgService(
         session,
@@ -102,11 +112,19 @@ async def test_admin_git_sync_forwards_configured_package_name(mocker) -> None:
         "git_repo_package_name",
         "git_allowed_domains",
     ]
-    actions_service.sync_actions_from_repository.assert_awaited_once_with(
-        repository,
-        git_repo_package_name="custom_registry",
-        ssh_env=ssh_env,
-    )
+    if sandbox_enabled:
+        ssh_context.assert_not_called()
+        actions_service.sync_actions_from_repository.assert_awaited_once_with(
+            repository,
+            git_repo_package_name="custom_registry",
+        )
+    else:
+        ssh_context.assert_called_once()
+        actions_service.sync_actions_from_repository.assert_awaited_once_with(
+            repository,
+            git_repo_package_name="custom_registry",
+            ssh_env=ssh_env,
+        )
     assert response.commit_sha == "a" * 40
     assert response.version == "2026.08.09"
     assert response.actions_count == 2
