@@ -38,6 +38,26 @@ def test_validate_mcp_env_rejects_agent_runtime_overrides(env_key: str) -> None:
             ["--link-mode=symlink", "example-mcp"],
             id="link-mode-equals",
         ),
+        pytest.param(
+            [
+                "--from",
+                "example-distribution",
+                "--cache-dir",
+                "/work/uv-cache",
+                "example-mcp",
+            ],
+            id="cache-dir-after-global-option-value",
+        ),
+        pytest.param(
+            [
+                "-p",
+                "3.12",
+                "--link-mode",
+                "symlink",
+                "example-mcp",
+            ],
+            id="link-mode-after-short-option-value",
+        ),
     ],
 )
 def test_validate_mcp_command_rejects_protected_uvx_options(
@@ -62,3 +82,36 @@ def test_validate_mcp_command_preserves_uvx_tool_args_after_separator() -> None:
         command="uvx",
         args=["example-mcp", "--", "--cache-dir", "/work/server-cache"],
     )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(
+            ["example-mcp", "--cache-dir", "/work/server-cache"],
+            id="command-first",
+        ),
+        pytest.param(
+            [
+                "--from",
+                "example-distribution",
+                "example-mcp",
+                "--link-mode",
+                "symlink",
+            ],
+            id="global-option-with-value",
+        ),
+        pytest.param(
+            ["--isolated", "example-mcp", "--cache-dir=/work/server-cache"],
+            id="global-flag",
+        ),
+        pytest.param(
+            ["-qp3.12", "example-mcp", "--cache-dir", "/work/server-cache"],
+            id="clustered-short-options",
+        ),
+    ],
+)
+def test_validate_mcp_command_preserves_uvx_tool_args_after_command(
+    args: list[str],
+) -> None:
+    validate_mcp_command_config(command="uvx", args=args)
