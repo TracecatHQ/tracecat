@@ -399,11 +399,13 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
         assert script_name == "wrapper.py"
         assert sandbox_config.network_enabled is False
         assert sandbox_config.env_vars == {}
+        assert job_dir.parent.name.startswith("tracecat_registry_discovery_")
+        assert job_dir.parent != site_packages.parent.parent / "sandbox-discovery"
         assert sandbox_config.python_path_dirs == [
-            site_packages.parent.parent / "sandbox-discovery" / "trusted" / "0",
+            job_dir.parent / "trusted" / "0",
             site_packages,
             host_site_packages,
-            site_packages.parent.parent / "sandbox-discovery" / "trusted" / "1",
+            job_dir.parent / "trusted" / "1",
         ]
         assert (job_dir.parent / "trusted" / "0" / "tracecat" / "__init__.py").exists()
         assert (
@@ -449,6 +451,71 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
     )
 
     assert result.actions == []
+
+
+@pytest.mark.anyio
+async def test_registry_discovery_ignores_installer_planted_symlinks(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    site_packages = tmp_path / "sandbox-install" / "cache" / "site-packages"
+    site_packages.mkdir(parents=True)
+    old_job_dir = site_packages.parent.parent / "sandbox-discovery" / "work"
+    old_job_dir.mkdir(parents=True)
+    executor_owned_file = tmp_path / "executor-owned.py"
+    executor_owned_file.write_text("SAFE\n")
+    (old_job_dir / "script.py").symlink_to(executor_owned_file)
+
+    trusted_tracecat = tmp_path / "trusted" / "tracecat"
+    trusted_registry = tmp_path / "trusted" / "tracecat_registry"
+    trusted_tracecat.mkdir(parents=True)
+    trusted_registry.mkdir()
+    discovery_job_dirs: list[Path] = []
+
+    async def execute(
+        job_dir: Path,
+        _sandbox_config,
+        cache_key=None,
+        script_name: str = "wrapper.py",
+    ) -> SandboxResult:
+        assert cache_key is None
+        assert script_name == "wrapper.py"
+        assert job_dir != old_job_dir
+        assert not (job_dir / "script.py").is_symlink()
+        discovery_job_dirs.append(job_dir)
+        return SandboxResult(
+            success=True,
+            output=SyncResultSuccess(actions=[]).model_dump(mode="json"),
+        )
+
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=mocker.AsyncMock(side_effect=execute)),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox._host_site_packages_paths",
+        return_value=[],
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox._trusted_runtime_package_paths",
+        return_value=[trusted_tracecat, trusted_registry],
+    )
+
+    await RegistrySyncSandbox().discover_actions(
+        site_packages=site_packages,
+        origin="tracecat_registry",
+        package_name="tracecat_registry",
+        repository_id=uuid4(),
+        commit_sha=None,
+        validate=True,
+        organization_id=None,
+        timeout_seconds=45,
+    )
+
+    assert executor_owned_file.read_text() == "SAFE\n"
+    assert (old_job_dir / "script.py").is_symlink()
+    assert len(discovery_job_dirs) == 1
+    assert not discovery_job_dirs[0].exists()
 
 
 @pytest.mark.anyio

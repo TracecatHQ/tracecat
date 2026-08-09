@@ -9,6 +9,7 @@ import re
 import shutil
 import stat
 import sysconfig
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -653,59 +654,65 @@ class RegistrySyncSandbox:
         timeout_seconds: int,
     ) -> SyncResultSuccess:
         """Import and serialize installed registry actions without network access."""
-        discovery_root = site_packages.parent.parent / "sandbox-discovery"
-        job_dir = discovery_root / "work"
-        trusted_root = discovery_root / "trusted"
-        job_dir.mkdir(parents=True, exist_ok=True)
-        trusted_root.mkdir(parents=True, exist_ok=True)
+        # The install jail can write throughout its /work mount. Keep trusted
+        # discovery scripts in a fresh host-created directory that was never
+        # exposed to the untrusted installer, preventing pre-planted symlinks.
+        with tempfile.TemporaryDirectory(
+            prefix="tracecat_registry_discovery_"
+        ) as temp_dir:
+            discovery_root = Path(temp_dir)
+            job_dir = discovery_root / "work"
+            trusted_root = discovery_root / "trusted"
+            job_dir.mkdir()
+            trusted_root.mkdir()
 
-        trusted_package_roots: list[Path] = []
-        for index, package_path in enumerate(_trusted_runtime_package_paths()):
-            package_root = trusted_root / str(index)
-            shutil.copytree(
-                package_path,
-                package_root / package_path.name,
-                symlinks=True,
-            )
-            trusted_package_roots.append(package_root)
+            trusted_package_roots: list[Path] = []
+            for index, package_path in enumerate(_trusted_runtime_package_paths()):
+                package_root = trusted_root / str(index)
+                shutil.copytree(
+                    package_path,
+                    package_root / package_path.name,
+                    symlinks=True,
+                )
+                trusted_package_roots.append(package_root)
 
-        inputs = {
-            "origin": origin,
-            "package_name": package_name,
-            "repository_id": str(repository_id),
-            "commit_sha": commit_sha,
-            "validate": validate,
-            "organization_id": str(organization_id) if organization_id else None,
-        }
-        (job_dir / "script.py").write_text(_DISCOVERY_SCRIPT, encoding="utf-8")
-        (job_dir / "wrapper.py").write_text(WRAPPER_SCRIPT, encoding="utf-8")
-        (job_dir / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
+            inputs = {
+                "origin": origin,
+                "package_name": package_name,
+                "repository_id": str(repository_id),
+                "commit_sha": commit_sha,
+                "validate": validate,
+                "organization_id": str(organization_id) if organization_id else None,
+            }
+            (job_dir / "script.py").write_text(_DISCOVERY_SCRIPT, encoding="utf-8")
+            (job_dir / "wrapper.py").write_text(WRAPPER_SCRIPT, encoding="utf-8")
+            (job_dir / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
 
-        executor = NsjailExecutor()
-        trusted_tracecat_root, *other_trusted_roots = trusted_package_roots
-        result = await executor.execute(
-            job_dir,
-            SandboxConfig(
-                network_enabled=False,
-                resources=ResourceLimits(
-                    timeout_seconds=timeout_seconds,
-                    cpu_seconds=timeout_seconds,
-                    memory_mb=2048,
+            executor = NsjailExecutor()
+            trusted_tracecat_root, *other_trusted_roots = trusted_package_roots
+            result = await executor.execute(
+                job_dir,
+                SandboxConfig(
+                    network_enabled=False,
+                    resources=ResourceLimits(
+                        timeout_seconds=timeout_seconds,
+                        cpu_seconds=timeout_seconds,
+                        memory_mb=2048,
+                    ),
+                    python_path_dirs=[
+                        trusted_tracecat_root,
+                        site_packages,
+                        *_host_site_packages_paths(),
+                        *other_trusted_roots,
+                    ],
                 ),
-                python_path_dirs=[
-                    trusted_tracecat_root,
-                    site_packages,
-                    *_host_site_packages_paths(),
-                    *other_trusted_roots,
-                ],
-            ),
-            script_name="wrapper.py",
-        )
-        if not result.success:
-            detail = result.error or result.stderr or "Unknown discovery error"
-            raise RegistryError(f"Sandboxed registry discovery failed: {detail}")
+                script_name="wrapper.py",
+            )
+            if not result.success:
+                detail = result.error or result.stderr or "Unknown discovery error"
+                raise RegistryError(f"Sandboxed registry discovery failed: {detail}")
 
-        parsed_result = SyncResultAdapter.validate_python(result.output)
-        if isinstance(parsed_result, SyncResultError):
-            raise RegistryError(parsed_result.error)
-        return parsed_result
+            parsed_result = SyncResultAdapter.validate_python(result.output)
+            if isinstance(parsed_result, SyncResultError):
+                raise RegistryError(parsed_result.error)
+            return parsed_result
