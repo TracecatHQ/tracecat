@@ -4025,6 +4025,43 @@ class TestMCPIntegrationValidation:
         finally:
             mcp_validation.ALLOWED_MCP_COMMANDS = original
 
+    async def test_resolvers_sanitize_protected_uvx_options_from_legacy_rows(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Persisted protected uvx options are removed without disabling the server."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Legacy uvx MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp", "--cache-dir", "/server-data"],
+            )
+        )
+        created.stdio_args = [
+            "--cache-dir",
+            "/legacy-cache",
+            "--link-mode=symlink",
+            "example-mcp",
+            "--cache-dir",
+            "/server-data",
+        ]
+        await integration_service.session.commit()
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service.resolve_mcp_integrations([str(created.id)])
+        refs = await preset_service.resolve_mcp_integration_refs([str(created.id)])
+
+        expected_args = ["example-mcp", "--cache-dir", "/server-data"]
+        assert resolved is not None
+        assert refs is not None
+        assert len(resolved) == 1
+        assert len(refs) == 1
+        assert resolved[0].get("args") == expected_args
+        assert refs[0].get("args") == expected_args
+
     async def test_resolve_mcp_integration_refs_includes_verified_stdio_tools(
         self,
         integration_service: IntegrationService,

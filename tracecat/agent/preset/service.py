@@ -72,6 +72,7 @@ from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
     MCPSecretResolutionError,
     MCPValidationError,
+    sanitize_mcp_command_args,
     validate_mcp_command_config,
 )
 from tracecat.integrations.schemas import MCPToolSummary
@@ -770,6 +771,28 @@ class AgentPresetService(BaseWorkspaceService):
                 f"subagent presets: {missing_refs}"
             )
 
+    def _sanitize_persisted_stdio_args(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        command: str,
+        args: list[str] | None,
+    ) -> list[str]:
+        """Remove runtime-controlled options from a persisted stdio config."""
+        sanitized_args, protected_options = sanitize_mcp_command_args(
+            command=command,
+            args=args,
+        )
+        if protected_options:
+            logger.warning(
+                "Ignoring protected stdio MCP command options from persisted integration",
+                workspace_id=str(self.workspace_id),
+                mcp_integration_id=str(mcp_integration_id),
+                command=command,
+                options=sorted(protected_options),
+            )
+        return sanitized_args
+
     async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
@@ -849,11 +872,17 @@ class AgentPresetService(BaseWorkspaceService):
                         )
                         continue
 
+                stdio_args = self._sanitize_persisted_stdio_args(
+                    mcp_integration_id=mcp_integration.id,
+                    command=mcp_integration.stdio_command,
+                    args=mcp_integration.stdio_args,
+                )
+
                 # Re-validate command config at resolution time
                 try:
                     validate_mcp_command_config(
                         command=mcp_integration.stdio_command,
-                        args=mcp_integration.stdio_args,
+                        args=stdio_args,
                         env=stdio_env,
                         name=mcp_integration.slug,
                     )
@@ -875,8 +904,8 @@ class AgentPresetService(BaseWorkspaceService):
                     "command": mcp_integration.stdio_command,
                     "id": str(mcp_integration.id),
                 }
-                if mcp_integration.stdio_args:
-                    command_config["args"] = mcp_integration.stdio_args
+                if stdio_args:
+                    command_config["args"] = stdio_args
                 if stdio_env:
                     command_config["env"] = stdio_env
                 if mcp_integration.timeout:
@@ -971,12 +1000,18 @@ class AgentPresetService(BaseWorkspaceService):
                         },
                     )
                     continue
-                # Re-validate command policy at resolution time so rows that
-                # predate tighter rules are rejected here rather than at spawn.
+                stdio_args = self._sanitize_persisted_stdio_args(
+                    mcp_integration_id=mcp_integration.id,
+                    command=mcp_integration.stdio_command,
+                    args=mcp_integration.stdio_args,
+                )
+
+                # Re-validate command policy at resolution time. Protected options
+                # in legacy rows are removed above; other violations are rejected.
                 try:
                     validate_mcp_command_config(
                         command=mcp_integration.stdio_command,
-                        args=mcp_integration.stdio_args,
+                        args=stdio_args,
                         env=None,
                         name=mcp_integration.slug,
                     )
@@ -997,8 +1032,8 @@ class AgentPresetService(BaseWorkspaceService):
                     "command": mcp_integration.stdio_command,
                     "id": str(mcp_integration.id),
                 }
-                if mcp_integration.stdio_args:
-                    stdio_ref["args"] = mcp_integration.stdio_args
+                if stdio_args:
+                    stdio_ref["args"] = stdio_args
                 if mcp_integration.timeout is not None:
                     stdio_ref["timeout"] = mcp_integration.timeout
                 stored_tools = MCPToolSummary.validate_stored(
