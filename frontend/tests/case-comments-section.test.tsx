@@ -262,6 +262,20 @@ function mockAgentPresets(presets: AgentPresetReadMinimal[]) {
   } as unknown as ReturnType<typeof useAgentPresets>)
 }
 
+/** Mirror `useScopeCheck` semantics against a fixed set of granted scopes. */
+function grantScopes(granted: string[]) {
+  const scopes = new Set(granted)
+  mockUseScopeCheck.mockImplementation((scope, scopeList, options) => {
+    const required = [...(scope ? [scope] : []), ...(scopeList ?? [])]
+    if (required.length === 0) {
+      return true
+    }
+    return options?.all
+      ? required.every((value) => scopes.has(value))
+      : required.some((value) => scopes.has(value))
+  })
+}
+
 function mockEntitlements(keys: string[]) {
   mockUseEntitlements.mockReturnValue({
     hasEntitlement: jest.fn().mockImplementation((key) => keys.includes(key)),
@@ -1012,7 +1026,7 @@ describe("CommentSection", () => {
       await waitFor(() => expect(composer).toHaveValue("Ping "))
     })
 
-    it("stays closed without the agent:execute scope", () => {
+    it("stays closed without the agent scopes", () => {
       mockUseScopeCheck.mockReturnValue(false)
 
       renderCommentSection()
@@ -1020,6 +1034,40 @@ describe("CommentSection", () => {
 
       expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
       expect(getComposer()).toHaveValue("@")
+    })
+
+    it("stays closed with agent:execute but not agent:read", () => {
+      // The suggestion list comes from the preset endpoint, which requires
+      // agent:read; without it the request would 403.
+      grantScopes(["agent:execute"])
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(mockUseScopeCheck).toHaveBeenCalledWith(
+        undefined,
+        ["agent:execute", "agent:read"],
+        { all: true }
+      )
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(getComposer()).toHaveValue("@")
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: false })
+      )
+    })
+
+    it("opens with both agent scopes granted", () => {
+      grantScopes(["agent:execute", "agent:read"])
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: true })
+      )
     })
 
     it.each(["case_addons", "agent_addons"])(

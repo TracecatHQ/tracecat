@@ -32,18 +32,25 @@ const MAX_AGENT_MENTION_RESULTS = 8
  */
 export type MentionSectionKey = "agents" | "users" | "cases" | "tables"
 
+/** One selectable row in the mention popover. */
 export interface MentionSuggestion {
   /** Identifier of the mention target, e.g. the agent preset id. */
   id: string
   label: string
 }
 
+/** A group of suggestions rendered under a single popover heading. */
 export interface MentionSection {
   section: MentionSectionKey
   label: string
   items: MentionSuggestion[]
 }
 
+/**
+ * Wiring the hook needs from the composer that owns the textarea. The composer
+ * keeps the text in its own form state, so the hook reads and writes it through
+ * these callbacks rather than holding a copy.
+ */
 export interface UseCommentMentionsOptions {
   workspaceId: string
   textareaRef: RefObject<HTMLTextAreaElement | null>
@@ -53,6 +60,11 @@ export interface UseCommentMentionsOptions {
   setText: (next: string) => void
 }
 
+/**
+ * Everything the composer needs to render and drive mentions: popover state for
+ * the suggestion list, the ranges the highlight overlay paints, event handlers
+ * to forward from the textarea, and the submit-time serializer.
+ */
 export interface CommentMentions {
   /** Mention ranges into the display text, for the overlay and serializer. */
   ranges: MentionRange[]
@@ -96,9 +108,9 @@ type ActiveSession = {
  * plus the display-value mapping that turns highlighted `@Label` display text
  * into wire tokens on submit.
  *
- * Gated on the `agent:execute` scope plus the `agent_addons` and `case_addons`
- * entitlements; when gated the popover never opens and `@` behaves as plain
- * text.
+ * Gated on the `agent:execute` and `agent:read` scopes plus the `agent_addons`
+ * and `case_addons` entitlements; when gated the popover never opens and `@`
+ * behaves as plain text.
  */
 export function useCommentMentions({
   workspaceId,
@@ -106,10 +118,18 @@ export function useCommentMentions({
   getText,
   setText,
 }: UseCommentMentionsOptions): CommentMentions {
-  const canExecuteAgents = useScopeCheck("agent:execute")
+  // `agent:read` is required as well as `agent:execute`: the suggestion list
+  // comes from the preset-list endpoint, which is guarded by `agent:read`.
+  // Without it the request 403s and the popover would claim there are no
+  // agents. Mirrors the workspace chat gate.
+  const canUseAgents = useScopeCheck(
+    undefined,
+    ["agent:execute", "agent:read"],
+    { all: true }
+  )
   const { hasEntitlement } = useEntitlements()
   const mentionsEnabled =
-    canExecuteAgents === true &&
+    canUseAgents === true &&
     hasEntitlement("agent_addons") &&
     hasEntitlement("case_addons")
 
