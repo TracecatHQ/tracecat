@@ -3685,6 +3685,10 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
 
     __tablename__ = "agent_preset"
     __table_args__ = (
+        CheckConstraint(
+            "timeout_seconds >= 5 AND timeout_seconds <= 3600",
+            name="timeout_seconds_range",
+        ),
         Index(
             "uq_agent_preset_workspace_slug_active",
             "workspace_id",
@@ -3781,6 +3785,11 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    timeout_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Maximum active runtime for each agent turn, or null to inherit",
+    )
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -3836,7 +3845,13 @@ class AgentPresetVersion(WorkspaceModel):
     """Immutable version snapshot for an agent preset."""
 
     __tablename__ = "agent_preset_version"
-    __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
+    __table_args__ = (
+        CheckConstraint(
+            "timeout_seconds >= 5 AND timeout_seconds <= 3600",
+            name="timeout_seconds_range",
+        ),
+        UniqueConstraint("workspace_id", "preset_id", "version"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3915,6 +3930,11 @@ class AgentPresetVersion(WorkspaceModel):
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
+    )
+    timeout_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Maximum active runtime for each agent turn, or null to inherit",
     )
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
