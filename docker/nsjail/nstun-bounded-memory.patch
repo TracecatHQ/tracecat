@@ -1,0 +1,249 @@
+diff --git a/nstun/core.h b/nstun/core.h
+index 0e033ff..8fece77 100644
+--- a/nstun/core.h
++++ b/nstun/core.h
+@@ -25,11 +25,17 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
+ constexpr size_t UDP_QUEUE_MAX_PACKETS = 50;
+ constexpr int VLEN = 64;
+ 
+-#define HOST_SOCK_BUF_SIZE (8 * 1024 * 1024)
++#define HOST_SOCK_BUF_SIZE (64 * 1024)
+ 
+-constexpr size_t TCP_TX_BUF_CAP = 1048576;  /* 1 MB - host->guest */
+-constexpr size_t TCP_RX_BUF_CAP = 1048576;  /* 1 MB - guest->host */
++constexpr size_t TCP_TX_BUF_CAP = 65536;  /* 64 KB - host->guest */
++constexpr size_t TCP_RX_BUF_CAP = 65536;  /* 64 KB - guest->host */
+ constexpr size_t PROXY_RX_BUF_CAP = 8192;  /* 8 KB  - proxy handshake */
++constexpr size_t TCP_FLOW_BUFFER_BYTES =
++    TCP_TX_BUF_CAP + TCP_RX_BUF_CAP + PROXY_RX_BUF_CAP;
++/* Parent-side heap used by every jail's TCP flows. This is separate from the
++ * jailed child's RLIMIT_AS, so enforce a hard aggregate limit here. */
++constexpr size_t TCP_BUFFER_BUDGET = 16 * 1024 * 1024;
++static_assert(TCP_FLOW_BUFFER_BYTES <= TCP_BUFFER_BUDGET);
+ 
+ 
+ /* Removed MemcmpLess in favor of C++20 operator<=> */
+@@ -119,10 +125,13 @@ struct UdpFlow {
+ 	uint16_t bnd_port;
+ 	bool host_fd_is_listener;
+ 
+-	struct {
++	struct QueuedPacket {
+ 		uint8_t data[UDP_QUEUE_PACKET_MAX];
+ 		size_t len;
+-	} c_tx_queue[UDP_QUEUE_MAX_PACKETS];
++	};
++	/* Allocate the proxy handshake queue only when a flow needs it. Keeping
++	 * this queue inline reserves about 153 MiB across the IPv4/IPv6 tables. */
++	std::unique_ptr<QueuedPacket[]> c_tx_queue;
+ 	size_t c_tx_queue_head;
+ 	size_t c_tx_queue_tail;
+ 	size_t c_tx_queue_count;
+@@ -149,7 +158,7 @@ struct TcpFlow {
+ 	size_t tx_acked_offset;
+ 	size_t rx_sent_offset;
+ 
+-	/* Heap-allocated buffers (allocated per active flow, freed via RAII) */
++	/* Heap-allocated buffers charged to Context::tcp_buffer_bytes. */
+ 	std::unique_ptr<uint8_t[]> c_tcp_tx_buf;
+ 	size_t c_tcp_tx_len;
+ 	std::unique_ptr<uint8_t[]> c_proxy_rx_buf;
+@@ -185,6 +194,7 @@ struct Context {
+ 
+ 	TcpFlow c_ipv4_tcp_flows[NSTUN_MAX_FLOWS];
+ 	size_t num_c_ipv4_tcp_flows;
++	size_t tcp_buffer_bytes;
+ 	UdpFlow c_ipv4_udp_flows[NSTUN_MAX_FLOWS];
+ 	size_t num_c_ipv4_udp_flows;
+ 	UdpFlow c_ipv6_udp_flows[NSTUN_MAX_FLOWS];
+@@ -222,6 +232,9 @@ struct Context {
+ 
+ };
+ 
++static_assert(sizeof(Context) <= 8 * 1024 * 1024,
++    "NSTUN Context must not reserve large per-flow packet queues");
++
+ void handle_host_events(Context* ctx, int fd, uint32_t events);
+ void host_callback(int fd, uint32_t events, void* data);
+ 
+diff --git a/nstun/tcp.cc b/nstun/tcp.cc
+index 643d037..a9011a1 100644
+--- a/nstun/tcp.cc
++++ b/nstun/tcp.cc
+@@ -396,6 +396,31 @@ void tcp_rst_and_destroy(Context* ctx, TcpFlow* flow) {
+ 	tcp_destroy_flow(ctx, flow);
+ }
+ 
++static void release_tcp_flow_buffers(Context* ctx, TcpFlow* flow) {
++	size_t released = 0;
++	if (flow->c_tcp_tx_buf) {
++		released += TCP_TX_BUF_CAP;
++	}
++	if (flow->c_tcp_rx_buf) {
++		released += TCP_RX_BUF_CAP;
++	}
++	if (flow->c_proxy_rx_buf) {
++		released += PROXY_RX_BUF_CAP;
++	}
++
++	flow->c_tcp_tx_buf.reset();
++	flow->c_tcp_rx_buf.reset();
++	flow->c_proxy_rx_buf.reset();
++
++	if (released > ctx->tcp_buffer_bytes) {
++		LOG_E("TCP buffer accounting underflow: released=%zu tracked=%zu", released,
++		    ctx->tcp_buffer_bytes);
++		ctx->tcp_buffer_bytes = TCP_BUFFER_BUDGET;
++		return;
++	}
++	ctx->tcp_buffer_bytes -= released;
++}
++
+ void tcp_destroy_flow(Context* ctx, TcpFlow* flow) {
+ 	if (!flow->header.active) {
+ 		return;
+@@ -420,10 +445,7 @@ void tcp_destroy_flow(Context* ctx, TcpFlow* flow) {
+ 		}
+ 	}
+ 
+-	/* Free heap-allocated buffers via RAII */
+-	flow->c_tcp_tx_buf.reset();
+-	flow->c_tcp_rx_buf.reset();
+-	flow->c_proxy_rx_buf.reset();
++	release_tcp_flow_buffers(ctx, flow);
+ 
+ 	/* Mark inactive */
+ 	flow->header.active = false;
+@@ -904,36 +926,31 @@ static void init_outbound_flow_common(
+ 		return false;
+ 	}
+ }
+-[[nodiscard]] static bool init_tcp_flow_zero(TcpFlow* flow) {
+-	/* Preserve existing allocations for reuse */
+-	auto old_tx = std::move(flow->c_tcp_tx_buf);
+-	auto old_rx = std::move(flow->c_tcp_rx_buf);
+-	auto old_proxy = std::move(flow->c_proxy_rx_buf);
+-
+-	/* Zero all POD fields and reset unique_ptrs */
++[[nodiscard]] static bool init_tcp_flow_zero(Context* ctx, TcpFlow* flow) {
++	/* Destroyed flows release their buffers instead of retaining attacker-driven
++	 * allocations in the parent process. */
+ 	*flow = TcpFlow{};
+ 	flow->header.type = FlowType::TCP;
+ 	flow->header.host_fd = -1;
+ 	flow->tcp_state = TcpState::SYN_SENT;
+ 	flow->proxy_mode = ProxyMode::NONE;
+ 
+-	/* Reuse old allocations if available, otherwise allocate */
+-	flow->c_tcp_tx_buf =
+-	    old_tx ? std::move(old_tx)
+-		   : std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[TCP_TX_BUF_CAP]);
+-	flow->c_tcp_rx_buf =
+-	    old_rx ? std::move(old_rx)
+-		   : std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[TCP_RX_BUF_CAP]);
+-	flow->c_proxy_rx_buf =
+-	    old_proxy ? std::move(old_proxy)
+-		      : std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[PROXY_RX_BUF_CAP]);
+-
+-	if (!flow->c_tcp_tx_buf || !flow->c_tcp_rx_buf || !flow->c_proxy_rx_buf) {
+-		flow->c_tcp_tx_buf.reset();
+-		flow->c_tcp_rx_buf.reset();
+-		flow->c_proxy_rx_buf.reset();
++	if (ctx->tcp_buffer_bytes > TCP_BUFFER_BUDGET ||
++	    TCP_FLOW_BUFFER_BYTES > TCP_BUFFER_BUDGET - ctx->tcp_buffer_bytes) {
+ 		return false;
+ 	}
++
++	auto tx = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[TCP_TX_BUF_CAP]);
++	auto rx = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[TCP_RX_BUF_CAP]);
++	auto proxy = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[PROXY_RX_BUF_CAP]);
++	if (!tx || !rx || !proxy) {
++		return false;
++	}
++
++	flow->c_tcp_tx_buf = std::move(tx);
++	flow->c_tcp_rx_buf = std::move(rx);
++	flow->c_proxy_rx_buf = std::move(proxy);
++	ctx->tcp_buffer_bytes += TCP_FLOW_BUFFER_BYTES;
+ 	return true;
+ }
+ 
+@@ -958,7 +975,7 @@ static TcpFlow* alloc_v4_tcp_flow(Context* ctx, const FlowKey4& key) {
+ 	for (size_t i = 0; i < NSTUN_MAX_FLOWS; i++) {
+ 		TcpFlow& flow = ctx->c_ipv4_tcp_flows[i];
+ 		if (!flow.header.active) {
+-			if (!init_tcp_flow_zero(&flow)) {
++			if (!init_tcp_flow_zero(ctx, &flow)) {
+ 				return nullptr;
+ 			}
+ 			flow.header.active = true;
+@@ -991,7 +1008,7 @@ static TcpFlow* alloc_v6_tcp_flow(Context* ctx, const FlowKey6& key) {
+ 	for (size_t i = 0; i < NSTUN_MAX_FLOWS; i++) {
+ 		TcpFlow& flow = ctx->c_ipv6_tcp_flows[i];
+ 		if (!flow.header.active) {
+-			if (!init_tcp_flow_zero(&flow)) {
++			if (!init_tcp_flow_zero(ctx, &flow)) {
+ 				return nullptr;
+ 			}
+ 			flow.header.active = true;
+@@ -1049,7 +1066,7 @@ static TcpFlow* create_outbound_flow4(
+ 
+ 	TcpFlow* flow = alloc_v4_tcp_flow(ctx, key4);
+ 	if (!flow) {
+-		LOG_W("Maximum number of TCP flows reached, dropping");
++		LOG_W("TCP flow table or aggregate buffer budget exhausted, dropping");
+ 		tcp_send_rst4(ctx, key4, 0, seq + 1);
+ 		return nullptr;
+ 	}
+@@ -1124,7 +1141,7 @@ static TcpFlow* create_outbound_flow6(
+ 
+ 	TcpFlow* flow = alloc_v6_tcp_flow(ctx, key6);
+ 	if (!flow) {
+-		LOG_W("Maximum number of IPv6 TCP flows reached, dropping");
++		LOG_W("IPv6 TCP flow table or aggregate buffer budget exhausted, dropping");
+ 		tcp_send_rst6(ctx, key6, 0, seq + 1);
+ 		return nullptr;
+ 	}
+diff --git a/nstun/udp.cc b/nstun/udp.cc
+index 6f7804b..e869379 100644
+--- a/nstun/udp.cc
++++ b/nstun/udp.cc
+@@ -5,6 +5,7 @@
+ #include <netinet/icmp6.h>
+ #include <netinet/in.h>
+ #include <netinet/ip_icmp.h>
++#include <new>
+ #include <string.h>
+ #include <sys/epoll.h>
+ #include <sys/socket.h>
+@@ -144,6 +145,7 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
+ 		set_udp_flow_by_fd(ctx, flow->tcp_fd, nullptr);
+ 		flow->tcp_fd = -1;
+ 	}
++	flow->c_tx_queue.reset();
+ 	if (flow->header.is_ipv6) {
+ 		flow->header.active = false;
+ 		ctx->num_c_ipv6_udp_flows--;
+@@ -516,6 +518,7 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
+ 	flow->c_tx_queue_head = 0;
+ 	flow->c_tx_queue_tail = 0;
+ 	flow->c_tx_queue_count = 0;
++	flow->c_tx_queue.reset();
+ }
+ 
+ static void handle_udp_established(Context* ctx, UdpFlow* flow, uint32_t events) {
+@@ -688,6 +691,14 @@ static UdpFlow* udp_create_flow4(Context* ctx, const FlowKey4& key4, const RuleR
+ 		    data_len, UDP_QUEUE_PACKET_MAX);
+ 		return false;
+ 	}
++	if (!flow->c_tx_queue) {
++		flow->c_tx_queue.reset(
++		    new (std::nothrow) UdpFlow::QueuedPacket[UDP_QUEUE_MAX_PACKETS]);
++		if (!flow->c_tx_queue) {
++			LOG_W("%s proxy queue allocation failed", proto_str);
++			return false;
++		}
++	}
+ 	size_t idx = flow->c_tx_queue_tail;
+ 	memcpy(flow->c_tx_queue[idx].data, data, data_len);
+ 	flow->c_tx_queue[idx].len = data_len;

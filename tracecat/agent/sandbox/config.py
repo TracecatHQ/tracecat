@@ -261,6 +261,7 @@ def build_agent_nsjail_config(
         write_sandbox_network_files,
     )
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+    from tracecat.sandbox.types import SandboxNetworkPurpose
 
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
@@ -331,7 +332,7 @@ def build_agent_nsjail_config(
     if network_files is not None:
         lines.extend(
             nstun_user_net_config_lines(
-                configured_sandbox_network_policy(),
+                configured_sandbox_network_policy(SandboxNetworkPurpose.AGENT),
                 network_files.dns_routes,
             )
         )

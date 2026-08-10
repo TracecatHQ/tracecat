@@ -672,10 +672,71 @@ def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
     return tuple(networks)
 
 
-TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS = env_networks(
-    "TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS"
+def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
+    """Parse unique TCP/UDP ports from a comma-separated environment variable."""
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    ports: list[int] = []
+    for value in raw_value.split(","):
+        stripped = value.strip()
+        if not stripped:
+            continue
+        try:
+            port = int(stripped)
+        except ValueError as exc:
+            raise ValueError(f"{name} contains an invalid port: {stripped!r}") from exc
+        if not 1 <= port <= 65535:
+            raise ValueError(f"{name} contains an invalid port: {stripped!r}")
+        if port not in ports:
+            ports.append(port)
+    return tuple(ports)
+
+
+TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS"
 )
-"""Administrator-approved private CIDRs reachable from filtered nsjail sandboxes."""
+"""Private CIDRs reachable only while installing sandbox dependencies."""
+
+TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    default=(80, 443),
+)
+"""TCP ports allowed to install-only private CIDRs."""
+
+TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by network-enabled Python script sandboxes."""
+
+TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to script-only private CIDRs."""
+
+TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by action sandboxes."""
+
+TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to action-only private CIDRs."""
+
+TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by internet-enabled agent sandboxes."""
+
+TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to agent-only private CIDRs."""
 
 TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
     "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS"

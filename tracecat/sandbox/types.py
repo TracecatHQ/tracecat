@@ -16,6 +16,24 @@ class SandboxErrorCode(StrEnum):
 type IPNetwork = IPv4Network | IPv6Network
 
 
+class SandboxNetworkProtocol(StrEnum):
+    """Network protocol matched by one sandbox egress rule."""
+
+    ANY = "ANY"
+    TCP = "TCP"
+    UDP = "UDP"
+    ICMP = "ICMP"
+
+
+class SandboxNetworkPurpose(StrEnum):
+    """Trusted purpose selecting a deployment-owned egress policy."""
+
+    INSTALL = "install"
+    SCRIPT = "script"
+    ACTION = "action"
+    AGENT = "agent"
+
+
 class SandboxNetworkMode(StrEnum):
     """Outbound network behavior for an nsjail sandbox."""
 
@@ -25,17 +43,40 @@ class SandboxNetworkMode(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class SandboxEgressRule:
+    """One administrator-approved private-network egress exception."""
+
+    destination: IPNetwork
+    protocol: SandboxNetworkProtocol = SandboxNetworkProtocol.ANY
+    destination_port: int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate protocol and port combinations."""
+        if not isinstance(self.protocol, SandboxNetworkProtocol):
+            raise ValueError("protocol must be a SandboxNetworkProtocol")
+        if self.destination_port is None:
+            return
+        if self.protocol not in {
+            SandboxNetworkProtocol.TCP,
+            SandboxNetworkProtocol.UDP,
+        }:
+            raise ValueError("destination ports require TCP or UDP")
+        if not 1 <= self.destination_port <= 65535:
+            raise ValueError("destination_port must be between 1 and 65535")
+
+
+@dataclass(frozen=True, slots=True)
 class SandboxNetworkPolicy:
     """Trusted outbound network policy for an nsjail sandbox.
 
     Attributes:
         mode: Whether networking is disabled, filtered, or unrestricted.
-        allowed_cidrs: Administrator-approved exceptions evaluated before blocks.
+        allowed_rules: Administrator-approved exceptions evaluated before blocks.
         blocked_cidrs: Deployment-specific networks rejected in filtered mode.
     """
 
     mode: SandboxNetworkMode = SandboxNetworkMode.FILTERED
-    allowed_cidrs: tuple[IPNetwork, ...] = ()
+    allowed_rules: tuple[SandboxEgressRule, ...] = ()
     blocked_cidrs: tuple[IPNetwork, ...] = ()
 
     def __post_init__(self) -> None:
@@ -43,9 +84,9 @@ class SandboxNetworkPolicy:
         if not isinstance(self.mode, SandboxNetworkMode):
             raise ValueError("mode must be a SandboxNetworkMode")
         if self.mode is not SandboxNetworkMode.FILTERED and (
-            self.allowed_cidrs or self.blocked_cidrs
+            self.allowed_rules or self.blocked_cidrs
         ):
-            raise ValueError("CIDR rules are only valid for filtered networking")
+            raise ValueError("egress rules are only valid for filtered networking")
 
 
 @dataclass(frozen=True)

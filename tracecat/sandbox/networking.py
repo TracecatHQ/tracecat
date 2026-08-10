@@ -17,8 +17,11 @@ from typing import Literal
 from tracecat import config as tracecat_config
 from tracecat.sandbox.types import (
     IPNetwork,
+    SandboxEgressRule,
     SandboxNetworkMode,
     SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
+    SandboxNetworkPurpose,
 )
 
 NSTUN_GUEST_IP4 = "10.255.255.2"
@@ -53,7 +56,6 @@ _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
 
 type IPAddress = IPv4Address | IPv6Address
 type NstunAction = Literal["ALLOW", "REJECT", "REDIRECT"]
-type NstunProtocol = Literal["ANY", "TCP", "UDP", "ICMP"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +95,7 @@ class _NstunRule:
 
     action: NstunAction
     destination: IPNetwork
-    protocol: NstunProtocol = "ANY"
+    protocol: SandboxNetworkProtocol = SandboxNetworkProtocol.ANY
     destination_port: int | None = None
     redirect_address: IPAddress | None = None
     redirect_port: int | None = None
@@ -117,11 +119,52 @@ class _NstunRule:
         return lines
 
 
-def configured_sandbox_network_policy() -> SandboxNetworkPolicy:
-    """Return the deployment-owned filtered policy for untrusted sandboxes."""
+def _tcp_egress_rules(
+    networks: tuple[IPNetwork, ...], ports: tuple[int, ...]
+) -> tuple[SandboxEgressRule, ...]:
+    return tuple(
+        SandboxEgressRule(
+            destination=network,
+            protocol=SandboxNetworkProtocol.TCP,
+            destination_port=port,
+        )
+        for network in networks
+        for port in ports
+    )
+
+
+def configured_sandbox_network_policy(
+    purpose: SandboxNetworkPurpose,
+) -> SandboxNetworkPolicy:
+    """Return the deployment-owned filtered policy for one sandbox purpose."""
+    if not isinstance(purpose, SandboxNetworkPurpose):
+        raise ValueError("purpose must be a SandboxNetworkPurpose")
+
+    match purpose:
+        case SandboxNetworkPurpose.INSTALL:
+            allowed_rules = _tcp_egress_rules(
+                tracecat_config.TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS,
+                tracecat_config.TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS,
+            )
+        case SandboxNetworkPurpose.SCRIPT:
+            allowed_rules = _tcp_egress_rules(
+                tracecat_config.TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS,
+                tracecat_config.TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS,
+            )
+        case SandboxNetworkPurpose.ACTION:
+            allowed_rules = _tcp_egress_rules(
+                tracecat_config.TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS,
+                tracecat_config.TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS,
+            )
+        case SandboxNetworkPurpose.AGENT:
+            allowed_rules = _tcp_egress_rules(
+                tracecat_config.TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS,
+                tracecat_config.TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS,
+            )
+
     return SandboxNetworkPolicy(
         mode=SandboxNetworkMode.FILTERED,
-        allowed_cidrs=tracecat_config.TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS,
+        allowed_rules=allowed_rules,
         blocked_cidrs=tracecat_config.TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS,
     )
 
@@ -140,7 +183,10 @@ def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
     for route in routes:
         destination = _network_for_address(route.guest_address)
         action: NstunAction = "REDIRECT" if route.requires_redirect else "ALLOW"
-        for protocol in ("UDP", "TCP"):
+        for protocol in (
+            SandboxNetworkProtocol.UDP,
+            SandboxNetworkProtocol.TCP,
+        ):
             rules.append(
                 _NstunRule(
                     action=action,
@@ -158,8 +204,13 @@ def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
 
 def _filtered_rules(policy: SandboxNetworkPolicy) -> list[_NstunRule]:
     rules = [
-        _NstunRule(action="ALLOW", destination=network)
-        for network in _deduplicate_networks(policy.allowed_cidrs)
+        _NstunRule(
+            action="ALLOW",
+            destination=rule.destination,
+            protocol=rule.protocol,
+            destination_port=rule.destination_port,
+        )
+        for rule in dict.fromkeys(policy.allowed_rules)
     ]
     blocked_networks: tuple[IPNetwork, ...] = (
         *_FILTERED_BLOCKED_IPV4_CIDRS,

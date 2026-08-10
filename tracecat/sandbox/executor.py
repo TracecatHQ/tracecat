@@ -31,6 +31,7 @@ from tracecat.sandbox.types import (
     SandboxErrorCode,
     SandboxNetworkMode,
     SandboxNetworkPolicy,
+    SandboxNetworkPurpose,
     SandboxResult,
 )
 from tracecat.sandbox.utils import communicate_process_group
@@ -185,16 +186,12 @@ class NsjailExecutor:
         nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
         rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
-        network_policy: SandboxNetworkPolicy | None = None,
     ):
         self.nsjail_path = Path(nsjail_path)
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
-        self.default_network_policy = (
-            network_policy or configured_sandbox_network_policy()
-        )
 
     def _build_config(
         self,
@@ -246,11 +243,16 @@ class NsjailExecutor:
         # - Execute phase: per config.network_enabled
         network_enabled = phase == "install" or config.network_enabled
 
-        network_policy = (
-            config.network_policy or self.default_network_policy
-            if network_enabled
-            else SandboxNetworkPolicy(mode=SandboxNetworkMode.DISABLED)
-        )
+        if phase == "install":
+            network_policy = configured_sandbox_network_policy(
+                SandboxNetworkPurpose.INSTALL
+            )
+        elif network_enabled:
+            network_policy = config.network_policy or configured_sandbox_network_policy(
+                SandboxNetworkPurpose.SCRIPT
+            )
+        else:
+            network_policy = SandboxNetworkPolicy(mode=SandboxNetworkMode.DISABLED)
         network_files = None
         if network_policy.mode is not SandboxNetworkMode.DISABLED:
             network_files = write_sandbox_network_files(job_dir)
@@ -730,7 +732,9 @@ class NsjailExecutor:
                 "action_gateway_socket_mount_path",
             )
 
-        network_policy = config.network_policy or self.default_network_policy
+        network_policy = config.network_policy or configured_sandbox_network_policy(
+            SandboxNetworkPurpose.ACTION
+        )
         network_files = None
         if network_policy.mode is not SandboxNetworkMode.DISABLED:
             network_files = write_sandbox_network_files(job_dir)

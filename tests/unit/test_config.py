@@ -8,18 +8,33 @@ from pathlib import Path
 import pytest
 
 import tracecat.config as tracecat_config
-from tracecat.config import bound_env, env_bool, env_networks
+from tracecat.config import bound_env, env_bool, env_networks, env_ports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
-COMPOSE_ENV_FILES = (
+SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
+)
+# The sandbox Compose file is an override and inherits policy variables from a base.
+COMPOSE_ENV_FILES = (
+    *SANDBOX_POLICY_COMPOSE_ENV_FILES,
     REPO_ROOT / "docker-compose.sandbox.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+SANDBOX_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS",
+}
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -122,6 +137,52 @@ def test_env_networks_rejects_invalid_cidr(
 
     with pytest.raises(ValueError, match="TEST_NETWORKS_ENV contains an invalid CIDR"):
         env_networks("TEST_NETWORKS_ENV")
+
+
+def test_env_ports_parses_and_deduplicates_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", "443, 8443,443")
+
+    assert env_ports("TEST_PORTS_ENV", default=(80,)) == (443, 8443)
+
+
+@pytest.mark.parametrize("raw_value", ["not-a-port", "0", "65536"])
+def test_env_ports_rejects_invalid_ports(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    with pytest.raises(ValueError, match="TEST_PORTS_ENV contains an invalid port"):
+        env_ports("TEST_PORTS_ENV", default=(443,))
+
+
+@pytest.mark.parametrize("raw_value", [None, "", "   "])
+def test_env_ports_uses_default_when_unset_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("TEST_PORTS_ENV", raising=False)
+    else:
+        monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    assert env_ports("TEST_PORTS_ENV", default=(80, 443)) == (80, 443)
+
+
+def test_sandbox_policy_env_vars_are_wired_to_deployment_files() -> None:
+    missing_by_file = {
+        str(path.relative_to(REPO_ROOT)): sorted(
+            name for name in SANDBOX_POLICY_ENV_VARS if name not in path.read_text()
+        )
+        for path in DEPLOYMENT_ENV_FILES
+    }
+    missing_by_file = {
+        path: missing for path, missing in missing_by_file.items() if missing
+    }
+
+    assert not missing_by_file
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:

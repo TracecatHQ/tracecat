@@ -715,8 +715,13 @@ async def _run_executor_action_smoke_case(
                 assert isinstance(listener_address, IPv4Address)
                 monkeypatch.setattr(
                     config,
-                    "TRACECAT__SANDBOX_ALLOWED_EGRESS_CIDRS",
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
                     (ip_network(f"{listener_address}/32"),),
+                )
+                monkeypatch.setattr(
+                    config,
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+                    (network_listener.getsockname()[1],),
                 )
                 allowed_result = await runner.execute_action(
                     input=action_input,

@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+from tracecat import config as tracecat_config
 from tracecat.agent.sandbox.config import AgentSandboxConfig, build_agent_nsjail_config
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.networking import (
@@ -13,14 +14,18 @@ from tracecat.sandbox.networking import (
     NSTUN_GATEWAY_IP6,
     SandboxDnsRoute,
     build_sandbox_dns_config,
+    configured_sandbox_network_policy,
     nstun_user_net_config_lines,
     write_sandbox_network_files,
 )
 from tracecat.sandbox.types import (
     SandboxBindMount,
     SandboxConfig,
+    SandboxEgressRule,
     SandboxNetworkMode,
     SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
+    SandboxNetworkPurpose,
 )
 
 
@@ -141,7 +146,13 @@ def test_write_sandbox_network_files_writes_hostname_resolution_files(
 def test_filtered_nstun_policy_orders_dns_and_exceptions_before_blocks() -> None:
     policy = SandboxNetworkPolicy(
         mode=SandboxNetworkMode.FILTERED,
-        allowed_cidrs=(ip_network("10.42.0.0/16"),),
+        allowed_rules=(
+            SandboxEgressRule(
+                destination=ip_network("10.42.0.0/16"),
+                protocol=SandboxNetworkProtocol.TCP,
+                destination_port=8443,
+            ),
+        ),
         blocked_cidrs=(ip_network("8.8.8.0/24"),),
     )
     dns_route = SandboxDnsRoute(
@@ -162,6 +173,9 @@ def test_filtered_nstun_policy_orders_dns_and_exceptions_before_blocks() -> None
     assert config_text.index('dst_ip: "10.42.0.0/16"') < config_text.index(
         'dst_ip: "10.0.0.0/8"'
     )
+    assert (
+        'action: ALLOW\n    proto: TCP\n    dst_ip: "10.42.0.0/16"\n    dport: 8443'
+    ) in config_text
     assert 'action: REJECT\n    proto: ANY\n    dst_ip: "8.8.8.0/24"' in config_text
     assert 'action: ALLOW\n    proto: ANY\n    dst_ip: "0.0.0.0/0"' in config_text
     assert 'action: REJECT\n    proto: ANY\n    dst_ip: "::/0"' in config_text
@@ -201,11 +215,11 @@ def test_disabled_nstun_policy_omits_user_network() -> None:
     assert nstun_user_net_config_lines(policy) == []
 
 
-def test_non_filtered_policy_rejects_cidr_rules() -> None:
+def test_non_filtered_policy_rejects_egress_rules() -> None:
     with pytest.raises(ValueError, match="only valid for filtered"):
         SandboxNetworkPolicy(
             mode=SandboxNetworkMode.UNRESTRICTED,
-            allowed_cidrs=(IPv4Network("10.0.0.0/8"),),
+            allowed_rules=(SandboxEgressRule(destination=IPv4Network("10.0.0.0/8")),),
         )
 
 
@@ -215,11 +229,64 @@ def test_network_policy_rejects_untyped_mode_values() -> None:
 
 
 def test_nstun_policy_fails_closed_when_rule_limit_is_exceeded() -> None:
-    allowed_cidrs = tuple(IPv4Network(f"11.0.0.{index}/32") for index in range(120))
-    policy = SandboxNetworkPolicy(allowed_cidrs=allowed_cidrs)
+    allowed_rules = tuple(
+        SandboxEgressRule(destination=IPv4Network(f"11.0.0.{index}/32"))
+        for index in range(120)
+    )
+    policy = SandboxNetworkPolicy(allowed_rules=allowed_rules)
 
     with pytest.raises(ValueError, match="maximum is 128"):
         nstun_user_net_config_lines(policy)
+
+
+def test_configured_network_policies_are_scoped_by_purpose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    purpose_config = {
+        SandboxNetworkPurpose.INSTALL: (
+            "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
+            "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+            IPv4Network("10.1.0.0/16"),
+            8001,
+        ),
+        SandboxNetworkPurpose.SCRIPT: (
+            "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
+            "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+            IPv4Network("10.2.0.0/16"),
+            8002,
+        ),
+        SandboxNetworkPurpose.ACTION: (
+            "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+            "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+            IPv4Network("10.3.0.0/16"),
+            8003,
+        ),
+        SandboxNetworkPurpose.AGENT: (
+            "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS",
+            "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+            IPv4Network("10.4.0.0/16"),
+            8004,
+        ),
+    }
+    for _, (cidr_name, ports_name, network, port) in purpose_config.items():
+        monkeypatch.setattr(tracecat_config, cidr_name, (network,))
+        monkeypatch.setattr(tracecat_config, ports_name, (port,))
+
+    for purpose, (_, _, network, port) in purpose_config.items():
+        policy = configured_sandbox_network_policy(purpose)
+
+        assert policy.allowed_rules == (
+            SandboxEgressRule(
+                destination=network,
+                protocol=SandboxNetworkProtocol.TCP,
+                destination_port=port,
+            ),
+        )
+
+
+def test_configured_network_policy_rejects_untyped_purpose() -> None:
+    with pytest.raises(ValueError, match="purpose must be a SandboxNetworkPurpose"):
+        configured_sandbox_network_policy(cast(SandboxNetworkPurpose, "install"))
 
 
 def test_agent_nsjail_config_keeps_network_isolated_without_user_net(
@@ -336,6 +403,51 @@ def test_python_sandbox_config_mounts_phase_capabilities_read_only(
     ) in config_text
 
 
+def test_python_sandbox_scopes_install_and_script_private_egress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
+        (IPv4Network("10.10.0.0/16"),),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+        (8080,),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
+        (IPv4Network("10.20.0.0/16"),),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+        (8443,),
+    )
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+
+    install_config = executor._build_config(
+        job_dir=tmp_path / "install-job",
+        phase="install",
+        config=SandboxConfig(network_enabled=False),
+    )
+    script_config = executor._build_config(
+        job_dir=tmp_path / "script-job",
+        phase="execute",
+        config=SandboxConfig(network_enabled=True),
+    )
+
+    assert 'dst_ip: "10.10.0.0/16"' in install_config
+    assert "dport: 8080" in install_config
+    assert 'dst_ip: "10.20.0.0/16"' not in install_config
+    assert 'dst_ip: "10.20.0.0/16"' in script_config
+    assert "dport: 8443" in script_config
+    assert 'dst_ip: "10.10.0.0/16"' not in script_config
+
+
 def test_action_sandbox_config_enables_filtered_nstun(tmp_path: Path) -> None:
     executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
 
@@ -353,6 +465,57 @@ def test_action_sandbox_config_enables_filtered_nstun(tmp_path: Path) -> None:
     assert f'src: "{tmp_path}/job/resolv.conf"' in config_text
     assert 'src: "/proc"' not in config_text
     assert 'dst: "/proc" fstype: "proc"' in config_text
+
+
+def test_action_and_agent_sandboxes_use_separate_private_egress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+        (IPv4Network("10.30.0.0/16"),),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+        (9443,),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS",
+        (IPv4Network("10.40.0.0/16"),),
+    )
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+        (10443,),
+    )
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+
+    action_config = executor._build_action_config(
+        job_dir=tmp_path / "action-job",
+        config=ActionSandboxConfig(
+            registry_paths=[tmp_path / "registry"],
+            tracecat_app_dir=tmp_path / "app",
+        ),
+    )
+    agent_config = build_agent_nsjail_config(
+        rootfs=tmp_path / "rootfs",
+        job_dir=tmp_path / "agent-job",
+        socket_dir=tmp_path / "agent-socket",
+        config=AgentSandboxConfig(),
+        site_packages_dir=tmp_path / "site-packages",
+        llm_socket_path=tmp_path / "llm.sock",
+        enable_internet_access=True,
+    )
+
+    assert 'dst_ip: "10.30.0.0/16"' in action_config
+    assert "dport: 9443" in action_config
+    assert 'dst_ip: "10.40.0.0/16"' not in action_config
+    assert 'dst_ip: "10.40.0.0/16"' in agent_config
+    assert "dport: 10443" in agent_config
+    assert 'dst_ip: "10.30.0.0/16"' not in agent_config
 
 
 def test_action_sandbox_can_explicitly_disable_networking(tmp_path: Path) -> None:
