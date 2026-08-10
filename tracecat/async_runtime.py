@@ -120,7 +120,10 @@ class AppAsyncRuntime:
             thread = threading.Thread(
                 target=self._run_loop,
                 name=self._name,
-                daemon=False,
+                # close() still performs ordered shutdown and joins this thread.
+                # Daemonize only as a final escape hatch when a coroutine ignores
+                # cancellation beyond the shutdown deadline.
+                daemon=True,
             )
             self._thread = thread
             thread.start()

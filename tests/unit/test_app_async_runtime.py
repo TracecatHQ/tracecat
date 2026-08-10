@@ -332,6 +332,7 @@ async def test_app_async_runtime_close_timeout_bounds_cancelled_finalizer() -> N
     runtime.start()
     runtime_thread = runtime._thread
     assert runtime_thread is not None
+    assert runtime_thread.daemon is True
     caller_task = asyncio.create_task(runtime.run_async(cancellable_work()))
     assert await asyncio.to_thread(started.wait, 5)
     caller_task.cancel()
