@@ -117,6 +117,31 @@ def test_ai_agent_registry_schema_hides_unsupported_agents_config() -> None:
     assert "agents" not in properties
 
 
+def test_ai_action_registry_schemas_expose_bounded_timeout() -> None:
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    for action_name in ("ai.agent", "ai.action"):
+        properties = repo.get(action_name).get_interface()["expects"]["properties"]
+        timeout = properties["timeout_seconds"]
+        assert timeout["default"] == 1800
+        assert timeout["minimum"] == 5
+        assert timeout["maximum"] == 3600
+        assert timeout["x-tracecat-component"] == [
+            {
+                "component_id": "integer",
+                "min_val": 5,
+                "max_val": 3600,
+                "step": 1,
+            }
+        ]
+
+    preset_properties = repo.get("ai.preset_agent").get_interface()["expects"][
+        "properties"
+    ]
+    assert "timeout_seconds" not in preset_properties
+
+
 @pytest.fixture
 def mock_package(tmp_path):
     """Pytest fixture that creates a mock package with files and cleans up after the test."""

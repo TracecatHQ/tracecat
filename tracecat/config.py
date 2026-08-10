@@ -4,6 +4,10 @@ import uuid
 from enum import StrEnum
 from typing import Literal, cast
 
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+    AGENT_TIMEOUT_SECONDS_MAX,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.feature_flags.enums import FeatureFlag
 
@@ -731,13 +735,12 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
-    or (TRACECAT__AGENT_SANDBOX_TIMEOUT + 60)
+    or (AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS)
 )
 """Agent executor worker drain timeout in seconds.
 
-Defaults to the agent sandbox timeout plus a small buffer so planned worker
-shutdowns can let active agent activities finish instead of interrupting the
-sandbox.
+Defaults to the maximum configurable agent timeout plus the cleanup buffer so
+planned worker shutdowns can let every valid agent activity finish.
 """
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(

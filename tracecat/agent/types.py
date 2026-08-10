@@ -17,9 +17,17 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
-from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
+from tracecat.config import (
+    TRACECAT__AGENT_MAX_RETRIES,
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -32,6 +40,13 @@ else:
     # Runtime fallbacks for types only used in annotations
     ModelMessage = Any
     CustomToolList = list[Any]
+
+
+def resolve_agent_timeout_seconds(timeout_seconds: int | None) -> int:
+    """Resolve an inherited agent timeout against the deployment default."""
+    if timeout_seconds is not None:
+        return timeout_seconds
+    return TRACECAT__AGENT_SANDBOX_TIMEOUT
 
 
 class StreamKey(str):
@@ -140,6 +155,12 @@ class AgentConfig:
     # Subagents
     agents: AgentSubagentsConfig = field(default_factory=AgentSubagentsConfig)
     retries: int = TRACECAT__AGENT_MAX_RETRIES
+    timeout_seconds: int | None = pydantic.Field(
+        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+        exclude_if=lambda value: value is None,
+    )
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox

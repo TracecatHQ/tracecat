@@ -291,7 +291,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
     monkeypatch.setattr(
         executor_worker.config,
         "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
-        1860,
+        3660,
     )
     await executor_worker.main(shutdown_event=shutdown_event)
 
@@ -300,7 +300,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             "task_queue": "test-agent-executor-queue",
             "max_concurrent_activities": 1,
             "threadpool_max_workers": 100,
-            "graceful_shutdown_timeout": timedelta(seconds=1860),
+            "graceful_shutdown_timeout": timedelta(seconds=3660),
         },
     ]
 

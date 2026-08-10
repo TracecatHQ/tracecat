@@ -59,7 +59,7 @@ export function buildDuplicateAgentPresetPayload(
   preset: AgentPresetRead,
   existingSlugs: Iterable<string>
 ): AgentPresetCreate {
-  return {
+  const payload: AgentPresetCreate = {
     name: getDuplicateItemName(preset.name, "agent"),
     slug: buildDuplicateAgentSlug(preset.slug || preset.name, existingSlugs),
     description: preset.description ?? null,
@@ -77,6 +77,10 @@ export function buildDuplicateAgentPresetPayload(
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
   }
+  if (preset.timeout_seconds != null) {
+    payload.timeout_seconds = preset.timeout_seconds
+  }
+  return payload
 }
 
 export function buildAgentPresetUpdatePayload(
