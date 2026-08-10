@@ -1,7 +1,7 @@
 """Add configurable agent timeouts.
 
 Revision ID: 4e4a211c481e
-Revises: 2792569cf359
+Revises: c20c04c7d2a9
 Create Date: 2026-08-10
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4e4a211c481e"
-down_revision: str | None = "2792569cf359"
+down_revision: str | None = "c20c04c7d2a9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
