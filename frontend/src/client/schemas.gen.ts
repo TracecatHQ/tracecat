@@ -6483,8 +6483,7 @@ export const $CaseCommentMentionRead = {
       title: "Id",
     },
     target_type: {
-      type: "string",
-      title: "Target Type",
+      $ref: "#/components/schemas/MentionTargetType",
     },
     target_id: {
       type: "string",
@@ -17407,6 +17406,18 @@ export const $MCPVerificationStatusRead = {
   required: ["status"],
   title: "MCPVerificationStatusRead",
   description: "Response model for saved MCP verification status.",
+} as const
+
+export const $MentionTargetType = {
+  type: "string",
+  enum: ["agent"],
+  title: "MentionTargetType",
+  description: `Polymorphic target kind for a parsed case-comment mention.
+
+Only \`\`AGENT\`\` is supported today. The finite set lives here (rather than
+as a bare \`\`str\`\` checked at runtime) so every mention-aware call site —
+the parser, persistence, and API read schema — shares one exhaustive,
+type-checked domain of valid target kinds.`,
 } as const
 
 export const $MessageKind = {

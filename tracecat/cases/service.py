@@ -42,8 +42,9 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
-from tracecat.cases.mentions import parse_mentions
+from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseBatchItemResult,
@@ -2494,8 +2495,8 @@ class CaseCommentsService(BaseWorkspaceService):
         content: str,
     ) -> None:
         """Persist live, workspace-local mention targets for a new comment."""
-        unique_tokens = []
-        seen_targets: set[tuple[str, uuid.UUID]] = set()
+        unique_tokens: list[MentionToken] = []
+        seen_targets: set[tuple[MentionTargetType, uuid.UUID]] = set()
         for token in parse_mentions(content):
             target_key = (token.target_type, token.target_id)
             if target_key in seen_targets:
@@ -2503,8 +2504,10 @@ class CaseCommentsService(BaseWorkspaceService):
             seen_targets.add(target_key)
             unique_tokens.append(token)
 
-        agent_ids = {
-            token.target_id for token in unique_tokens if token.target_type == "agent"
+        agent_ids: set[uuid.UUID] = {
+            token.target_id
+            for token in unique_tokens
+            if token.target_type == MentionTargetType.AGENT
         }
         if not agent_ids:
             return
@@ -2516,9 +2519,12 @@ class CaseCommentsService(BaseWorkspaceService):
                 AgentPreset.deleted_at.is_(None),
             )
         )
-        live_agent_ids = set(result.scalars().all())
+        live_agent_ids: set[uuid.UUID] = set(result.scalars().all())
         for token in unique_tokens:
-            if token.target_type != "agent" or token.target_id not in live_agent_ids:
+            if (
+                token.target_type != MentionTargetType.AGENT
+                or token.target_id not in live_agent_ids
+            ):
                 continue
             self.session.add(
                 CaseCommentMention(

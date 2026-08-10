@@ -19,6 +19,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    MentionTargetType,
 )
 from tracecat.cases.schemas import (
     CaseCommentCreate,
@@ -290,7 +291,7 @@ class TestCaseCommentsService:
         mention = mentions[0]
         assert mention.case_id == test_case.id
         assert mention.comment_id == comment.id
-        assert mention.target_type == "agent"
+        assert mention.target_type == MentionTargetType.AGENT
         assert mention.target_id == preset.id
         assert mention.label == "Response agent"
 
@@ -395,6 +396,31 @@ class TestCaseCommentsService:
                     ]
                 )
             ),
+        )
+
+        assert await _load_comment_mentions(session, comment.id) == []
+
+    async def test_create_comment_skips_overlong_label_mention(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        """An otherwise-valid mention with a label over the column width is inert.
+
+        The label column is `String(255)`; a longer label must not reach the
+        database (which would fail the whole comment insert) and must not
+        raise from `create_comment`.
+        """
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Overlong label agent",
+        )
+        overlong_label = "a" * 256
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token(overlong_label, preset.id)),
         )
 
         assert await _load_comment_mentions(session, comment.id) == []
