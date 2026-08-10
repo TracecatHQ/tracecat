@@ -436,6 +436,37 @@ def test_app_async_runtime_reports_loop_start_failure() -> None:
     assert runtime.health.thread_alive is False
 
 
+def test_app_async_runtime_start_timeout_stops_late_loop() -> None:
+    release_loop_factory = threading.Event()
+
+    def slow_loop_creation() -> asyncio.AbstractEventLoop:
+        assert release_loop_factory.wait(timeout=5)
+        return asyncio.new_event_loop()
+
+    runtime = AppAsyncRuntime(loop_factory=slow_loop_creation)
+
+    with pytest.raises(RuntimeError, match="failed to start") as exc_info:
+        runtime.start(timeout=0.05)
+
+    assert isinstance(exc_info.value.__cause__, TimeoutError)
+    runtime_thread = runtime._thread
+    assert runtime_thread is not None
+    assert runtime_thread.is_alive() is True
+
+    release_loop_factory.set()
+    runtime_thread.join(timeout=5)
+    stopped_without_intervention = not runtime_thread.is_alive()
+    if not stopped_without_intervention:
+        runtime_loop = runtime._loop
+        if runtime_loop is not None:
+            runtime_loop.call_soon_threadsafe(runtime_loop.stop)
+        runtime_thread.join(timeout=5)
+
+    assert stopped_without_intervention is True
+    assert runtime.state is AppAsyncRuntimeState.FAILED
+    assert runtime.health.loop_running is False
+
+
 def test_app_async_runtime_failed_close_cancels_stranded_submissions() -> None:
     """A dead loop must not leave close() waiting forever on orphaned Futures."""
     runtime = AppAsyncRuntime(name="test-app-io")

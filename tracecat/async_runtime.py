@@ -152,6 +152,8 @@ class AppAsyncRuntime:
             with self._lock:
                 self._loop = loop
                 self._thread_id = threading.get_ident()
+                if self._state is not AppAsyncRuntimeState.STARTING:
+                    return
             loop.call_soon(self._mark_running)
             loop.run_forever()
             with self._lock:
