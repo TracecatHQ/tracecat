@@ -4025,16 +4025,17 @@ class TestMCPIntegrationValidation:
         finally:
             mcp_validation.ALLOWED_MCP_COMMANDS = original
 
-    async def test_resolvers_sanitize_protected_uvx_options_from_legacy_rows(
+    async def test_resolvers_sanitize_runtime_overrides_from_legacy_rows(
         self,
         integration_service: IntegrationService,
     ) -> None:
-        """Persisted protected uvx options are removed without disabling the server."""
+        """Persisted runtime overrides are removed without disabling the server."""
         created = await integration_service.create_mcp_integration(
             params=MCPStdioIntegrationCreate(
                 name="Legacy uvx MCP",
                 stdio_command="uvx",
                 stdio_args=["example-mcp", "--cache-dir", "/server-data"],
+                stdio_env={"TOKEN": "kept"},
             )
         )
         created.stdio_args = [
@@ -4045,6 +4046,9 @@ class TestMCPIntegrationValidation:
             "--cache-dir",
             "/server-data",
         ]
+        created.encrypted_stdio_env = integration_service._encrypt_token(
+            '{"TOKEN":"kept","UV_CACHE_DIR":"/legacy-cache","UV_LINK_MODE":"symlink"}'
+        )
         await integration_service.session.commit()
 
         preset_service = AgentPresetService(
@@ -4060,7 +4064,9 @@ class TestMCPIntegrationValidation:
         assert len(resolved) == 1
         assert len(refs) == 1
         assert resolved[0].get("args") == expected_args
+        assert resolved[0].get("env") == {"TOKEN": "kept"}
         assert refs[0].get("args") == expected_args
+        assert "env" not in refs[0]
 
     async def test_resolve_mcp_integration_refs_includes_verified_stdio_tools(
         self,

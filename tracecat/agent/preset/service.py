@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
+from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
@@ -793,6 +794,27 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return sanitized_args
 
+    def _sanitize_persisted_stdio_env(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        env: dict[str, str],
+    ) -> dict[str, str]:
+        """Remove runtime-controlled variables from a persisted stdio config."""
+        protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
+        if protected_env_keys:
+            logger.warning(
+                "Ignoring protected stdio MCP environment variables from persisted integration",
+                workspace_id=str(self.workspace_id),
+                mcp_integration_id=str(mcp_integration_id),
+                env_keys=sorted(protected_env_keys),
+            )
+        return {
+            key: value
+            for key, value in env.items()
+            if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+        }
+
     async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
@@ -851,6 +873,11 @@ class AgentPresetService(BaseWorkspaceService):
 
                 # Decrypt stdio_env if present
                 stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
+                if stdio_env:
+                    stdio_env = self._sanitize_persisted_stdio_env(
+                        mcp_integration_id=mcp_integration.id,
+                        env=stdio_env,
+                    )
                 if stdio_env:
                     try:
                         stdio_env = await self.resolve_stdio_env(
