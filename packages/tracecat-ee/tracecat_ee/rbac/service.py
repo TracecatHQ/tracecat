@@ -10,9 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
-from tracecat.authz.controls import require_scope, validate_scope_string
+from tracecat.authz.controls import (
+    ensure_can_grant_scopes,
+    require_scope,
+    validate_scope_string,
+)
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
+from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -286,27 +291,25 @@ class RBACService(BaseOrgService):
 
     async def _set_role_scopes(self, role_id: UUID, scope_ids: list[UUID]) -> None:
         """Set the scopes for a role (replaces existing)."""
+        stmt = select(Scope).where(
+            Scope.id.in_(scope_ids),
+            (Scope.organization_id == self.organization_id)
+            | (Scope.organization_id.is_(None)),
+        )
+        scopes = (await self.session.execute(stmt)).scalars().all()
+        if len(scopes) != len(set(scope_ids)):
+            raise TracecatNotFoundError("Scope not found")
+        await self._ensure_can_grant_scopes(scopes)
+
         # Delete existing role-scope associations
         await self.session.execute(
             delete(RoleScope).where(RoleScope.role_id == role_id)
         )
 
         # Add new associations
-        for scope_id in scope_ids:
-            await self._assert_scope_exists(scope_id)
-            role_scope = RoleScope(role_id=role_id, scope_id=scope_id)
+        for scope in scopes:
+            role_scope = RoleScope(role_id=role_id, scope_id=scope.id)
             self.session.add(role_scope)
-
-    async def _assert_scope_exists(self, scope_id: UUID) -> None:
-        """Assert a scope exists and is accessible to the organization."""
-        stmt = select(Scope.id).where(
-            Scope.id == scope_id,
-            (Scope.organization_id == self.organization_id)
-            | (Scope.organization_id.is_(None)),
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
-            raise TracecatNotFoundError("Scope not found")
 
     async def _assert_group_exists(self, group_id: UUID) -> None:
         """Assert a group exists and belongs to the organization."""
@@ -318,15 +321,32 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Group not found")
 
-    async def _assert_role_exists(self, role_id: UUID) -> None:
-        """Assert a role exists and belongs to the organization."""
-        stmt = select(DBRole.id).where(
-            DBRole.id == role_id,
-            DBRole.organization_id == self.organization_id,
+    async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
+        """Reject grants containing scopes the caller does not hold."""
+        if self.role.is_platform_superuser:
+            return
+        granter_scopes = await resolve_granter_scopes(self.session, self.role)
+        ensure_can_grant_scopes(granter_scopes, [scope.name for scope in scopes])
+
+    async def _ensure_role_assignable(self, role_id: UUID) -> None:
+        """Reject role grants containing scopes the caller does not hold."""
+        await resolve_grantable_role(
+            self.session, self.role, self.organization_id, role_id
+        )
+
+    async def _ensure_group_membership_assignable(self, group_id: UUID) -> None:
+        """Reject membership grants containing scopes the caller does not hold."""
+        stmt = (
+            select(Scope)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == RoleScope.role_id)
+            .where(
+                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
         )
         result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
-            raise TracecatNotFoundError("Role not found")
+        await self._ensure_can_grant_scopes(result.scalars().all())
 
     # =========================================================================
     # Group Management
@@ -416,6 +436,7 @@ class RBACService(BaseOrgService):
         """Add a user to a group."""
         # Verify group exists
         await self._assert_group_exists(group_id)
+        await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
         stmt = select(OrganizationMembership).where(
@@ -551,7 +572,7 @@ class RBACService(BaseOrgService):
         """
         # Verify role and group exist
         await self._assert_group_exists(group_id)
-        await self._assert_role_exists(role_id)
+        await self._ensure_role_assignable(role_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -591,7 +612,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_group_role_assignment(assignment_id)
 
         # Verify new role exists
-        await self._assert_role_exists(role_id)
+        await self._ensure_role_assignable(role_id)
 
         assignment.role_id = role_id
         await self.session.commit()
@@ -688,7 +709,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
-        await self._assert_role_exists(role_id)
+        await self._ensure_role_assignable(role_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -734,7 +755,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_user_assignment(assignment_id)
 
         # Verify new role exists
-        await self._assert_role_exists(role_id)
+        await self._ensure_role_assignable(role_id)
 
         assignment.role_id = role_id
         await self.session.commit()
