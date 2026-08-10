@@ -738,3 +738,25 @@ def test_create_case_tags_redact_secret_expressions_at_root() -> None:
 
     assert partitioned.resolvable["tags"] == [MASK_VALUE, "phishing"]
     assert partitioned.resolvable["create_missing_tags"] is True
+
+
+def test_preserve_splices_null_into_embedded_reference_as_native_rendering() -> None:
+    state = _state(
+        source_args={"optional": None, "present": "abc"},
+        runtime_inputs={"optional": None, "present": "abc"},
+    )
+
+    prepared = state.prepare_step_args(
+        "core.workflow.create_workflow",
+        {
+            "definition_yaml": (
+                "description: ${{ inputs.optional }}\n"
+                "title: ${{ inputs.present }}\n"
+                "ghost: ${{ inputs.missing }}\n"
+            )
+        },
+    )
+
+    assert prepared["definition_yaml"] == (
+        "description: None\ntitle: abc\nghost: ${{ inputs.missing }}\n"
+    )

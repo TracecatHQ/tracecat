@@ -37,7 +37,6 @@ from tracecat.executor.expression_policy_map import (
 )
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, eval_jsonpath
-from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.expressions.parser.core import parser
 from tracecat.secrets.constants import MASK_VALUE
@@ -545,7 +544,8 @@ def substitute_source_references(value: Any, source_operand: Mapping[str, Any]) 
     Substitution splices authored source as inert data; it never evaluates
     it, so the result is safe regardless of which contexts the source
     references. Unresolvable references are left as written; a resolvable
-    null splices as null rather than being mistaken for a failed lookup.
+    null splices as null (or its native string rendering when embedded in
+    surrounding text) rather than being mistaken for a failed lookup.
     """
     match value:
         case str() if (path := _direct_template_input_path(value)) is not None:
@@ -561,13 +561,17 @@ def substitute_source_references(value: Any, source_operand: Mapping[str, Any]) 
 
             def replace(match: re.Match[str]) -> str:
                 template = match.group("template")
-                if _is_direct_template_reference(template):
-                    substituted = TemplateExpression(
-                        template, operand=source_operand
-                    ).result()
-                    if substituted is not None:
-                        return str(substituted)
-                return template
+                if (path := _direct_template_input_path(template)) is None:
+                    return template
+                try:
+                    substituted = eval_jsonpath(
+                        f"{ExprContext.TEMPLATE_ACTION_INPUTS}{path}",
+                        source_operand,
+                        strict=True,
+                    )
+                except TracecatExpressionError:
+                    return template
+                return str(substituted)
 
             return patterns.TEMPLATE_STRING.sub(replace, value)
         case list():
@@ -635,7 +639,11 @@ def _standalone_expression(value: str) -> str | None:
 
 
 def _direct_template_input_path(template: str) -> str | None:
-    """Return the path for an exact inputs.* reference."""
+    """Return the path for an exact inputs.* reference.
+
+    Never matches steps.*: step results are materialized runtime data,
+    not authored source, so they are never substituted.
+    """
     if (expression := _standalone_expression(template)) is None:
         return None
     parse_tree = parser.parse(expression)
@@ -645,12 +653,3 @@ def _direct_template_input_path(template: str) -> str | None:
     if not isinstance(token, Token):
         raise TracecatExpressionError("Expected template input path token")
     return str(token)
-
-
-def _is_direct_template_reference(template: str) -> bool:
-    """Return whether a template is exactly an inputs.* reference.
-
-    Never substitute steps.*: step results are materialized runtime data,
-    not authored source.
-    """
-    return _direct_template_input_path(template) is not None
