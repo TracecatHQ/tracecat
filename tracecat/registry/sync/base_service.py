@@ -621,6 +621,11 @@ class BaseRegistrySyncService[
         if origin == DEFAULT_REGISTRY_ORIGIN:
             return "builtin"
         if origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+            if not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                raise self._sync_error_cls()(
+                    "Local repository is not enabled on this instance. "
+                    "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true."
+                )
             return "local"
         if origin.startswith("git+ssh://"):
             return "git"

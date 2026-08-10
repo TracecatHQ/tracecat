@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import stat
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import ModuleType
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -11,9 +14,8 @@ import pytest
 from tracecat.exceptions import RegistryError
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
-    RegistryArtifactBuildResult,
 )
-from tracecat.registry.sync.sandbox import RegistrySyncSandbox
+from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
 from tracecat.registry.sync.schemas import SyncResultError, SyncResultSuccess
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import SandboxConfig, SandboxResult
@@ -32,14 +34,7 @@ async def test_registry_install_runs_in_nsjail_with_private_cache(
     (package_path / "link.py").symlink_to("example.py")
 
     output_dir = tmp_path / "output"
-    squashfs_path = output_dir / "site-packages.squashfs"
-    built_result = RegistryArtifactBuildResult(
-        squashfs_path=squashfs_path,
-        squashfs_name=squashfs_path.name,
-        content_hash="hash",
-        artifact_size_bytes=1,
-        site_packages_path=(output_dir / "sandbox-install" / "cache" / "site-packages"),
-    )
+    expected_site_packages = output_dir / "sandbox-install" / "cache" / "site-packages"
 
     async def execute_install(
         job_dir: Path,
@@ -62,27 +57,15 @@ async def test_registry_install_runs_in_nsjail_with_private_cache(
         "tracecat.registry.sync.sandbox.NsjailExecutor",
         return_value=executor,
     )
-    sandbox = RegistrySyncSandbox()
-    package_site_packages = mocker.patch.object(
-        sandbox,
-        "package_site_packages",
-        mocker.AsyncMock(return_value=built_result),
-    )
-
-    result = await sandbox.build_execution_artifact(
+    result = await RegistrySyncSandbox().install_package(
         package_path=package_path,
         output_dir=output_dir,
         timeout_seconds=123,
     )
 
-    assert result == built_result
+    assert result == expected_site_packages
     executor_cls.assert_called_once_with(
         cache_dir=str(output_dir / "sandbox-install" / "sandbox-cache")
-    )
-    package_site_packages.assert_awaited_once_with(
-        site_packages=output_dir / "sandbox-install" / "cache" / "site-packages",
-        output_dir=output_dir,
-        timeout_seconds=123,
     )
 
 
@@ -372,8 +355,65 @@ async def test_registry_packaging_runs_in_fresh_no_network_jail(
     )
 
     assert result.squashfs_path.read_bytes() == b"squashfs"
-    assert result.site_packages_path == site_packages
     assert len(result.content_hash) == 64
+
+
+def test_registry_packaging_normalizes_restrictive_permissions(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    source = tmp_path / "source"
+    restrictive_dir = source / "private"
+    restrictive_dir.mkdir(parents=True)
+    restrictive_module = restrictive_dir / "module.py"
+    restrictive_module.write_text("VALUE = 1\n")
+    executable = source / "bin" / "tool"
+    executable.parent.mkdir()
+    executable.write_text("#!/bin/sh\n")
+    link = source / "module-link.py"
+    link.symlink_to("private/module.py")
+
+    source.chmod(0o700)
+    restrictive_dir.chmod(0o700)
+    restrictive_module.chmod(0o600)
+    executable.chmod(0o700)
+
+    staging = tmp_path / "staging"
+    output = tmp_path / "site-packages.squashfs"
+    namespace: dict[str, object] = {}
+    exec(_PACKAGING_SCRIPT, namespace)
+
+    real_path = Path
+
+    def sandbox_path(value: str) -> Path:
+        if value == "/input/site-packages":
+            return source
+        if value == "/work/staged-site-packages":
+            return staging
+        if value == "/work/site-packages.squashfs":
+            return output
+        return real_path(value)
+
+    def run_mksquashfs(command: list[str], **_kwargs):
+        assert command[1] == str(staging)
+        output.write_bytes(b"squashfs")
+        return mocker.Mock(returncode=0, stderr="", stdout="")
+
+    namespace["Path"] = sandbox_path
+    packaging_subprocess = cast(ModuleType, namespace["subprocess"])
+    mocker.patch.object(packaging_subprocess, "run", side_effect=run_mksquashfs)
+
+    main = cast(Callable[..., dict[str, str]], namespace["main"])
+    result = main(processors=1, memory="64M")
+
+    assert result == {"artifact_name": output.name}
+    assert stat.S_IMODE(staging.stat().st_mode) == 0o755
+    assert stat.S_IMODE((staging / "private").stat().st_mode) == 0o755
+    assert stat.S_IMODE((staging / "private" / "module.py").stat().st_mode) == 0o644
+    assert stat.S_IMODE((staging / "bin" / "tool").stat().st_mode) == 0o755
+    assert (staging / "module-link.py").is_symlink()
+    assert (staging / "module-link.py").readlink() == Path("private/module.py")
+    assert stat.S_IMODE(restrictive_module.stat().st_mode) == 0o600
 
 
 @pytest.mark.anyio

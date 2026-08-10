@@ -18,7 +18,10 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
 )
 from tracecat.registry.artifact_keys import get_artifact_local_dir
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
@@ -40,6 +43,30 @@ def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
         squashfs_name="site-packages.squashfs",
         content_hash="hash",
         artifact_size_bytes=len(b"squashfs"),
+    )
+
+
+def _make_sandboxed_runner(
+    mocker,
+    sandbox,
+    *,
+    install_timeout: int | None = None,
+    discover_timeout: int | None = None,
+    clone_timeout: int | None = None,
+) -> RegistrySyncRunner:
+    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
+    mocker.patch(
+        "tracecat.registry.sync.runner.is_nsjail_available",
+        return_value=True,
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.RegistrySyncSandbox",
+        return_value=sandbox,
+    )
+    return RegistrySyncRunner(
+        install_timeout=install_timeout,
+        discover_timeout=discover_timeout,
+        clone_timeout=clone_timeout,
     )
 
 
@@ -142,13 +169,13 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
     mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
-        "_discover_actions",
-        mocker.AsyncMock(return_value=([], {})),
+        "_discover_legacy_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
     )
     upload_tarball = mocker.patch.object(
         runner,
@@ -165,16 +192,7 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
         ssh_key="fake-ssh-key",
         work_dir=mocker.ANY,
     )
-    discover_actions.assert_awaited_once_with(
-        repository_id=request.repository_id,
-        origin=request.origin,
-        commit_sha="resolved-sha",
-        validate=True,
-        git_repo_package_name=None,
-        organization_id=organization_id,
-        installed_site_packages=None,
-        package_name="internal-registry",
-    )
+    discover_actions.assert_awaited_once_with(request, "resolved-sha")
     upload_tarball.assert_awaited_once()
     assert result.commit_sha == "resolved-sha"
 
@@ -203,8 +221,7 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
         install_package=mocker.AsyncMock(return_value=installed_site_packages),
         package_site_packages=mocker.AsyncMock(return_value=artifact_result),
     )
-    runner = RegistrySyncRunner(clone_timeout=75)
-    runner._sandbox = sandbox
+    runner = _make_sandboxed_runner(mocker, sandbox, clone_timeout=75)
     fetch_key = mocker.patch.object(
         runner,
         "_fetch_registry_ssh_key",
@@ -217,13 +234,13 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
     )
     build_execution_artifact = mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     discover = mocker.patch.object(
         runner,
-        "_discover_actions",
-        mocker.AsyncMock(return_value=([], {})),
+        "_discover_sandboxed_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
     )
     mocker.patch.object(
         runner,
@@ -248,16 +265,13 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
         output_dir=mocker.ANY,
         timeout_seconds=runner.install_timeout,
     )
-    discover.assert_awaited_once_with(
-        repository_id=request.repository_id,
-        origin=request.origin,
-        commit_sha=resolved_sha,
-        validate=False,
-        git_repo_package_name=None,
-        organization_id=request.organization_id,
-        installed_site_packages=installed_site_packages,
-        package_name="registry",
-    )
+    discover.assert_awaited_once()
+    discover_call = discover.await_args.kwargs
+    assert discover_call["request"] is request
+    assert discover_call["resolved"].path == tmp_path / "sandbox-clone" / "repo"
+    assert discover_call["resolved"].commit_sha == resolved_sha
+    assert discover_call["installed_site_packages"] == installed_site_packages
+    assert discover_call["sandbox"] is sandbox
     sandbox.package_site_packages.assert_awaited_once_with(
         site_packages=installed_site_packages,
         output_dir=mocker.ANY,
@@ -286,6 +300,32 @@ async def test_runner_fails_closed_when_nsjail_enabled_but_unavailable(
         await runner.run(request)
 
 
+@pytest.mark.anyio
+async def test_runner_rejects_local_registry_when_disabled(
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", False)
+    runner = RegistrySyncRunner()
+    build_execution_artifact = mocker.patch.object(
+        runner,
+        "_build_legacy_execution_artifact",
+        mocker.AsyncMock(),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin=DEFAULT_LOCAL_REGISTRY_ORIGIN,
+        origin_type="local",
+    )
+
+    with pytest.raises(
+        RegistrySyncRunnerError, match="Local repository is not enabled"
+    ):
+        await runner.run(request)
+
+    build_execution_artifact.assert_not_awaited()
+
+
 def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
     sandbox = mocker.Mock()
     mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
@@ -298,9 +338,8 @@ def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
         return_value=sandbox,
     )
 
-    runner = RegistrySyncRunner()
+    RegistrySyncRunner()
 
-    assert runner._sandbox is sandbox
     sandbox_cls.assert_called_once_with()
 
 
@@ -312,21 +351,20 @@ def test_runner_skips_nsjail_when_explicitly_disabled(mocker) -> None:
     )
     sandbox_cls = mocker.patch("tracecat.registry.sync.runner.RegistrySyncSandbox")
 
-    runner = RegistrySyncRunner()
+    RegistrySyncRunner()
 
-    assert runner._sandbox is None
     availability_check.assert_not_called()
     sandbox_cls.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
-    runner = RegistrySyncRunner()
-    runner._sandbox = mocker.Mock(
+    sandbox = mocker.Mock(
         clone_repository=mocker.AsyncMock(
             side_effect=RegistryError("host key verification failed")
         )
     )
+    runner = _make_sandboxed_runner(mocker, sandbox)
     mocker.patch.object(
         runner,
         "_fetch_registry_ssh_key",
@@ -358,9 +396,9 @@ async def test_runner_decreases_privileges_across_sandbox_phases(
         events.append("install")
         return installed_site_packages
 
-    async def discover_actions(**_kwargs):
+    async def discover_actions(**_kwargs) -> SyncResultSuccess:
         events.append("discover")
-        return [], {}
+        return SyncResultSuccess(actions=[])
 
     async def package_site_packages(**_kwargs) -> RegistryArtifactBuildResult:
         events.append("package")
@@ -370,20 +408,16 @@ async def test_runner_decreases_privileges_across_sandbox_phases(
         events.append("upload")
         return "s3://registry/site-packages.squashfs"
 
-    runner = RegistrySyncRunner()
-    runner._sandbox = mocker.Mock(
+    sandbox = mocker.Mock(
         install_package=mocker.AsyncMock(side_effect=install_package),
+        discover_actions=mocker.AsyncMock(side_effect=discover_actions),
         package_site_packages=mocker.AsyncMock(side_effect=package_site_packages),
     )
+    runner = _make_sandboxed_runner(mocker, sandbox)
     mocker.patch.object(
         runner,
         "_get_builtin_package_path",
         mocker.AsyncMock(return_value=tmp_path),
-    )
-    mocker.patch.object(
-        runner,
-        "_discover_actions",
-        mocker.AsyncMock(side_effect=discover_actions),
     )
     mocker.patch.object(
         runner,
@@ -415,22 +449,21 @@ async def test_runner_does_not_package_invalid_sandbox_discovery(
         loc_secondary=None,
     )
     package_site_packages = mocker.AsyncMock()
-    runner = RegistrySyncRunner()
-    runner._sandbox = mocker.Mock(
+    sandbox = mocker.Mock(
         install_package=mocker.AsyncMock(return_value=installed_site_packages),
+        discover_actions=mocker.AsyncMock(
+            return_value=SyncResultSuccess(
+                actions=[],
+                validation_errors={"tools.example.action": [validation_error]},
+            )
+        ),
         package_site_packages=package_site_packages,
     )
+    runner = _make_sandboxed_runner(mocker, sandbox)
     mocker.patch.object(
         runner,
         "_get_builtin_package_path",
         mocker.AsyncMock(return_value=tmp_path),
-    )
-    mocker.patch.object(
-        runner,
-        "_discover_actions",
-        mocker.AsyncMock(
-            return_value=([], {"tools.example.action": [validation_error]})
-        ),
     )
     request = RegistrySyncRequest(
         repository_id=uuid4(),
@@ -491,16 +524,16 @@ async def test_runner_raises_before_upload_on_validation_errors(
     )
     mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     mocker.patch.object(
         runner,
-        "_discover_actions",
+        "_discover_legacy_actions",
         mocker.AsyncMock(
-            return_value=(
-                [],
-                {
+            return_value=SyncResultSuccess(
+                actions=[],
+                validation_errors={
                     "tools.example.action": [
                         RegistryActionValidationErrorInfo(
                             type=TemplateActionValidationErrorType.SERIALIZATION_ERROR,
@@ -534,7 +567,6 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
     mocker,
 ) -> None:
     runner = RegistrySyncRunner()
-    runner._sandbox = None
     mocker.patch(
         "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
         mocker.AsyncMock(
@@ -546,9 +578,13 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
     )
 
     with pytest.raises(ActionDiscoveryError) as exc_info:
-        await runner._discover_actions(
-            repository_id=uuid4(),
-            origin="tracecat_registry",
+        await runner._discover_legacy_actions(
+            RegistrySyncRequest(
+                repository_id=uuid4(),
+                origin="tracecat_registry",
+                origin_type="builtin",
+            ),
+            None,
         )
 
     assert exc_info.value.non_retryable is True
@@ -557,7 +593,6 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
 @pytest.mark.anyio
 async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> None:
     runner = RegistrySyncRunner()
-    runner._sandbox = None
     mocker.patch(
         "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
         mocker.AsyncMock(
@@ -568,61 +603,16 @@ async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> Non
     )
 
     with pytest.raises(ActionDiscoveryError) as exc_info:
-        await runner._discover_actions(
-            repository_id=uuid4(),
-            origin="tracecat_registry",
+        await runner._discover_legacy_actions(
+            RegistrySyncRequest(
+                repository_id=uuid4(),
+                origin="tracecat_registry",
+                origin_type="builtin",
+            ),
+            None,
         )
 
     assert exc_info.value.non_retryable is False
-
-
-@pytest.mark.anyio
-async def test_runner_uses_nsjail_for_install_and_discovery(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    runner = RegistrySyncRunner(install_timeout=123, discover_timeout=45)
-    artifact_result = _make_artifact_result(tmp_path)
-    artifact_result.site_packages_path = tmp_path / "site-packages"
-    sandbox = mocker.Mock(
-        build_execution_artifact=mocker.AsyncMock(return_value=artifact_result),
-        discover_actions=mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
-    )
-    runner._sandbox = sandbox
-
-    built = await runner._build_execution_artifact(
-        package_path=tmp_path,
-        output_dir=tmp_path / "output",
-    )
-    actions, validation_errors = await runner._discover_actions(
-        repository_id=uuid4(),
-        origin="custom_registry",
-        commit_sha="abc123",
-        validate=True,
-        git_repo_package_name="custom_registry",
-        organization_id=None,
-        installed_site_packages=artifact_result.site_packages_path,
-        package_name="custom_registry",
-    )
-
-    assert built == artifact_result
-    assert actions == []
-    assert validation_errors == {}
-    sandbox.build_execution_artifact.assert_awaited_once_with(
-        package_path=tmp_path,
-        output_dir=tmp_path / "output",
-        timeout_seconds=123,
-    )
-    sandbox.discover_actions.assert_awaited_once_with(
-        site_packages=artifact_result.site_packages_path,
-        origin="custom_registry",
-        package_name="custom_registry",
-        repository_id=mocker.ANY,
-        commit_sha="abc123",
-        validate=True,
-        organization_id=None,
-        timeout_seconds=45,
-    )
 
 
 @pytest.mark.anyio
@@ -654,13 +644,13 @@ async def test_runner_does_not_upload_artifacts_under_target_version(
     )
     mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     mocker.patch.object(
         runner,
-        "_discover_actions",
-        mocker.AsyncMock(return_value=([], {})),
+        "_discover_legacy_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
     )
     upload_tarball = mocker.patch.object(
         runner,
@@ -717,13 +707,13 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
     artifact_result = _make_artifact_result(tmp_path)
     build_tarball_venv = mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
-        "_discover_actions",
-        mocker.AsyncMock(return_value=([], {})),
+        "_discover_legacy_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
     )
     upload_tarball = mocker.patch.object(
         runner,
@@ -740,16 +730,7 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
 
     assert result.tarball_uri.endswith("/site-packages.squashfs")
     build_tarball_venv.assert_awaited_once()
-    discover_actions.assert_awaited_once_with(
-        repository_id=repository_id,
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        commit_sha=None,
-        validate=True,
-        git_repo_package_name=None,
-        organization_id=None,
-        installed_site_packages=None,
-        package_name=DEFAULT_REGISTRY_ORIGIN,
-    )
+    discover_actions.assert_awaited_once_with(request, None)
     upload_tarball.assert_awaited_once()
 
 
@@ -817,7 +798,7 @@ async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
     artifact_result = _make_artifact_result(tmp_path)
     mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     fallback_actions = [
@@ -846,8 +827,8 @@ async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
     ]
     discover_actions = mocker.patch.object(
         runner,
-        "_discover_actions",
-        mocker.AsyncMock(return_value=(fallback_actions, {})),
+        "_discover_legacy_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=fallback_actions)),
     )
     mocker.patch.object(
         runner,
@@ -872,16 +853,7 @@ async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
     result = await runner.run(request)
 
     assert result.actions == fallback_actions
-    discover_actions.assert_awaited_once_with(
-        repository_id=repository_id,
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        commit_sha=None,
-        validate=True,
-        git_repo_package_name=None,
-        organization_id=None,
-        installed_site_packages=None,
-        package_name=DEFAULT_REGISTRY_ORIGIN,
-    )
+    discover_actions.assert_awaited_once_with(request, None)
 
 
 @pytest.mark.anyio
@@ -948,12 +920,12 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
     artifact_result = _make_artifact_result(tmp_path)
     build_tarball_venv = mocker.patch.object(
         runner,
-        "_build_execution_artifact",
+        "_build_legacy_execution_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
-        "_discover_actions",
+        "_discover_legacy_actions",
         mocker.AsyncMock(),
     )
     upload_tarball = mocker.patch.object(

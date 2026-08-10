@@ -22,6 +22,7 @@ from tracecat.registry.actions.schemas import (
 )
 from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import (
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
@@ -197,6 +198,21 @@ def test_generate_collision_version_preserves_release_suffixes(
     else:
         assert collision_version.startswith(f"{base_version}+collision.")
     Version(collision_version)
+
+
+def test_local_origin_type_requires_enabled_local_repository(
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RegistrySyncService(mocker.Mock(spec=AsyncSession), role=mocker.Mock())
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", False)
+
+    with pytest.raises(RegistrySyncError, match="Local repository is not enabled"):
+        service._get_origin_type(DEFAULT_LOCAL_REGISTRY_ORIGIN)
+
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
+
+    assert service._get_origin_type(DEFAULT_LOCAL_REGISTRY_ORIGIN) == "local"
 
 
 @pytest.mark.anyio

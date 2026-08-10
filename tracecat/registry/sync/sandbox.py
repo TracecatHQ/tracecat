@@ -143,36 +143,66 @@ def main(clone_url, commit_sha=None):
 
 _PACKAGING_SCRIPT = """
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
 
 
-def _validate_tree(root):
-    for current_root, directory_names, file_names in os.walk(
-        root,
-        followlinks=False,
-    ):
-        for name in [*directory_names, *file_names]:
-            path = Path(current_root) / name
-            mode = path.lstat().st_mode
-            if not (
-                stat.S_ISREG(mode)
-                or stat.S_ISDIR(mode)
-                or stat.S_ISLNK(mode)
-            ):
-                raise ValueError(f"Unsupported artifact entry type: {path}")
+def _normalized_file_mode(mode):
+    mode = stat.S_IMODE(mode)
+    normalized = mode | 0o444
+    if mode & 0o111:
+        normalized |= 0o111
+    return normalized
+
+
+def _normalized_dir_mode(mode):
+    return stat.S_IMODE(mode) | 0o555
+
+
+def _copy_entry(path, destination):
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode):
+        destination.symlink_to(os.readlink(path))
+        return
+    if stat.S_ISDIR(mode):
+        destination.mkdir()
+        for child in path.iterdir():
+            _copy_entry(child, destination / child.name)
+        destination.chmod(_normalized_dir_mode(mode))
+        return
+    if stat.S_ISREG(mode):
+        shutil.copyfile(path, destination, follow_symlinks=False)
+        destination.chmod(_normalized_file_mode(mode))
+        return
+    raise ValueError(f"Unsupported artifact entry type: {path}")
+
+
+def _stage_tree(source, staging):
+    source_mode = source.lstat().st_mode
+    if not stat.S_ISDIR(source_mode):
+        raise ValueError("Artifact source must be a directory")
+    if staging.is_symlink() or staging.is_file():
+        staging.unlink()
+    elif staging.is_dir():
+        shutil.rmtree(staging)
+    staging.mkdir()
+    for child in source.iterdir():
+        _copy_entry(child, staging / child.name)
+    staging.chmod(_normalized_dir_mode(source_mode))
 
 
 def main(processors, memory):
     source = Path("/input/site-packages")
+    staging = Path("/work/staged-site-packages")
     output = Path("/work/site-packages.squashfs")
-    _validate_tree(source)
+    _stage_tree(source, staging)
     output.unlink(missing_ok=True)
     result = subprocess.run(
         [
             "/usr/bin/mksquashfs",
-            str(source),
+            str(staging),
             str(output),
             "-noappend",
             "-comp",
@@ -524,25 +554,6 @@ class RegistrySyncSandbox:
             )
         return clone_path, clone_result.commit_sha
 
-    async def build_execution_artifact(
-        self,
-        *,
-        package_path: Path,
-        output_dir: Path,
-        timeout_seconds: int,
-    ) -> RegistryArtifactBuildResult:
-        """Install a registry package in NsJail and pack its isolated output."""
-        site_packages = await self.install_package(
-            package_path=package_path,
-            output_dir=output_dir,
-            timeout_seconds=timeout_seconds,
-        )
-        return await self.package_site_packages(
-            site_packages=site_packages,
-            output_dir=output_dir,
-            timeout_seconds=timeout_seconds,
-        )
-
     async def install_package(
         self,
         *,
@@ -661,7 +672,6 @@ class RegistrySyncSandbox:
             squashfs_name=squashfs_path.name,
             content_hash=content_hash,
             artifact_size_bytes=squashfs_path.stat().st_size,
-            site_packages_path=site_packages,
         )
 
     async def discover_actions(
