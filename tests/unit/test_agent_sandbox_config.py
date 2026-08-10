@@ -47,15 +47,13 @@ def test_build_agent_env_map_protects_job_scoped_uv_state() -> None:
         "UV_CREDENTIALS_DIR": "/run/tracecat/uv-state/credentials",
         "UV_LINK_MODE": "copy",
         "UV_PYTHON_BIN_DIR": "/run/tracecat/uv-state/bin",
+        "UV_PYTHON_CACHE_DIR": "/run/tracecat/uv-state/python-cache",
         "UV_PYTHON_INSTALL_DIR": "/run/tracecat/uv-state/python",
         "UV_TOOL_BIN_DIR": "/run/tracecat/uv-state/bin",
         "UV_TOOL_DIR": "/run/tracecat/uv-state/tools",
     }
     assert {key: env[key] for key in expected_uv_env} == expected_uv_env
-    assert "UV_PYTHON_CACHE_DIR" not in env
-    assert AGENT_RUNTIME_PROTECTED_ENV_VARS == frozenset(
-        {*expected_uv_env, "UV_PYTHON_CACHE_DIR"}
-    )
+    assert AGENT_RUNTIME_PROTECTED_ENV_VARS == frozenset(expected_uv_env)
 
 
 @pytest.mark.parametrize("env_key", sorted(AGENT_RUNTIME_PROTECTED_ENV_VARS))

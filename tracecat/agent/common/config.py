@@ -32,6 +32,7 @@ _AGENT_RUNTIME_UV_PATH_ENV_VARS = (
     ("UV_CREDENTIALS_DIR", "credentials"),
     ("UV_PYTHON_INSTALL_DIR", "python"),
     ("UV_PYTHON_BIN_DIR", "bin"),
+    ("UV_PYTHON_CACHE_DIR", "python-cache"),
     ("UV_TOOL_DIR", "tools"),
     ("UV_TOOL_BIN_DIR", "bin"),
 )
@@ -39,9 +40,6 @@ _AGENT_RUNTIME_UV_PATH_ENV_VARS = (
 AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
     {
         "UV_LINK_MODE",
-        # Keep uv's optional managed-Python archive cache disabled. Setting this
-        # variable would opt into storing a second copy of each downloaded archive.
-        "UV_PYTHON_CACHE_DIR",
         *(key for key, _relative_path in _AGENT_RUNTIME_UV_PATH_ENV_VARS),
     }
 )

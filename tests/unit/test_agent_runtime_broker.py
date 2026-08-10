@@ -304,9 +304,9 @@ def test_transport_pins_protected_uv_settings_for_runtime_paths(
     expected_path = Path(
         expected_state_dir if use_jailed_paths else tmp_path / expected_state_dir
     )
-    assert orjson.loads(options.settings) == {
-        "env": build_agent_runtime_uv_env(expected_path)
-    }
+    settings = orjson.loads(options.settings)
+    assert settings == {"env": build_agent_runtime_uv_env(expected_path)}
+    assert settings["env"]["UV_PYTHON_CACHE_DIR"] == str(expected_path / "python-cache")
 
 
 def test_transport_rewrites_bundled_claude_path_for_jail(
