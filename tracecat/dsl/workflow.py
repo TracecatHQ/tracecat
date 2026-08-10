@@ -988,6 +988,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                timeout_seconds=action_args.timeout_seconds,
                                 enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
@@ -1054,6 +1055,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                timeout_seconds=action_args.timeout_seconds,
                                 enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url
                                 if action_args.catalog_id is None

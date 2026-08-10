@@ -336,6 +336,28 @@ def test_action_gateway_socket_uses_default_for_empty_string(
         importlib.reload(tracecat_config)
 
 
+def test_agent_executor_drain_default_covers_configurable_timeout_maximum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", "900")
+            env.delenv(
+                "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
+                raising=False,
+            )
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__AGENT_SANDBOX_TIMEOUT == 900
+            assert (
+                reloaded_config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                == 3660
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_executor_concurrency_uses_bounded_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

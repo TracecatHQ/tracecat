@@ -17,6 +17,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -28,7 +29,10 @@ from tracecat_ee.agent.activities import (
     EmitSessionErrorInputs,
 )
 
-from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -1249,7 +1253,19 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result == expected_result
-            mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            mock_executor_cls.assert_called_once_with(
+                input=mock_executor_input,
+                timeout_seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT,
+            )
+
+    def test_rejects_timeout_above_configurable_maximum(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        payload = mock_executor_input.model_dump()
+        payload["timeout_seconds"] = 3601
+
+        with pytest.raises(ValidationError):
+            AgentExecutorInput.model_validate(payload)
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(

@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
         SandboxAgentConfig,
         SandboxSubagentConfig,
     )
+    from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         AgentExecutorResult,
@@ -89,7 +90,7 @@ with workflow.unsafe.imports_passed_through():
         mint_llm_token,
         mint_mcp_token,
     )
-    from tracecat.agent.types import AgentConfig
+    from tracecat.agent.types import AgentConfig, resolve_agent_timeout_seconds
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
@@ -141,6 +142,10 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
+CONFIGURABLE_AGENT_TIMEOUT_PATCH = "durable-agent-configurable-timeout-v1"
+REFRESH_TOKENS_AFTER_APPROVED_TOOLS_PATCH = (
+    "durable-agent-refresh-tokens-after-approved-tools-v1"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +159,11 @@ def _activity_error_message(error: ActivityError) -> str:
     if cause is not None:
         return str(cause)
     return str(error)
+
+
+def _agent_token_ttl_seconds(activity_timeout_seconds: int) -> int:
+    """Cover one active turn plus the executor queue and setup window."""
+    return activity_timeout_seconds + int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
 
 
 def _build_approved_tool_run_input(
@@ -679,6 +689,7 @@ class DurableAgentWorkflow:
         *,
         build_result: BuildToolDefsResult,
         internal_tool_context: InternalToolContext | None = None,
+        ttl_seconds: int | None = None,
     ) -> str:
         info = workflow.info()
         return mint_mcp_token(
@@ -693,6 +704,7 @@ class DurableAgentWorkflow:
             allowed_internal_tools=build_result.allowed_internal_tools,
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
+            ttl_seconds=ttl_seconds,
         )
 
     def _remint_scope_tokens(
@@ -700,12 +712,14 @@ class DurableAgentWorkflow:
         compiled_run: CompiledAgentRun,
         *,
         internal_tool_context: InternalToolContext | None,
+        ttl_seconds: int | None,
     ) -> CompiledAgentRun:
         root = compiled_run.root.model_copy(
             update={
                 "mcp_auth_token": self._mint_scope_mcp_token(
                     build_result=compiled_run.root.build_result,
                     internal_tool_context=internal_tool_context,
+                    ttl_seconds=ttl_seconds,
                 )
             }
         )
@@ -716,6 +730,7 @@ class DurableAgentWorkflow:
                         update={
                             "mcp_auth_token": self._mint_scope_mcp_token(
                                 build_result=subagent.scope.build_result,
+                                ttl_seconds=ttl_seconds,
                             )
                         }
                     )
@@ -731,6 +746,7 @@ class DurableAgentWorkflow:
         cfg: AgentConfig,
         subagents: list[ResolvedSubagentConfig],
         internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
     ) -> CompiledAgentRun:
         root_spec = AgentScopeSpec(
             name=ROOT_AGENT_SCOPE,
@@ -766,6 +782,7 @@ class DurableAgentWorkflow:
                 mcp_auth_token=self._mint_scope_mcp_token(
                     build_result=legacy_build_result,
                     internal_tool_context=internal_tool_context,
+                    ttl_seconds=token_ttl_seconds,
                 ),
             )
             return CompiledAgentRun(
@@ -830,6 +847,7 @@ class DurableAgentWorkflow:
             mcp_auth_token=self._mint_scope_mcp_token(
                 build_result=root_build_result,
                 internal_tool_context=internal_tool_context,
+                ttl_seconds=token_ttl_seconds,
             ),
         )
         compiled_subagents: list[CompiledSubagentScope] = []
@@ -866,6 +884,7 @@ class DurableAgentWorkflow:
                         build_result=child_build_result,
                         mcp_auth_token=self._mint_scope_mcp_token(
                             build_result=child_build_result,
+                            ttl_seconds=token_ttl_seconds,
                         ),
                         model_route=scoped_route_model,
                     ),
@@ -1184,6 +1203,21 @@ class DurableAgentWorkflow:
         """
         logger.info("Running agent executor", session_id=self.session_id)
 
+        configurable_timeout = workflow.patched(CONFIGURABLE_AGENT_TIMEOUT_PATCH)
+        timeout_seconds = (
+            resolve_agent_timeout_seconds(cfg.timeout_seconds)
+            if configurable_timeout
+            else config.TRACECAT__AGENT_SANDBOX_TIMEOUT
+        )
+        activity_timeout_seconds = timeout_seconds + (
+            AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS if configurable_timeout else 0
+        )
+        token_ttl_seconds = (
+            _agent_token_ttl_seconds(activity_timeout_seconds)
+            if configurable_timeout
+            else None
+        )
+
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
         curr_run_id = AgentWorkflowID.from_workflow_id(
@@ -1255,6 +1289,7 @@ class DurableAgentWorkflow:
             cfg=cfg,
             subagents=agents_result.subagents,
             internal_tool_context=internal_tool_context,
+            token_ttl_seconds=token_ttl_seconds,
         )
         root_registry_lock = compiled_run.registry_lock
         allowed_actions = compiled_run.root.tool_definitions
@@ -1297,6 +1332,7 @@ class DurableAgentWorkflow:
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
+            ttl_seconds=token_ttl_seconds,
         )
         # Replay bridge for histories that recorded the v2 marker. Keep this
         # until those histories have drained. This does not make pre-v2
@@ -1328,6 +1364,10 @@ class DurableAgentWorkflow:
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
         )
+        if configurable_timeout:
+            executor_input = executor_input.model_copy(
+                update={"timeout_seconds": timeout_seconds}
+            )
 
         # Run the executor activity
         while True:
@@ -1339,9 +1379,7 @@ class DurableAgentWorkflow:
                     run_agent_activity,
                     executor_input,
                     task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-                    ),
+                    start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
                     heartbeat_timeout=timedelta(seconds=60),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
@@ -1351,9 +1389,7 @@ class DurableAgentWorkflow:
                     executor_input,
                     cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
                     task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-                    ),
+                    start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
                     heartbeat_timeout=timedelta(seconds=60),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
@@ -1473,10 +1509,14 @@ class DurableAgentWorkflow:
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
+                refresh_tokens_after_approved_tools = workflow.patched(
+                    REFRESH_TOKENS_AFTER_APPROVED_TOOLS_PATCH
+                )
                 if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
                         internal_tool_context=internal_tool_context,
+                        ttl_seconds=token_ttl_seconds,
                     )
                     llm_gateway_auth_token = mint_llm_token(
                         workspace_id=self.workspace_id,
@@ -1488,6 +1528,7 @@ class DurableAgentWorkflow:
                         base_url=cfg.base_url,
                         model_settings=cfg.model_settings,
                         routes=compiled_run.llm_routes,
+                        ttl_seconds=token_ttl_seconds,
                     )
                     agent_otel_auth_token = mint_agent_otel_token(
                         workspace_id=self.workspace_id,
@@ -1520,6 +1561,10 @@ class DurableAgentWorkflow:
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
                         mcp_auth_token=compiled_run.root.mcp_auth_token,
+                        mcp_build_result=compiled_run.root.build_result,
+                        internal_tool_context=internal_tool_context,
+                        token_ttl_seconds=token_ttl_seconds,
+                        refresh_mcp_token_per_tool=refresh_tokens_after_approved_tools,
                         # Post-approval: emit to the (possibly rotated) stream.
                         # set_approvals rotated self.active_stream_id when the
                         # rotation patch is active; otherwise it is the original.
@@ -1560,6 +1605,27 @@ class DurableAgentWorkflow:
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
 
+                # Approved tools run outside the active-runtime budget. Refresh
+                # after reconciliation so continuation receives a full token TTL.
+                if refresh_tokens_after_approved_tools:
+                    compiled_run = self._remint_scope_tokens(
+                        compiled_run,
+                        internal_tool_context=internal_tool_context,
+                        ttl_seconds=token_ttl_seconds,
+                    )
+                    llm_gateway_auth_token = mint_llm_token(
+                        workspace_id=self.workspace_id,
+                        organization_id=self.organization_id,
+                        session_id=self.session_id,
+                        model=cfg.model_name,
+                        provider=cfg.model_provider,
+                        catalog_id=cfg.catalog_id,
+                        base_url=cfg.base_url,
+                        model_settings=cfg.model_settings,
+                        routes=compiled_run.llm_routes,
+                        ttl_seconds=token_ttl_seconds,
+                    )
+
                 # Update executor input for resume. Reconcile has replaced the
                 # interrupt artifacts with the real tool_result entry; the
                 # runtime only sends a hidden continuation tick. Emit the resumed
@@ -1582,6 +1648,10 @@ class DurableAgentWorkflow:
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )
+                if configurable_timeout:
+                    executor_input = executor_input.model_copy(
+                        update={"timeout_seconds": timeout_seconds}
+                    )
                 self._turn += 1
                 continue
 
@@ -1781,6 +1851,10 @@ class DurableAgentWorkflow:
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
         mcp_auth_token: str,
+        mcp_build_result: BuildToolDefsResult,
+        internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
+        refresh_mcp_token_per_tool: bool,
         active_stream_id: uuid.UUID | None,
     ) -> tuple[list, list[str]]:
         """Returns the reconciled results and the tool call ids the user's
@@ -1810,11 +1884,20 @@ class DurableAgentWorkflow:
             remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
             try:
                 if remote_mcp_tool_name is not None:
+                    approved_tool_mcp_token = mcp_auth_token
+                    if refresh_mcp_token_per_tool:
+                        # Approved tools run sequentially and can each consume the
+                        # full executor timeout, so no call reuses an aging token.
+                        approved_tool_mcp_token = self._mint_scope_mcp_token(
+                            build_result=mcp_build_result,
+                            internal_tool_context=internal_tool_context,
+                            ttl_seconds=token_ttl_seconds,
+                        )
                     raw_result = await self._race_tool_activity_against_cancel(
                         _start_remote_mcp_tool_call(
                             tool_call,
                             remote_tool_name=remote_mcp_tool_name,
-                            mcp_auth_token=mcp_auth_token,
+                            mcp_auth_token=approved_tool_mcp_token,
                         )
                     )
                     result = PendingToolResult(

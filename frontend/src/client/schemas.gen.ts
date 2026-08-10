@@ -2359,6 +2359,13 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
+    timeout_seconds: {
+      type: "integer",
+      maximum: 3600,
+      minimum: 5,
+      title: "Timeout Seconds",
+      default: 1800,
+    },
     enable_thinking: {
       type: "boolean",
       title: "Enable Thinking",
@@ -2648,6 +2655,19 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 3600,
+          minimum: 5,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout Seconds",
     },
     enable_thinking: {
       type: "boolean",
@@ -3198,6 +3218,19 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
+    timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 3600,
+          minimum: 5,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout Seconds",
+    },
     enable_thinking: {
       anyOf: [
         {
@@ -3453,6 +3486,19 @@ export const $AgentPresetVersionRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 3600,
+          minimum: 5,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout Seconds",
     },
     enable_thinking: {
       type: "boolean",

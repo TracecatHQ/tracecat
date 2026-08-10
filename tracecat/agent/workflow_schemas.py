@@ -11,6 +11,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
 
@@ -137,6 +141,12 @@ class AgentConfigPayload(BaseModel):
     mcp_servers: list[MCPServerConfigPayload] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=AGENT_TIMEOUT_SECONDS_MIN,
+        le=AGENT_TIMEOUT_SECONDS_MAX,
+        exclude_if=lambda value: value is None,
+    )
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)

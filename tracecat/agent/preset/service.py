@@ -50,6 +50,7 @@ from tracecat.agent.subagents import (
 from tracecat.agent.types import (
     AgentConfig,
     OutputType,
+    resolve_agent_timeout_seconds,
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -114,6 +115,7 @@ class AgentPresetService(BaseWorkspaceService):
         "mcp_integrations",
         "agents",
         "retries",
+        "timeout_seconds",
         "enable_thinking",
         "enable_internet_access",
     }
@@ -226,6 +228,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=preset.mcp_integrations,
             agents=agents,
             retries=preset.retries,
+            timeout_seconds=preset.timeout_seconds,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
             created_at=preset.created_at,
@@ -256,6 +259,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=version.mcp_integrations,
             agents=agents,
             retries=version.retries,
+            timeout_seconds=version.timeout_seconds,
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
             capabilities=_agent_preset_capabilities(
@@ -324,6 +328,7 @@ class AgentPresetService(BaseWorkspaceService):
                 params.enable_internet_access or requires_internet_access
             ),
             retries=params.retries,
+            timeout_seconds=params.timeout_seconds,
         )
         self.session.add(preset)
         await self.session.flush()
@@ -1891,6 +1896,7 @@ class AgentPresetService(BaseWorkspaceService):
             "base_url",
             "output_type",
             "retries",
+            "timeout_seconds",
             "enable_thinking",
             "enable_internet_access",
             "agents",
@@ -2024,6 +2030,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_servers=mcp_servers,
             agents=agents,
             retries=version.retries,
+            timeout_seconds=resolve_agent_timeout_seconds(version.timeout_seconds),
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
@@ -2073,6 +2080,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=preset.mcp_integrations,
             agents=preset.agents,
             retries=preset.retries,
+            timeout_seconds=preset.timeout_seconds,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
         )
@@ -2105,5 +2113,6 @@ class AgentPresetService(BaseWorkspaceService):
         preset.mcp_integrations = version.mcp_integrations
         preset.agents = agents
         preset.retries = version.retries
+        preset.timeout_seconds = version.timeout_seconds
         preset.enable_thinking = version.enable_thinking
         preset.enable_internet_access = version.enable_internet_access
