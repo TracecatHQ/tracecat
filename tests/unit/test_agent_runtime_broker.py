@@ -18,6 +18,7 @@ from claude_agent_sdk.types import (
     McpStdioServerConfig,
 )
 
+from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.executor.loopback import LoopbackResult
@@ -281,6 +282,33 @@ def test_build_path_mapping_is_stable_per_session(
     assert first == second
 
 
+@pytest.mark.parametrize(
+    ("use_jailed_paths", "expected_state_dir"),
+    [
+        pytest.param(True, "/run/tracecat/uv-state", id="nsjail"),
+        pytest.param(False, "job/uv-state", id="direct"),
+    ],
+)
+def test_transport_pins_protected_uv_settings_for_runtime_paths(
+    tmp_path: Path,
+    use_jailed_paths: bool,
+    expected_state_dir: str,
+) -> None:
+    transport = _make_transport(tmp_path / "job", use_jailed_paths=use_jailed_paths)
+
+    options = transport._options_with_protected_runtime_settings(
+        ClaudeAgentOptions(settings='{"env":{"UV_LINK_MODE":"symlink"}}')
+    )
+
+    assert options.settings is not None
+    expected_path = Path(
+        expected_state_dir if use_jailed_paths else tmp_path / expected_state_dir
+    )
+    settings = orjson.loads(options.settings)
+    assert settings == {"env": build_agent_runtime_uv_env(expected_path)}
+    assert settings["env"]["UV_PYTHON_CACHE_DIR"] == str(expected_path / "python-cache")
+
+
 def test_transport_rewrites_bundled_claude_path_for_jail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -460,8 +488,10 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     )
     transport._options = options
     captured_spawn_kwargs: dict[str, object] = {}
+    captured_command_options: list[ClaudeAgentOptions] = []
 
     async def fake_build_claude_command() -> list[str]:
+        captured_command_options.append(transport._options)
         return ["claude", "--print"]
 
     async def fake_spawn_jailed_runtime(
@@ -489,6 +519,12 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     assert selected_port > 0
     assert init_payload["mcp_bridge_fd"] is not None
     assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
+    assert len(captured_command_options) == 1
+    command_settings = captured_command_options[0].settings
+    assert command_settings is not None
+    assert orjson.loads(command_settings) == {
+        "env": build_agent_runtime_uv_env(tmp_path / "uv-state")
+    }
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
     assert mcp_servers["tracecat-registry"]["url"] == (
