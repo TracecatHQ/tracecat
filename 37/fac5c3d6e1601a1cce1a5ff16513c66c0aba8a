@@ -1,0 +1,21 @@
+docs/self-hosting/security.mdx
+  s_cc99b7410522b3::t_fa2d6f749b836c 83-92
+docs/security/architecture.mdx
+  s_cc99b7410522b3::t_4e70e2b4ef52c4 288-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "37fac5c3d6e1601a1cce1a5ff16513c66c0aba8a",
+  "prompts": {},
+  "sessions": {
+    "s_cc99b7410522b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7881e08-9a59-4207-a93d-43eea4054f9f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
