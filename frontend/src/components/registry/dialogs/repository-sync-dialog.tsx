@@ -28,6 +28,7 @@ interface SyncRepositoryDialogProps {
     params: RegistryRepositoriesSyncRegistryRepositoryData
   ) => Promise<tracecat__registry__repositories__schemas__RegistrySyncResponse>
   syncRepoIsPending: boolean
+  force?: boolean
 }
 
 export function SyncRepositoryDialog({
@@ -37,7 +38,15 @@ export function SyncRepositoryDialog({
   setSelectedRepo,
   syncRepo,
   syncRepoIsPending,
+  force = false,
 }: SyncRepositoryDialogProps) {
+  let actionLabel = "Sync"
+  if (syncRepoIsPending) {
+    actionLabel = "Syncing..."
+  } else if (force) {
+    actionLabel = "Force sync"
+  }
+
   const handleSync = async () => {
     if (!selectedRepo) {
       console.error("No repository selected")
@@ -59,7 +68,10 @@ export function SyncRepositoryDialog({
           </span>
         ),
       })
-      await syncRepo({ repositoryId: selectedRepo.id })
+      await syncRepo({
+        repositoryId: selectedRepo.id,
+        requestBody: { force },
+      })
       toast({
         title: "Successfully synced repository",
         description: (
@@ -82,12 +94,20 @@ export function SyncRepositoryDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-2xl">
         <AlertDialogHeader>
-          <AlertDialogTitle>Sync repository</AlertDialogTitle>
+          <AlertDialogTitle>
+            {force ? "Force sync repository" : "Sync repository"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             <span className="flex flex-col space-y-3">
               <span>
                 You are about to pull the latest version of the repository.
               </span>
+              {force ? (
+                <span className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  Force sync deletes the existing synced version before
+                  reloading actions from the remote repository.
+                </span>
+              ) : null}
               <span className="max-w-full rounded-md border px-3 py-2 font-mono text-sm font-semibold tracking-tight text-foreground break-all whitespace-normal">
                 {selectedRepo?.origin}
               </span>
@@ -121,7 +141,7 @@ export function SyncRepositoryDialog({
               <RefreshCcw
                 className={`size-4 ${syncRepoIsPending ? "animate-spin" : ""}`}
               />
-              <span>{syncRepoIsPending ? "Syncing..." : "Sync"}</span>
+              <span>{actionLabel}</span>
             </div>
           </AlertDialogAction>
         </AlertDialogFooter>

@@ -27,14 +27,16 @@ import { toast } from "@/components/ui/use-toast"
 import { useRegistryRepositories } from "@/lib/hooks"
 import { copyToClipboard } from "@/lib/utils"
 
-type ActiveDialog = "sync" | "commit" | "versions" | null
+type ActiveDialog = "sync" | "force-sync" | "commit" | "versions" | null
 
 function RegistryActionsControlsMenu() {
   const canUpdateRegistry = useScopeCheck("org:registry:update") === true
+  const canDeleteRegistry = useScopeCheck("org:registry:delete") === true
   const { repos, syncRepo, syncRepoIsPending } = useRegistryRepositories()
   const customRepo = getCustomRegistryRepository(repos)
   const showAddRegistry = canUpdateRegistry
   const showRegistryActions = canUpdateRegistry && !!customRepo
+  const showForceSync = showRegistryActions && canDeleteRegistry
   const showCopyOrigin = !!customRepo
   const hasVisibleActions =
     showAddRegistry || showRegistryActions || showCopyOrigin
@@ -134,6 +136,15 @@ function RegistryActionsControlsMenu() {
                 </DropdownMenuItem>
               ) : null}
 
+              {showForceSync ? (
+                <DropdownMenuItem
+                  onSelect={() => handleOpenDialog("force-sync")}
+                >
+                  <RefreshCcw className="mr-2 size-4" />
+                  <span>Force sync from remote</span>
+                </DropdownMenuItem>
+              ) : null}
+
               {showRegistryActions ? (
                 <DropdownMenuItem onSelect={() => handleOpenDialog("commit")}>
                   <GitBranchIcon className="mr-2 size-4" />
@@ -160,7 +171,7 @@ function RegistryActionsControlsMenu() {
       </DropdownMenu>
 
       <SyncRepositoryDialog
-        open={activeDialog === "sync"}
+        open={activeDialog === "sync" || activeDialog === "force-sync"}
         onOpenChange={(open) => {
           if (!open) {
             setActiveDialog(null)
@@ -170,6 +181,7 @@ function RegistryActionsControlsMenu() {
         setSelectedRepo={setSelectedRepo}
         syncRepo={syncRepo}
         syncRepoIsPending={syncRepoIsPending}
+        force={activeDialog === "force-sync"}
       />
 
       <CommitSelectorDialog
