@@ -29,6 +29,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
@@ -2520,7 +2521,7 @@ class TestSandboxedAgentExecutorSkillCaching:
 
         assert len(to_thread_calls) == 1
         func, args, kwargs = to_thread_calls[0]
-        assert func is shutil.rmtree
+        assert func is force_rmtree
         assert args == (job_dir,)
         assert kwargs == {}
         assert not job_dir.exists()
@@ -2576,8 +2577,8 @@ class TestSandboxedAgentExecutorSkillCaching:
 
         assert len(to_thread_calls) == 1
         func, args, kwargs = to_thread_calls[0]
-        assert func is shutil.rmtree
-        assert args == (job_dir, True)
+        assert func is force_rmtree
+        assert args == (job_dir,)
         assert kwargs == {}
         assert not job_dir.exists()
 
@@ -2728,12 +2729,11 @@ class TestSandboxedAgentExecutorJobCleanup:
         real_rmtree = shutil.rmtree
         warning = MagicMock()
 
-        def fail_rmtree(_path: Path) -> None:
+        def fail_rmtree(path: Path) -> None:
+            assert path == job_dir
             raise OSError("simulated cleanup failure")
 
-        monkeypatch.setattr(
-            "tracecat.agent.executor.activity.shutil.rmtree", fail_rmtree
-        )
+        monkeypatch.setattr("tracecat.agent.common.fs.shutil.rmtree", fail_rmtree)
         monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
 
         try:
@@ -2749,13 +2749,13 @@ class TestSandboxedAgentExecutorJobCleanup:
             real_rmtree(job_dir, ignore_errors=True)
 
     @pytest.mark.anyio
-    async def test_cleanup_read_only_uv_subtree_survives_and_warns(
+    async def test_cleanup_removes_read_only_uv_subtree(
         self,
         executor: SandboxedAgentExecutor,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        """A 0555 UV cache directory survives activity cleanup and emits a warning."""
+        """Activity cleanup removes a sandbox-owned 0555 UV cache subtree."""
         job_dir = tmp_path / "job"
         _seed_realistic_agent_job_tree(job_dir)
         read_only_dir = job_uv_state_dir(job_dir) / "cache" / "read-only"
@@ -2770,11 +2770,9 @@ class TestSandboxedAgentExecutorJobCleanup:
         try:
             await executor._cleanup()
 
-            assert job_dir.exists()
-            assert read_only_dir.exists()
-            warning.assert_called_once()
-            assert warning.call_args.args == ("Failed to clean up job directory",)
-            assert warning.call_args.kwargs["job_dir"] == str(job_dir)
+            assert not job_dir.exists()
+            assert not read_only_dir.exists()
+            warning.assert_not_called()
         finally:
             if read_only_dir.exists():
                 read_only_dir.chmod(0o700)

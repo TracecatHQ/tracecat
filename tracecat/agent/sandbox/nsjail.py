@@ -42,6 +42,7 @@ from tracecat.agent.common.exceptions import (
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
 )
+from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
@@ -211,7 +212,13 @@ async def spawn_jailed_runtime(
 
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
-        job_uv_state_dir(job_dir).mkdir(mode=0o700, exist_ok=True)
+        uv_state_dir = job_uv_state_dir(job_dir)
+        uv_state_dir.mkdir(mode=0o700, exist_ok=True)
+        if uv_state_dir.is_symlink() or not uv_state_dir.is_dir():
+            raise AgentSandboxExecutionError(
+                f"UV state path must be a real directory: {uv_state_dir}"
+            )
+        uv_state_dir.chmod(0o700)
 
         # Direct subprocess mode for testing (no nsjail)
         if TRACECAT__DISABLE_NSJAIL:
@@ -547,6 +554,6 @@ async def wait_for_process(
 def _cleanup_job_dir(job_dir: Path) -> None:
     """Clean up a job directory (best effort)."""
     try:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        force_rmtree(job_dir)
     except Exception as e:
         logger.warning("Failed to clean up job dir", job_dir=str(job_dir), error=str(e))

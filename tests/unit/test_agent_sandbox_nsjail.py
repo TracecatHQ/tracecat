@@ -368,10 +368,10 @@ async def test_spawn_creates_uv_state_with_owner_only_permissions(
 
 
 @pytest.mark.anyio
-async def test_spawn_preserves_preexisting_uv_state_permissions(
+async def test_spawn_normalizes_preexisting_uv_state_permissions(
     tmp_path: Path,
 ) -> None:
-    """Exist-ok creation leaves a pre-existing mode-0777 UV state directory loose."""
+    """Spawn normalizes a pre-existing UV state directory to owner-only mode."""
     socket_dir = tmp_path / "sockets"
     socket_dir.mkdir()
     job_dir = tmp_path / "job"
@@ -394,7 +394,7 @@ async def test_spawn_preserves_preexisting_uv_state_permissions(
             job_dir=job_dir,
         )
 
-    assert stat.S_IMODE(uv_state_dir.stat().st_mode) == 0o777
+    assert stat.S_IMODE(uv_state_dir.stat().st_mode) == 0o700
 
 
 def test_cleanup_spawned_runtime_swallows_rmtree_error_and_warns(
@@ -408,12 +408,11 @@ def test_cleanup_spawned_runtime_swallows_rmtree_error_and_warns(
     real_rmtree = shutil.rmtree
     warning = MagicMock()
 
-    def fail_rmtree(path: Path, *, ignore_errors: bool) -> None:
+    def fail_rmtree(path: Path) -> None:
         assert path == job_dir
-        assert ignore_errors is True
         raise OSError("simulated cleanup failure")
 
-    monkeypatch.setattr(nsjail_module.shutil, "rmtree", fail_rmtree)
+    monkeypatch.setattr("tracecat.agent.common.fs.shutil.rmtree", fail_rmtree)
     monkeypatch.setattr(nsjail_module.logger, "warning", warning)
 
     try:
@@ -429,11 +428,11 @@ def test_cleanup_spawned_runtime_swallows_rmtree_error_and_warns(
         real_rmtree(job_dir, ignore_errors=True)
 
 
-def test_cleanup_spawned_runtime_silently_leaves_read_only_uv_subtree(
+def test_cleanup_spawned_runtime_removes_read_only_uv_subtree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Ignore-errors cleanup silently leaves a runtime-owned 0555 UV subtree."""
+    """Runtime cleanup removes a sandbox-owned 0555 UV cache subtree."""
     job_dir = tmp_path / "job"
     read_only_dir = job_uv_state_dir(job_dir) / "cache" / "read-only"
     nested_file = read_only_dir / "archive" / "artifact"
@@ -447,8 +446,8 @@ def test_cleanup_spawned_runtime_silently_leaves_read_only_uv_subtree(
     try:
         cleanup_spawned_runtime(result)
 
-        assert job_dir.exists()
-        assert read_only_dir.exists()
+        assert not job_dir.exists()
+        assert not read_only_dir.exists()
         warning.assert_not_called()
     finally:
         if read_only_dir.exists():
