@@ -1,0 +1,61 @@
+docs/security/architecture.mdx
+  s_cc99b7410522b3::t_69461ac2fcfecc 242
+  s_cc99b7410522b3::t_5cc25bee216df0 254-256
+  s_cc99b7410522b3::t_202cf8568a80f0 208-210
+  s_cc99b7410522b3::t_58570ceeaf525f 238
+  s_cc99b7410522b3::t_2ab12a74cf7869 308
+  s_cc99b7410522b3::t_c7ad1d66918e49 360
+  s_cc99b7410522b3::t_777b01d8c5b969 280
+  s_cc99b7410522b3::t_68ae04e186be8b 468
+  s_cc99b7410522b3::t_5c5f6366660520 403
+  s_cc99b7410522b3::t_11b3ce8eca5715 131
+  s_cc99b7410522b3::t_cb42857a43b106 276
+  s_cc99b7410522b3::t_34a7564ab496e4 304
+  s_cc99b7410522b3::t_6df6bae0f3664a 364
+  s_cc99b7410522b3::t_ce205a6f163b69 273
+  s_cc99b7410522b3::t_98a11495de23d3 124
+  s_cc99b7410522b3::t_b506e3bc561448 252
+  s_cc99b7410522b3::t_e0ea489110cd60 333
+  s_cc99b7410522b3::t_f01df0a632c75f 244
+  s_cc99b7410522b3::t_04203bbcf5b7b4 226
+  s_cc99b7410522b3::t_55c1a47bf5fd58 294
+  s_cc99b7410522b3::t_c21f6efcae643d 19
+  s_cc99b7410522b3::t_d820b176642f6a 373
+  s_cc99b7410522b3::t_6d25e669cebb53 341
+  s_cc99b7410522b3::t_68ba2b58d45e14 130
+  s_cc99b7410522b3::t_b99c295b556f06 259,263
+  s_cc99b7410522b3::t_904ace564f1aac 152
+  s_cc99b7410522b3::t_21834991e242b5 228,230
+  s_cc99b7410522b3::t_adb49f347adda3 270
+  s_cc99b7410522b3::t_e38c9b2d523457 449
+  s_cc99b7410522b3::t_1297832a55a3ae 316,318
+  s_cc99b7410522b3::t_f2560d1b5b31eb 491
+  s_cc99b7410522b3::t_e5bfcba7c52f99 261-262
+docs/self-hosting/security.mdx
+  s_cc99b7410522b3::t_a6275180f746c8 35
+  s_cc99b7410522b3::t_7cf69c8dc26a37 81
+  s_cc99b7410522b3::t_c75d5ff9f038f8 27
+  s_cc99b7410522b3::t_b4c9b61bd6b07a 77
+  s_cc99b7410522b3::t_0b903006808cbd 51-66
+  s_cc99b7410522b3::t_c2909d70c03839 73
+  s_cc99b7410522b3::t_b9482dba652819 47
+  s_cc99b7410522b3::t_246c99b0e034a9 106-107,109
+  s_cc99b7410522b3::t_53d5c6264e85dc 85
+  s_cc99b7410522b3::t_796d6a13683139 88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "fed404411211905556955533548f7c9d50e25bd0",
+  "prompts": {},
+  "sessions": {
+    "s_cc99b7410522b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7881e08-9a59-4207-a93d-43eea4054f9f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
