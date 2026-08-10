@@ -126,17 +126,22 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
             source_id = assigner.assign_environment(
                 variable.id, variable.environment, variable.name
             )
-            # Only key NAMES and tag NAMES are projected (sorted for stable
-            # diffs); the actual values are deliberately never written to Git.
-            specs[source_id] = VariableResourceSpec(
-                id=source_id,
-                name=variable.name,
-                environment=variable.environment,
-                keys=sorted((variable.values or {}).keys()),
-                description=variable.description,
-                tags=sorted((variable.tags or {}).keys()),
-            )
-            resources.append(self.projected_resource(source_id, variable.id))
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=variable.name,
+                local_id=variable.id,
+            ):
+                # Only key NAMES and tag NAMES are projected (sorted for stable
+                # diffs); the actual values are deliberately never written to Git.
+                specs[source_id] = VariableResourceSpec(
+                    id=source_id,
+                    name=variable.name,
+                    environment=variable.environment,
+                    keys=sorted((variable.values or {}).keys()),
+                    description=variable.description,
+                    tags=sorted((variable.tags or {}).keys()),
+                )
+                resources.append(self.projected_resource(source_id, variable.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(

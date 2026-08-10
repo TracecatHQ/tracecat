@@ -55,12 +55,17 @@ class CaseTagAdapter(FlatManifestAdapter):
         resources: list[ProjectedResource] = []
         for tag in tags:
             source_id = assigner.assign(tag.id, tag.ref)
-            specs[source_id] = CaseTagResourceSpec(
-                id=source_id,
-                name=tag.name,
-                color=tag.color,
-            )
-            resources.append(self.projected_resource(source_id, tag.id))
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=tag.name,
+                local_id=tag.id,
+            ):
+                specs[source_id] = CaseTagResourceSpec(
+                    id=source_id,
+                    name=tag.name,
+                    color=tag.color,
+                )
+                resources.append(self.projected_resource(source_id, tag.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(

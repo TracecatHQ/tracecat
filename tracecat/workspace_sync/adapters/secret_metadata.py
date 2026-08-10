@@ -113,22 +113,27 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             source_id = assigner.assign_environment(
                 secret.id, secret.environment, secret.name
             )
-            # Decrypt only to read the key NAMES; secret values are never read
-            # back out or serialized into the projected spec.
-            keys = sorted(
-                key_value.key
-                for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
-            )
-            specs[source_id] = SecretMetadataResourceSpec(
-                id=source_id,
-                name=secret.name,
-                environment=secret.environment,
-                secret_type=secret.type,
-                keys=keys,
-                tags=sorted((secret.tags or {}).keys()),
-                description=secret.description,
-            )
-            resources.append(self.projected_resource(source_id, secret.id))
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=secret.name,
+                local_id=secret.id,
+            ):
+                # Decrypt only to read the key NAMES; secret values are never read
+                # back out or serialized into the projected spec.
+                keys = sorted(
+                    key_value.key
+                    for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
+                )
+                specs[source_id] = SecretMetadataResourceSpec(
+                    id=source_id,
+                    name=secret.name,
+                    environment=secret.environment,
+                    secret_type=secret.type,
+                    keys=keys,
+                    tags=sorted((secret.tags or {}).keys()),
+                    description=secret.description,
+                )
+                resources.append(self.projected_resource(source_id, secret.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(
