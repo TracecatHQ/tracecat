@@ -14,7 +14,11 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.agent_invocations.service import (
+    CaseCommentAgentInvocationService,
+)
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
     CaseSeverity,
@@ -32,6 +36,7 @@ from tracecat.db.models import (
     AgentPreset,
     Case,
     CaseComment,
+    CaseCommentAgentInvocation,
     CaseCommentMention,
     CaseEvent,
     Workflow,
@@ -87,6 +92,22 @@ async def _load_comment_mentions(
         select(CaseCommentMention)
         .where(CaseCommentMention.comment_id == comment_id)
         .order_by(CaseCommentMention.created_at, CaseCommentMention.surrogate_id)
+    )
+    return list(result.scalars().all())
+
+
+async def _load_comment_invocations(
+    session: AsyncSession,
+    comment_id: uuid.UUID,
+) -> list[CaseCommentAgentInvocation]:
+    result = await session.execute(
+        select(CaseCommentAgentInvocation)
+        .join(
+            CaseCommentMention,
+            CaseCommentMention.id == CaseCommentAgentInvocation.mention_id,
+        )
+        .where(CaseCommentMention.comment_id == comment_id)
+        .order_by(CaseCommentAgentInvocation.surrogate_id)
     )
     return list(result.scalars().all())
 
@@ -295,6 +316,22 @@ class TestCaseCommentsService:
         assert mention.target_id == preset.id
         assert mention.label == "Response agent"
 
+        [invocation] = await _load_comment_invocations(session, comment.id)
+        assert invocation.mention_id == mention.id
+        assert invocation.preset_name == preset.name
+        assert invocation.preset_slug == preset.slug
+        assert invocation.status == CaseCommentAgentInvocationStatus.PENDING.value
+        assert invocation.session_id is None
+        assert invocation.reply_comment_id is None
+        assert invocation.error is None
+
+        preset.name = "Renamed response agent"
+        preset.slug = "renamed-response-agent"
+        await session.commit()
+        await session.refresh(invocation)
+        assert invocation.preset_name == "Response agent"
+        assert invocation.preset_slug == "case-comment-mention-response-agent"
+
         serialized_comment = next(
             item
             for item in await case_comments_service.list_comments(test_case)
@@ -340,6 +377,13 @@ class TestCaseCommentsService:
         assert mentions[0].target_id == preset.id
         assert mentions[0].label == "First label"
 
+        assert len(await _load_comment_invocations(session, comment.id)) == 1
+        created = await CaseCommentAgentInvocationService(
+            session=session, role=case_comments_service.role
+        ).create_pending_for_comment(comment.id)
+        assert created == []
+        assert len(await _load_comment_invocations(session, comment.id)) == 1
+
     async def test_create_comment_persists_multiple_agent_mentions(
         self,
         case_comments_service: CaseCommentsService,
@@ -373,6 +417,14 @@ class TestCaseCommentsService:
             (first_preset.id, "First agent"),
             (second_preset.id, "Second agent"),
         }
+        invocations = await _load_comment_invocations(session, comment.id)
+        assert {
+            (invocation.preset_name, invocation.preset_slug)
+            for invocation in invocations
+        } == {
+            (first_preset.name, first_preset.slug),
+            (second_preset.name, second_preset.slug),
+        }
 
     async def test_create_comment_skips_missing_and_deleted_agent_mentions(
         self,
@@ -399,6 +451,42 @@ class TestCaseCommentsService:
         )
 
         assert await _load_comment_mentions(session, comment.id) == []
+        assert await _load_comment_invocations(session, comment.id) == []
+
+    async def test_invocation_failure_rolls_back_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Rollback agent",
+        )
+        content = _mention_token("Rollback agent", preset.id)
+
+        with (
+            patch.object(
+                CaseCommentAgentInvocationService,
+                "create_pending_for_comment",
+                new=AsyncMock(side_effect=RuntimeError("materialization failed")),
+            ),
+            pytest.raises(RuntimeError, match="materialization failed"),
+        ):
+            await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(content=content),
+            )
+
+        await session.rollback()
+        persisted = await session.scalar(
+            select(CaseComment).where(
+                CaseComment.workspace_id == case_comments_service.workspace_id,
+                CaseComment.content == content,
+            )
+        )
+        assert persisted is None
 
     async def test_create_comment_skips_overlong_label_mention(
         self,
