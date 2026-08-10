@@ -333,6 +333,22 @@ class CaseTableRowsService(BaseWorkspaceService):
         include_row_data: bool,
     ) -> list[CaseTableRowRead]:
         tables_by_id = await self._get_tables_by_id([link.table_id for link in links])
+        rows_by_table_id: dict[uuid.UUID, dict[uuid.UUID, dict[str, Any]]] = {}
+        if include_row_data:
+            row_ids_by_table_id: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+            for link in links:
+                if link.table_id in tables_by_id:
+                    row_ids_by_table_id[link.table_id].add(link.row_id)
+
+            for table_id, row_ids in row_ids_by_table_id.items():
+                try:
+                    rows_by_table_id[table_id] = await self.tables.get_rows(
+                        tables_by_id[table_id], list(row_ids)
+                    )
+                except sa_exc.DBAPIError as exc:
+                    if not isinstance(exc.orig, UndefinedTableError):
+                        raise
+
         hydrated: list[CaseTableRowRead] = []
 
         for link in links:
@@ -340,15 +356,8 @@ class CaseTableRowsService(BaseWorkspaceService):
             row_data: dict[str, Any] | None = None
             is_available = False
             if include_row_data and table is not None:
-                try:
-                    row_data = await self.tables.get_row(table, link.row_id)
-                    is_available = True
-                except TracecatNotFoundError:
-                    is_available = False
-                except sa_exc.DBAPIError as exc:
-                    if not isinstance(exc.orig, UndefinedTableError):
-                        raise
-                    is_available = False
+                row_data = rows_by_table_id.get(link.table_id, {}).get(link.row_id)
+                is_available = row_data is not None
             elif not include_row_data:
                 is_available = True
 

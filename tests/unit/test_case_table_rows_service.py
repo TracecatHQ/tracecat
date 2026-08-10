@@ -1,5 +1,7 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import func, select
@@ -15,7 +17,7 @@ from tracecat.cases.rows.service import (
 )
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
-from tracecat.db.models import CaseTableRow
+from tracecat.db.models import CaseTableRow, Table
 from tracecat.pagination import BaseCursorPaginator
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
@@ -223,6 +225,77 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
 
     assert link.id == existing_link.id
     assert calls == 2
+
+
+@pytest.mark.anyio
+async def test_list_rows_batches_hydration_by_table(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, first_row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_batch_hydration_{uuid.uuid4().hex[:8]}",
+        value="first",
+    )
+    table = await tables_service.get_table(table_id)
+    second_row = await tables_service.insert_row(
+        table,
+        TableRowInsert(data={"value": "second"}),
+    )
+    second_row_id = second_row.get("id")
+    assert isinstance(second_row_id, uuid.UUID)
+
+    for row_id in (first_row_id, second_row_id):
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+        )
+
+    missing_row_id = uuid.uuid4()
+    session.add(
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=missing_row_id,
+        )
+    )
+    await session.commit()
+
+    original_get_rows = case_rows_service.tables.get_rows
+    get_rows_calls: list[tuple[uuid.UUID, set[uuid.UUID]]] = []
+
+    async def tracked_get_rows(
+        table: Table, row_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        get_rows_calls.append((table.id, set(row_ids)))
+        return await original_get_rows(table, row_ids)
+
+    monkeypatch.setattr(case_rows_service.tables, "get_rows", tracked_get_rows)
+
+    page = await case_rows_service.list_rows(
+        case_id=case.id,
+        limit=10,
+        include_row_data=True,
+    )
+
+    assert get_rows_calls == [(table_id, {first_row_id, second_row_id, missing_row_id})]
+    rows_by_id = {row.row_id: row for row in page.items}
+    first_row = rows_by_id[first_row_id]
+    assert first_row.row_data is not None
+    assert first_row.row_data["value"] == "first"
+    assert first_row.is_row_available is True
+    second_row = rows_by_id[second_row_id]
+    assert second_row.row_data is not None
+    assert second_row.row_data["value"] == "second"
+    assert second_row.is_row_available is True
+    missing_row = rows_by_id[missing_row_id]
+    assert missing_row.row_data is None
+    assert missing_row.is_row_available is False
 
 
 @pytest.mark.anyio
