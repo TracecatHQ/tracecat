@@ -16,7 +16,7 @@ Tracecat's security design rests on seven control areas:
 
 This page covers Tracecat Cloud and hardened self-hosted deployments.
 
-Tracecat runs customer-authored code and agents on multi-tenant infrastructure, so every execution path is sandboxed. That code then acts with privileged access to your systems, so credentials are encrypted at rest, resolved at execution time, and attached by trusted proxies rather than handed to a model.
+Tracecat runs customer-authored code and agents on multi-tenant infrastructure, so it sandboxes every execution path. That code then acts with privileged access to your systems, so Tracecat encrypts credentials at rest, resolves them at execution time, and attaches them through trusted proxies rather than handing them to a model.
 
 ```mermaid
 flowchart LR
@@ -121,14 +121,14 @@ Threat actors and untrusted sources include:
 - Malicious packages, custom registry content, and local MCP processes.
 - Attackers targeting the control plane, executor, durable state, or object storage.
 
-Custom code runs on shared infrastructure, so isolation cannot depend on that code being correct. A logic bug, a compromised dependency, and a compromised tenant account all produce the same class of outcome: a process reading another run's data, reaching a platform service, or consuming shared capacity. The sandbox bounds all three identically, which is why the boundary does not rely on reviewing the workflow author's intent.
+Custom code runs on shared infrastructure, so isolation cannot depend on that code being correct. A logic bug, a compromised dependency, and a compromised tenant account all produce the same class of outcome: a process reading another run's data, reaching a platform service, or consuming shared capacity. The sandbox bounds all three identically, which is why the boundary rests on isolation rather than on the workflow author's intent.
 
 | Attack surface | How an attacker can use it | Primary Tracecat controls |
 | --- | --- | --- |
 | Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
 | Multi-tenant code execution | Submit hostile Python, custom actions, agents, or local MCP processes.<br/>Read files or process state.<br/>Escape the executor.<br/>Reach another run, tenant, or platform service. | nsjail enabled by default on full-isolation profiles.<br/>User, process, mount, IPC, hostname, and network namespaces.<br/>Read-only runtime and scoped mounts.<br/>Syscall, cgroup, file, and process limits. |
-| Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Provider credentials added by trusted services outside the sandbox. |
-| OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls are visible by user. |
+| Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Trusted services add provider credentials outside the sandbox. |
+| OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls stay visible by user. |
 | Run data and durable state | Read workflow or agent inputs and outputs.<br/>Tamper with queued work.<br/>Use oversized payloads to expand durable history. | Application-level encryption for Temporal payloads.<br/>Workspace-scoped encryption context.<br/>Automatic externalization of large payloads to object storage.<br/>Small scoped references remain in workflow state. |
 | Configuration and supply chain | Publish a malicious integration.<br/>Widen access or network policy.<br/>Persist an unsafe workflow or agent configuration. | RBAC and platform audit events.<br/>Versioned workflow and agent configuration.<br/>Immutable published versions.<br/>Custom registry rollback to any commit.<br/>Registry lock on published workflows.<br/>Workspace Git sync, review, and rollback. |
 | Platform availability | Fork processes.<br/>Fill storage.<br/>Exhaust memory or CPU.<br/>Block shared workers with long-running code. | Sandbox wall-time and CPU limits.<br/>cgroup memory enforcement.<br/>File-size and process-count limits.<br/>Temporal cancellation and retry controls. |
@@ -149,7 +149,7 @@ Tracecat treats the LLM as an untrusted decision-maker. It can propose a tool ca
 | Agent context | Place hostile instructions in prompts or retrieved documents.<br/>Hide instructions in alerts, email, cases, or tool results.<br/>Redirect the agent goal.<br/>Induce a high-impact tool call. | Default-deny tool policy.<br/>Trusted-proxy authorization.<br/>Human approval for selected tools.<br/>Credentials kept outside LLM context. |
 | Tools and remote MCP | Publish misleading tool metadata.<br/>Return poisoned tool results.<br/>Compromise a remote server to exfiltrate data or trigger unsafe actions. | Captured tool inventory.<br/>Allow and deny policy.<br/>Approval gates.<br/>Trusted API and MCP proxy.<br/>Inherited user permissions for external Tracecat MCP. |
 | Generated code and `stdio` MCP | Generate shell or Python code that reads files.<br/>Use local MCP code to consume resources.<br/>Reach the network.<br/>Attack the executor or another run. | The same nsjail boundary used for tenant code.<br/>Read-only runtime and scoped mounts.<br/>cgroup and process limits.<br/>Default-deny agent network. |
-| Secret extraction | Ask the LLM to reveal a credential.<br/>Craft a tool request that tries to resolve or reuse another secret.<br/>Place secret-looking instructions in untrusted content. | Execution-time credential broker.<br/>Policy checks before resolution.<br/>Short-lived scoped JWTs in the sandbox.<br/>Provider credentials injected only by trusted services. |
+| Secret extraction | Ask the LLM to reveal a credential.<br/>Craft a tool request that tries to resolve or reuse another secret.<br/>Place secret-looking instructions in untrusted content. | Execution-time credential broker.<br/>Policy checks before resolution.<br/>Short-lived scoped JWTs in the sandbox.<br/>Only trusted services inject provider credentials. |
 | Human approval | Disguise the purpose of a tool call.<br/>Mislead an approver with incomplete context.<br/>Attempt to resume execution without an authorized decision. | Authenticated approver checks.<br/>Temporal durable execution.<br/>Decision bound to the run and tool call.<br/>One audit event per tool decision. |
 | Agent consumption | Loop LLM or tool calls.<br/>Create cascading model requests.<br/>Drive unexpected inference cost. | Total token budget.<br/>Token burn-rate limit.<br/>Sandbox wall-time and resource limits.<br/>Tool policy and approval for side effects. |
 
@@ -205,9 +205,9 @@ Tracecat authenticates every API and MCP request before it resolves tenant conte
 
 ### Single sign-on and provisioning
 
-- SAML and OIDC authenticate users against your identity provider. Basic auth is available for deployments that do not use one.
-- SCIM provisions and deprovisions accounts from the directory, so access is removed at the source when someone leaves.
-- SCIM also syncs directory groups to Tracecat groups, which is what makes group-based role assignment worth using.
+- SAML and OIDC authenticate users against your identity provider. Basic auth covers deployments without one.
+- SCIM provisions and deprovisions accounts from the directory, so removing someone there removes their Tracecat access.
+- SCIM also syncs directory groups to Tracecat groups, so directory membership drives role assignment.
 
 See [SAML SSO](/authentication/saml) and [OIDC](/authentication/oidc) for connection steps.
 
@@ -223,11 +223,11 @@ A scope is one permission on one resource, named `resource:action` following OAu
 Roles bundle scopes:
 
 - Built-in roles cover the common cases: `organization-owner`, `organization-admin`, `organization-member`, `workspace-admin`, `workspace-editor`, `workspace-viewer`.
-- You can define custom roles, and custom scopes alongside the platform-defined set, when the built-in roles do not fit.
+- Define custom roles, and custom scopes alongside the platform-defined set, when the built-in roles do not fit.
 
-Roles are assigned to a group or directly to a user. Each assignment is either organization-wide or bound to a single workspace, and a user's effective permission is the union of both. That means an organization-wide assignment applies in every workspace, while a workspace assignment grants nothing outside it.
+Assign a role to a group or directly to a user. Each assignment is either organization-wide or scoped to a single workspace, and a user's effective permission is the union of both. An organization-wide assignment applies in every workspace; a workspace assignment grants nothing outside it.
 
-Service accounts are scoped directly rather than through roles, and are bounded two ways: they can only hold scopes from an allowlist for their kind, and nobody can grant a service account a scope they do not themselves hold.
+Tracecat scopes service accounts directly rather than through roles, and bounds them two ways: a service account holds only scopes from the allowlist for its kind, and a grantor can assign only scopes they already hold themselves.
 
 ## Data security
 
@@ -235,13 +235,13 @@ Service accounts are scoped directly rather than through roles, and are bounded 
 
 ### Tenant isolation
 
-Tenant scope is enforced in the application layer and again by PostgreSQL row-level security on tenant-owned tables. The second layer is the one that matters under failure: a missed application check does not by itself return another tenant's rows.
+Tracecat enforces tenant scope in the application layer, and PostgreSQL row-level security enforces it again on tenant-owned tables. The second layer is the one that matters under failure: when an application check slips, row-level security still withholds another tenant's rows.
 
 ### Credentials and sensitive settings
 
-Tracecat presents stored credentials to external systems at execution time, so credential storage has to be reversible. Anything that never needs replaying is stored one-way instead.
+Tracecat presents stored credentials to external systems at execution time, so credential storage has to be reversible. Where Tracecat never replays a value, it hashes instead.
 
-Reversible encryption uses Fernet, which is AES-128-CBC with an HMAC-SHA256 authentication tag, keyed by `TRACECAT__DB_ENCRYPTION_KEY`. Ciphertext is authenticated, so tampering fails to decrypt rather than yielding altered plaintext. It covers:
+Reversible encryption uses Fernet — AES-128-CBC with an HMAC-SHA256 authentication tag — keyed by `TRACECAT__DB_ENCRYPTION_KEY`. The tag authenticates the ciphertext, so tampering fails the decrypt instead of yielding altered plaintext. It covers:
 
 - Workspace, organization, and platform secrets.
 - OAuth and integration credentials, including access tokens, refresh tokens, and client secrets.
@@ -249,35 +249,35 @@ Reversible encryption uses Fernet, which is AES-128-CBC with an HMAC-SHA256 auth
 - Custom LLM provider credentials and Slack agent-channel credentials.
 - Organization and platform settings marked sensitive, including the audit webhook URL, its headers, and its custom payload.
 
-API tokens are not encrypted, because Tracecat never needs to read one back:
+API tokens are hashed one-way:
 
-- Service account API keys, MCP personal access tokens, and webhook API keys are stored as a salted BLAKE2b digest. Tracecat verifies a presented token in constant time and cannot recover the original.
-- The raw token is returned exactly once, at creation. Only a short preview prefix is kept so you can identify it later.
-- A lost token is replaced by rotation, never by retrieval.
+- Tracecat stores service account API keys, MCP personal access tokens, and webhook API keys as a salted BLAKE2b digest, verifies a presented token in constant time, and cannot recover the original.
+- Tracecat returns the raw token once, at creation, and keeps a short preview prefix so you can identify it later.
+- Rotate a lost token to replace it.
 
 <Warning>
-  **Credentials in MCP commands and URLs are stored in cleartext**
+  **Tracecat stores MCP commands and URLs in cleartext**
 
-  The `stdio` MCP command and its arguments, and the remote MCP server URI, are
-  not encrypted. Put credentials in environment variables or headers, which are,
-  rather than inline in an argument or a query string.
+  The `stdio` MCP command and its arguments, and the remote MCP server URI, stay
+  in cleartext. Put credentials in environment variables or headers, which
+  Tracecat encrypts, rather than inline in an argument or a query string.
 </Warning>
 
 ### Workflow payloads and durable state
 
 Temporal persists workflow and agent inputs and outputs for the life of an execution history, so payload protection is separate from database encryption.
 
-- Payloads are encrypted with AES-256-GCM by a Tracecat-side codec before Temporal stores anything, so Temporal only ever holds ciphertext.
+- A Tracecat-side codec encrypts payloads with AES-256-GCM before Temporal stores anything, so Temporal only ever holds ciphertext.
 - Each workspace gets a distinct key, derived with HKDF-SHA256 from a versioned root secret using the workspace ID as derivation context. One workspace's key does not decrypt another's payloads.
 - The keyring is versioned. Rotation issues a new key ID, and existing histories stay readable under the ID they were written with.
-- Secret values are masked as `***` in action results, and masking runs before the result is persisted, so history holds the masked form.
+- Tracecat masks secret values as `***` in action results, and masking runs before it persists the result, so history holds the masked form.
 - Large triggers and action results move to object storage automatically. Workflow state keeps a scoped reference, which bounds how much data one run pushes through durable history.
 
-Two limits are worth knowing. Masking is literal substring replacement, so an encoded or otherwise transformed copy of a secret is not caught. Payload encryption is a deployment setting (`TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED`) that is off by default — enable it wherever Temporal history can hold sensitive data.
+Two limits apply. Masking is literal substring replacement, so it misses an encoded or otherwise transformed copy of a secret. Payload encryption is a deployment setting (`TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED`) that ships off by default — enable it wherever Temporal history can hold sensitive data.
 
 ### Encryption keys
 
-Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the Fernet key behind credential encryption, and the Temporal payload keyring behind workflow history encryption.
+Tracecat generates no key material of its own. You provision two things and supply them to the deployment: `TRACECAT__DB_ENCRYPTION_KEY`, the Fernet key behind credential encryption, and `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING`, the keyring behind workflow history encryption.
 
 Store both in the secret manager your platform already provides, and keep them out of application configuration and version control. On Kubernetes, the recommended production deployment, use a Kubernetes Secret synced from your own secret manager by External Secrets Operator rather than one created by hand.
 
@@ -285,22 +285,13 @@ On AWS Fargate, use AWS Secrets Manager: ECS injects the core secrets into the c
 
 On Docker Compose, treat the `.env` file as the sensitive artifact: restrict it to the service account that runs Tracecat and keep it out of version control. Move to Kubernetes for a managed secret store and the full sandbox boundary.
 
-<Warning>
-  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
-
-  Tracecat encrypts under a single Fernet key and has no re-encryption path.
-  Changing or losing the key makes every stored credential unrecoverable. Back
-  it up, and restrict access to it at least as tightly as the credentials it
-  protects.
-</Warning>
-
 See [Platform secrets](/self-hosting/security#platform-secrets) for per-deployment storage and rotation, and [Secrets management](/self-hosting/kubernetes#secrets-management) for the Helm wiring.
 
 ### External secrets
 
 <Badge stroke color="gray" size="sm" shape="pill">A04</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM02</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI03</Badge>
 
-The subsections above cover how credentials are stored. This one covers how a value reaches running code, and the boundary differs between workflow actions and agents.
+The subsections above cover how Tracecat stores credentials. This one covers how a value reaches running code, and the boundary differs between workflow actions and agents.
 
 Tracecat stores credential metadata and resolves values at execution time, in trusted services only:
 
@@ -310,11 +301,11 @@ Tracecat stores credential metadata and resolves values at execution time, in tr
 - The LLM gateway, which attaches provider credentials per request.
 - The preset service, for `stdio` MCP environment values.
 
-None of these services runs inside the agent sandbox, and no credential value is persisted in workflow state. You can keep workspace and integration credentials in AWS Secrets Manager instead of Tracecat.
+All of these services run outside the agent sandbox, and Tracecat never persists a credential value in workflow state. You can keep workspace and integration credentials in AWS Secrets Manager instead of Tracecat.
 
 #### Workflow actions
 
-An action receives the secrets it declares or references, injected into its sandbox at dispatch. The sandbox bounds what the action can reach — the host, the database, other runs — rather than hiding the credential from code that needs it.
+Tracecat injects the secrets an action declares or references into its sandbox at dispatch. The sandbox bounds what the action can reach — the host, the database, other runs — rather than hiding the credential from code that needs it.
 
 `core.script.run_python` receives no ambient workspace secrets. Your script sees only what you pass through `env_vars` or Action inputs.
 
@@ -322,9 +313,9 @@ See [Secrets](/automations/core-concepts/secrets) for how actions declare and re
 
 #### Agents
 
-Agent-controlled code runs in the same sandbox as the agent, so any credential placed inside that sandbox is readable by whatever the model generates. Tracecat keeps credential values out of the agent sandbox.
+Agent-controlled code runs in the same sandbox as the agent, so generated code can read any credential placed inside that sandbox. Tracecat keeps credential values out of the agent sandbox.
 
-- The sandbox receives short-lived JWTs scoped to the run, workspace, model, and allowed tools.
+- Tracecat issues the sandbox short-lived JWTs scoped to the run, workspace, model, and allowed tools.
 - Trusted services validate those claims before resolving a provider credential.
 - Trusted proxies attach credentials to API, LLM, and remote HTTP MCP calls outside the sandbox.
 - The LLM receives typed interfaces and results; Tracecat never places a stored credential value into model context. Secret expressions in tool arguments resolve outside the sandbox, after the model responds.
@@ -339,7 +330,7 @@ Local `stdio` MCP is the exception. Its credentials enter the shared sandbox, so
 
 Hostile instructions hidden in an alert, email, case, or tool result can redirect an agent toward a tool the operator never intended it to call.
 
-Tool selection is therefore not the model's decision to make. Agents discover only the tools allowed by identity and workspace scope, and agent configuration narrows that set further. An explicit deny overrides an allow.
+Tracecat therefore decides tool selection, not the model. Agents discover only the tools identity and workspace scope allow, and agent configuration narrows that set further. An explicit deny overrides an allow.
 
 Every policy decision resolves to one of three outcomes:
 
@@ -347,7 +338,7 @@ Every policy decision resolves to one of three outcomes:
 - `Deny`: Block the call before credentials resolve or side effects occur.
 - `Require approval`: Create a durable request and pause before execution.
 
-The trusted proxy rechecks Tracecat and remote HTTP MCP calls before executing them, so a request the agent fabricates is rejected outside the sandbox rather than trusted because it arrived. Local `stdio` MCP is checked against the captured inventory only and does not get this second check.
+The trusted proxy rechecks Tracecat and remote HTTP MCP calls before executing them, so it rejects a fabricated request outside the sandbox. Tracecat checks local `stdio` MCP against the captured inventory only, without this second check.
 
 ### Token budget
 
@@ -366,11 +357,11 @@ Sandbox wall-time and resource limits contain execution independently, and tool 
 
 <Badge stroke color="gray" size="sm" shape="pill">A01</Badge> <Badge stroke color="gray" size="sm" shape="pill">A06</Badge> <Badge stroke color="blue" size="sm" shape="pill">LLM06</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI02</Badge> <Badge stroke color="purple" size="sm" shape="pill">ASI09</Badge>
 
-An approval gate only holds if the decision survives worker restarts and retries, and if no other path can resume the tool without a recorded decision.
+An approval gate holds only when the decision survives worker restarts and retries, and when every path that resumes the tool requires that recorded decision.
 
 Temporal persists the agent at the approval boundary and the tool waits for an authorized acceptance. The decision stays attached to the run and tool call across retries and worker restarts, and Tracecat authorizes the call only when the recorded decision permits it.
 
-Each authenticated accept or reject emits one audit event identifying the approver, the tool, and the outcome. Tool arguments, override values, prompts, and tool outputs are never included.
+Each authenticated accept or reject emits one audit event identifying the approver, the tool, and the outcome. The event excludes tool arguments, override values, prompts, and tool outputs.
 
 ### External MCP connections
 
@@ -379,7 +370,7 @@ External MCP clients such as coding agents authenticate to Tracecat and call too
 - OAuth connections inherit the user's effective Tracecat permissions.
 - Personal access tokens remain workspace-scoped.
 - The MCP access page groups connections, tokens, and external tool calls by user.
-- Per-profile scope reduction below user permissions is planned.
+- Per-profile scope reduction below user permissions is on the roadmap.
 
 ## Trusted agent execution
 
@@ -409,7 +400,7 @@ A third-party MCP server is untrusted code with a tool description attached. Whe
 
 Remote MCP servers run outside the agent sandbox, and the trusted proxy authenticates each call and returns the result. `stdio` MCP servers run as child processes inside the agent sandbox and inherit its filesystem, network, time, resource, and identity boundaries.
 
-Local MCP is a containment boundary, not a policy boundary. Agent-generated code inside the sandbox can invoke a local server's executable directly. Use remote HTTP MCP when every call must be rechecked at the trusted proxy.
+Local MCP is a containment boundary, not a policy boundary. Agent-generated code inside the sandbox can invoke a local server's executable directly. Use remote HTTP MCP when you need the trusted proxy to recheck every call.
 
 <Info>
   **`stdio` MCP limitations**
@@ -455,7 +446,7 @@ Tracecat separates audit signals by administrative scope and runtime source.
 
   - `data` carries only stable identifiers, changed-field names, boolean state flags, counts, and a small set of operation discriminators. Tracecat drops unrecognized keys, and drops an allowed field when its value matches a credential pattern.
   - Prompts, tool arguments, tool outputs, credentials, and resource contents never appear in an audit event.
-  - `actor_label`, `ip_address`, and `user_agent` are modeled as separate fields, so you can apply your own retention policy to them.
+  - Tracecat models `actor_label`, `ip_address`, and `user_agent` as separate fields, so you can apply your own retention policy to them.
   - Use [Organization agent logs](/audit-logs/agents) when you need prompt, tool, or model-level detail.
 </Info>
 
@@ -474,7 +465,7 @@ Rollback is predictable for workflows you publish in Tracecat. Publishing record
 Workflows imported through workspace sync carry no registry lock, so every execution resolves their actions against the current registry version. Republish an imported workflow in Tracecat to pin it.
 
 <Info>
-  Republish a workflow to adopt newly synced actions, even when the workflow itself has not changed. Imported workflows are not pinned until you republish them.
+  Republish a workflow to adopt newly synced actions, even when the workflow itself has not changed. Republishing is what pins an imported workflow.
 </Info>
 
 The core registry tracks the Tracecat release version and updates when you upgrade Tracecat. Earlier core versions stay available to workflows that pinned them.
@@ -497,7 +488,7 @@ flowchart LR
 - Review in your Git repository, where branch protection and signing apply.
 - Merge to your default branch.
 - Pull that commit into the production workspace.
-- Use workspace-level RBAC so the people who author in staging are not the people who pull into production.
+- Use workspace-level RBAC to keep staging authors separate from the people who pull into production.
 
 Every pull targets an explicit commit, so imports are reproducible and rollback is a pull of an earlier commit. Tracecat does not pull in the background — to automate promotion, call the sync API from your CI/CD pipeline with a service account.
 
