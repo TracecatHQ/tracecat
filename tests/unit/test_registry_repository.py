@@ -2,20 +2,33 @@ from __future__ import annotations
 
 import importlib
 import importlib.machinery
+import inspect
 import sys
 from types import ModuleType
-from typing import Annotated, Any, ForwardRef, Literal, TypedDict, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    ForwardRef,
+    Literal,
+    TypedDict,
+    cast,
+    get_args,
+    get_origin,
+)
 
 import pytest
+from pydantic import ConfigDict, Field, ValidationError
 from typing_extensions import Doc
 
 from tracecat.expressions.validation import TemplateValidator
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.repository import (
     RegisterKwargs,
     attach_validators,
     generate_model_from_function,
     import_and_reload,
 )
+from tracecat.validation.common import json_schema_to_pydantic
 
 
 def _metadata(annotation: object) -> list[object]:
@@ -169,6 +182,195 @@ def test_generate_model_extracts_base_type_from_annotated() -> None:
     assert instance.count == 42
 
 
+@pytest.mark.regression
+def test_generate_model_honors_annotated_field_default_for_omitted_nullable_param() -> None:
+    """Regression for #2620: Field(default=...) must shape the args model."""
+
+    def sample_func(
+        summary: Annotated[str, Field(..., description="Required summary")],
+        client_id: Annotated[
+            int | None, Field(default=None, description="Optional client")
+        ],
+        priority: Annotated[
+            int, Field(default=3, ge=1, le=5, description="Priority")
+        ],
+    ) -> dict[str, str | int | None]:
+        return {"summary": summary, "client_id": client_id, "priority": priority}
+
+    assert (
+        inspect.signature(sample_func).parameters["client_id"].default
+        is inspect.Parameter.empty
+    )
+    with pytest.raises(TypeError):
+        cast(Any, sample_func)(summary="Ticket without client_id")
+
+    input_model, _, _ = generate_model_from_function(sample_func, _make_kwargs())
+    schema = input_model.model_json_schema()
+    summary_field = input_model.model_fields["summary"]
+    client_id_field = input_model.model_fields["client_id"]
+    priority_field = input_model.model_fields["priority"]
+
+    assert summary_field.is_required()
+    assert client_id_field.default is None
+    assert not client_id_field.is_required()
+    assert client_id_field.description == "Optional client"
+    assert priority_field.default == 3
+    assert not priority_field.is_required()
+    assert priority_field.description == "Priority"
+    assert "client_id" not in schema.get("required", [])
+    assert schema["properties"]["client_id"]["default"] is None
+    assert {"type": "integer"} in schema["properties"]["client_id"]["anyOf"]
+    assert {"type": "null"} in schema["properties"]["client_id"]["anyOf"]
+    assert "priority" not in schema.get("required", [])
+    assert schema["properties"]["priority"]["default"] == 3
+
+    args = input_model.model_validate({"summary": "Ticket without client_id"})
+    assert args.model_dump() == {
+        "summary": "Ticket without client_id",
+        "client_id": None,
+        "priority": 3,
+    }
+
+    with pytest.raises(ValidationError):
+        input_model.model_validate({"summary": "x", "priority": 0})
+    with pytest.raises(ValidationError):
+        input_model.model_validate({"summary": "x", "client_id": "not-an-int"})
+
+    result = sample_func(**args.model_dump())
+    assert result == {
+        "summary": "Ticket without client_id",
+        "client_id": None,
+        "priority": 3,
+    }
+
+
+@pytest.mark.regression
+def test_generate_model_keeps_nullable_parameter_required_without_default() -> None:
+    """Nullable means None is valid; it must not make an omitted value optional."""
+
+    def sample_func(client_id: int | None) -> int | None:
+        return client_id
+
+    input_model, _, _ = generate_model_from_function(sample_func, _make_kwargs())
+    schema = input_model.model_json_schema()
+
+    assert "client_id" in schema["required"]
+    with pytest.raises(ValidationError):
+        input_model.model_validate({})
+    assert input_model.model_validate({"client_id": None}).model_dump() == {
+        "client_id": None
+    }
+    assert input_model.model_validate({"client_id": 123}).model_dump() == {
+        "client_id": 123
+    }
+
+
+@pytest.mark.regression
+def test_udf_interface_schema_roundtrip_preserves_annotated_field_defaults() -> None:
+    """Regression for #2620: manifest validation must apply schema defaults."""
+
+    def sample_func(
+        summary: Annotated[str, Field(..., description="Required summary")],
+        client_id: Annotated[
+            int | None, Field(default=None, description="Optional client")
+        ],
+        priority: Annotated[int, Field(default=3, description="Priority")],
+    ) -> dict[str, str | int | None]:
+        return {"summary": summary, "client_id": client_id, "priority": priority}
+
+    assert (
+        inspect.signature(sample_func).parameters["client_id"].default
+        is inspect.Parameter.empty
+    )
+    with pytest.raises(TypeError):
+        cast(Any, sample_func)(summary="Ticket without client_id")
+
+    input_model, rtype, rtype_adapter = generate_model_from_function(
+        sample_func, _make_kwargs()
+    )
+    bound_action = BoundRegistryAction(
+        fn=sample_func,
+        type="udf",
+        name="create_ticket",
+        namespace="testing",
+        description="Test",
+        secrets=None,
+        args_cls=input_model,
+        args_docs={},
+        rtype_cls=rtype,
+        rtype_adapter=rtype_adapter,
+        default_title=None,
+        display_group=None,
+        doc_url=None,
+        author=None,
+        deprecated=None,
+        origin="test",
+    )
+    interface = bound_action.get_interface()
+    expects = interface["expects"]
+    required = expects.get("required", [])
+
+    assert "client_id" not in required
+    assert expects["properties"]["client_id"]["default"] is None
+    assert {"type": "integer"} in expects["properties"]["client_id"]["anyOf"]
+    assert {"type": "null"} in expects["properties"]["client_id"]["anyOf"]
+    assert "priority" not in required
+    assert expects["properties"]["priority"]["default"] == 3
+
+    roundtrip_model = json_schema_to_pydantic(
+        expects,
+        root_config=ConfigDict(extra="forbid"),
+    )
+    validated = roundtrip_model.model_validate({"summary": "Ticket without client_id"})
+
+    assert validated.model_dump() == {
+        "summary": "Ticket without client_id",
+        "client_id": None,
+        "priority": 3,
+    }
+
+    with pytest.raises(ValidationError):
+        roundtrip_model.model_validate({})
+    with pytest.raises(ValidationError):
+        roundtrip_model.model_validate(
+            {"summary": "Ticket without client_id", "client_id": "not-an-int"}
+        )
+
+
+@pytest.mark.regression
+def test_json_schema_to_pydantic_preserves_optional_field_defaults() -> None:
+    """Regression for #2620: manifest validation must not replace defaults with None."""
+
+    model = json_schema_to_pydantic(
+        {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "client_id": {
+                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                    "default": None,
+                },
+                "priority": {"type": "integer", "default": 3},
+            },
+            "required": ["summary"],
+        },
+        root_config=ConfigDict(extra="forbid"),
+    )
+
+    validated = model.model_validate({"summary": "Ticket without client_id"})
+
+    assert validated.model_dump() == {
+        "summary": "Ticket without client_id",
+        "client_id": None,
+        "priority": 3,
+    }
+
+    with pytest.raises(ValidationError):
+        model.model_validate(
+            {"summary": "Ticket without client_id", "client_id": "not-an-int"}
+        )
+
+
 def test_generate_model_preserves_component_metadata() -> None:
     """Ensure `x-tracecat-component` propagates to JSON schema.
 
@@ -315,12 +517,12 @@ def test_registry_module_literal_types_preserved() -> None:
 
     # Check it's a union type (Literal[...] | None)
     origin = get_origin(format_annotation)
-    if origin is not None:  # It's a parameterized type
-        args = get_args(format_annotation)
-        # Find the Literal type in the union
-        literal_types = [arg for arg in args if get_origin(arg) is Literal]
-        if literal_types:
-            literal_args = get_args(literal_types[0])
-            # Verify the literal values are present
-            assert "json" in literal_args
-            assert "csv" in literal_args
+    assert origin is not None
+    args = get_args(format_annotation)
+    # Find the Literal type in the union
+    literal_types = [arg for arg in args if get_origin(arg) is Literal]
+    assert literal_types
+    literal_args = get_args(literal_types[0])
+    # Verify the literal values are present
+    assert "json" in literal_args
+    assert "csv" in literal_args

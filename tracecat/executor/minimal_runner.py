@@ -14,13 +14,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import importlib
+import inspect
 import os
 import sys
 import warnings
 from collections.abc import Mapping
 from types import ModuleType
-from typing import Any
+from typing import Annotated, Any, get_args, get_origin, get_type_hints
+
+try:
+    from pydantic_core import PydanticUndefined
+except ImportError:  # pragma: no cover - pydantic is available in Tracecat envs
+    PydanticUndefined = object()
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -63,6 +70,102 @@ _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
 _ACTION_GATEWAY_SOCKET = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET") or None
 _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
+
+
+def _is_missing_default(value: Any) -> bool:
+    return (
+        value is inspect.Parameter.empty
+        or value is Ellipsis
+        or value is PydanticUndefined
+    )
+
+
+def _metadata_default_value(
+    meta: object, validated_data: dict[str, Any]
+) -> tuple[Any, bool]:
+    get_default = getattr(meta, "get_default", None)
+    if callable(get_default):
+        get_default_params = inspect.signature(get_default).parameters
+        if "validated_data" in get_default_params:
+            default = get_default(
+                call_default_factory=True,
+                validated_data=validated_data,
+            )
+        else:
+            default = get_default(call_default_factory=True)
+        if not _is_missing_default(default):
+            return default, False
+
+    default = getattr(meta, "default", inspect.Parameter.empty)
+    if not _is_missing_default(default):
+        return default, True
+
+    default_factory = getattr(meta, "default_factory", None)
+    if default_factory is not None and default_factory is not PydanticUndefined:
+        return default_factory(), False
+
+    return inspect.Parameter.empty, False
+
+
+def _annotated_default_value(
+    annotation: object, validated_data: dict[str, Any]
+) -> tuple[Any, bool]:
+    if get_origin(annotation) is not Annotated:
+        return inspect.Parameter.empty, False
+
+    for meta in get_args(annotation)[1:]:
+        default, should_copy = _metadata_default_value(meta, validated_data)
+        if default is not inspect.Parameter.empty:
+            return default, should_copy
+    return inspect.Parameter.empty, False
+
+
+def materialize_annotated_field_defaults(
+    fn: Any,
+    args: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply Annotated Field defaults before direct UDF invocation.
+
+    Workflow execution passes only evaluated workflow inputs to sandboxed runners.
+    Pydantic's generated schema can mark `Annotated[T, Field(default=...)]`
+    optional, but Python still requires the parameter unless a value is passed.
+    """
+    materialized = dict(args)
+    signature = inspect.signature(fn)
+    module = sys.modules.get(fn.__module__)
+    namespace = dict(getattr(module, "__dict__", {}) if module else {})
+    try:
+        closure_vars = inspect.getclosurevars(fn)
+        namespace.update(closure_vars.globals)
+        namespace.update(closure_vars.nonlocals)
+    except TypeError:
+        pass
+
+    try:
+        annotations = get_type_hints(
+            fn,
+            globalns=namespace,
+            localns=namespace,
+            include_extras=True,
+        )
+    except Exception:
+        annotations = getattr(fn, "__annotations__", {})
+
+    for name, param in signature.parameters.items():
+        if name in materialized:
+            continue
+        if param.kind not in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            continue
+
+        annotation = annotations.get(name, param.annotation)
+        default, should_copy = _annotated_default_value(annotation, materialized)
+        if default is not inspect.Parameter.empty:
+            materialized[name] = copy.deepcopy(default) if should_copy else default
+
+    return materialized
 
 
 def _install_action_gateway_sdk_transport() -> None:
@@ -328,12 +431,13 @@ async def _run_udf_async(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        call_args = materialize_annotated_field_defaults(fn, args)
 
         # Use await for async, asyncio.to_thread for sync (doesn't block event loop)
         if asyncio.iscoroutinefunction(fn):
-            return await fn(**args)
+            return await fn(**call_args)
         else:
-            return await asyncio.to_thread(fn, **args)
+            return await asyncio.to_thread(fn, **call_args)
     finally:
         # Reset secrets context to prevent leakage between tasks
         if registry_secrets is not None and secrets_token is not None:
@@ -394,12 +498,13 @@ def _run_udf(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        call_args = materialize_annotated_field_defaults(fn, args)
 
         # Check if async and run appropriately
         if asyncio.iscoroutinefunction(fn):
-            return asyncio.run(fn(**args))
+            return asyncio.run(fn(**call_args))
         else:
-            return fn(**args)
+            return fn(**call_args)
     finally:
         # Reset secrets context
         if registry_secrets is not None and secrets_token is not None:

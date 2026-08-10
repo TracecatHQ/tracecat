@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
 import pytest
+from pydantic import Field
 from tracecat_registry import secrets as registry_secrets
 
 from tracecat.auth.types import Role
@@ -198,6 +200,83 @@ class TestTestBackendNoRegistryAction:
             assert result.type == "failure", f"Expected failure but got: {result}"
             assert "NotImplementedError" in result.error.type
             assert "service layer" in result.error.message.lower()
+        finally:
+            await backend.shutdown()
+
+    @pytest.mark.regression
+    @pytest.mark.anyio
+    async def test_execute_udf_applies_annotated_field_default_for_omitted_arg(
+        self,
+        test_role: Role,
+        test_run_action_input: RunActionInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression for #2620: omitted Field(default=...) args reach execution."""
+
+        def create_ticket(
+            summary: Annotated[str, Field(..., description="Required summary")],
+            client_id: Annotated[
+                int | None, Field(default=None, description="Optional client")
+            ],
+            priority: Annotated[int, Field(default=3, description="Priority")],
+        ) -> dict[str, str | int | None]:
+            return {"summary": summary, "client_id": client_id, "priority": priority}
+
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="testing.create_ticket",
+                module="testing",
+                name="create_ticket",
+            ),
+            evaluated_args={"summary": "Ticket without client_id"},
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+            executor_token="test-token",
+            logical_time=datetime.now(UTC),
+            secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+        )
+
+        backend = TestBackend()
+        await backend.start()
+
+        try:
+            monkeypatch.setattr(
+                "tracecat.executor.backends.test.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
+                True,
+            )
+
+            def load_create_ticket(
+                action_impl: ActionImplementation,
+            ) -> object:
+                assert action_impl == resolved_context.action_impl
+                assert action_impl.action_name == "testing.create_ticket"
+                assert action_impl.module == "testing"
+                assert action_impl.name == "create_ticket"
+                return create_ticket
+
+            monkeypatch.setattr(
+                backend,
+                "_load_udf_callable",
+                load_create_ticket,
+            )
+
+            result = await backend.execute(
+                input=test_run_action_input,
+                role=test_role,
+                resolved_context=resolved_context,
+                timeout=30.0,
+            )
+
+            assert result.type == "success", f"Expected success but got: {result}"
+            assert result.result == {
+                "summary": "Ticket without client_id",
+                "client_id": None,
+                "priority": 3,
+            }
         finally:
             await backend.shutdown()
 
