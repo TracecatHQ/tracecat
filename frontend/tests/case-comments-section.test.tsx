@@ -11,11 +11,14 @@ import {
   within,
 } from "@testing-library/react"
 import {
+  type AgentPresetReadMinimal,
   type CaseCommentThreadRead,
   foldersListFolders,
   workflowsListWorkflows,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CommentSection } from "@/components/cases/case-comments-section"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
@@ -26,6 +29,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { getTextareaCaretCoordinates } from "@/lib/textarea-caret"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
@@ -43,6 +47,22 @@ jest.mock("@/hooks/use-auth", () => ({
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: jest.fn(),
 }))
+
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(),
+}))
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
+}))
+
+jest.mock("@/lib/textarea-caret", () => {
+  const actual = jest.requireActual("@/lib/textarea-caret")
+  return {
+    ...actual,
+    getTextareaCaretCoordinates: jest.fn(),
+  }
+})
 
 jest.mock("@/lib/hooks", () => ({
   useCaseComments: jest.fn(),
@@ -75,6 +95,16 @@ const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>
 const mockUseEntitlements = useEntitlements as jest.MockedFunction<
   typeof useEntitlements
 >
+const mockUseAgentPresets = useAgentPresets as jest.MockedFunction<
+  typeof useAgentPresets
+>
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
+>
+const mockGetCaretCoordinates =
+  getTextareaCaretCoordinates as jest.MockedFunction<
+    typeof getTextareaCaretCoordinates
+  >
 const mockUseCaseComments = useCaseComments as jest.MockedFunction<
   typeof useCaseComments
 >
@@ -196,6 +226,64 @@ function createThreadFixtures(): CaseCommentThreadRead[] {
   ]
 }
 
+function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
+  return [
+    {
+      id: "preset-1",
+      workspace_id: "workspace-1",
+      name: "Triage agent",
+      slug: "triage-agent",
+      description: "Triages new cases",
+      model_provider: "openai",
+      model_name: "gpt-4o",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    },
+    {
+      id: "preset-2",
+      workspace_id: "workspace-1",
+      name: "Malware agent",
+      slug: "malware-agent",
+      description: null,
+      model_provider: "openai",
+      model_name: "gpt-4o",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    },
+  ]
+}
+
+function mockAgentPresets(presets: AgentPresetReadMinimal[]) {
+  mockUseAgentPresets.mockReturnValue({
+    presets,
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  } as unknown as ReturnType<typeof useAgentPresets>)
+}
+
+/** Mirror `useScopeCheck` semantics against a fixed set of granted scopes. */
+function grantScopes(granted: string[]) {
+  const scopes = new Set(granted)
+  mockUseScopeCheck.mockImplementation((scope, scopeList, options) => {
+    const required = [...(scope ? [scope] : []), ...(scopeList ?? [])]
+    if (required.length === 0) {
+      return true
+    }
+    return options?.all
+      ? required.every((value) => scopes.has(value))
+      : required.some((value) => scopes.has(value))
+  })
+}
+
+function mockEntitlements(keys: string[]) {
+  mockUseEntitlements.mockReturnValue({
+    hasEntitlement: jest.fn().mockImplementation((key) => keys.includes(key)),
+    isLoading: false,
+    hasEntitlementData: true,
+  })
+}
+
 describe("CommentSection", () => {
   beforeEach(() => {
     const fixtures = createThreadFixtures()
@@ -213,13 +301,15 @@ describe("CommentSection", () => {
       userIsLoading: false,
       userError: null,
     } as ReturnType<typeof useAuth>)
-    mockUseEntitlements.mockReturnValue({
-      hasEntitlement: jest
-        .fn()
-        .mockImplementation((key) => key === "case_addons"),
-      isLoading: false,
-      hasEntitlementData: true,
-    })
+    mockEntitlements(["case_addons"])
+    mockUseScopeCheck.mockReturnValue(true)
+    // Derive coordinates from the measured offset so a re-measure is visible.
+    mockGetCaretCoordinates.mockImplementation((_textarea, position) => ({
+      top: 100 + position,
+      left: 10 + position,
+      height: 16,
+    }))
+    mockAgentPresets(createAgentPresetFixtures())
     mockUseCaseComments.mockReturnValue({
       caseComments: [firstThread.comment, firstReply, secondThread.comment],
       caseCommentsIsLoading: false,
@@ -671,6 +761,325 @@ describe("CommentSection", () => {
     ).toHaveAttribute(
       "href",
       "/workspaces/workspace-1/workflows/wf_789/executions/exec_999"
+    )
+  })
+
+  describe("agent mention autocomplete", () => {
+    beforeEach(() => {
+      mockEntitlements(["case_addons", "agent_addons"])
+    })
+
+    function typeInto(
+      textarea: HTMLElement,
+      value: string,
+      caret = value.length
+    ) {
+      fireEvent.change(textarea, {
+        target: { value, selectionStart: caret },
+      })
+    }
+
+    function getComposer() {
+      return screen.getByPlaceholderText("Leave a comment...")
+    }
+
+    function getCaretMarker(textarea: HTMLElement) {
+      const marker = textarea.parentElement?.querySelector("span[aria-hidden]")
+      if (!(marker instanceof HTMLElement)) {
+        throw new Error("Expected a caret marker next to the composer")
+      }
+      return marker
+    }
+
+    it("opens the popover listing presets under a section header", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "@")
+
+      expect(screen.getByText("Agents")).toBeInTheDocument()
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.getByText("Malware agent")).toBeInTheDocument()
+    })
+
+    it("renders the popover above the caret and outside the composer form", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "@")
+
+      const content = screen.getByText("Triage agent").closest("[data-side]")
+      expect(content).toHaveAttribute("data-side", "top")
+      // Portaled, so the thread's overflow-hidden cannot clip the popover.
+      expect(getComposer().closest("form")).not.toContainElement(
+        content as HTMLElement | null
+      )
+      // Anchored to a caret marker rather than the composer itself.
+      expect(getCaretMarker(getComposer())).toBeInTheDocument()
+    })
+
+    it("pins the anchor to the @ offset and holds it as the query grows", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @")
+
+      // Measured once, at the offset of the `@` rather than the caret.
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(1)
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 5)
+      const marker = getCaretMarker(composer)
+      expect(marker.style.left).toBe("15px")
+
+      typeInto(composer, "Ping @tri")
+
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(1)
+      expect(getCaretMarker(composer).style.left).toBe("15px")
+    })
+
+    it("re-measures when a new mention session starts", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@a")
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 0)
+
+      typeInto(composer, "@a done @")
+
+      expect(mockGetCaretCoordinates).toHaveBeenCalledTimes(2)
+      expect(mockGetCaretCoordinates).toHaveBeenLastCalledWith(composer, 8)
+      expect(getCaretMarker(composer).style.left).toBe("18px")
+    })
+
+    it("keeps the popover open with an empty state when nothing matches", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@zzz")
+
+      expect(screen.getByText("No agents found")).toBeInTheDocument()
+      expect(screen.queryByText("Agents")).not.toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Escape" })
+      expect(screen.queryByText("No agents found")).not.toBeInTheDocument()
+    })
+
+    it("filters presets by the mention query", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "Ping @mal")
+
+      expect(screen.getByText("Malware agent")).toBeInTheDocument()
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("ignores @ that does not follow whitespace", () => {
+      renderCommentSection()
+
+      typeInto(getComposer(), "email@tri")
+
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("dismisses on whitespace in the query and on Escape", () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@tri ")
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+
+      typeInto(composer, "@tri")
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+
+      fireEvent.keyDown(composer, { key: "Escape" })
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("selects with the keyboard without submitting the comment", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @")
+      fireEvent.keyDown(composer, { key: "ArrowDown" })
+      fireEvent.keyDown(composer, { key: "Enter" })
+
+      // The textarea holds display text, not the wire token.
+      await waitFor(() => expect(composer).toHaveValue("Ping @Malware agent "))
+      expect(createComment).not.toHaveBeenCalled()
+      expect(
+        screen.queryByRole("button", { name: "Malware agent" })
+      ).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect((composer as HTMLTextAreaElement).selectionStart).toBe(
+          "Ping @Malware agent ".length
+        )
+      )
+    })
+
+    it("selects with tab without moving focus or submitting", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+      composer.focus()
+
+      typeInto(composer, "Ping @")
+      // Shift+Tab falls through to native focus handling, so nothing is picked.
+      fireEvent.keyDown(composer, { key: "Tab", shiftKey: true })
+      expect(composer).toHaveValue("Ping @")
+
+      fireEvent.keyDown(composer, { key: "Tab" })
+
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+      expect(createComment).not.toHaveBeenCalled()
+      expect(composer).toHaveFocus()
+    })
+
+    it("wraps keyboard navigation with ArrowUp", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@")
+      fireEvent.keyDown(composer, { key: "ArrowUp" })
+      fireEvent.keyDown(composer, { key: "Enter" })
+
+      await waitFor(() => expect(composer).toHaveValue("@Malware agent "))
+    })
+
+    it("selects with the mouse from the inline reply composer", async () => {
+      renderCommentSection()
+      const reply = screen.getByPlaceholderText("Leave a reply...")
+
+      typeInto(reply, "@tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+
+      await waitFor(() => expect(reply).toHaveValue("@Triage agent "))
+      expect(getComposer()).toHaveValue("")
+    })
+
+    it("highlights the inserted mention in the overlay", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "@tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+
+      await waitFor(() => expect(composer).toHaveValue("@Triage agent "))
+      const overlay = composer.parentElement?.querySelector(
+        "[data-testid='comment-mention-overlay']"
+      )
+      const highlighted = overlay?.querySelector("[data-mention-target]")
+      expect(highlighted).toHaveTextContent("@Triage agent")
+      expect(highlighted).toHaveAttribute("data-mention-target", "preset-1")
+      expect(highlighted).toHaveClass("text-primary")
+      // No bold: it would change glyph widths and desync the caret.
+      expect(highlighted).not.toHaveClass("font-bold")
+    })
+
+    it("serializes mentions to wire tokens on submit", async () => {
+      const createComment = jest.fn().mockResolvedValue(undefined)
+      mockUseCreateCaseComment.mockReturnValue({
+        createComment,
+        createCommentIsPending: false,
+        createCommentError: null,
+      })
+
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+
+      fireEvent.keyDown(composer, { key: "Enter", metaKey: true })
+
+      await waitFor(() =>
+        expect(createComment).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: "Ping [@Triage agent](mention://agent/preset-1)",
+          })
+        )
+      )
+    })
+
+    it("deletes a whole mention on backspace after it", async () => {
+      renderCommentSection()
+      const composer = getComposer()
+
+      typeInto(composer, "Ping @tri")
+      fireEvent.click(screen.getByRole("button", { name: "Triage agent" }))
+      await waitFor(() => expect(composer).toHaveValue("Ping @Triage agent "))
+
+      // Caret immediately after the mention, before the trailing space.
+      typeInto(composer, "Ping @Triage agent", 18)
+      fireEvent.keyDown(composer, { key: "Backspace" })
+
+      await waitFor(() => expect(composer).toHaveValue("Ping "))
+    })
+
+    it("stays closed without the agent scopes", () => {
+      mockUseScopeCheck.mockReturnValue(false)
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(getComposer()).toHaveValue("@")
+    })
+
+    it("stays closed with agent:execute but not agent:read", () => {
+      // The suggestion list comes from the preset endpoint, which requires
+      // agent:read; without it the request would 403.
+      grantScopes(["agent:execute"])
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(mockUseScopeCheck).toHaveBeenCalledWith(
+        undefined,
+        ["agent:execute", "agent:read"],
+        { all: true }
+      )
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      expect(getComposer()).toHaveValue("@")
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: false })
+      )
+    })
+
+    it("opens with both agent scopes granted", () => {
+      grantScopes(["agent:execute", "agent:read"])
+
+      renderCommentSection()
+      typeInto(getComposer(), "@")
+
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: true })
+      )
+    })
+
+    it.each(["case_addons", "agent_addons"])(
+      "stays closed when only the %s entitlement is present",
+      (entitlement) => {
+        mockEntitlements([entitlement])
+
+        renderCommentSection()
+        typeInto(getComposer(), "@")
+
+        expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+      }
     )
   })
 })

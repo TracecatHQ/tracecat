@@ -29,6 +29,7 @@ import {
   type WorkflowReadMinimal,
   workflowsListWorkflows,
 } from "@/client"
+import { AgentMentionPopover } from "@/components/agents/agent-mention-popover"
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -44,6 +45,7 @@ import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
+import { CommentMentionOverlay } from "@/components/cases/comment-mention-overlay"
 import { TagBadge } from "@/components/tag-badge"
 import {
   AlertDialog,
@@ -80,6 +82,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import { useCommentMentions } from "@/hooks/use-comment-mentions"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
@@ -87,6 +90,7 @@ import {
   extractImageFiles,
   useCaseImageUpload,
 } from "@/lib/cases/use-case-image-upload"
+import type { TextSplice } from "@/lib/comment-mentions"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -664,12 +668,15 @@ function useCommentImagePaste({
   form,
   textareaRef,
   adjustTextareaHeight,
+  onSplice,
 }: {
   caseId: string
   workspaceId: string
   form: UseFormReturn<CommentFormSchema>
   textareaRef: RefObject<HTMLTextAreaElement | null>
   adjustTextareaHeight: () => void
+  /** Reports the edit so callers can keep mention offsets aligned. */
+  onSplice?: (splice: TextSplice) => void
 }) {
   const { uploadImage } = useCaseImageUpload(caseId, workspaceId)
   const [uploadingCount, setUploadingCount] = useState(0)
@@ -681,6 +688,7 @@ function useCommentImagePaste({
       const start = textarea?.selectionStart ?? current.length
       const end = textarea?.selectionEnd ?? current.length
       const next = current.slice(0, start) + text + current.slice(end)
+      onSplice?.({ start, deleted: end - start, inserted: text.length })
       form.setValue("content", next, {
         shouldDirty: true,
         shouldValidate: true,
@@ -695,7 +703,7 @@ function useCommentImagePaste({
         adjustTextareaHeight()
       })
     },
-    [adjustTextareaHeight, form, textareaRef]
+    [adjustTextareaHeight, form, onSplice, textareaRef]
   )
 
   const handlePaste = useCallback(
@@ -749,6 +757,11 @@ function CommentComposer({
     workspaceId,
   })
   const isInline = mode === "inline"
+  // Shared by the textarea and its highlight overlay. If these drift apart the
+  // two layers wrap differently and the caret stops matching the visible text.
+  const textMetricsClassName = isInline
+    ? "px-0 py-1 text-sm"
+    : "px-0 py-0 text-sm"
   const [selectorOpen, setSelectorOpen] = useState(false)
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
@@ -773,12 +786,32 @@ function CommentComposer({
     textarea.style.overflowY = "hidden"
   }, [isInline])
 
+  // Mentions live as display text (`@Label`) in the textarea; the hook maps
+  // them back to wire tokens on submit.
+  const getContent = useCallback(() => form.getValues("content"), [form])
+  const setContent = useCallback(
+    (next: string) => {
+      form.setValue("content", next, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    },
+    [form]
+  )
+  const mentions = useCommentMentions({
+    workspaceId,
+    textareaRef,
+    getText: getContent,
+    setText: setContent,
+  })
+
   const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
     caseId,
     workspaceId,
     form,
     textareaRef,
     adjustTextareaHeight,
+    onSplice: mentions.applySplice,
   })
 
   const content = form.watch("content")
@@ -808,8 +841,17 @@ function CommentComposer({
   }, [adjustTextareaHeight, content])
 
   const handleSubmit = async (values: CommentFormSchema) => {
-    const nextContent = values.content.trim()
+    // Length limits apply to what the API receives, not the shorter display
+    // text, so validate the serialized value.
+    const nextContent = mentions.serialize(values.content).trim()
     if (!nextContent) {
+      return
+    }
+    const serialized = commentFormSchema.safeParse({ content: nextContent })
+    if (!serialized.success) {
+      form.setError("content", {
+        message: serialized.error.issues[0]?.message,
+      })
       return
     }
     try {
@@ -819,6 +861,7 @@ function CommentComposer({
         ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
       })
       form.reset({ content: "" })
+      mentions.reset()
       setSelectedWorkflowId(null)
       onSubmitted?.()
     } catch (error) {
@@ -826,7 +869,11 @@ function CommentComposer({
     }
   }
 
-  const handleKeyDown = (event: React.KeyboardEvent) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The mention layer owns popover keys and atomic mention backspace.
+    if (mentions.handleKeyDown(event)) {
+      return
+    }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       if (createCommentIsPending || imageUploading) {
@@ -852,30 +899,56 @@ function CommentComposer({
             name="content"
             render={({ field }) => (
               <FormItem>
-                <FormControl>
-                  <Textarea
-                    autoFocus={autoFocus}
-                    ref={(node) => {
-                      field.ref(node)
-                      textareaRef.current = node
-                    }}
-                    className={
-                      isInline
-                        ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
-                        : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                    }
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    onChange={(event) => {
-                      field.onChange(event)
-                      adjustTextareaHeight()
-                    }}
-                    onKeyDown={handleKeyDown}
-                    onPaste={(event) => void handlePaste(event)}
-                    placeholder={placeholder}
-                    value={field.value}
+                <AgentMentionPopover
+                  open={mentions.isOpen}
+                  caret={mentions.caret}
+                  sections={mentions.sections}
+                  itemCount={mentions.itemCount}
+                  activeIndex={mentions.activeIndex}
+                  isLoading={mentions.isLoading}
+                  onSelect={mentions.selectSuggestion}
+                >
+                  <CommentMentionOverlay
+                    text={content}
+                    mentions={mentions.ranges}
+                    className={textMetricsClassName}
                   />
-                </FormControl>
+                  <FormControl>
+                    <Textarea
+                      autoFocus={autoFocus}
+                      ref={(node) => {
+                        field.ref(node)
+                        textareaRef.current = node
+                      }}
+                      // Text is painted by the overlay behind, so only the
+                      // caret stays visible here.
+                      className={cn(
+                        "relative resize-none border-none bg-transparent text-transparent caret-foreground shadow-none focus-visible:ring-0",
+                        textMetricsClassName,
+                        isInline ? "min-h-9" : "min-h-[72px]"
+                      )}
+                      name={field.name}
+                      onBlur={() => {
+                        field.onBlur()
+                        mentions.dismiss()
+                      }}
+                      onChange={(event) => {
+                        mentions.handleTextChange(
+                          event.target.value,
+                          event.target.selectionStart ??
+                            event.target.value.length
+                        )
+                        field.onChange(event)
+                        adjustTextareaHeight()
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onSelect={mentions.handleSelectionChange}
+                      onPaste={(event) => void handlePaste(event)}
+                      placeholder={placeholder}
+                      value={field.value}
+                    />
+                  </FormControl>
+                </AgentMentionPopover>
                 <FormMessage />
               </FormItem>
             )}
