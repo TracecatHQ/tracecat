@@ -169,16 +169,20 @@ async def test_registry_repository_scope_guards(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("endpoint", "required_scope"),
+    "endpoint",
     [
-        (registry_actions_router.list_registry_actions, "org:registry:read"),
-        (registry_actions_router.get_registry_action, "org:registry:read"),
+        registry_actions_router.list_registry_actions,
+        registry_actions_router.get_registry_action,
     ],
 )
 async def test_registry_action_scope_guards(
-    endpoint: AsyncEndpoint, required_scope: str
+    endpoint: AsyncEndpoint,
 ) -> None:
-    await _assert_endpoint_requires_scope(endpoint, required_scope)
+    await _assert_endpoint_requires_any_scope(
+        endpoint,
+        allowed_scopes=("org:registry:read", "agent:read"),
+        denied_scopes=("agent:execute",),
+    )
 
 
 @pytest.mark.anyio

@@ -16,7 +16,7 @@ router = APIRouter(prefix=REGISTRY_ACTIONS_PATH, tags=["registry-actions"])
 
 
 @router.get("")
-@require_scope("org:registry:read")
+@require_scope("org:registry:read", "agent:read", require_all=False)
 async def list_registry_actions(
     *,
     role: Role = RoleACL(
@@ -30,7 +30,7 @@ async def list_registry_actions(
         description="Include actions locked by missing entitlements",
     ),
 ) -> list[RegistryActionReadMinimal]:
-    """List all actions from registry index."""
+    """List actions for registry browsers and agent tool selection."""
     service = RegistryActionsService(session, role)
     index_entries = await service.list_actions_from_index(include_locked=include_locked)
     return [
@@ -44,7 +44,7 @@ async def list_registry_actions(
     response_model=RegistryActionRead,
     response_model_exclude_unset=True,
 )
-@require_scope("org:registry:read")
+@require_scope("org:registry:read", "agent:read", require_all=False)
 async def get_registry_action(
     *,
     role: Role = RoleACL(
