@@ -285,6 +285,15 @@ On AWS Fargate, use AWS Secrets Manager: ECS injects the core secrets into the c
 
 On Docker Compose, treat the `.env` file as the sensitive artifact: restrict it to the service account that runs Tracecat and keep it out of version control. Move to Kubernetes for a managed secret store and the full sandbox boundary.
 
+<Warning>
+  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
+
+  Tracecat encrypts under a single Fernet key and has no re-encryption path.
+  Changing or losing the key makes every stored credential unrecoverable. Back
+  it up, and restrict access to it at least as tightly as the credentials it
+  protects.
+</Warning>
+
 See [Platform secrets](/self-hosting/security#platform-secrets) for per-deployment storage and rotation, and [Secrets management](/self-hosting/kubernetes#secrets-management) for the Helm wiring.
 
 ### External secrets

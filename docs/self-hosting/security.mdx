@@ -80,6 +80,16 @@ On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your
 
 Rotation support differs by secret. Check the differences before you plan a rotation window.
 
+<Warning>
+  **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
+
+  Tracecat encrypts under a single Fernet key with no re-encryption path.
+  Changing it makes every stored credential unrecoverable, and there is no
+  migration to re-key existing rows. Treat this key as permanent for the life of
+  the deployment: back it up, and control access to it at least as tightly as
+  the credentials it encrypts.
+</Warning>
+
 | Secret | Overlap window | Rotation procedure | Blast radius |
 | --- | --- | --- | --- |
 | `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add the new key to `keys` and let every service pick it up, then point `current_key_id` at it. Keep retired keys as long as you retain their histories. | None for existing histories, which stay readable under the key they were written with. Between the two steps, a service still on the old keyring cannot decrypt payloads written under the new key. In ARN mode that gap lasts up to `TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS`. |
