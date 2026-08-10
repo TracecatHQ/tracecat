@@ -1,8 +1,8 @@
 import threading
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
-from functools import lru_cache
 from typing import Any, TypeVar
 
 import jsonpath_ng.jsonpath as jsonpath_nodes
@@ -17,18 +17,46 @@ from tracecat.logger import logger
 # the LALR table. That import-lock traffic can deadlock the process if a Temporal
 # activity thread is cancelled while holding the import lock. Build one parser at
 # import time (before any worker threads exist) and serialize access: PLY's
-# LRParser mutates shared state during parse and is not thread-safe. Parsed
-# expression trees are immutable, so caching and sharing them across threads is
-# safe.
+# LRParser mutates shared state during parse and is not thread-safe. Callers treat
+# parsed expression trees as read-only, so sharing them across threads is safe.
 _JSONPATH_PARSER = ExtentedJsonPathParser()
 _JSONPATH_PARSER_LOCK = threading.Lock()
+_JSONPATH_CACHE_MAXSIZE = 1024
+_JSONPATH_CACHE_MAX_EXPR_LENGTH = 256
+_JSONPATH_CACHE: OrderedDict[str, jsonpath_nodes.JSONPath] = OrderedDict()
+_JSONPATH_CACHE_LOCK = threading.Lock()
 
 
-@lru_cache(maxsize=4096)
+def _get_cached_jsonpath(expr: str) -> jsonpath_nodes.JSONPath | None:
+    with _JSONPATH_CACHE_LOCK:
+        parsed = _JSONPATH_CACHE.get(expr)
+        if parsed is not None:
+            _JSONPATH_CACHE.move_to_end(expr)
+        return parsed
+
+
+def _cache_jsonpath(expr: str, parsed: jsonpath_nodes.JSONPath) -> None:
+    with _JSONPATH_CACHE_LOCK:
+        _JSONPATH_CACHE[expr] = parsed
+        if len(_JSONPATH_CACHE) > _JSONPATH_CACHE_MAXSIZE:
+            _JSONPATH_CACHE.popitem(last=False)
+
+
 def parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
-    """Parse a jsonpath expression using the shared process-wide parser."""
+    """Parse a JSONPath, caching expressions with bounded source lengths."""
+    cacheable = len(expr) <= _JSONPATH_CACHE_MAX_EXPR_LENGTH
+    if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
+        return parsed
+
     with _JSONPATH_PARSER_LOCK:
-        return _JSONPATH_PARSER.parse(expr)
+        # Another thread may have populated the cache while this thread waited.
+        if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
+            return parsed
+
+        parsed = _JSONPATH_PARSER.parse(expr)
+        if cacheable:
+            _cache_jsonpath(expr, parsed)
+        return parsed
 
 
 # Maximum number of key segments allowed after the variable name in VARS expressions.
