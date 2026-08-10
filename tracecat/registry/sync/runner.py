@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -135,11 +135,11 @@ class _ResolvedPackage:
 class _SandboxedBackend:
     """Available NsJail backend selected for the full sync."""
 
-    sandbox: RegistrySyncSandbox
+    sandbox: RegistrySyncSandbox = field(default_factory=RegistrySyncSandbox)
 
 
 @dataclass(frozen=True, slots=True)
-class _LegacyBackend:
+class _UnsandboxedBackend:
     """Explicit no-NsJail compatibility backend."""
 
 
@@ -148,7 +148,9 @@ class _UnavailableBackend:
     """Required NsJail backend that is unavailable on this worker."""
 
 
-type _RegistrySyncBackend = _SandboxedBackend | _LegacyBackend | _UnavailableBackend
+type _RegistrySyncBackend = (
+    _SandboxedBackend | _UnsandboxedBackend | _UnavailableBackend
+)
 
 
 class RegistrySyncRunner:
@@ -184,9 +186,9 @@ class RegistrySyncRunner:
             clone_timeout or config.TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT
         )
         if config.TRACECAT__DISABLE_NSJAIL:
-            self._backend: _RegistrySyncBackend = _LegacyBackend()
+            self._backend: _RegistrySyncBackend = _UnsandboxedBackend()
         elif is_nsjail_available():
-            self._backend = _SandboxedBackend(RegistrySyncSandbox())
+            self._backend = _SandboxedBackend()
         else:
             self._backend = _UnavailableBackend()
 
@@ -231,8 +233,8 @@ class RegistrySyncRunner:
             match self._backend:
                 case _SandboxedBackend(sandbox=sandbox):
                     return await self._run_sandboxed(request, work_dir, sandbox)
-                case _LegacyBackend():
-                    return await self._run_legacy(request, work_dir)
+                case _UnsandboxedBackend():
+                    return await self._run_unsandboxed(request, work_dir)
                 case _UnavailableBackend():
                     raise AssertionError(
                         "Unavailable backend passed the fail-closed guard"
@@ -282,15 +284,15 @@ class RegistrySyncRunner:
             artifact_result=artifact_result,
         )
 
-    async def _run_legacy(
+    async def _run_unsandboxed(
         self,
         request: RegistrySyncRequest,
         work_dir: Path,
     ) -> RegistrySyncResult:
         """Execute the explicit no-NsJail compatibility flow."""
-        resolved = await self._resolve_legacy_package(request, work_dir)
+        resolved = await self._resolve_unsandboxed_package(request, work_dir)
         self._log_resolved_package(request, resolved, sandboxed=False)
-        artifact_result = await self._build_legacy_execution_artifact(
+        artifact_result = await self._build_unsandboxed_execution_artifact(
             package_path=resolved.path,
             output_dir=work_dir / "artifact",
         )
@@ -298,7 +300,7 @@ class RegistrySyncRunner:
 
         discovery = self._load_prebuilt_actions(request)
         if discovery is None:
-            discovery = await self._discover_legacy_actions(
+            discovery = await self._discover_unsandboxed_actions(
                 request, resolved.commit_sha
             )
         self._raise_for_validation_errors(discovery)
@@ -342,7 +344,7 @@ class RegistrySyncRunner:
             ssh_key = ""
         return _ResolvedPackage(package_path, commit_sha)
 
-    async def _resolve_legacy_package(
+    async def _resolve_unsandboxed_package(
         self,
         request: RegistrySyncRequest,
         work_dir: Path,
@@ -642,7 +644,7 @@ class RegistrySyncRunner:
                     _ = ssh_key_path.write_bytes(b"\x00" * len(ssh_key))
                     ssh_key_path.unlink()
 
-    async def _build_legacy_execution_artifact(
+    async def _build_unsandboxed_execution_artifact(
         self,
         package_path: Path,
         output_dir: Path,
@@ -728,7 +730,7 @@ class RegistrySyncRunner:
         self._log_discovered_actions(result)
         return result
 
-    async def _discover_legacy_actions(
+    async def _discover_unsandboxed_actions(
         self,
         request: RegistrySyncRequest,
         commit_sha: str | None,
