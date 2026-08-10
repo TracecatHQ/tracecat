@@ -75,6 +75,7 @@
               },
               {
                 "group": "Integrations",
+                "expanded": true,
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
