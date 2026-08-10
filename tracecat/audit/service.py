@@ -1,19 +1,20 @@
 """Fire-and-forget audit webhook delivery with bounded in-memory retries.
 
-Each event is posted by its own asyncio task; transient failures are retried
-in process. A retry after a lost response can deliver an exact byte-identical
-duplicate. Deliveries are dropped past the pending cap and lost on
-process/loop shutdown. Durable, at-least-once delivery arrives with the
-ENG-1514 spool.
+Single events are posted by their own asyncio tasks with bounded in-process
+retries. Explicit batches share one client and a total deadline. A retry after
+a lost response can deliver an exact byte-identical duplicate. Deliveries are
+dropped past their pending caps and lost on process/loop shutdown. Durable,
+at-least-once delivery arrives with the ENG-1514 spool.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Self
 
 import httpx
@@ -29,11 +30,13 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.audit.batch import AuditBatchDelivery, AuditBatchEvent, spawn_audit_batch
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.sanitization import sanitize_audit_metadata
 from tracecat.audit.types import (
     AuditAction,
     AuditEvent,
+    AuditEventInput,
     AuditMetadata,
     AuditMetadataValue,
     AuditResourceType,
@@ -41,7 +44,7 @@ from tracecat.audit.types import (
 )
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_request_audit, ctx_role
+from tracecat.contexts import RequestAuditContext, ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
@@ -435,6 +438,47 @@ class AuditService(BaseService):
             return
         _spawn_delivery(delivery)
 
+    async def _post_events(
+        self, *, webhook_url: str, payloads: list[AuditEvent]
+    ) -> None:
+        """Resolve shared settings once, then enqueue one bounded delivery batch."""
+        try:
+            custom_headers = await self._get_custom_headers()
+            custom_payload = await self._get_custom_payload()
+            verify_ssl = await self._get_verify_ssl()
+            payload_attribute = await self._get_payload_attribute()
+            events: list[AuditBatchEvent] = []
+            for payload in payloads:
+                event_payload = payload.model_dump(mode="json")
+                if custom_payload:
+                    event_payload = {**event_payload, **custom_payload}
+                request_payload = (
+                    {payload_attribute: event_payload}
+                    if payload_attribute
+                    else event_payload
+                )
+                events.append(
+                    AuditBatchEvent(
+                        request_payload=request_payload,
+                        resource_type=payload.resource_type,
+                        action=payload.action,
+                    )
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to resolve audit webhook batch",
+                error_type=type(exc).__name__,
+            )
+            return
+        spawn_audit_batch(
+            AuditBatchDelivery(
+                webhook_url=webhook_url,
+                events=tuple(events),
+                headers=custom_headers,
+                verify_ssl=verify_ssl,
+            )
+        )
+
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
             return None
@@ -483,6 +527,7 @@ class AuditService(BaseService):
         ip_address: str | None,
         user_agent: str | None,
         data: dict[str, AuditMetadataValue] | None,
+        created_at: datetime,
     ) -> AuditEvent:
         if self.role is None or self.role.actor_id is None:
             raise ValueError("Audit payload requires an auditable actor")
@@ -509,7 +554,48 @@ class AuditService(BaseService):
             ip_address=ip_address,
             user_agent=user_agent,
             data=data,
+            created_at=created_at,
         )
+
+    async def create_events(
+        self,
+        events: Sequence[AuditEventInput],
+        *,
+        request_audit: RequestAuditContext | None = None,
+    ) -> None:
+        """Enrich and enqueue multiple events with constant lookup overhead."""
+        if not events:
+            return
+        if self.role is None or self.role.actor_id is None:
+            self.logger.debug(
+                "Skipping audit log batch",
+                reason="non_auditable_role",
+                role_type=self.role.type if self.role is not None else None,
+            )
+            return
+
+        webhook_url = await self._get_webhook_url()
+        if not webhook_url:
+            self.logger.debug("Skipping audit log batch", reason="webhook_unconfigured")
+            return
+
+        actor_label = await self._get_actor_label()
+        payloads = [
+            self._build_payload(
+                resource_type=event.resource_type,
+                action=event.action,
+                resource_id=event.resource_id,
+                status=event.status,
+                actor_label=actor_label,
+                ip_address=request_audit.client_ip if request_audit else None,
+                user_agent=request_audit.user_agent if request_audit else None,
+                data=sanitize_audit_metadata(event.data),
+                created_at=event.created_at,
+            )
+            for event in events
+        ]
+        await self._post_events(webhook_url=webhook_url, payloads=payloads)
+        self.logger.debug("Streamed audit event batch", event_count=len(payloads))
 
     async def create_event(
         self,
@@ -586,6 +672,7 @@ class AuditService(BaseService):
                 else None
             ),
             data=sanitize_audit_metadata(data),
+            created_at=datetime.now(UTC),
         )
         await self._post_event(webhook_url=webhook_url, payload=payload)
         self.logger.debug(

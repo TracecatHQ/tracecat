@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import orjson
@@ -19,7 +19,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import wait_none
 
+from tracecat.audit import batch as audit_batch_module
 from tracecat.audit import service as audit_service_module
+from tracecat.audit.batch import (
+    AuditBatchDelivery,
+    AuditBatchEvent,
+    deliver_audit_batch,
+)
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import (
     AuditEventDetails,
@@ -31,7 +37,7 @@ from tracecat.audit.service import (
     _AuditDelivery,
     _spawn_delivery,
 )
-from tracecat.audit.types import AuditEvent, AuditMetadata
+from tracecat.audit.types import AuditEvent, AuditEventInput, AuditMetadata
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -1139,6 +1145,149 @@ def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDeliver
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
     )
+
+
+@pytest.mark.anyio
+async def test_create_events_resolves_webhook_and_actor_once_for_batch(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_service: AuditService,
+) -> None:
+    webhook_url = "https://example.com/audit"
+    webhook = AsyncMock(return_value=webhook_url)
+    actor = AsyncMock(return_value="actor@example.test")
+    post_events = AsyncMock()
+    monkeypatch.setattr(audit_service, "_get_webhook_url", webhook)
+    monkeypatch.setattr(audit_service, "_get_actor_label", actor)
+    monkeypatch.setattr(audit_service, "_post_events", post_events)
+    request_audit = RequestAuditContext(
+        client_ip="192.0.2.10", user_agent="TracecatAuditTest/1.0"
+    )
+
+    await audit_service.create_events(
+        [
+            AuditEventInput(
+                resource_type="agent_approval",
+                resource_id=uuid.uuid4(),
+                action="accept",
+                data={"tool_call_id": "tool-call-1"},
+            ),
+            AuditEventInput(
+                resource_type="agent_approval",
+                resource_id=uuid.uuid4(),
+                action="reject",
+                data={"tool_call_id": "tool-call-2"},
+            ),
+        ],
+        request_audit=request_audit,
+    )
+
+    webhook.assert_awaited_once()
+    actor.assert_awaited_once()
+    post_events.assert_awaited_once()
+    assert post_events.await_args is not None
+    payloads = post_events.await_args.kwargs["payloads"]
+    assert len(payloads) == 2
+    assert {payload.action for payload in payloads} == {"accept", "reject"}
+    assert all(payload.ip_address == request_audit.client_ip for payload in payloads)
+
+
+@pytest.mark.anyio
+async def test_post_events_resolves_shared_configuration_once(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_service: AuditService,
+) -> None:
+    custom_headers = AsyncMock(return_value={"X-Audit-Test": "true"})
+    custom_payload = AsyncMock(return_value={"schema_version": "1"})
+    verify_ssl = AsyncMock(return_value=True)
+    payload_attribute = AsyncMock(return_value="event")
+    spawn = Mock()
+    monkeypatch.setattr(audit_service, "_get_custom_headers", custom_headers)
+    monkeypatch.setattr(audit_service, "_get_custom_payload", custom_payload)
+    monkeypatch.setattr(audit_service, "_get_verify_ssl", verify_ssl)
+    monkeypatch.setattr(audit_service, "_get_payload_attribute", payload_attribute)
+    monkeypatch.setattr(audit_service_module, "spawn_audit_batch", spawn)
+    role = audit_service.role
+    assert role is not None and role.actor_id is not None
+    payloads = [
+        AuditEvent(
+            actor_type=AuditEventActor.USER,
+            actor_id=role.actor_id,
+            resource_type="agent_approval",
+            action="accept",
+            status=AuditEventStatus.SUCCESS,
+        ),
+        AuditEvent(
+            actor_type=AuditEventActor.USER,
+            actor_id=role.actor_id,
+            resource_type="agent_approval",
+            action="reject",
+            status=AuditEventStatus.SUCCESS,
+        ),
+    ]
+
+    await audit_service._post_events(
+        webhook_url="https://example.com/audit", payloads=payloads
+    )
+
+    custom_headers.assert_awaited_once()
+    custom_payload.assert_awaited_once()
+    verify_ssl.assert_awaited_once()
+    payload_attribute.assert_awaited_once()
+    spawn.assert_called_once()
+    batch = spawn.call_args.args[0]
+    assert isinstance(batch, AuditBatchDelivery)
+    assert len(batch.events) == 2
+    assert all("event" in item.request_payload for item in batch.events)
+
+
+@pytest.mark.anyio
+async def test_deliver_batch_reuses_one_client_and_caps_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = 0
+    maximum_active = 0
+    post_count = 0
+
+    async def post(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal active, maximum_active, post_count
+        del args, kwargs
+        active += 1
+        post_count += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://example.com/audit"),
+        )
+
+    client = MagicMock()
+    client.post = post
+    client_context = MagicMock()
+    client_context.__aenter__ = AsyncMock(return_value=client)
+    client_context.__aexit__ = AsyncMock(return_value=None)
+    client_factory = Mock(return_value=client_context)
+    monkeypatch.setattr(audit_batch_module.httpx, "AsyncClient", client_factory)
+    events = tuple(
+        AuditBatchEvent(
+            request_payload={"resource_id": f"event-{index}"},
+            resource_type="workflow",
+            action="update",
+        )
+        for index in range(12)
+    )
+    batch = AuditBatchDelivery(
+        webhook_url="https://example.com/audit",
+        events=events,
+        headers=None,
+        verify_ssl=True,
+    )
+
+    await deliver_audit_batch(batch)
+
+    client_factory.assert_called_once()
+    assert post_count == len(events)
+    assert maximum_active <= 4
 
 
 @pytest.fixture(autouse=True)
