@@ -63,42 +63,113 @@ class ActionParameter:
     parameter: str
 
 
-_PRESERVE = ExpressionPolicy.PRESERVE
-_REDACT_SECRETS = ExpressionPolicy.REDACT_SECRETS
-
 # PRESERVE: workflow-authoring source executed later; evaluating it here is wrong.
 # REDACT_SECRETS: free-form content persisted into Tracecat-owned durable state.
 # Unlisted parameters default to RESOLVE.
 POLICY_MAP: Mapping[ActionParameter, ExpressionPolicy] = {
-    ActionParameter("core.workflow.edit_workflow", "patch_ops"): _PRESERVE,
-    ActionParameter("core.workflow.create_workflow", "definition_yaml"): _PRESERVE,
-    ActionParameter("core.workflow.create_workflow", "title"): _REDACT_SECRETS,
-    ActionParameter("core.workflow.create_workflow", "description"): _REDACT_SECRETS,
-    ActionParameter("core.cases.create_case", "summary"): _REDACT_SECRETS,
-    ActionParameter("core.cases.create_case", "description"): _REDACT_SECRETS,
-    ActionParameter("core.cases.create_case", "fields"): _REDACT_SECRETS,
-    ActionParameter("core.cases.create_case", "payload"): _REDACT_SECRETS,
-    ActionParameter("core.cases.update_case", "summary"): _REDACT_SECRETS,
-    ActionParameter("core.cases.update_case", "description"): _REDACT_SECRETS,
-    ActionParameter("core.cases.update_case", "fields"): _REDACT_SECRETS,
-    ActionParameter("core.cases.update_case", "payload"): _REDACT_SECRETS,
-    ActionParameter("core.cases.create_comment", "content"): _REDACT_SECRETS,
-    ActionParameter("core.cases.reply_to_comment", "content"): _REDACT_SECRETS,
-    ActionParameter("core.cases.update_comment", "content"): _REDACT_SECRETS,
-    ActionParameter("core.table.create_table", "columns"): _REDACT_SECRETS,
-    ActionParameter("core.table.create_column", "column"): _REDACT_SECRETS,
-    ActionParameter("core.table.update_column", "update"): _REDACT_SECRETS,
-    ActionParameter("core.table.insert_row", "row_data"): _REDACT_SECRETS,
-    ActionParameter("core.table.insert_rows", "rows_data"): _REDACT_SECRETS,
-    ActionParameter("core.table.update_row", "row_data"): _REDACT_SECRETS,
-    ActionParameter("core.cases.insert_row", "row"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.create_preset", "instructions"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.update_preset", "instructions"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.create_preset", "name"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.create_preset", "description"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.update_preset", "name"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.update_preset", "description"): _REDACT_SECRETS,
-    ActionParameter("ai.agent.update_preset", "new_slug"): _REDACT_SECRETS,
+    ActionParameter(
+        "core.workflow.edit_workflow", "patch_ops"
+    ): ExpressionPolicy.PRESERVE,
+    ActionParameter(
+        "core.workflow.create_workflow", "definition_yaml"
+    ): ExpressionPolicy.PRESERVE,
+    ActionParameter(
+        "core.workflow.create_workflow", "title"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.workflow.create_workflow", "description"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_case", "summary"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_case", "description"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_case", "fields"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_case", "payload"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("core.cases.create_case", "tags"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_case", "dropdown_values"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_case", "summary"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_case", "description"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_case", "fields"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_case", "payload"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("core.cases.update_case", "tags"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_case", "dropdown_values"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.create_comment", "content"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.reply_to_comment", "content"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.cases.update_comment", "content"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("core.table.create_table", "name"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.create_table", "columns"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.create_column", "column"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.update_column", "update"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.insert_row", "row_data"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.insert_rows", "rows_data"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "core.table.update_row", "row_data"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("core.cases.insert_row", "row"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.create_preset", "instructions"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.update_preset", "instructions"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("ai.agent.create_preset", "name"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.create_preset", "description"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("ai.agent.update_preset", "name"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.update_preset", "description"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.update_preset", "new_slug"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter("ai.agent.create_preset", "slug"): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.create_preset", "base_url"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.update_preset", "base_url"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.create_preset", "output_type"
+    ): ExpressionPolicy.REDACT_SECRETS,
+    ActionParameter(
+        "ai.agent.update_preset", "output_type"
+    ): ExpressionPolicy.REDACT_SECRETS,
 }
 
 
@@ -211,14 +282,35 @@ class TemplateExecutionState:
         return self._context
 
     def _input_dependencies(self) -> dict[str, SecretDependency]:
-        """Collect each argument's secret dependency tree, keyed by parameter."""
+        """Collect each argument's secret dependency tree, keyed by parameter.
+
+        Example, for a caller invoking the template with::
+
+            {"api_key": "${{ SECRETS.stripe.KEY }}",
+             "creds": {"token": "${{ SECRETS.jira.TOKEN }}", "user": "bob"}}
+
+        returns taint trees mirroring each argument's shape::
+
+            {"api_key": True,
+             "creds": {"token": True, "user": False}}
+        """
         return {
             parameter: provenance.dependency
             for parameter, provenance in self._provenance.items()
         }
 
     def _source_operand(self) -> dict[str, Any]:
-        """Build the inputs operand from authored source, not evaluated values."""
+        """Build the inputs operand from authored source, not evaluated values.
+
+        Example: caller passed ``api_key="${{ SECRETS.stripe.KEY }}"`` while
+        materialized inputs are ``{"api_key": "sk-live-123", "retries": 3}``
+        (``retries`` defaulted, so it has no provenance)::
+
+            {"inputs": {"api_key": "${{ SECRETS.stripe.KEY }}", "retries": 3}}
+
+        Provenance wins over the materialized value, so the secret's resolved
+        text never enters the operand.
+        """
         # Defaulted parameters have no provenance; their validated values are
         # the template author's literals and stand in as source.
         sources: dict[str, Any] = dict(self._context.get("inputs") or {})
@@ -579,12 +671,19 @@ def substitute_source_references(value: Any, source_operand: Mapping[str, Any]) 
 
     Substitution splices authored source as inert data; it never evaluates
     it, so the result is safe regardless of which contexts the source
-    references. Unresolvable references are left as written.
+    references. Unresolvable references are left as written; a resolvable
+    null splices as null rather than being mistaken for a failed lookup.
     """
     match value:
-        case str() if _is_direct_template_reference(value):
-            substituted = TemplateExpression(value, operand=source_operand).result()
-            return value if substituted is None else substituted
+        case str() if (path := _direct_template_input_path(value)) is not None:
+            try:
+                return eval_jsonpath(
+                    f"{ExprContext.TEMPLATE_ACTION_INPUTS}{path}",
+                    source_operand,
+                    strict=True,
+                )
+            except TracecatExpressionError:
+                return value
         case str():
 
             def replace(match: re.Match[str]) -> str:

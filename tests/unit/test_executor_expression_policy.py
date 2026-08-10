@@ -36,58 +36,26 @@ def _state(
 
 
 def test_action_parameter_policy_scope_is_explicit() -> None:
+    # PRESERVE skips evaluation entirely, so its scope must stay tiny and
+    # explicitly reviewed. POLICY_MAP is the single source of truth for
+    # REDACT_SECRETS scope; listing RESOLVE entries would be dead weight
+    # since it is already the default.
     preserved = {
         parameter
         for parameter, policy in POLICY_MAP.items()
         if policy is ExpressionPolicy.PRESERVE
     }
-    redacted = {
-        parameter
-        for parameter, policy in POLICY_MAP.items()
-        if policy is ExpressionPolicy.REDACT_SECRETS
-    }
-
     assert preserved == {
+        ActionParameter(action="core.workflow.edit_workflow", parameter="patch_ops"),
         ActionParameter(
-            action="core.workflow.edit_workflow",
-            parameter="patch_ops",
-        ),
-        ActionParameter(
-            action="core.workflow.create_workflow",
-            parameter="definition_yaml",
+            action="core.workflow.create_workflow", parameter="definition_yaml"
         ),
     }
-    assert redacted == {
-        ActionParameter(action="core.workflow.create_workflow", parameter="title"),
-        ActionParameter(
-            action="core.workflow.create_workflow", parameter="description"
-        ),
-        ActionParameter(action="core.cases.create_case", parameter="summary"),
-        ActionParameter(action="core.cases.create_case", parameter="description"),
-        ActionParameter(action="core.cases.create_case", parameter="fields"),
-        ActionParameter(action="core.cases.create_case", parameter="payload"),
-        ActionParameter(action="core.cases.update_case", parameter="summary"),
-        ActionParameter(action="core.cases.update_case", parameter="description"),
-        ActionParameter(action="core.cases.update_case", parameter="fields"),
-        ActionParameter(action="core.cases.update_case", parameter="payload"),
-        ActionParameter(action="core.cases.create_comment", parameter="content"),
-        ActionParameter(action="core.cases.reply_to_comment", parameter="content"),
-        ActionParameter(action="core.cases.update_comment", parameter="content"),
-        ActionParameter(action="core.table.create_table", parameter="columns"),
-        ActionParameter(action="core.table.create_column", parameter="column"),
-        ActionParameter(action="core.table.update_column", parameter="update"),
-        ActionParameter(action="core.table.insert_row", parameter="row_data"),
-        ActionParameter(action="core.table.insert_rows", parameter="rows_data"),
-        ActionParameter(action="core.table.update_row", parameter="row_data"),
-        ActionParameter(action="core.cases.insert_row", parameter="row"),
-        ActionParameter(action="ai.agent.create_preset", parameter="instructions"),
-        ActionParameter(action="ai.agent.update_preset", parameter="instructions"),
-        ActionParameter(action="ai.agent.create_preset", parameter="name"),
-        ActionParameter(action="ai.agent.create_preset", parameter="description"),
-        ActionParameter(action="ai.agent.update_preset", parameter="name"),
-        ActionParameter(action="ai.agent.update_preset", parameter="description"),
-        ActionParameter(action="ai.agent.update_preset", parameter="new_slug"),
-    }
+    assert all(
+        policy is ExpressionPolicy.REDACT_SECRETS
+        for parameter, policy in POLICY_MAP.items()
+        if parameter not in preserved
+    )
 
 
 def test_expression_policy_requires_exact_action_parameter_pair() -> None:
@@ -732,3 +700,39 @@ def test_derive_secret_dependencies_does_not_taint_step_results() -> None:
     )
 
     assert dependencies == {"value": False}
+
+
+def test_preserve_splices_null_input_value_but_leaves_missing_reference() -> None:
+    state = _state(
+        source_args={"optional": None, "present": "abc"},
+        runtime_inputs={"optional": None, "present": "abc"},
+    )
+    patch_ops = [
+        {"op": "replace", "path": "/config/timeout", "value": "${{ inputs.optional }}"},
+        {"op": "replace", "path": "/config/name", "value": "${{ inputs.present }}"},
+        {"op": "replace", "path": "/config/ghost", "value": "${{ inputs.missing }}"},
+    ]
+
+    prepared = state.prepare_step_args(
+        "core.workflow.edit_workflow", {"patch_ops": patch_ops}
+    )
+
+    assert prepared["patch_ops"] == [
+        {"op": "replace", "path": "/config/timeout", "value": None},
+        {"op": "replace", "path": "/config/name", "value": "abc"},
+        {"op": "replace", "path": "/config/ghost", "value": "${{ inputs.missing }}"},
+    ]
+
+
+def test_create_case_tags_redact_secret_expressions_at_root() -> None:
+    partitioned = partition_action_args(
+        "core.cases.create_case",
+        {
+            "summary": "Case",
+            "tags": ["${{ SECRETS.api.KEY }}", "phishing"],
+            "create_missing_tags": True,
+        },
+    )
+
+    assert partitioned.resolvable["tags"] == [MASK_VALUE, "phishing"]
+    assert partitioned.resolvable["create_missing_tags"] is True
