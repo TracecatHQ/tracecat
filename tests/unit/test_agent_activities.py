@@ -28,6 +28,7 @@ from tracecat_ee.agent.activities import (
     EmitSessionErrorInputs,
 )
 
+from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
@@ -40,6 +41,7 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.runtime.session_paths import job_uv_state_dir
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -97,6 +99,28 @@ def mock_agent_config() -> AgentConfig:
             model_provider="anthropic",
         ),
     )
+
+
+def _seed_realistic_agent_job_tree(job_dir: Path) -> list[Path]:
+    """Seed the job-scoped paths that the executor removes after each run."""
+    seeded_paths: list[Path] = []
+    uv_state_dir = job_uv_state_dir(job_dir)
+    for env_var, configured_path in build_agent_runtime_uv_env(uv_state_dir).items():
+        if env_var == "UV_LINK_MODE":
+            continue
+        nested_file = Path(configured_path) / "nested" / f"{env_var.lower()}.state"
+        nested_file.parent.mkdir(parents=True, exist_ok=True)
+        nested_file.write_text("job-scoped uv state")
+        seeded_paths.extend((nested_file.parent, nested_file))
+
+    socket_path = job_dir / "sockets" / "control.sock"
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    socket_path.write_text("socket placeholder")
+    skill_path = job_dir / "home" / ".claude" / "skills" / "example" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    skill_path.write_text("# Example")
+    seeded_paths.extend((uv_state_dir, socket_path, skill_path))
+    return seeded_paths
 
 
 class TestSessionActivities:
@@ -2556,3 +2580,202 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert args == (job_dir, True)
         assert kwargs == {}
         assert not job_dir.exists()
+
+
+class TestSandboxedAgentExecutorJobCleanup:
+    """Tests for activity-owned per-job directory cleanup."""
+
+    @pytest.fixture
+    def executor(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> SandboxedAgentExecutor:
+        return SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+
+    @pytest.mark.anyio
+    async def test_cleanup_removes_realistic_uv_state_tree(
+        self,
+        executor: SandboxedAgentExecutor,
+        tmp_path: Path,
+    ) -> None:
+        """Activity cleanup removes every job path, including nested UV state."""
+        job_dir = tmp_path / "job"
+        seeded_paths = _seed_realistic_agent_job_tree(job_dir)
+        executor._job_dir = job_dir
+
+        assert all(path.exists() for path in seeded_paths)
+
+        await executor._cleanup()
+
+        assert not job_dir.exists()
+        assert all(not path.exists() for path in seeded_paths)
+        assert not job_uv_state_dir(job_dir).exists()
+
+    @pytest.mark.anyio
+    async def test_run_cancellation_removes_job_scoped_uv_state(
+        self,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A propagated mid-run cancellation still removes job-scoped UV state."""
+        job_dir = tmp_path / "job"
+        uv_state_dir = job_uv_state_dir(job_dir)
+        proxy = AsyncMock()
+
+        async def fake_create_job_directory() -> Path:
+            _seed_realistic_agent_job_tree(job_dir)
+            return job_dir
+
+        async def fail_run_with_broker(
+            *_args: object,
+            **_kwargs: object,
+        ) -> None:
+            raise asyncio.CancelledError("runtime cancelled mid-flight")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=proxy),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fail_run_with_broker)
+
+        with pytest.raises(
+            asyncio.CancelledError, match="runtime cancelled mid-flight"
+        ):
+            await executor.run()
+
+        assert not job_dir.exists()
+        assert not uv_state_dir.exists()
+        proxy.stop.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_run_success_removes_job_scoped_uv_state(
+        self,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A normally completed run removes its job directory and UV state."""
+        job_dir = tmp_path / "job"
+        uv_state_dir = job_uv_state_dir(job_dir)
+        proxy = AsyncMock()
+
+        async def fake_create_job_directory() -> Path:
+            _seed_realistic_agent_job_tree(job_dir)
+            return job_dir
+
+        async def fake_run_with_broker(
+            *_args: object,
+            **kwargs: object,
+        ) -> None:
+            result = cast(AgentExecutorResult, kwargs["result"])
+            result.success = True
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            AsyncMock(return_value=proxy),
+        )
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert not job_dir.exists()
+        assert not uv_state_dir.exists()
+        proxy.stop.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_cleanup_swallows_rmtree_error_and_warns(
+        self,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Activity cleanup logs and swallows an explicit rmtree failure."""
+        job_dir = tmp_path / "job"
+        _seed_realistic_agent_job_tree(job_dir)
+        executor._job_dir = job_dir
+        real_rmtree = shutil.rmtree
+        warning = MagicMock()
+
+        def fail_rmtree(_path: Path) -> None:
+            raise OSError("simulated cleanup failure")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.shutil.rmtree", fail_rmtree
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+
+        try:
+            await executor._cleanup()
+
+            assert job_dir.exists()
+            warning.assert_called_once_with(
+                "Failed to clean up job directory",
+                job_dir=str(job_dir),
+                error="simulated cleanup failure",
+            )
+        finally:
+            real_rmtree(job_dir, ignore_errors=True)
+
+    @pytest.mark.anyio
+    async def test_cleanup_read_only_uv_subtree_survives_and_warns(
+        self,
+        executor: SandboxedAgentExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A 0555 UV cache directory survives activity cleanup and emits a warning."""
+        job_dir = tmp_path / "job"
+        _seed_realistic_agent_job_tree(job_dir)
+        read_only_dir = job_uv_state_dir(job_dir) / "cache" / "read-only"
+        nested_file = read_only_dir / "archive" / "artifact"
+        nested_file.parent.mkdir(parents=True)
+        nested_file.write_text("cached artifact")
+        read_only_dir.chmod(0o555)
+        executor._job_dir = job_dir
+        warning = MagicMock()
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+
+        try:
+            await executor._cleanup()
+
+            assert job_dir.exists()
+            assert read_only_dir.exists()
+            warning.assert_called_once()
+            assert warning.call_args.args == ("Failed to clean up job directory",)
+            assert warning.call_args.kwargs["job_dir"] == str(job_dir)
+        finally:
+            if read_only_dir.exists():
+                read_only_dir.chmod(0o700)
+            shutil.rmtree(job_dir, ignore_errors=True)
