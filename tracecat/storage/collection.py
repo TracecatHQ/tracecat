@@ -19,14 +19,17 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 from temporalio import activity
 
 from tracecat import config
+from tracecat.async_runtime import run_sync
 from tracecat.logger import logger
 from tracecat.storage import blob
 from tracecat.storage.object import (
@@ -34,6 +37,7 @@ from tracecat.storage.object import (
     ObjectRef,
     StoredObjectValidator,
     retrieve_stored_object,
+    retrieve_stored_object_sync,
 )
 from tracecat.storage.utils import (
     cached_blob_download,
@@ -93,6 +97,86 @@ class CollectionChunkV1(BaseModel):
     """Items in this chunk. Type depends on manifest's element_kind."""
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedCollectionBlob:
+    key: str
+    content: bytes
+    ref: ObjectRef
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedCollectionManifest:
+    value: CollectionObject
+    blob: _PreparedCollectionBlob
+
+
+def _prepare_collection_chunk(
+    *,
+    prefix: str,
+    index: int,
+    start: int,
+    items: list[Any],
+    bucket: str,
+) -> _PreparedCollectionBlob:
+    """Serialize and hash one collection chunk without performing I/O."""
+    chunk = CollectionChunkV1(start=start, items=items)
+    key = f"{prefix}/chunks/{index}.json"
+    content = serialize_object(chunk.model_dump())
+    ref = ObjectRef(
+        backend="s3",
+        bucket=bucket,
+        key=key,
+        size_bytes=len(content),
+        sha256=compute_sha256(content),
+        content_type="application/json",
+        encoding="json",
+    )
+    return _PreparedCollectionBlob(key=key, content=content, ref=ref)
+
+
+def _prepare_collection_manifest(
+    *,
+    prefix: str,
+    count: int,
+    chunk_size: int,
+    element_kind: Literal["value", "stored_object"],
+    chunk_refs: list[ObjectRef],
+    bucket: str,
+) -> _PreparedCollectionManifest:
+    """Serialize and hash a collection manifest without performing I/O."""
+    manifest = CollectionManifestV1(
+        count=count,
+        chunk_size=chunk_size,
+        element_kind=element_kind,
+        chunks=chunk_refs,
+    )
+    manifest_key = f"{prefix}/manifest.json"
+    manifest_bytes = serialize_object(manifest.model_dump())
+    manifest_ref = ObjectRef(
+        backend="s3",
+        bucket=bucket,
+        key=manifest_key,
+        size_bytes=len(manifest_bytes),
+        sha256=compute_sha256(manifest_bytes),
+        content_type="application/json",
+        encoding="json",
+    )
+    return _PreparedCollectionManifest(
+        value=CollectionObject(
+            manifest_ref=manifest_ref,
+            count=count,
+            chunk_size=chunk_size,
+            element_kind=element_kind,
+            typename="list",
+        ),
+        blob=_PreparedCollectionBlob(
+            key=manifest_key,
+            content=manifest_bytes,
+            ref=manifest_ref,
+        ),
+    )
+
+
 # === Storage Functions === #
 
 
@@ -119,95 +203,129 @@ async def store_collection(
         CollectionObject handle suitable for workflow history.
     """
 
-    chunk_size = chunk_size or config.TRACECAT__COLLECTION_CHUNK_SIZE
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
-
+    resolved_chunk_size = chunk_size or config.TRACECAT__COLLECTION_CHUNK_SIZE
+    resolved_bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
     count = len(items)
-    num_chunks = math.ceil(count / chunk_size) if count > 0 else 1
+    num_chunks = math.ceil(count / resolved_chunk_size) if count > 0 else 1
 
     logger.debug(
         "Storing collection",
         prefix=prefix,
         count=count,
-        chunk_size=chunk_size,
+        chunk_size=resolved_chunk_size,
         num_chunks=num_chunks,
     )
 
-    await blob.ensure_bucket_exists(bucket)
-
-    # Upload chunks
+    await blob.ensure_bucket_exists(resolved_bucket)
     chunk_refs: list[ObjectRef] = []
-    for i in range(num_chunks):
-        start = i * chunk_size
-        end = min(start + chunk_size, count)
-        chunk_items = items[start:end]
-
-        chunk = CollectionChunkV1(
+    for index in range(num_chunks):
+        start = index * resolved_chunk_size
+        end = min(start + resolved_chunk_size, count)
+        prepared_blob = await asyncio.to_thread(
+            _prepare_collection_chunk,
+            prefix=prefix,
+            index=index,
             start=start,
-            items=chunk_items,
+            items=items[start:end],
+            bucket=resolved_bucket,
         )
-        chunk_key = f"{prefix}/chunks/{i}.json"
-        chunk_bytes = serialize_object(chunk.model_dump())
-
         await blob.upload_file(
-            content=chunk_bytes,
-            key=chunk_key,
-            bucket=bucket,
+            content=prepared_blob.content,
+            key=prepared_blob.key,
+            bucket=resolved_bucket,
             content_type="application/json",
         )
+        chunk_refs.append(prepared_blob.ref)
 
-        chunk_ref = ObjectRef(
-            backend="s3",
-            bucket=bucket,
-            key=chunk_key,
-            size_bytes=len(chunk_bytes),
-            sha256=compute_sha256(chunk_bytes),
-            content_type="application/json",
-            encoding="json",
-        )
-        chunk_refs.append(chunk_ref)
-
-    # Upload manifest
-    manifest = CollectionManifestV1(
+    prepared_manifest = await asyncio.to_thread(
+        _prepare_collection_manifest,
+        prefix=prefix,
         count=count,
-        chunk_size=chunk_size,
+        chunk_size=resolved_chunk_size,
         element_kind=element_kind,
-        chunks=chunk_refs,
+        chunk_refs=chunk_refs,
+        bucket=resolved_bucket,
     )
-    manifest_key = f"{prefix}/manifest.json"
-    manifest_bytes = serialize_object(manifest.model_dump())
-
     await blob.upload_file(
-        content=manifest_bytes,
-        key=manifest_key,
-        bucket=bucket,
+        content=prepared_manifest.blob.content,
+        key=prepared_manifest.blob.key,
+        bucket=resolved_bucket,
         content_type="application/json",
-    )
-
-    manifest_ref = ObjectRef(
-        backend="s3",
-        bucket=bucket,
-        key=manifest_key,
-        size_bytes=len(manifest_bytes),
-        sha256=compute_sha256(manifest_bytes),
-        content_type="application/json",
-        encoding="json",
     )
 
     logger.info(
         "Stored collection manifest",
         prefix=prefix,
         count=count,
-        num_chunks=len(chunk_refs),
+        num_chunks=num_chunks,
     )
+    return prepared_manifest.value
 
-    return CollectionObject(
-        manifest_ref=manifest_ref,
+
+def store_collection_sync(
+    prefix: str,
+    items: list[Any],
+    element_kind: Literal["value", "stored_object"] = "value",
+    chunk_size: int | None = None,
+    bucket: str | None = None,
+) -> CollectionObject:
+    """Store a collection from a synchronous activity thread."""
+    resolved_chunk_size = chunk_size or config.TRACECAT__COLLECTION_CHUNK_SIZE
+    resolved_bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+    count = len(items)
+    num_chunks = math.ceil(count / resolved_chunk_size) if count > 0 else 1
+    logger.debug(
+        "Storing collection",
+        prefix=prefix,
         count=count,
-        chunk_size=chunk_size,
-        element_kind=element_kind,
-        typename="list",
+        chunk_size=resolved_chunk_size,
+        num_chunks=num_chunks,
     )
+    run_sync(blob.ensure_bucket_exists(resolved_bucket))
+    chunk_refs: list[ObjectRef] = []
+    for index in range(num_chunks):
+        start = index * resolved_chunk_size
+        end = min(start + resolved_chunk_size, count)
+        prepared_blob = _prepare_collection_chunk(
+            prefix=prefix,
+            index=index,
+            start=start,
+            items=items[start:end],
+            bucket=resolved_bucket,
+        )
+        run_sync(
+            blob.upload_file(
+                content=prepared_blob.content,
+                key=prepared_blob.key,
+                bucket=resolved_bucket,
+                content_type="application/json",
+            )
+        )
+        chunk_refs.append(prepared_blob.ref)
+
+    prepared_manifest = _prepare_collection_manifest(
+        prefix=prefix,
+        count=count,
+        chunk_size=resolved_chunk_size,
+        element_kind=element_kind,
+        chunk_refs=chunk_refs,
+        bucket=resolved_bucket,
+    )
+    run_sync(
+        blob.upload_file(
+            content=prepared_manifest.blob.content,
+            key=prepared_manifest.blob.key,
+            bucket=resolved_bucket,
+            content_type="application/json",
+        )
+    )
+    logger.info(
+        "Stored collection manifest",
+        prefix=prefix,
+        count=count,
+        num_chunks=num_chunks,
+    )
+    return prepared_manifest.value
 
 
 async def _fetch_manifest(collection: CollectionObject) -> CollectionManifestV1:
@@ -218,14 +336,34 @@ async def _fetch_manifest(collection: CollectionObject) -> CollectionManifestV1:
         key=collection.manifest_ref.key,
     )
 
-    # Verify integrity
+    return await asyncio.to_thread(
+        _parse_manifest,
+        content,
+        collection.manifest_ref,
+    )
+
+
+def _fetch_manifest_sync(collection: CollectionObject) -> CollectionManifestV1:
+    """Fetch and parse a manifest from a synchronous activity thread."""
+    ref = collection.manifest_ref
+    content = run_sync(
+        cached_blob_download(
+            sha256=ref.sha256,
+            bucket=ref.bucket,
+            key=ref.key,
+        )
+    )
+    return _parse_manifest(content, ref)
+
+
+def _parse_manifest(content: bytes, ref: ObjectRef) -> CollectionManifestV1:
+    """Validate and parse collection-manifest bytes."""
     actual_sha256 = compute_sha256(content)
-    if actual_sha256 != collection.manifest_ref.sha256:
+    if actual_sha256 != ref.sha256:
         raise ValueError(
-            f"Manifest integrity check failed: expected {collection.manifest_ref.sha256}, "
+            f"Manifest integrity check failed: expected {ref.sha256}, "
             f"got {actual_sha256}"
         )
-
     data = deserialize_object(content)
     return CollectionManifestV1.model_validate(data)
 
@@ -238,7 +376,23 @@ async def _fetch_chunk(ref: ObjectRef) -> CollectionChunkV1:
         key=ref.key,
     )
 
-    # Verify integrity
+    return await asyncio.to_thread(_parse_chunk, content, ref)
+
+
+def _fetch_chunk_sync(ref: ObjectRef) -> CollectionChunkV1:
+    """Fetch and parse a chunk from a synchronous activity thread."""
+    content = run_sync(
+        cached_blob_download(
+            sha256=ref.sha256,
+            bucket=ref.bucket,
+            key=ref.key,
+        )
+    )
+    return _parse_chunk(content, ref)
+
+
+def _parse_chunk(content: bytes, ref: ObjectRef) -> CollectionChunkV1:
+    """Validate and parse collection-chunk bytes."""
     actual_sha256 = compute_sha256(content)
     if actual_sha256 != ref.sha256:
         raise ValueError(
@@ -260,6 +414,16 @@ async def _fetch_chunk_item(ref: ObjectRef, local_index: int) -> Any:
         The item at the given index.
     """
     chunk = await _fetch_chunk(ref)
+    if local_index < 0 or local_index >= len(chunk.items):
+        raise IndexError(
+            f"Chunk index {local_index} out of range for chunk with {len(chunk.items)} items"
+        )
+    return chunk.items[local_index]
+
+
+def _fetch_chunk_item_sync(ref: ObjectRef, local_index: int) -> Any:
+    """Fetch one chunk item from a synchronous activity thread."""
+    chunk = _fetch_chunk_sync(ref)
     if local_index < 0 or local_index >= len(chunk.items):
         raise IndexError(
             f"Chunk index {local_index} out of range for chunk with {len(chunk.items)} items"
@@ -314,6 +478,33 @@ async def get_collection_page(
     return items
 
 
+def get_collection_page_sync(
+    collection: CollectionObject,
+    offset: int = 0,
+    limit: int | None = None,
+) -> list[Any]:
+    """Get a collection page from a synchronous activity thread."""
+    if offset < 0:
+        raise ValueError(f"offset must be >= 0, got {offset}")
+    if offset >= collection.count or limit == 0:
+        return []
+
+    resolved_limit = collection.count - offset if limit is None else limit
+    end = min(offset + resolved_limit, collection.count)
+    manifest = _fetch_manifest_sync(collection)
+    start_chunk = offset // collection.chunk_size
+    end_chunk = (end - 1) // collection.chunk_size
+
+    items: list[Any] = []
+    for chunk_idx in range(start_chunk, end_chunk + 1):
+        chunk = _fetch_chunk_sync(manifest.chunks[chunk_idx])
+        chunk_start = chunk_idx * collection.chunk_size
+        local_start = max(0, offset - chunk_start)
+        local_end = min(len(chunk.items), end - chunk_start)
+        items.extend(chunk.items[local_start:local_end])
+    return items
+
+
 async def get_collection_item(collection: CollectionObject, index: int) -> Any:
     """Get a single item from a collection by index.
 
@@ -349,6 +540,26 @@ async def get_collection_item(collection: CollectionObject, index: int) -> Any:
     return await retrieve_stored_object(stored)
 
 
+def get_collection_item_sync(collection: CollectionObject, index: int) -> Any:
+    """Get one collection item from a synchronous activity thread."""
+    if index < 0:
+        index = collection.count + index
+    if index < 0 or index >= collection.count:
+        raise IndexError(
+            f"Collection index {index} out of range [0, {collection.count})"
+        )
+
+    manifest = _fetch_manifest_sync(collection)
+    chunk_idx = index // collection.chunk_size
+    local_idx = index % collection.chunk_size
+    item = _fetch_chunk_item_sync(manifest.chunks[chunk_idx], local_idx)
+    if collection.element_kind == "value":
+        return item
+
+    stored = StoredObjectValidator.validate_python(item)
+    return retrieve_stored_object_sync(stored)
+
+
 async def materialize_collection_values(
     collection: CollectionObject,
     offset: int = 0,
@@ -381,6 +592,23 @@ async def materialize_collection_values(
         value = await retrieve_stored_object(stored)
         values.append(value)
 
+    return values
+
+
+def materialize_collection_values_sync(
+    collection: CollectionObject,
+    offset: int = 0,
+    limit: int | None = None,
+) -> list[Any]:
+    """Materialize collection values from a synchronous activity thread."""
+    items = get_collection_page_sync(collection, offset, limit)
+    if collection.element_kind == "value":
+        return items
+
+    values: list[Any] = []
+    for item in items:
+        stored = StoredObjectValidator.validate_python(item)
+        values.append(retrieve_stored_object_sync(stored))
     return values
 
 

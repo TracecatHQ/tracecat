@@ -6,25 +6,18 @@ import pytest
 from botocore.exceptions import HTTPClientError
 from temporalio.exceptions import ApplicationError
 
+from tracecat.async_runtime import AppAsyncRuntime, use_app_async_runtime
 from tracecat.dsl import action
-from tracecat.dsl.action import materialize_context
+from tracecat.dsl.action import materialize_context, materialize_context_sync
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import get_storage_client
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
 
 
-def _close_run_sync_runner() -> None:
-    runner = getattr(action._thread_local, "runner", None)
-    if runner is not None:
-        runner.close()
-        delattr(action._thread_local, "runner")
-
-
-def test_run_sync_reuses_storage_client_until_runner_closes(
+def test_run_sync_reuses_storage_client_until_app_runtime_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _close_run_sync_runner()
     blob_module.clear_storage_session_cache()
     monkeypatch.setattr(
         blob_module.config,
@@ -37,31 +30,31 @@ def test_run_sync_reuses_storage_client_until_runner_closes(
         async with get_storage_client() as client:
             return client
 
-    try:
-        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
-            mock_session = mock_session_cls.return_value
-            mock_client = AsyncMock()
-            mock_session.client.return_value.__aenter__.return_value = mock_client
+    runtime = AppAsyncRuntime(name="test-app-io")
+    with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        mock_client = AsyncMock()
+        mock_session.client.return_value.__aenter__.return_value = mock_client
 
-            assert action.run_sync(use_client()) is mock_client
-            assert action.run_sync(use_client()) is mock_client
+        runtime.start()
+        try:
+            with use_app_async_runtime(runtime):
+                assert action.run_sync(use_client()) is mock_client
+                assert action.run_sync(use_client()) is mock_client
 
-            mock_session_cls.assert_called_once()
-            mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
-            )
-            mock_session.client.return_value.__aenter__.assert_awaited_once()
-            mock_session.client.return_value.__aexit__.assert_not_awaited()
+                mock_session_cls.assert_called_once()
+                mock_session.client.assert_called_once_with(
+                    "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+                )
+                mock_session.client.return_value.__aenter__.assert_awaited_once()
+                mock_session.client.return_value.__aexit__.assert_not_awaited()
+        finally:
+            runtime.close(cleanup=blob_module.close_storage_client_cache)
 
-            _close_run_sync_runner()
-
-            mock_session.client.return_value.__aexit__.assert_awaited_once_with(
-                None, None, None
-            )
-            assert len(blob_module._STORAGE_CLIENTS) == 0
-    finally:
-        _close_run_sync_runner()
-        blob_module.clear_storage_session_cache()
+        mock_session.client.return_value.__aexit__.assert_awaited_once_with(
+            None, None, None
+        )
+        assert len(blob_module._STORAGE_CLIENTS) == 0
 
 
 @pytest.mark.anyio
@@ -79,6 +72,26 @@ async def test_materialize_context_marks_storage_transport_errors_retryable(
 
     with pytest.raises(ApplicationError) as exc_info:
         await materialize_context(ctx)
+
+    assert exc_info.value.non_retryable is False
+    assert exc_info.value.type == "StorageMaterializationError"
+
+
+def test_materialize_context_sync_marks_storage_transport_errors_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_transport_error(*_args: object, **_kwargs: object) -> object:
+        raise HTTPClientError(error=RuntimeError("Connection reset"))
+
+    monkeypatch.setattr(
+        action,
+        "retrieve_stored_object_sync",
+        raise_transport_error,
+    )
+    ctx = ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"trigger": 1}))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        materialize_context_sync(ctx)
 
     assert exc_info.value.non_retryable is False
     assert exc_info.value.type == "StorageMaterializationError"

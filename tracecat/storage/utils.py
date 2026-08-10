@@ -8,14 +8,15 @@ import math
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import orjson
-from botocore.exceptions import HTTPClientError
 from cachetools import TTLCache
 
 from tracecat.logger import logger
 from tracecat.storage import blob
+from tracecat.storage.transport import is_retryable_storage_transport_error
 
 if TYPE_CHECKING:
     from tracecat.storage.object import InlineObject, StoredObject
@@ -26,33 +27,6 @@ BLOB_CACHE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB total pool
 BLOB_CACHE_TTL = 300.0  # 5 minutes
 STORAGE_TRANSPORT_RETRY_ATTEMPTS = 3
 STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS = 0.25
-
-
-def is_retryable_storage_transport_error(exc: BaseException) -> bool:
-    """Return true for transient blob-storage transport failures.
-
-    Keep this deliberately narrow: retry aiobotocore/botocore HTTP client
-    transport failures, but do not retry S3 service errors, missing objects,
-    integrity failures, validation errors, or user/data errors. Walk the
-    exception chain so a wrapped transport error is still detected.
-    """
-    seen: set[int] = set()
-    stack: list[BaseException | None] = [exc]
-    while stack:
-        current = stack.pop()
-        if current is None:
-            continue
-        current_id = id(current)
-        if current_id in seen:
-            continue
-        seen.add(current_id)
-        if isinstance(current, HTTPClientError):
-            return True
-        if isinstance(current, BaseExceptionGroup):
-            stack.extend(current.exceptions)
-        stack.append(current.__cause__)
-        stack.append(current.__context__)
-    return False
 
 
 async def retry_storage_transport_error[T](
@@ -126,6 +100,15 @@ class SizedMemoryCache:
                     max_bytes=self._max_bytes,
                 )
 
+    async def clear(self) -> None:
+        """Clear all entries while preserving the cache allocation."""
+        await asyncio.to_thread(self.clear_sync)
+
+    def clear_sync(self) -> None:
+        """Clear all entries from a synchronous caller."""
+        with self._lock:
+            self._cache.clear()
+
     @property
     def total_bytes(self) -> int:
         with self._lock:
@@ -139,6 +122,11 @@ class SizedMemoryCache:
 
 # Module-level cache for blob downloads and S3 Select results
 _blob_cache = SizedMemoryCache(max_bytes=BLOB_CACHE_MAX_BYTES, ttl=BLOB_CACHE_TTL)
+
+
+async def clear_blob_cache() -> None:
+    """Clear process-local materialized blob bytes."""
+    await _blob_cache.clear()
 
 
 def serialize_object(data: Any) -> bytes:
@@ -175,6 +163,18 @@ def compute_sha256(content: bytes) -> str:
         Hex-encoded SHA-256 hash
     """
     return hashlib.sha256(content).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedSelectValue:
+    value: Any
+    content: bytes
+
+
+def _prepare_select_value(result_bytes: bytes) -> _PreparedSelectValue:
+    data = deserialize_object(result_bytes)
+    value = data.get("_1")
+    return _PreparedSelectValue(value=value, content=serialize_object(value))
 
 
 async def cached_blob_download(sha256: str, bucket: str, key: str) -> bytes:
@@ -243,7 +243,7 @@ async def cached_select_item(
     cached = await _blob_cache.get(cache_key)
     if cached is not None:
         logger.debug("Select cache hit", sha256=sha256[:16], index=local_index)
-        return deserialize_object(cached)
+        return await asyncio.to_thread(deserialize_object, cached)
 
     expression = f"SELECT s.items[{local_index}] FROM s3object s"
     result_bytes = await retry_storage_transport_error(
@@ -257,24 +257,21 @@ async def cached_select_item(
         bucket=bucket,
     )
 
-    # S3 Select returns {"_1": <item>} for indexed array access
-    data = deserialize_object(result_bytes)
-    item = data.get("_1")
-
-    # Serialize item for byte-aware cache
-    item_bytes = serialize_object(item)
-    if len(item_bytes) <= MAX_CACHEABLE_BLOB_SIZE:
-        await _blob_cache.set(cache_key, item_bytes)
+    # S3 Select returns {"_1": <item>} for indexed array access. Keep JSON
+    # parsing/serialization off both application event loops.
+    prepared = await asyncio.to_thread(_prepare_select_value, result_bytes)
+    if len(prepared.content) <= MAX_CACHEABLE_BLOB_SIZE:
+        await _blob_cache.set(cache_key, prepared.content)
         logger.debug("Cached select item", sha256=sha256[:16], index=local_index)
     else:
         logger.debug(
             "Select item too large to cache",
             sha256=sha256[:16],
             index=local_index,
-            size_bytes=len(item_bytes),
+            size_bytes=len(prepared.content),
             max_size=MAX_CACHEABLE_BLOB_SIZE,
         )
-    return item
+    return prepared.value
 
 
 async def resolve_to_inline(stored: StoredObject) -> InlineObject:

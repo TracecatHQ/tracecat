@@ -4,11 +4,12 @@ import asyncio
 import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Protocol, cast
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, HTTPClientError
 
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
@@ -27,6 +28,10 @@ from tracecat.storage.blob import (
 )
 
 
+class _PoolConfig(Protocol):
+    max_pool_connections: int
+
+
 class TestS3Operations:
     """Test S3/MinIO operations."""
 
@@ -41,6 +46,10 @@ class TestS3Operations:
         """Create a mock S3 client."""
         mock_client = AsyncMock()
         return mock_client
+
+    def test_storage_client_pool_limit_is_explicit(self) -> None:
+        storage_config = cast(_PoolConfig, blob_module._STORAGE_CLIENT_CONFIG)
+        assert storage_config.max_pool_connections == 10
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
@@ -206,6 +215,206 @@ class TestS3Operations:
             mock_session.client.return_value.__aexit__.assert_awaited_once_with(
                 None, None, None
             )
+
+    @pytest.mark.anyio
+    async def test_invalidate_storage_client_recreates_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            first_client = AsyncMock()
+            second_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.side_effect = [
+                first_client,
+                second_client,
+            ]
+
+            async with get_storage_client() as client:
+                assert client is first_client
+
+            await blob_module.invalidate_storage_client()
+
+            async with get_storage_client() as client:
+                assert client is second_client
+
+            await blob_module.close_storage_client_cache()
+
+            assert mock_session_cls.call_count == 2
+            assert mock_session.client.return_value.__aenter__.await_count == 2
+            assert mock_session.client.return_value.__aexit__.await_count == 2
+
+    @pytest.mark.anyio
+    async def test_invalidate_waits_for_active_storage_client_users(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Invalidation never closes a connector beneath another operation."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            first_client = AsyncMock()
+            second_client = AsyncMock()
+            first_context = mock_session.client.return_value
+            first_context.__aenter__.side_effect = [first_client, second_client]
+
+            release_user = asyncio.Event()
+            user_started = asyncio.Event()
+
+            async def active_user() -> None:
+                async with get_storage_client() as client:
+                    assert client is first_client
+                    user_started.set()
+                    await release_user.wait()
+
+            user_task = asyncio.create_task(active_user())
+            await user_started.wait()
+            invalidation_task = asyncio.create_task(
+                blob_module.invalidate_storage_client()
+            )
+            await asyncio.sleep(0)
+
+            first_context.__aexit__.assert_not_awaited()
+            async with get_storage_client() as client:
+                assert client is second_client
+            health = blob_module.storage_client_cache_health()
+            assert health.loop_count == 1
+            assert health.entered_client_count == 2
+            assert health.active_user_count == 1
+
+            release_user.set()
+            await user_task
+            await invalidation_task
+            await blob_module.close_storage_client_cache()
+
+            assert first_context.__aexit__.await_count == 2
+
+    @pytest.mark.anyio
+    async def test_transport_failure_invalidates_shared_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            first_client = AsyncMock()
+            second_client = AsyncMock()
+            first_client.put_object.side_effect = HTTPClientError(
+                error=RuntimeError("Connection reset")
+            )
+            mock_session.client.return_value.__aenter__.side_effect = [
+                first_client,
+                second_client,
+            ]
+
+            with pytest.raises(HTTPClientError):
+                await upload_file(b"payload", "key", "bucket")
+
+            async with get_storage_client() as client:
+                assert client is second_client
+            await blob_module.close_storage_client_cache()
+
+            assert mock_session_cls.call_count == 2
+            assert mock_session.client.return_value.__aexit__.await_count == 2
+
+    @pytest.mark.anyio
+    async def test_s3_service_error_keeps_shared_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Service responses do not imply a poisoned HTTP transport."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            client = AsyncMock()
+            client.put_object.side_effect = ClientError(
+                error_response={"Error": {"Code": "AccessDenied"}},
+                operation_name="PutObject",
+            )
+            mock_session.client.return_value.__aenter__.return_value = client
+
+            with pytest.raises(ClientError):
+                await upload_file(b"payload", "key", "bucket")
+
+            async with get_storage_client() as reused_client:
+                assert reused_client is client
+            await blob_module.close_storage_client_cache()
+
+            mock_session_cls.assert_called_once()
+            mock_session.client.return_value.__aenter__.assert_awaited_once()
+            mock_session.client.return_value.__aexit__.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_retired_client_failure_does_not_invalidate_replacement(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            first_client = AsyncMock()
+            second_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.side_effect = [
+                first_client,
+                second_client,
+            ]
+            old_user_started = asyncio.Event()
+            release_old_user = asyncio.Event()
+
+            async def fail_using_old_client() -> None:
+                async with get_storage_client() as client:
+                    assert client is first_client
+                    old_user_started.set()
+                    await release_old_user.wait()
+                    raise HTTPClientError(error=RuntimeError("Connection reset"))
+
+            old_user_task = asyncio.create_task(fail_using_old_client())
+            await old_user_started.wait()
+            invalidation_task = asyncio.create_task(
+                blob_module.invalidate_storage_client()
+            )
+            await asyncio.sleep(0)
+
+            async with get_storage_client() as client:
+                assert client is second_client
+
+            release_old_user.set()
+            with pytest.raises(HTTPClientError):
+                await old_user_task
+            await invalidation_task
+
+            async with get_storage_client() as client:
+                assert client is second_client
+            await blob_module.close_storage_client_cache()
+
+            assert mock_session_cls.call_count == 2
+            assert mock_session.client.return_value.__aexit__.await_count == 2
 
     def test_get_storage_client_uses_new_session_for_new_event_loop(self, monkeypatch):
         """get_storage_client does not reuse aioboto3 sessions across event loops."""

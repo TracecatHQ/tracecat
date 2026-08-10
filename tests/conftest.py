@@ -31,6 +31,7 @@ import aioboto3
 import pytest
 import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
+import uvloop
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
@@ -43,6 +44,7 @@ from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.async_runtime import AppAsyncRuntime, use_app_async_runtime
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
     ADMIN_SCOPES,
@@ -71,6 +73,7 @@ from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
+from tracecat.storage.blob import close_storage_client_cache
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.workspaces.service import WorkspaceService
 
@@ -1945,6 +1948,12 @@ async def test_worker_factory(
 ) -> AsyncGenerator[Callable[..., Worker], Any]:
     """Factory fixture to create workers with proper ThreadPoolExecutor cleanup."""
 
+    app_runtime = AppAsyncRuntime(
+        name="test-worker-app-io",
+        loop_factory=uvloop.new_event_loop,
+    )
+    app_runtime.start()
+
     def create_worker(
         client: Client,
         *,
@@ -1963,7 +1972,11 @@ async def test_worker_factory(
             activity_executor=threadpool,
         )
 
-    yield create_worker
+    try:
+        with use_app_async_runtime(app_runtime):
+            yield create_worker
+    finally:
+        await app_runtime.aclose(cleanup=close_storage_client_cache)
 
 
 @pytest.fixture(scope="function")

@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 from pydantic import TypeAdapter
 from temporalio.exceptions import ApplicationError
 
+from tracecat.async_runtime import AppAsyncRuntime, use_app_async_runtime
 from tracecat.dsl.action import (
     DSLActivities,
     NormalizeTriggerInputsActivityInputs,
@@ -553,21 +554,26 @@ class TestCollectionStorageFunctions:
 
         monkeypatch.setattr(blob, "select_object_content", over_max_record_size)
 
-        # This should succeed after refactor, because indexed lookup should avoid S3 Select.
+        # Sync DSL activities run with the worker-owned app runtime installed.
+        runtime = AppAsyncRuntime(name="test-app-io")
+        runtime.start()
         try:
-            normalized = await asyncio.to_thread(
-                DSLActivities.normalize_trigger_inputs_activity,
-                NormalizeTriggerInputsActivityInputs(
-                    input_schema={},
-                    trigger_inputs=collection.at(0),
-                    key="wf-123/looped-subflow/normalized-trigger-input.json",
-                ),
-            )
+            with use_app_async_runtime(runtime):
+                normalized = await asyncio.to_thread(
+                    DSLActivities.normalize_trigger_inputs_activity,
+                    NormalizeTriggerInputsActivityInputs(
+                        input_schema={},
+                        trigger_inputs=collection.at(0),
+                        key="wf-123/looped-subflow/normalized-trigger-input.json",
+                    ),
+                )
         except ApplicationError:  # pragma: no cover - expected red failure today
             pytest.fail(
                 "Looped subflow indexed trigger input retrieval still depends on "
                 "S3 Select and fails with OverMaxRecordSize"
             )
+        finally:
+            await runtime.aclose()
 
         resolved = await get_object_storage().retrieve(normalized)
         assert resolved == items[0]

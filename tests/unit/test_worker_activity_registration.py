@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -21,6 +22,7 @@ from tracecat.agent.preset.activities import (
     resolve_agent_preset_version_ref_activity,
 )
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
+from tracecat.async_runtime import get_app_async_runtime
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 
 
@@ -122,7 +124,10 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", _FakeWorker)
     monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
-    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+    close_storage_client_cache = AsyncMock()
+    monkeypatch.setattr(
+        worker, "close_storage_client_cache", close_storage_client_cache
+    )
 
     await worker.main(shutdown_event=shutdown_event)
 
@@ -133,6 +138,138 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
         "max_concurrent_workflow_tasks": 100,
         "graceful_shutdown_timeout": timedelta(seconds=30),
     }
+    close_storage_client_cache.assert_awaited_once()
+    assert get_app_async_runtime() is None
+
+
+@pytest.mark.anyio
+async def test_dsl_worker_shuts_down_when_app_io_runtime_dies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lost app I/O runtime must end the worker instead of failing forever.
+
+    Every storage activity depends on that runtime, so the process should ask
+    for shutdown and let the orchestrator restart it.
+    """
+    from tracecat.dsl import worker
+
+    shutdown_event = asyncio.Event()
+    worker_exited = threading.Event()
+
+    class _FakeWorker:
+        def __init__(self, _client: object, **kwargs: object) -> None:
+            del kwargs
+
+        async def __aenter__(self) -> _FakeWorker:
+            # Simulate the app I/O loop dying underneath a running worker.
+            app_runtime = get_app_async_runtime()
+            assert app_runtime is not None
+            runtime_loop = app_runtime._loop
+            assert runtime_loop is not None
+            runtime_loop.call_soon_threadsafe(runtime_loop.stop)
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+            worker_exited.set()
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(worker, "_APP_RUNTIME_WATCHDOG_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    close_storage_client_cache = AsyncMock()
+    monkeypatch.setattr(
+        worker,
+        "close_storage_client_cache",
+        close_storage_client_cache,
+    )
+
+    with pytest.raises(RuntimeError, match="failed during shutdown") as exc_info:
+        await asyncio.wait_for(
+            worker.main(shutdown_event=shutdown_event),
+            timeout=10,
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == (
+        "App async runtime loop stopped outside close()"
+    )
+    assert shutdown_event.is_set()
+    assert worker_exited.is_set()
+    close_storage_client_cache.assert_not_awaited()
+    assert get_app_async_runtime() is None
+
+
+@pytest.mark.anyio
+async def test_dsl_worker_closes_app_io_after_activity_pool_drains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.dsl import worker
+
+    shutdown_event = asyncio.Event()
+    activity_started = threading.Event()
+    release_activity = threading.Event()
+    lifecycle: list[str] = []
+
+    class _FakeWorker:
+        def __init__(
+            self,
+            _client: object,
+            **kwargs: object,
+        ) -> None:
+            activity_executor = kwargs["activity_executor"]
+            assert isinstance(activity_executor, ThreadPoolExecutor)
+            self.activity_executor = activity_executor
+
+        async def __aenter__(self) -> _FakeWorker:
+            def activity_work() -> None:
+                activity_started.set()
+                assert release_activity.wait(timeout=5)
+                lifecycle.append("activity_pool_drained")
+
+            self.activity_executor.submit(activity_work)
+            assert activity_started.wait(timeout=5)
+            shutdown_event.set()
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+            lifecycle.append("temporal_drained")
+            release_activity.set()
+
+    async def close_storage() -> None:
+        lifecycle.append("storage_client_closed")
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setenv("TEMPORAL__THREADPOOL_MAX_WORKERS", "1")
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "1")
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "2")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    monkeypatch.setattr(worker, "close_storage_client_cache", close_storage)
+
+    await worker.main(shutdown_event=shutdown_event)
+
+    assert lifecycle == [
+        "temporal_drained",
+        "activity_pool_drained",
+        "storage_client_closed",
+    ]
+    assert get_app_async_runtime() is None
 
 
 @pytest.mark.anyio
