@@ -5,17 +5,19 @@ import pytest
 from tracecat.dsl.schemas import TemplateExecutionContext
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.executor.expression_policy import (
-    POLICY_MAP,
-    ActionParameter,
-    ExpressionPolicy,
     TemplateExecutionState,
     derive_secret_dependencies,
     derive_source_provenance,
-    expression_policy,
     partition_action_args,
     prepare_action_args,
     redact_secret_expressions,
     substitute_source_references,
+)
+from tracecat.executor.expression_policy_map import (
+    POLICY_MAP,
+    ActionParameter,
+    ExpressionPolicy,
+    expression_policy,
 )
 from tracecat.secrets.constants import MASK_VALUE
 
