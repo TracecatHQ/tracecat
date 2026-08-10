@@ -28,7 +28,7 @@ from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
 
-MAX_LINKED_ROWS_PER_CASE = 200
+MAX_LINKED_ROWS_PER_CASE = 5_000
 MAX_TABLES_PER_CASE = 10
 
 

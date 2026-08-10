@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows import service as case_rows_service_module
 from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
 from tracecat.cases.rows.service import (
-    MAX_LINKED_ROWS_PER_CASE,
     MAX_TABLES_PER_CASE,
     CaseTableRowsService,
 )
@@ -167,6 +167,11 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
     case_rows_service: CaseTableRowsService,
     tables_service: TablesService,
 ) -> None:
+    test_link_limit = 2
+    monkeypatch.setattr(
+        case_rows_service_module, "MAX_LINKED_ROWS_PER_CASE", test_link_limit
+    )
+
     case = await _create_case(cases_service)
     table_id, row_id = await _create_table_with_row(
         tables_service,
@@ -187,7 +192,7 @@ async def test_link_row_returns_existing_link_when_limit_reached_after_initial_m
             table_id=table_id,
             row_id=uuid.uuid4(),
         )
-        for _ in range(MAX_LINKED_ROWS_PER_CASE - 1)
+        for _ in range(test_link_limit - 1)
     ]
     session.add_all([existing_link, *filler_links])
     await session.commit()
