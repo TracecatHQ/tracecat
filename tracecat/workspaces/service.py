@@ -16,6 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
@@ -323,16 +324,14 @@ class WorkspaceService(BaseOrgService):
         except ValueError as e:
             raise TracecatValidationError("Invalid role ID format") from e
 
-        # Validate role_id exists and belongs to this organization
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
+        try:
+            await resolve_grantable_role(
+                self.session, self.role, self.organization_id, role_id
             )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
 
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)

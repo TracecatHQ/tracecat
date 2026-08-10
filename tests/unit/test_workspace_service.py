@@ -11,10 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     User,
     Workspace,
 )
@@ -700,6 +703,44 @@ class TestCreateInvitation:
         assert len(invitation.token) == 64
         assert invitation.expires_at > datetime.now(UTC)
         assert invitation.accepted_at is None
+
+    async def test_create_invitation_rejects_unheld_scopes(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+    ):
+        """Test a workspace invitation cannot grant scopes the inviter lacks."""
+        await seed_system_scopes(session)
+        scope_result = await session.execute(
+            select(Scope).where(Scope.name == "org:owner:assign")
+        )
+        scope = scope_result.scalars().one()
+        privileged_role = DBRole(
+            id=uuid.uuid4(),
+            name="Privileged Role",
+            slug=None,
+            description="Custom role with an owner-only scope",
+            organization_id=inv_org.id,
+        )
+        session.add(privileged_role)
+        await session.flush()
+        session.add(RoleScope(role_id=privileged_role.id, scope_id=scope.id))
+        await session.commit()
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        params = WorkspaceInvitationCreate(
+            email="escalated@example.com",
+            role_id=str(privileged_role.id),
+        )
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_invitation(inv_workspace.id, params)
 
     async def test_create_invitation_duplicate_pending_fails(
         self,

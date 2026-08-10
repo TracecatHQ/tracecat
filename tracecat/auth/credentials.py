@@ -25,7 +25,7 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -50,20 +50,12 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
-    GroupMember,
-    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
-    RoleScope,
-    Scope,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
-    UserRoleAssignment,
     Workspace,
-)
-from tracecat.db.models import (
-    Role as DBRole,
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
@@ -223,55 +215,12 @@ async def _compute_effective_scopes_cached(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
+    from tracecat.authz.service import query_effective_scopes
+
     async with get_async_session_auth_context_manager() as session:
-        user_workspace_condition = (
-            or_(
-                UserRoleAssignment.workspace_id.is_(None),
-                UserRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else UserRoleAssignment.workspace_id.is_(None)
+        return await query_effective_scopes(
+            session, user_id, organization_id, workspace_id
         )
-
-        group_workspace_condition = (
-            or_(
-                GroupRoleAssignment.workspace_id.is_(None),
-                GroupRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else GroupRoleAssignment.workspace_id.is_(None)
-        )
-        # Direct user role assignments → Role → RoleScope → Scope
-        user_scopes = (
-            select(Scope.name)
-            .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(DBRole, DBRole.id == RoleScope.role_id)
-            .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
-            .where(
-                UserRoleAssignment.user_id == user_id,
-                UserRoleAssignment.organization_id == organization_id,
-                user_workspace_condition,
-            )
-        )
-
-        # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
-        group_scopes = (
-            select(Scope.name)
-            .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(DBRole, DBRole.id == RoleScope.role_id)
-            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
-            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
-            .where(
-                GroupMember.user_id == user_id,
-                GroupRoleAssignment.organization_id == organization_id,
-                group_workspace_condition,
-            )
-        )
-
-        # Single atomic query: union both assignment paths
-        combined = user_scopes.union(group_scopes)
-        result = await session.execute(combined)
-        return frozenset(result.scalars().all())
 
 
 def get_role_from_user(
