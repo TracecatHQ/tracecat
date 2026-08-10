@@ -171,12 +171,12 @@ def test_env_ports_uses_default_when_unset_or_blank(
     assert env_ports("TEST_PORTS_ENV", default=(80, 443)) == (80, 443)
 
 
-def test_sandbox_policy_env_vars_are_wired_to_deployment_files() -> None:
+def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     missing_by_file = {
         str(path.relative_to(REPO_ROOT)): sorted(
             name for name in SANDBOX_POLICY_ENV_VARS if name not in path.read_text()
         )
-        for path in DEPLOYMENT_ENV_FILES
+        for path in SANDBOX_POLICY_COMPOSE_ENV_FILES
     }
     missing_by_file = {
         path: missing for path, missing in missing_by_file.items() if missing
