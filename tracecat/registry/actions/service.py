@@ -64,7 +64,11 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )
-from tracecat.registry.actions.types import IndexedActionResult, IndexEntry
+from tracecat.registry.actions.types import (
+    IndexedActionResult,
+    IndexEntry,
+    RepositorySyncOutcome,
+)
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.loaders import (
     LoaderMode,
@@ -82,6 +86,7 @@ from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
+
 
 # NamedTuple types for UNION ALL query results.
 # Used with typing_cast since SQLAlchemy's Row objects support attribute access.
@@ -1327,7 +1332,7 @@ class RegistryActionsService(BaseOrgService):
         target_commit_sha: str | None = None,
         git_repo_package_name: str | None = None,
         ssh_env: SshEnv | None = None,
-    ) -> tuple[str | None, str | None]:
+    ) -> RepositorySyncOutcome:
         """Sync actions from a repository using the versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
@@ -1346,7 +1351,7 @@ class RegistryActionsService(BaseOrgService):
             ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
-            Tuple of (commit_sha, version_string)
+            The synced repository commit SHA and version.
 
         Raises:
             RegistryArtifactBuildError: If artifact building fails (no version is created)
@@ -1382,7 +1387,10 @@ class RegistryActionsService(BaseOrgService):
             num_actions=sync_result.num_actions,
         )
 
-        return sync_result.commit_sha, sync_result.version_string
+        return RepositorySyncOutcome(
+            commit_sha=sync_result.commit_sha,
+            version=sync_result.version_string,
+        )
 
     async def get_action_or_none(self, action_name: str) -> RegistryAction | None:
         """Get an action by name, returning None if it doesn't exist."""

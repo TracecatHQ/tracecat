@@ -9,7 +9,7 @@ from tracecat.sandbox.networking import (
     build_pasta_resolv_conf,
     write_pasta_network_files,
 )
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import SandboxBindMount, SandboxConfig
 
 
 def test_build_pasta_resolv_conf_preserves_host_resolver(
@@ -147,6 +147,42 @@ def test_python_sandbox_execute_phase_respects_network_flag(tmp_path: Path) -> N
     assert "user_net {" in networked_config
     assert 'src: "/proc"' not in networked_config
     assert 'dst: "/proc" fstype: "proc"' in networked_config
+
+
+def test_python_sandbox_config_mounts_phase_capabilities_read_only(
+    tmp_path: Path,
+) -> None:
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.touch()
+
+    config_text = executor._build_config(
+        job_dir=tmp_path / "job",
+        phase="execute",
+        config=SandboxConfig(
+            bind_mounts=[
+                SandboxBindMount(
+                    source=agent_dir,
+                    destination=Path("/run/registry-agent"),
+                ),
+                SandboxBindMount(
+                    source=known_hosts,
+                    destination=Path("/run/registry-ssh/known_hosts"),
+                ),
+            ]
+        ),
+    )
+
+    assert (
+        f'mount {{ src: "{agent_dir}" dst: "/run/registry-agent" '
+        "is_bind: true rw: false }"
+    ) in config_text
+    assert (
+        f'mount {{ src: "{known_hosts}" dst: "/run/registry-ssh/known_hosts" '
+        "is_bind: true rw: false }"
+    ) in config_text
 
 
 def test_action_sandbox_config_enables_pasta(tmp_path: Path) -> None:

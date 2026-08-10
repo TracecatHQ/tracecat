@@ -1193,16 +1193,19 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
 TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
     "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", default=True
 )
-"""Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
+"""Enable executor-hosted registry sync via Temporal.
 
-When True (default), registry sync operations run on the ExecutorWorker with:
-- Git clone in subprocess with SSH credentials
-- Package installation with network access
-- Action discovery (currently subprocess, future: nsjail without network)
-- Tarball build and upload to S3
+When True (default), registry sync operations run on the ExecutorWorker.
+NsJail isolation on that worker is controlled separately by
+TRACECAT__DISABLE_NSJAIL.
 
 When False, uses the existing subprocess approach from the API service.
 """
+
+TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT = int(
+    os.environ.get("TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT") or 120
+)
+"""Timeout for Git clone/fetch/checkout during registry sync in seconds."""
 
 TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT") or 600

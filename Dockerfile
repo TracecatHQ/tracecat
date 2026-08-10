@@ -29,7 +29,7 @@ ARG TARGETARCH
 ARG DUCKDB_VERSION=1.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget jq iputils-ping git openssh-client \
+    ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
