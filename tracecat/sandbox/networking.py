@@ -33,15 +33,18 @@ NSTUN_MAX_RULES = 128
 _NSTUN_GATEWAY_ADDRESS4 = IPv4Address(NSTUN_GATEWAY_IP4)
 _NSTUN_GATEWAY_ADDRESS6 = IPv6Address(NSTUN_GATEWAY_IP6)
 
-# Networks that must not be reachable from filtered untrusted sandboxes: the
-# non-publicly-routable ranges of the IANA IPv4 Special-Purpose Address
-# Registry (RFC 6890), i.e. the CIDR-literal equivalent of Python's
-# ``not ip_address(...).is_global``. NSTUN rules require explicit dst_ip
-# CIDRs, so the property-based check cannot be used here. The registry's
-# globally-routable anycast assignments (192.31.196.0/24, 192.52.193.0/24,
-# 192.175.48.0/24) are deliberately not blocked. IPv6 is denied separately in
-# its entirety until public-only IPv6 classification is implemented without
-# risking mapped-address or transition-mechanism bypasses.
+# Networks that must not be reachable from filtered untrusted sandboxes. This
+# conservative baseline covers non-global ranges plus special-purpose control
+# and discovery destinations that supported sandbox workloads do not need. It
+# is intentionally stricter than ``not ip_address(...).is_global``: all of
+# 192.0.0.0/24 stays blocked so untrusted code cannot use PCP to control
+# upstream NAT/firewall state or TURN anycast to discover access-network relays.
+# NSTUN rules require explicit dst_ip CIDRs, so the property-based check cannot
+# be used here. The registry's other globally-routable anycast assignments
+# (192.31.196.0/24, 192.52.193.0/24, 192.175.48.0/24) are deliberately not
+# blocked. IPv6 is denied separately in its entirety until public-only IPv6
+# classification is implemented without risking mapped-address or
+# transition-mechanism bypasses.
 _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
     IPv4Network("0.0.0.0/8"),  # "This network" (RFC 1122)
     IPv4Network("10.0.0.0/8"),  # Private-use (RFC 1918)
@@ -49,7 +52,7 @@ _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
     IPv4Network("127.0.0.0/8"),  # Loopback (RFC 1122)
     IPv4Network("169.254.0.0/16"),  # Link-local, incl. cloud metadata (RFC 3927)
     IPv4Network("172.16.0.0/12"),  # Private-use (RFC 1918)
-    IPv4Network("192.0.0.0/24"),  # IETF protocol assignments (RFC 6890)
+    IPv4Network("192.0.0.0/24"),  # IETF protocols incl. PCP/TURN anycast
     IPv4Network("192.0.2.0/24"),  # TEST-NET-1 documentation (RFC 5737)
     IPv4Network("192.88.99.0/24"),  # Deprecated 6to4 relay anycast (RFC 7526)
     IPv4Network("192.168.0.0/16"),  # Private-use (RFC 1918)
