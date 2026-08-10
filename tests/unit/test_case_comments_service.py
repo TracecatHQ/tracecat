@@ -10,10 +10,19 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.agent_invocations.completion import (
+    CaseCommentAgentInvocationCompletionService,
+)
+from tracecat.cases.agent_invocations.dispatcher import (
+    CaseCommentAgentInvocationDispatcher,
+)
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
@@ -34,11 +43,14 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetVersion,
+    AgentSession,
     Case,
     CaseComment,
     CaseCommentAgentInvocation,
     CaseCommentMention,
     CaseEvent,
+    User,
     Workflow,
 )
 from tracecat.exceptions import (
@@ -428,6 +440,152 @@ class TestCaseCommentsService:
             (first_preset.name, first_preset.slug),
             (second_preset.name, second_preset.slug),
         }
+
+    async def test_dispatch_and_prepare_pinned_isolated_session(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        assert case_comments_service.role.user_id is not None
+        session.add(
+            User(
+                id=case_comments_service.role.user_id,
+                email=f"agent-{uuid.uuid4()}@example.com",
+                hashed_password="test-password",
+                is_active=True,
+                is_verified=True,
+            )
+        )
+        await session.commit()
+        preset = await _create_agent_preset(
+            session, case_comments_service.workspace_id, name="Thread agent"
+        )
+        version = AgentPresetVersion(
+            workspace_id=case_comments_service.workspace_id,
+            preset_id=preset.id,
+            version=1,
+            instructions="Investigate the case.",
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            actions=["core.http_request"],
+        )
+        session.add(version)
+        await session.flush()
+        preset.current_version_id = version.id
+        await session.commit()
+
+        root = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Root <context>")
+        )
+        prior = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Prior", parent_id=root.id)
+        )
+        prior.workflow_title = "Investigation workflow"
+        await session.commit()
+        invoking = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Thread agent", preset.id), parent_id=root.id
+            ),
+        )
+        isolated = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content=_mention_token("Again", preset.id))
+        )
+        [invocation] = await _load_comment_invocations(session, invoking.id)
+        [other] = await _load_comment_invocations(session, isolated.id)
+        invocation_service = CaseCommentAgentInvocationService(
+            session, case_comments_service.role
+        )
+        context = await invocation_service.load_thread_context(invocation.id)
+        assert context is not None
+        assert [entry.id for entry in context.entries] == [
+            root.id,
+            prior.id,
+            invoking.id,
+        ]
+        assert context.entries[0].author_label.endswith("@example.com")
+        assert context.entries[1].author_label == "Workflow: Investigation workflow"
+        assert context.entries[2].author_label == context.entries[0].author_label
+        assert await invocation_service.claim_pending(invocation.id) is not None
+        assert await invocation_service.claim_pending(invocation.id) is None
+
+        with (
+            patch.object(
+                AgentPresetService, "has_entitlement", AsyncMock(return_value=True)
+            ),
+            patch.object(
+                AgentManagementService,
+                "get_workspace_runtime_provider_credentials",
+                AsyncMock(return_value={"OPENAI_API_KEY": "test-key"}),
+            ),
+        ):
+            dispatcher = CaseCommentAgentInvocationDispatcher(
+                session, case_comments_service.role
+            )
+            first = await dispatcher.create_or_get_agent_session(invocation.id)
+            retry = await dispatcher.create_or_get_agent_session(invocation.id)
+            assert first is not None and retry == first
+            assert "Root &lt;context&gt;" in first.prompt
+            assert (
+                f'id="{invoking.id}"' in first.prompt
+                and 'invoking="true"' in first.prompt
+            )
+            agent_session = await session.scalar(
+                select(AgentSession).where(AgentSession.id == first.session_id)
+            )
+            assert agent_session is not None
+            assert agent_session.agent_preset_version_id == version.id
+            await session.refresh(other)
+            assert other.session_id is None
+            second = await dispatcher.create_or_get_agent_session(other.id)
+            assert second is not None and second.session_id != first.session_id
+
+            session_service = AgentSessionService(session, case_comments_service.role)
+            prepared = await session_service.prepare_new_turn(
+                first.session_id, first.prompt
+            )
+            prepared_retry = await session_service.prepare_new_turn(
+                first.session_id, first.prompt
+            )
+            assert (prepared.run_id, prepared.active_stream_id) == (
+                prepared_retry.run_id,
+                prepared_retry.active_stream_id,
+            )
+            assert prepared.config.actions == ["core.http_request"]
+
+            generated_mention = _mention_token("Ignored", preset.id)
+            completion = CaseCommentAgentInvocationCompletionService(
+                session, case_comments_service.role
+            )
+            reply = await completion.create_reply_and_mark_succeeded(
+                first.session_id,
+                {"z": 2, "mention": generated_mention, "a": 1},
+            )
+            assert reply is not None
+            assert reply.parent_id == root.id and reply.user_id is None
+            assert reply.content == (
+                f'{{\n  "a": 1,\n  "mention": "{generated_mention}",\n  "z": 2\n}}'
+            )
+            assert await _load_comment_mentions(session, reply.id) == []
+            await session.refresh(invocation)
+            assert invocation.status == CaseCommentAgentInvocationStatus.SUCCEEDED
+            assert invocation.reply_comment_id == reply.id
+            events = await _load_case_events(session, test_case.id)
+            assert events[-1].type == CaseEventType.COMMENT_REPLY_CREATED
+            assert events[-1].data["thread_root_id"] == str(root.id)
+
+            retried = await completion.create_reply_and_mark_succeeded(
+                first.session_id, "different output"
+            )
+            assert retried is not None and retried.id == reply.id
+            assert (
+                await completion.create_reply_and_mark_succeeded(
+                    uuid.uuid4(), "unrelated"
+                )
+                is None
+            )
+            assert await invocation_service.mark_failed(invocation.id, "late") is None
 
     async def test_create_comment_skips_missing_and_deleted_agent_mentions(
         self,
