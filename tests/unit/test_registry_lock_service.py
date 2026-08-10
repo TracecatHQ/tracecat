@@ -251,6 +251,36 @@ async def test_resolve_lock_queries_platform_registry(
 
 
 @pytest.mark.anyio
+async def test_resolve_lock_prefers_artifact_hash_for_origin_fingerprint(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    origin = "hashed_platform_registry"
+    platform_repo = PlatformRegistryRepository(origin=origin)
+    session.add(platform_repo)
+    await session.flush()
+
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["platform.hashed_action"]),
+        tarball_uri="s3://platform/v1.tar.gz",
+        artifact_hash="a" * 64,
+    )
+    session.add(platform_version)
+    await session.flush()
+
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    lock = await service.resolve_lock_with_bindings({"platform.hashed_action"})
+
+    assert lock.origin_fingerprints[origin] == "a" * 64
+
+
+@pytest.mark.anyio
 async def test_resolve_lock_org_overrides_platform(
     svc_role: Role,
     session: AsyncSession,

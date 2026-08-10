@@ -128,6 +128,10 @@ class RegistrySyncResult(BaseModel):
         default=None,
         description="Resolved commit SHA (None for builtin/local repos)",
     )
+    artifact_hash: str | None = Field(
+        default=None,
+        description="SHA-256 content hash of the uploaded execution artifact",
+    )
     validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = Field(
         default_factory=dict,
         description="Map of action name to validation errors",

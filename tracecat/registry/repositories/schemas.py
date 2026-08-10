@@ -178,6 +178,7 @@ class RegistryVersionRead(BaseModel):
     version: str
     commit_sha: str | None
     tarball_uri: str | None
+    artifact_hash: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -7,7 +7,10 @@ import tracecat_registry
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
-from tracecat.executor.registry_artifacts import bundled_builtin_registry_uri
+from tracecat.executor.registry_artifacts import (
+    bundled_builtin_registry_uri,
+    registry_artifact_ref,
+)
 from tracecat.executor.service import (
     RegistryArtifactsContext,
     get_registry_artifacts_for_lock,
@@ -17,7 +20,10 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     PLATFORM_REGISTRY_NAMESPACE,
 )
-from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
+from tracecat.registry.sync.prebuilt import (
+    load_prebuilt_builtin_registry_artifact_metadata,
+    load_prebuilt_builtin_registry_manifest,
+)
 from tracecat.registry.versions.schemas import registry_manifest_fingerprint
 
 
@@ -53,6 +59,7 @@ async def get_registry_artifact_uris(
     artifacts = await get_registry_artifacts_for_lock(
         origins,
         role.organization_id,
+        origin_fingerprints=getattr(input.registry_lock, "origin_fingerprints", None),
     )
     return artifact_uris + sort_registry_artifact_uris(artifacts)
 
@@ -67,6 +74,18 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
     if expected is None:
         return True
 
+    local_fingerprints: set[str] = set()
+
+    artifact_metadata = load_prebuilt_builtin_registry_artifact_metadata(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        target_version=version,
+        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    )
+    if artifact_metadata is not None:
+        local_fingerprints.add(artifact_metadata.artifact_hash)
+        if expected == artifact_metadata.artifact_hash:
+            return True
+
     manifest = load_prebuilt_builtin_registry_manifest(
         origin=DEFAULT_REGISTRY_ORIGIN,
         target_version=version,
@@ -79,13 +98,13 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
         )
         return False
 
-    actual = registry_manifest_fingerprint(manifest)
-    if actual != expected:
+    local_fingerprints.add(registry_manifest_fingerprint(manifest))
+    if expected not in local_fingerprints:
         logger.info(
             "Bundled builtin registry fingerprint mismatch; using artifact lookup",
             registry_version=version,
             expected_fingerprint=expected,
-            actual_fingerprint=actual,
+            local_fingerprints=sorted(local_fingerprints),
         )
         return False
 
@@ -102,10 +121,14 @@ def sort_registry_artifact_uris(
     for artifact in artifacts:
         if not artifact.artifact_uri:
             continue
+        artifact_ref = registry_artifact_ref(
+            artifact.artifact_uri,
+            artifact.artifact_hash,
+        )
         if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
-            builtin_uris.append(artifact.artifact_uri)
+            builtin_uris.append(artifact_ref)
         else:
-            other_uris.append((artifact.origin, artifact.artifact_uri))
+            other_uris.append((artifact.origin, artifact_ref))
 
     other_uris.sort(key=lambda item: item[0])
     return builtin_uris + [uri for _, uri in other_uris]
