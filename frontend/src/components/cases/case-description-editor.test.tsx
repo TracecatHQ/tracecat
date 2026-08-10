@@ -86,6 +86,17 @@ describe("CaseCommentViewer mentions", () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
+  it("resolves an uppercase uuid href against the lowercase preset id", async () => {
+    renderViewer(
+      `Please review [@Stale Label](mention://agent/${PRESET_ID.toUpperCase()}).`
+    )
+
+    const chip = await screen.findByTestId("mention-chip")
+    expect(chip).toHaveTextContent("@Triage Agent")
+    expect(chip).toHaveAttribute("data-state", "resolved")
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
   it("leaves a malformed mention href as a plain link", async () => {
     const { container } = renderViewer(
       "Ping [@Nobody](mention://agent/not-a-uuid) please."

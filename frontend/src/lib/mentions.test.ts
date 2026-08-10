@@ -10,11 +10,20 @@ describe("parseMentionHref", () => {
     })
   })
 
-  it("accepts uppercase uuids and preserves the original casing", () => {
-    const upper = PRESET_ID.toUpperCase()
-    expect(parseMentionHref(`mention://agent/${upper}`)).toEqual({
+  it("accepts an uppercase uuid and lowercases it to match API ids", () => {
+    expect(
+      parseMentionHref(`mention://agent/${PRESET_ID.toUpperCase()}`)
+    ).toEqual({
       type: "agent",
-      presetId: upper,
+      presetId: PRESET_ID,
+    })
+  })
+
+  it("lowercases a mixed-case uuid", () => {
+    const mixed = "0F9d9F4c-1C2b-4f3A-9a1E-2b7C8d9E0f11"
+    expect(parseMentionHref(`mention://agent/${mixed}`)).toEqual({
+      type: "agent",
+      presetId: PRESET_ID,
     })
   })
 

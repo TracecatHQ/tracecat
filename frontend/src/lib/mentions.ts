@@ -24,6 +24,7 @@ const UUID_PATTERN =
  *
  * Returns `null` for anything that is not exactly `mention://<segment>/<uuid>`
  * with a known segment, so callers can fall back to rendering a plain link.
+ * The id is lowercased so it compares directly against ids from the API.
  * Never throws.
  */
 export function parseMentionHref(
@@ -43,9 +44,14 @@ export function parseMentionHref(
     return null
   }
 
+  // Uuids are hex and case-insensitive, but the API only ever returns them
+  // lowercased. Normalize at this single parse boundary so every consumer can
+  // compare ids with `===` instead of case-folding at each lookup site.
+  const presetId = id.toLowerCase()
+
   switch (segment) {
     case "agent":
-      return { type: "agent", presetId: id }
+      return { type: "agent", presetId }
     default:
       return null
   }
