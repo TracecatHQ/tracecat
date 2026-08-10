@@ -1,3 +1,24 @@
+"""Per-parameter expression policy for executor action arguments.
+
+Each action parameter gets one policy (see ``POLICY_MAP``; default RESOLVE):
+
+- RESOLVE: evaluate template expressions normally.
+- PRESERVE: keep workflow-authoring source verbatim; it executes later.
+- REDACT_SECRETS: evaluate, but mask anything derived from secrets before it
+  reaches Tracecat-owned durable state.
+
+Policy is applied at two boundaries:
+
+- Root action arguments: ``prepare_action_args`` / ``partition_action_args``.
+- Template action steps: ``TemplateExecutionState.prepare_step_args``, which
+  also tracks argument provenance so secret taint follows data passed in
+  through ``inputs.*``.
+
+Secret taint is tracked as a dependency tree (``SecretDependency``) mirroring
+the value's shape. Trees are plain bools/lists/dicts — never custom types —
+so jsonpath can traverse them alongside the values they describe.
+"""
+
 from __future__ import annotations
 
 import re
@@ -20,6 +41,9 @@ from tracecat.secrets.constants import MASK_VALUE
 type SecretDependency = bool | list[SecretDependency] | dict[Any, SecretDependency]
 type SecretDependencies = Mapping[str, SecretDependency]
 
+# Marks a mapping whose keys (not values) are secret-dependent. It hides
+# inside the dependency dict itself because trees must stay jsonpath-
+# traversable, and no authored string key can collide with it.
 _SECRET_KEY_DEPENDENCY = object()
 
 
@@ -78,330 +102,76 @@ POLICY_MAP: Mapping[ActionParameter, ExpressionPolicy] = {
 }
 
 
-def has_secret_dependency(dependency: SecretDependency) -> bool:
-    """Collapse a dependency tree to whether any part depends on secrets."""
-    match dependency:
-        case bool():
-            return dependency
-        case list():
-            return any(has_secret_dependency(item) for item in dependency)
-        case dict():
-            return any(has_secret_dependency(item) for item in dependency.values())
+def expression_policy(action: str, parameter: str) -> ExpressionPolicy:
+    """Return the expression policy for an action parameter."""
+    return POLICY_MAP.get(ActionParameter(action, parameter), ExpressionPolicy.RESOLVE)
 
 
-def _scoped_dependency(
-    path: str,
-    dependencies: SecretDependencies,
-    context: ExprContext,
-) -> SecretDependency | None:
-    dependency = eval_jsonpath(
-        f"{context}{path}",
-        {context: dependencies},
+# ---------------------------------------------------------------------------
+# Root boundary: plain action arguments
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionedActionArgs:
+    """Action arguments split into resolvable and preserved parameters."""
+
+    action: str
+    original: Mapping[str, Any]
+    resolvable: Mapping[str, Any]
+
+    def merge(self, evaluated: Mapping[str, Any]) -> dict[str, Any]:
+        """Restore preserved values without changing parameter order."""
+        return {
+            parameter: (evaluated[parameter] if parameter in self.resolvable else value)
+            for parameter, value in self.original.items()
+        }
+
+
+def partition_action_args(
+    action: str,
+    args: Mapping[str, Any],
+) -> PartitionedActionArgs:
+    """Apply pre-evaluation policy and exclude preserved source subtrees.
+
+    Root-level boundary: template steps route through
+    ``TemplateExecutionState.prepare_step_args`` instead, which carries
+    input provenance.
+    """
+    resolvable: dict[str, Any] = {}
+    for parameter, value in args.items():
+        match expression_policy(action, parameter):
+            case ExpressionPolicy.PRESERVE:
+                if _is_resolvable_carrier(value, None):
+                    resolvable[parameter] = value
+            case ExpressionPolicy.REDACT_SECRETS:
+                resolvable[parameter] = redact_secret_expressions(value)
+            case ExpressionPolicy.RESOLVE:
+                resolvable[parameter] = value
+    return PartitionedActionArgs(
+        action=action,
+        original=args,
+        resolvable=resolvable,
     )
-    if dependency is not None:
-        return cast(SecretDependency, dependency)
-
-    # A compound expression can collapse a structured entry's dependency to
-    # True. Any later access beneath that entry must remain conservatively
-    # secret-dependent even though the boolean tree has no child to traverse.
-    match = re.match(r"^\.([A-Za-z_][A-Za-z0-9_]*)", path)
-    if match is None:
-        return True if has_secret_dependency(dict(dependencies)) else None
-    return dependencies.get(match.group(1))
 
 
-def _scope_reference_depends_on_secrets(
-    parse_tree: Tree[Token],
-    node_name: str,
-    dependencies: SecretDependencies,
-    context: ExprContext,
-) -> bool:
-    for node in parse_tree.find_data(node_name):
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise TracecatExpressionError(
-                f"Expected {node_name} path token, got {type(token).__name__}"
-            )
-        dependency = _scoped_dependency(str(token), dependencies, context)
-        if dependency is not None and has_secret_dependency(dependency):
-            return True
-    return False
+def prepare_action_args(
+    action: str,
+    args: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply field policy and evaluate one action's arguments at the root."""
+    partitioned = partition_action_args(action, args)
+    evaluated = cast(
+        Mapping[str, Any],
+        eval_templated_object(partitioned.resolvable, operand=context),
+    )
+    return partitioned.merge(evaluated)
 
 
-def _expression_depends_on_secrets(
-    expression: str,
-    input_dependencies: SecretDependencies | None = None,
-) -> bool:
-    parse_tree = parser.parse(expression)
-    if parse_tree is None:
-        raise TracecatExpressionError(
-            f"Parser returned None for expression {expression!r}"
-        )
-    if next(parse_tree.find_data("secrets"), None) is not None:
-        return True
-    if input_dependencies and _scope_reference_depends_on_secrets(
-        parse_tree,
-        "template_action_inputs",
-        input_dependencies,
-        ExprContext.TEMPLATE_ACTION_INPUTS,
-    ):
-        return True
-    return False
-
-
-def _redact_secret_string(
-    value: str,
-    input_dependencies: SecretDependencies | None = None,
-) -> str:
-    def replace(match: re.Match[str]) -> str:
-        expression = match.group("expr")
-        if not expression or not _expression_depends_on_secrets(
-            expression, input_dependencies
-        ):
-            return match.group("template")
-        return MASK_VALUE
-
-    return patterns.TEMPLATE_STRING.sub(replace, value)
-
-
-def redact_secret_expressions(
-    value: Any,
-    input_dependencies: SecretDependencies | None = None,
-) -> Any:
-    """Replace complete secret-dependent expression occurrences recursively."""
-    match value:
-        case str():
-            return _redact_secret_string(value, input_dependencies)
-        case list():
-            return [
-                redact_secret_expressions(item, input_dependencies) for item in value
-            ]
-        case dict():
-            redacted: dict[Any, Any] = {}
-            for key, item in value.items():
-                if isinstance(key, str):
-                    # Keys never take the projection path: a masked or
-                    # projected key is ambiguous, so secret-dependent keys
-                    # are rejected outright.
-                    redacted_key = _redact_secret_string(key, input_dependencies)
-                    if redacted_key != key:
-                        raise TracecatExpressionError(
-                            "Secret expressions are not allowed in dictionary keys",
-                            detail={"code": "secret_expression_in_key"},
-                        )
-                else:
-                    redacted_key = key
-                redacted[redacted_key] = redact_secret_expressions(
-                    item, input_dependencies
-                )
-            return redacted
-        case _:
-            return value
-
-
-def derive_secret_dependencies(
-    value: Any,
-    input_dependencies: SecretDependencies | None = None,
-) -> SecretDependency:
-    """Derive expression-level secret dependencies without evaluating values."""
-    match value:
-        case str():
-            # Lazy fullmatch spans adjacent templates ("${{ a }} ${{ b }}"),
-            # so gate on the standalone pattern before extracting.
-            direct_match = (
-                patterns.TEMPLATE_STRING.fullmatch(value)
-                if patterns.STANDALONE_TEMPLATE.match(value)
-                else None
-            )
-            if direct_match is not None and (expression := direct_match.group("expr")):
-                parse_tree = parser.parse(expression)
-                if (
-                    parse_tree is not None
-                    and parse_tree.data == "template_action_inputs"
-                    and input_dependencies
-                ):
-                    token = parse_tree.children[0]
-                    if not isinstance(token, Token):
-                        raise TracecatExpressionError(
-                            "Expected template input path token"
-                        )
-                    dependency = _scoped_dependency(
-                        str(token),
-                        input_dependencies,
-                        ExprContext.TEMPLATE_ACTION_INPUTS,
-                    )
-                    return dependency if dependency is not None else False
-
-            return any(
-                _expression_depends_on_secrets(expression, input_dependencies)
-                for match in patterns.TEMPLATE_STRING.finditer(value)
-                if (expression := match.group("expr")) is not None
-            )
-        case list():
-            return [
-                derive_secret_dependencies(item, input_dependencies) for item in value
-            ]
-        case dict():
-            dependencies = {
-                key: derive_secret_dependencies(item, input_dependencies)
-                for key, item in value.items()
-            }
-            if any(
-                isinstance(key, str)
-                and has_secret_dependency(
-                    derive_secret_dependencies(key, input_dependencies)
-                )
-                for key in value
-            ):
-                dependencies[_SECRET_KEY_DEPENDENCY] = True
-            return dependencies
-        case _:
-            return False
-
-
-def _direct_template_input_path(template: str) -> str | None:
-    """Return the path for an exact inputs.* reference."""
-    if patterns.STANDALONE_TEMPLATE.match(template) is None:
-        return None
-    match = patterns.TEMPLATE_STRING.fullmatch(template)
-    if match is None or not (expression := match.group("expr")):
-        return None
-    parse_tree = parser.parse(expression)
-    if parse_tree is None or parse_tree.data != "template_action_inputs":
-        return None
-    token = parse_tree.children[0]
-    if not isinstance(token, Token):
-        raise TracecatExpressionError("Expected template input path token")
-    return str(token)
-
-
-def _is_direct_template_reference(template: str) -> bool:
-    """Return whether a template is exactly an inputs.* reference.
-
-    Never substitute steps.*: step results are materialized runtime data,
-    not authored source.
-    """
-    return _direct_template_input_path(template) is not None
-
-
-def _redact_runtime_value(value: Any, dependency: SecretDependency) -> Any:
-    """Mask materialized input data according to its authored dependency tree.
-
-    Runtime containers retain their shape. Mapping dependencies are paired by
-    key; validation may reorder mappings, and authored keys that change under
-    evaluation fall back to the collapsed conservative mask.
-    """
-    match dependency:
-        case bool():
-            if not dependency:
-                return value
-            if isinstance(value, list):
-                return [_redact_runtime_value(item, True) for item in value]
-            if isinstance(value, Mapping):
-                return {
-                    key: _redact_runtime_value(item, True)
-                    for key, item in value.items()
-                }
-            return MASK_VALUE
-        case list():
-            if not isinstance(value, list) or len(value) != len(dependency):
-                return _redact_runtime_value(value, has_secret_dependency(dependency))
-            return [
-                _redact_runtime_value(item, item_dependency)
-                for item, item_dependency in zip(value, dependency, strict=True)
-            ]
-        case dict():
-            key_dependency = dependency.get(_SECRET_KEY_DEPENDENCY, False)
-            if has_secret_dependency(key_dependency):
-                raise TracecatExpressionError(
-                    "Secret expressions are not allowed in dictionary keys",
-                    detail={"code": "secret_expression_in_key"},
-                )
-            value_dependencies = {
-                key: item_dependency
-                for key, item_dependency in dependency.items()
-                if key is not _SECRET_KEY_DEPENDENCY
-            }
-            if not isinstance(value, Mapping) or set(value) != set(value_dependencies):
-                return _redact_runtime_value(value, has_secret_dependency(dependency))
-            return {
-                key: _redact_runtime_value(item, value_dependencies[key])
-                for key, item in value.items()
-            }
-
-
-def substitute_source_references(value: Any, source_operand: Mapping[str, Any]) -> Any:
-    """Replace direct template input references with the caller's raw source.
-
-    Substitution splices authored source as inert data; it never evaluates
-    it, so the result is safe regardless of which contexts the source
-    references. Unresolvable references are left as written.
-    """
-    match value:
-        case str() if _is_direct_template_reference(value):
-            substituted = TemplateExpression(value, operand=source_operand).result()
-            return value if substituted is None else substituted
-        case str():
-
-            def replace(match: re.Match[str]) -> str:
-                template = match.group("template")
-                if _is_direct_template_reference(template):
-                    substituted = TemplateExpression(
-                        template, operand=source_operand
-                    ).result()
-                    if substituted is not None:
-                        return str(substituted)
-                return template
-
-            return patterns.TEMPLATE_STRING.sub(replace, value)
-        case list():
-            return [
-                substitute_source_references(item, source_operand) for item in value
-            ]
-        case dict():
-            substituted: dict[Any, Any] = {}
-            for key, item in value.items():
-                substituted_key = (
-                    substitute_source_references(key, source_operand)
-                    if isinstance(key, str)
-                    else key
-                )
-                if substituted_key in substituted:
-                    raise TracecatExpressionError(
-                        "Source substitution produced a duplicate dictionary key",
-                        detail={"code": "template_source_key_collision"},
-                    )
-                substituted[substituted_key] = substitute_source_references(
-                    item, source_operand
-                )
-            return substituted
-        case _:
-            return value
-
-
-def _is_resolvable_carrier(
-    value: Any,
-    input_dependencies: SecretDependencies | None,
-) -> bool:
-    """Whether a preserved value is a dynamic carrier safe to evaluate.
-
-    A bare standalone expression can never itself be valid preserved source
-    (patch ops must be a list, a definition must be YAML text), so the caller
-    is constructing the source dynamically. Evaluate it unless it depends on
-    secrets; secret-dependent carriers stay preserved and fail loudly at the
-    action's own validation instead of leaking.
-    """
-    if not isinstance(value, str):
-        return False
-    if patterns.STANDALONE_TEMPLATE.match(value) is None:
-        return False
-    match = patterns.TEMPLATE_STRING.fullmatch(value)
-    if match is None or not (expression := match.group("expr")):
-        return False
-    try:
-        return not _expression_depends_on_secrets(expression, input_dependencies)
-    except TracecatExpressionError:
-        return False
+# ---------------------------------------------------------------------------
+# Template boundary: steps inside a template action
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,12 +211,14 @@ class TemplateExecutionState:
         return self._context
 
     def _input_dependencies(self) -> dict[str, SecretDependency]:
+        """Collect each argument's secret dependency tree, keyed by parameter."""
         return {
             parameter: provenance.dependency
             for parameter, provenance in self._provenance.items()
         }
 
     def _source_operand(self) -> dict[str, Any]:
+        """Build the inputs operand from authored source, not evaluated values."""
         # Defaulted parameters have no provenance; their validated values are
         # the template author's literals and stand in as source.
         sources: dict[str, Any] = dict(self._context.get("inputs") or {})
@@ -530,6 +302,7 @@ class TemplateExecutionState:
                 return value
 
     def _preserve(self, value: Any) -> Any:
+        """Splice authored caller source into a preserved value without evaluating it."""
         substituted = substitute_source_references(value, self._source_operand())
         if _is_resolvable_carrier(substituted, self._input_dependencies()):
             # A bare expression is never valid preserved source. When the
@@ -559,63 +332,353 @@ class TemplateExecutionState:
         return provenance
 
 
-@dataclass(frozen=True, slots=True)
-class PartitionedActionArgs:
-    """Action arguments split into resolvable and preserved parameters."""
-
-    action: str
-    original: Mapping[str, Any]
-    resolvable: Mapping[str, Any]
-
-    def merge(self, evaluated: Mapping[str, Any]) -> dict[str, Any]:
-        """Restore preserved values without changing parameter order."""
-        return {
-            parameter: (evaluated[parameter] if parameter in self.resolvable else value)
-            for parameter, value in self.original.items()
-        }
+# ---------------------------------------------------------------------------
+# Secret dependency trees: derive taint from authored source
+# ---------------------------------------------------------------------------
 
 
-def expression_policy(action: str, parameter: str) -> ExpressionPolicy:
-    """Return the expression policy for an action parameter."""
-    return POLICY_MAP.get(ActionParameter(action, parameter), ExpressionPolicy.RESOLVE)
+def has_secret_dependency(dependency: SecretDependency) -> bool:
+    """Collapse a dependency tree to whether any part depends on secrets."""
+    match dependency:
+        case bool():
+            return dependency
+        case list():
+            return any(has_secret_dependency(item) for item in dependency)
+        case dict():
+            return any(has_secret_dependency(item) for item in dependency.values())
 
 
-def partition_action_args(
-    action: str,
-    args: Mapping[str, Any],
-) -> PartitionedActionArgs:
-    """Apply pre-evaluation policy and exclude preserved source subtrees.
+def derive_secret_dependencies(
+    value: Any,
+    input_dependencies: SecretDependencies | None = None,
+) -> SecretDependency:
+    """Derive expression-level secret dependencies without evaluating values."""
+    match value:
+        case str():
+            # An exact inputs.* reference inherits the caller's dependency
+            # subtree so structure survives; anything else collapses to bool.
+            if (
+                input_dependencies
+                and (path := _direct_template_input_path(value)) is not None
+            ):
+                dependency = _scoped_dependency(
+                    path,
+                    input_dependencies,
+                    ExprContext.TEMPLATE_ACTION_INPUTS,
+                )
+                return dependency if dependency is not None else False
+            return any(
+                _expression_depends_on_secrets(expression, input_dependencies)
+                for match in patterns.TEMPLATE_STRING.finditer(value)
+                if (expression := match.group("expr")) is not None
+            )
+        case list():
+            return [
+                derive_secret_dependencies(item, input_dependencies) for item in value
+            ]
+        case dict():
+            dependencies = {
+                key: derive_secret_dependencies(item, input_dependencies)
+                for key, item in value.items()
+            }
+            if any(
+                isinstance(key, str)
+                and has_secret_dependency(
+                    derive_secret_dependencies(key, input_dependencies)
+                )
+                for key in value
+            ):
+                dependencies[_SECRET_KEY_DEPENDENCY] = True
+            return dependencies
+        case _:
+            return False
 
-    Root-level boundary: template steps route through
-    ``TemplateExecutionState.prepare_step_args`` instead, which carries
-    input provenance.
+
+def _scoped_dependency(
+    path: str,
+    dependencies: SecretDependencies,
+    context: ExprContext,
+) -> SecretDependency | None:
+    """Look up the dependency subtree covering one scope path (e.g. ``.a.b``).
+
+    Returns None when the tree simply has no entry for the path. When a
+    compound expression collapsed a structured entry to a bare bool, deeper
+    paths have no node to land on; fall back to the entry's — or, for
+    unparseable paths, the whole tree's — collapsed dependency so access
+    beneath it stays conservatively secret-dependent.
     """
-    resolvable: dict[str, Any] = {}
-    for parameter, value in args.items():
-        match expression_policy(action, parameter):
-            case ExpressionPolicy.PRESERVE:
-                if _is_resolvable_carrier(value, None):
-                    resolvable[parameter] = value
-            case ExpressionPolicy.REDACT_SECRETS:
-                resolvable[parameter] = redact_secret_expressions(value)
-            case ExpressionPolicy.RESOLVE:
-                resolvable[parameter] = value
-    return PartitionedActionArgs(
-        action=action,
-        original=args,
-        resolvable=resolvable,
+    dependency = eval_jsonpath(
+        f"{context}{path}",
+        {context: dependencies},
     )
+    if dependency is not None:
+        return cast(SecretDependency, dependency)
+
+    match = re.match(r"^\.([A-Za-z_][A-Za-z0-9_]*)", path)
+    if match is None:
+        return True if has_secret_dependency(dict(dependencies)) else None
+    return dependencies.get(match.group(1))
 
 
-def prepare_action_args(
-    action: str,
-    args: Mapping[str, Any],
-    context: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Apply field policy and evaluate one action's arguments at the root."""
-    partitioned = partition_action_args(action, args)
-    evaluated = cast(
-        Mapping[str, Any],
-        eval_templated_object(partitioned.resolvable, operand=context),
-    )
-    return partitioned.merge(evaluated)
+def _scope_reference_depends_on_secrets(
+    parse_tree: Tree[Token],
+    node_name: str,
+    dependencies: SecretDependencies,
+    context: ExprContext,
+) -> bool:
+    """Whether any scope reference in the parse tree lands on a tainted entry."""
+    for node in parse_tree.find_data(node_name):
+        token = node.children[0]
+        if not isinstance(token, Token):
+            raise TracecatExpressionError(
+                f"Expected {node_name} path token, got {type(token).__name__}"
+            )
+        dependency = _scoped_dependency(str(token), dependencies, context)
+        if dependency is not None and has_secret_dependency(dependency):
+            return True
+    return False
+
+
+def _expression_depends_on_secrets(
+    expression: str,
+    input_dependencies: SecretDependencies | None = None,
+) -> bool:
+    """Whether one parsed expression reads secrets directly or via tainted inputs."""
+    parse_tree = parser.parse(expression)
+    if parse_tree is None:
+        raise TracecatExpressionError(
+            f"Parser returned None for expression {expression!r}"
+        )
+    if next(parse_tree.find_data("secrets"), None) is not None:
+        return True
+    if input_dependencies and _scope_reference_depends_on_secrets(
+        parse_tree,
+        "template_action_inputs",
+        input_dependencies,
+        ExprContext.TEMPLATE_ACTION_INPUTS,
+    ):
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Redaction: authored source text
+# ---------------------------------------------------------------------------
+
+
+def redact_secret_expressions(
+    value: Any,
+    input_dependencies: SecretDependencies | None = None,
+) -> Any:
+    """Replace complete secret-dependent expression occurrences recursively."""
+    match value:
+        case str():
+            return _redact_secret_string(value, input_dependencies)
+        case list():
+            return [
+                redact_secret_expressions(item, input_dependencies) for item in value
+            ]
+        case dict():
+            redacted: dict[Any, Any] = {}
+            for key, item in value.items():
+                if isinstance(key, str):
+                    # Keys never take the projection path: a masked or
+                    # projected key is ambiguous, so secret-dependent keys
+                    # are rejected outright.
+                    redacted_key = _redact_secret_string(key, input_dependencies)
+                    if redacted_key != key:
+                        raise TracecatExpressionError(
+                            "Secret expressions are not allowed in dictionary keys",
+                            detail={"code": "secret_expression_in_key"},
+                        )
+                else:
+                    redacted_key = key
+                redacted[redacted_key] = redact_secret_expressions(
+                    item, input_dependencies
+                )
+            return redacted
+        case _:
+            return value
+
+
+def _redact_secret_string(
+    value: str,
+    input_dependencies: SecretDependencies | None = None,
+) -> str:
+    """Mask each embedded template expression that depends on secrets."""
+
+    def replace(match: re.Match[str]) -> str:
+        expression = match.group("expr")
+        if not expression or not _expression_depends_on_secrets(
+            expression, input_dependencies
+        ):
+            return match.group("template")
+        return MASK_VALUE
+
+    return patterns.TEMPLATE_STRING.sub(replace, value)
+
+
+# ---------------------------------------------------------------------------
+# Redaction: materialized runtime values
+# ---------------------------------------------------------------------------
+
+
+def _redact_runtime_value(value: Any, dependency: SecretDependency) -> Any:
+    """Mask materialized input data according to its authored dependency tree.
+
+    Runtime containers retain their shape. Mapping dependencies are paired by
+    key; validation may reorder mappings, and authored keys that change under
+    evaluation fall back to the collapsed conservative mask.
+    """
+    match dependency:
+        case bool():
+            if not dependency:
+                return value
+            if isinstance(value, list):
+                return [_redact_runtime_value(item, True) for item in value]
+            if isinstance(value, Mapping):
+                return {
+                    key: _redact_runtime_value(item, True)
+                    for key, item in value.items()
+                }
+            return MASK_VALUE
+        case list():
+            if not isinstance(value, list) or len(value) != len(dependency):
+                return _redact_runtime_value(value, has_secret_dependency(dependency))
+            return [
+                _redact_runtime_value(item, item_dependency)
+                for item, item_dependency in zip(value, dependency, strict=True)
+            ]
+        case dict():
+            key_dependency = dependency.get(_SECRET_KEY_DEPENDENCY, False)
+            if has_secret_dependency(key_dependency):
+                raise TracecatExpressionError(
+                    "Secret expressions are not allowed in dictionary keys",
+                    detail={"code": "secret_expression_in_key"},
+                )
+            value_dependencies = {
+                key: item_dependency
+                for key, item_dependency in dependency.items()
+                if key is not _SECRET_KEY_DEPENDENCY
+            }
+            if not isinstance(value, Mapping) or set(value) != set(value_dependencies):
+                return _redact_runtime_value(value, has_secret_dependency(dependency))
+            return {
+                key: _redact_runtime_value(item, value_dependencies[key])
+                for key, item in value.items()
+            }
+
+
+# ---------------------------------------------------------------------------
+# Preservation: splice authored source without evaluating it
+# ---------------------------------------------------------------------------
+
+
+def substitute_source_references(value: Any, source_operand: Mapping[str, Any]) -> Any:
+    """Replace direct template input references with the caller's raw source.
+
+    Substitution splices authored source as inert data; it never evaluates
+    it, so the result is safe regardless of which contexts the source
+    references. Unresolvable references are left as written.
+    """
+    match value:
+        case str() if _is_direct_template_reference(value):
+            substituted = TemplateExpression(value, operand=source_operand).result()
+            return value if substituted is None else substituted
+        case str():
+
+            def replace(match: re.Match[str]) -> str:
+                template = match.group("template")
+                if _is_direct_template_reference(template):
+                    substituted = TemplateExpression(
+                        template, operand=source_operand
+                    ).result()
+                    if substituted is not None:
+                        return str(substituted)
+                return template
+
+            return patterns.TEMPLATE_STRING.sub(replace, value)
+        case list():
+            return [
+                substitute_source_references(item, source_operand) for item in value
+            ]
+        case dict():
+            substituted: dict[Any, Any] = {}
+            for key, item in value.items():
+                substituted_key = (
+                    substitute_source_references(key, source_operand)
+                    if isinstance(key, str)
+                    else key
+                )
+                if substituted_key in substituted:
+                    raise TracecatExpressionError(
+                        "Source substitution produced a duplicate dictionary key",
+                        detail={"code": "template_source_key_collision"},
+                    )
+                substituted[substituted_key] = substitute_source_references(
+                    item, source_operand
+                )
+            return substituted
+        case _:
+            return value
+
+
+def _is_resolvable_carrier(
+    value: Any,
+    input_dependencies: SecretDependencies | None,
+) -> bool:
+    """Whether a preserved value is a dynamic carrier safe to evaluate.
+
+    A bare standalone expression can never itself be valid preserved source
+    (patch ops must be a list, a definition must be YAML text), so the caller
+    is constructing the source dynamically. Evaluate it unless it depends on
+    secrets; secret-dependent carriers stay preserved and fail loudly at the
+    action's own validation instead of leaking.
+    """
+    if not isinstance(value, str):
+        return False
+    if (expression := _standalone_expression(value)) is None:
+        return False
+    try:
+        return not _expression_depends_on_secrets(expression, input_dependencies)
+    except TracecatExpressionError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Template parsing helpers
+# ---------------------------------------------------------------------------
+
+
+def _standalone_expression(value: str) -> str | None:
+    """Extract the inner expression when the string is exactly one template."""
+    # Lazy fullmatch spans adjacent templates ("${{ a }} ${{ b }}"), so gate
+    # on the standalone pattern before extracting.
+    if patterns.STANDALONE_TEMPLATE.match(value) is None:
+        return None
+    match = patterns.TEMPLATE_STRING.fullmatch(value)
+    if match is None or not (expression := match.group("expr")):
+        return None
+    return expression
+
+
+def _direct_template_input_path(template: str) -> str | None:
+    """Return the path for an exact inputs.* reference."""
+    if (expression := _standalone_expression(template)) is None:
+        return None
+    parse_tree = parser.parse(expression)
+    if parse_tree is None or parse_tree.data != "template_action_inputs":
+        return None
+    token = parse_tree.children[0]
+    if not isinstance(token, Token):
+        raise TracecatExpressionError("Expected template input path token")
+    return str(token)
+
+
+def _is_direct_template_reference(template: str) -> bool:
+    """Return whether a template is exactly an inputs.* reference.
+
+    Never substitute steps.*: step results are materialized runtime data,
+    not authored source.
+    """
+    return _direct_template_input_path(template) is not None
