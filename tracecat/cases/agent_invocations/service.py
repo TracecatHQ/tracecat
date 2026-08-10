@@ -5,25 +5,126 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import aliased
 
+from tracecat.cases.agent_invocations.types import (
+    CommentThreadContext,
+    CommentThreadEntry,
+)
 from tracecat.cases.enums import (
     CaseCommentAgentInvocationStatus,
     MentionTargetType,
 )
 from tracecat.db.models import (
     AgentPreset,
+    CaseComment,
     CaseCommentAgentInvocation,
     CaseCommentMention,
+    User,
 )
 from tracecat.service import BaseWorkspaceService
+
+_DELETED_COMMENT_CONTENT = "Comment deleted"
+
+
+def _author_label(
+    comment: CaseComment,
+    user: User | None,
+    agent_preset_name: str | None,
+) -> str:
+    if agent_preset_name is not None:
+        return f"Agent: {agent_preset_name}"
+    if comment.workflow_title is not None:
+        return f"Workflow: {comment.workflow_title}"
+    if user is None:
+        return "Tracecat"
+    display_name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    return display_name or user.email
 
 
 class CaseCommentAgentInvocationService(BaseWorkspaceService):
     """Manage agent invocations originating from case-comment mentions."""
 
     service_name = "case_comment_agent_invocations"
+
+    async def claim_pending(
+        self, invocation_id: uuid.UUID
+    ) -> CaseCommentAgentInvocation | None:
+        """Atomically claim a pending invocation for dispatch.
+
+        The caller owns the transaction. A ``None`` result means the invocation
+        was not pending in this workspace.
+        """
+        statement = (
+            update(CaseCommentAgentInvocation)
+            .where(
+                CaseCommentAgentInvocation.id == invocation_id,
+                CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                CaseCommentAgentInvocation.status
+                == CaseCommentAgentInvocationStatus.PENDING.value,
+            )
+            .values(
+                status=CaseCommentAgentInvocationStatus.RUNNING.value,
+                error=None,
+            )
+            .returning(CaseCommentAgentInvocation)
+        )
+        return await self.session.scalar(statement)
+
+    async def mark_failed(
+        self,
+        invocation_id: uuid.UUID,
+        error: str,
+    ) -> CaseCommentAgentInvocation | None:
+        """Atomically mark a running invocation as failed.
+
+        The caller owns the transaction. A ``None`` result means the invocation
+        was not running in this workspace.
+        """
+        statement = (
+            update(CaseCommentAgentInvocation)
+            .where(
+                CaseCommentAgentInvocation.id == invocation_id,
+                CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                CaseCommentAgentInvocation.status
+                == CaseCommentAgentInvocationStatus.RUNNING.value,
+            )
+            .values(
+                status=CaseCommentAgentInvocationStatus.FAILED.value,
+                error=error,
+            )
+            .returning(CaseCommentAgentInvocation)
+        )
+        return await self.session.scalar(statement)
+
+    async def mark_succeeded(
+        self,
+        invocation_id: uuid.UUID,
+        reply_comment_id: uuid.UUID,
+    ) -> CaseCommentAgentInvocation | None:
+        """Atomically mark a running invocation as succeeded with its reply.
+
+        The caller owns the transaction. A ``None`` result means the invocation
+        was not running in this workspace.
+        """
+        statement = (
+            update(CaseCommentAgentInvocation)
+            .where(
+                CaseCommentAgentInvocation.id == invocation_id,
+                CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                CaseCommentAgentInvocation.status
+                == CaseCommentAgentInvocationStatus.RUNNING.value,
+            )
+            .values(
+                status=CaseCommentAgentInvocationStatus.SUCCEEDED.value,
+                reply_comment_id=reply_comment_id,
+                error=None,
+            )
+            .returning(CaseCommentAgentInvocation)
+        )
+        return await self.session.scalar(statement)
 
     async def create_pending_for_comment(
         self, comment_id: uuid.UUID
@@ -75,3 +176,73 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
         )
         result = await self.session.scalars(statement)
         return list(result.all())
+
+    async def load_thread_context(
+        self, invocation_id: uuid.UUID
+    ) -> CommentThreadContext | None:
+        """Load the ordered comment thread containing an invocation."""
+        source_statement = (
+            select(
+                CaseCommentMention.comment_id,
+                CaseComment.case_id,
+                CaseComment.parent_id,
+            )
+            .join(
+                CaseCommentAgentInvocation,
+                CaseCommentAgentInvocation.mention_id == CaseCommentMention.id,
+            )
+            .join(CaseComment, CaseComment.id == CaseCommentMention.comment_id)
+            .where(
+                CaseCommentAgentInvocation.id == invocation_id,
+                CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                CaseCommentMention.workspace_id == self.workspace_id,
+                CaseComment.workspace_id == self.workspace_id,
+            )
+        )
+        source = (await self.session.execute(source_statement)).tuples().one_or_none()
+        if source is None:
+            return None
+
+        invoking_comment_id, case_id, parent_id = source
+        thread_root_id = parent_id or invoking_comment_id
+        reply_invocation = aliased(CaseCommentAgentInvocation)
+        thread_statement = (
+            select(CaseComment, User, reply_invocation.preset_name)
+            .outerjoin(User, sa.cast(CaseComment.user_id, sa.UUID) == User.id)
+            .outerjoin(
+                reply_invocation,
+                sa.and_(
+                    reply_invocation.reply_comment_id == CaseComment.id,
+                    reply_invocation.workspace_id == self.workspace_id,
+                ),
+            )
+            .where(
+                CaseComment.workspace_id == self.workspace_id,
+                CaseComment.case_id == case_id,
+                sa.or_(
+                    CaseComment.id == thread_root_id,
+                    CaseComment.parent_id == thread_root_id,
+                ),
+            )
+            .order_by(CaseComment.created_at, CaseComment.surrogate_id)
+        )
+        rows = (await self.session.execute(thread_statement)).tuples().all()
+        entries = tuple(
+            CommentThreadEntry(
+                id=comment.id,
+                parent_id=comment.parent_id,
+                author_label=_author_label(comment, user, agent_preset_name),
+                content=(
+                    _DELETED_COMMENT_CONTENT
+                    if comment.deleted_at is not None
+                    else comment.content
+                ),
+                created_at=comment.created_at,
+            )
+            for comment, user, agent_preset_name in rows
+        )
+        return CommentThreadContext(
+            thread_root_id=thread_root_id,
+            invoking_comment_id=invoking_comment_id,
+            entries=entries,
+        )

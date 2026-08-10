@@ -25,6 +25,9 @@ from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, require_scope
+from tracecat.cases.agent_invocations.queue import (
+    invoke_comment_agent_turns_after_commit,
+)
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
@@ -2605,9 +2608,14 @@ class CaseCommentsService(BaseWorkspaceService):
                 comment=comment, content=params.content
             )
             await self.session.flush()
-            await CaseCommentAgentInvocationService(
+            invocations = await CaseCommentAgentInvocationService(
                 session=self.session, role=self.role
             ).create_pending_for_comment(comment.id)
+            invoke_comment_agent_turns_after_commit(
+                self.session,
+                invocation_ids=[invocation.id for invocation in invocations],
+                role=self.role,
+            )
             db_event = await CaseEventsService(
                 session=self.session, role=self.role
             ).create_event(

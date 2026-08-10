@@ -38,6 +38,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.workflows.mcp_probe import (
         StdioMCPProbeWorkflow,
     )
+    from tracecat.cases.agent_invocations.activities import (
+        complete_comment_agent_invocation_activity,
+        fail_comment_agent_invocation_activity,
+        prepare_comment_agent_invocation_activity,
+    )
+    from tracecat.cases.agent_invocations.workflows import (
+        CaseCommentAgentInvocationWorkflow,
+    )
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.logger import logger
@@ -86,6 +94,9 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(resolve_custom_model_provider_config_activity)
     activities.append(persist_stdio_mcp_connection_activity)
     activities.extend(get_session_activities())
+    activities.append(complete_comment_agent_invocation_activity)
+    activities.append(fail_comment_agent_invocation_activity)
+    activities.append(prepare_comment_agent_invocation_activity)
     return activities
 
 
@@ -132,6 +143,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             workflows: list[type] = [
                 DurableAgentWorkflow,
+                CaseCommentAgentInvocationWorkflow,
                 ExecuteRegistryToolWorkflow,
                 StdioMCPProbeWorkflow,
             ]
