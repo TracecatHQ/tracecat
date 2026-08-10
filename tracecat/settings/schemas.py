@@ -166,8 +166,9 @@ class AuditSettingsUpdate(BaseSettingsGroup):
     audit_webhook_custom_payload: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Custom JSON payload merged into streamed audit event payloads. "
-            "Custom keys override default audit event keys."
+            "Custom JSON fields merged into streamed audit event payloads. "
+            "Canonical audit event fields take precedence; conflicting custom "
+            "keys are ignored."
         ),
     )
     audit_webhook_payload_attribute: str | None = Field(

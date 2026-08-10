@@ -34,7 +34,7 @@ class CaseTriggersService(BaseWorkspaceService):
             return AuditEventDetails(emit=False)
         return AuditEventDetails(data={"changed_fields": sorted(params.model_dump())})
 
-    def _case_trigger_update_audit_details(
+    async def _case_trigger_update_audit_details(
         self,
         workflow_id: WorkflowID,
         params: CaseTriggerUpdate,
@@ -44,8 +44,16 @@ class CaseTriggersService(BaseWorkspaceService):
     ) -> AuditEventDetails:
         if commit is False:
             return AuditEventDetails(emit=False)
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        trigger_id = await self.session.scalar(
+            select(CaseTrigger.id).where(
+                CaseTrigger.workspace_id == self.workspace_id,
+                CaseTrigger.workflow_id == workflow_uuid,
+            )
+        )
         return AuditEventDetails(
-            data={"changed_fields": sorted(params.model_fields_set)}
+            resource_id=trigger_id,
+            data={"changed_fields": sorted(params.model_fields_set)},
         )
 
     async def _lock_workflow(self, workflow_id: WorkflowID) -> None:

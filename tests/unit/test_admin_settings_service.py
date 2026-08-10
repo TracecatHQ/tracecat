@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.admin.settings import service as admin_settings_service_module
 from tracecat_ee.admin.settings.schemas import PlatformAuditSettingsUpdate
 from tracecat_ee.admin.settings.service import AdminSettingsService
 
@@ -52,8 +53,15 @@ async def test_platform_audit_settings_default_to_disconnected(
 async def test_platform_audit_settings_encrypt_sensitive_values(
     session: AsyncSession,
     platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = AdminSettingsService(session, platform_role)
+    clear_audit_cache = MagicMock()
+    monkeypatch.setattr(
+        admin_settings_service_module,
+        "clear_audit_setting_cache",
+        clear_audit_cache,
+    )
     custom_headers = {"Authorization": "Bearer secret"}
     custom_payload = {"source": "tracecat-platform"}
 
@@ -72,6 +80,7 @@ async def test_platform_audit_settings_encrypt_sensitive_values(
     assert settings.audit_webhook_custom_payload == custom_payload
     assert settings.audit_webhook_payload_attribute == "event"
     assert settings.audit_webhook_verify_ssl is False
+    clear_audit_cache.assert_called_once_with()
 
     rows = (await session.execute(select(PlatformSetting))).scalars().all()
     settings_by_key = {setting.key: setting for setting in rows}

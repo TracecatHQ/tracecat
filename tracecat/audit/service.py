@@ -231,6 +231,11 @@ async def _get_audit_setting_cached(
     return await get_setting(key, role=role, session=None, default=default)
 
 
+def clear_audit_setting_cache() -> None:
+    """Make committed audit setting changes visible to the next event."""
+    _get_audit_setting_cached.cache_clear()
+
+
 class AuditService(BaseService):
     """Stream user-driven events to an audit webhook if configured.
 
@@ -397,7 +402,9 @@ class AuditService(BaseService):
         payload_attribute = await self._get_payload_attribute()
         event_payload = payload.model_dump(mode="json")
         if custom_payload:
-            event_payload = {**event_payload, **custom_payload}
+            # Custom fields may enrich an event but cannot replace the canonical
+            # audit contract with invalid or misleading values.
+            event_payload = {**custom_payload, **event_payload}
         request_payload: dict[str, Any]
         if payload_attribute:
             request_payload = {payload_attribute: event_payload}

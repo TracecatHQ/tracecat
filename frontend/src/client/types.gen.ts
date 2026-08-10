@@ -1384,7 +1384,7 @@ export type AuditSettingsUpdate = {
     [key: string]: string
   } | null
   /**
-   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
    */
   audit_webhook_custom_payload?: {
     [key: string]: unknown
@@ -5725,7 +5725,7 @@ export type PlatformAuditSettingsUpdate = {
     [key: string]: string
   } | null
   /**
-   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
    */
   audit_webhook_custom_payload?: {
     [key: string]: unknown
