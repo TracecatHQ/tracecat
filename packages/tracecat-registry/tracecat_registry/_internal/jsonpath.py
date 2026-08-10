@@ -19,11 +19,16 @@ from tracecat_registry._internal.logger import logger
 # parsetab module every call re-imports the missing table module and regenerates
 # the LALR table. That import-lock traffic can deadlock the process if a Temporal
 # activity thread is cancelled while holding the import lock. Build one parser at
-# import time (before any worker threads exist) and serialize access: PLY's
-# LRParser mutates shared state during parse and is not thread-safe. Callers treat
-# parsed expression trees as read-only, so sharing them across threads is safe.
+# module import time and serialize access: PLY's LRParser mutates shared state
+# during parse and is not thread-safe. Callers treat parsed expression trees as
+# read-only, so sharing them across threads is safe.
 _JSONPATH_PARSER = ExtentedJsonPathParser()
 _JSONPATH_PARSER_LOCK = threading.Lock()
+
+# functools.lru_cache may execute the wrapped function multiple times for
+# concurrent misses. Separate cache and parser locks keep hits from waiting on
+# parsing, while the second cache lookup coalesces cacheable misses. These limits
+# affect retention only; longer JSONPaths remain valid and parse without caching.
 _JSONPATH_CACHE_MAXSIZE = 1024
 _JSONPATH_CACHE_MAX_EXPR_LENGTH = 256
 _JSONPATH_CACHE: OrderedDict[str, jsonpath_nodes.JSONPath] = OrderedDict()
@@ -31,6 +36,7 @@ _JSONPATH_CACHE_LOCK = threading.Lock()
 
 
 def _get_cached_jsonpath(expr: str) -> jsonpath_nodes.JSONPath | None:
+    """Return a cached JSONPath and update its LRU position."""
     with _JSONPATH_CACHE_LOCK:
         parsed = _JSONPATH_CACHE.get(expr)
         if parsed is not None:
@@ -39,6 +45,7 @@ def _get_cached_jsonpath(expr: str) -> jsonpath_nodes.JSONPath | None:
 
 
 def _cache_jsonpath(expr: str, parsed: jsonpath_nodes.JSONPath) -> None:
+    """Cache a JSONPath, evicting the least recently used entry if full."""
     with _JSONPATH_CACHE_LOCK:
         _JSONPATH_CACHE[expr] = parsed
         if len(_JSONPATH_CACHE) > _JSONPATH_CACHE_MAXSIZE:
@@ -46,7 +53,11 @@ def _cache_jsonpath(expr: str, parsed: jsonpath_nodes.JSONPath) -> None:
 
 
 def _parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
-    """Parse a JSONPath, caching expressions with bounded source lengths."""
+    """Parse a JSONPath using the shared process-wide parser.
+
+    Expressions exceeding the cache admission limit remain valid and are parsed
+    without being retained.
+    """
     cacheable = len(expr) <= _JSONPATH_CACHE_MAX_EXPR_LENGTH
     if cacheable and (parsed := _get_cached_jsonpath(expr)) is not None:
         return parsed
