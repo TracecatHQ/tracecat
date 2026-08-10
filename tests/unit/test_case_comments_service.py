@@ -19,6 +19,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    MentionTargetType,
 )
 from tracecat.cases.schemas import (
     CaseCommentCreate,
@@ -27,7 +28,14 @@ from tracecat.cases.schemas import (
     CaseCreate,
 )
 from tracecat.cases.service import CaseCommentsService, CasesService
-from tracecat.db.models import Case, CaseComment, CaseEvent, Workflow
+from tracecat.db.models import (
+    AgentPreset,
+    Case,
+    CaseComment,
+    CaseCommentMention,
+    CaseEvent,
+    Workflow,
+)
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -35,6 +43,8 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+
+MISSING_AGENT_TARGET_ID = uuid.UUID("00000000-0000-4000-8000-000000000099")
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -67,6 +77,43 @@ async def _load_case_events(
         .order_by(CaseEvent.created_at, CaseEvent.surrogate_id)
     )
     return list(result.scalars().all())
+
+
+async def _load_comment_mentions(
+    session: AsyncSession,
+    comment_id: uuid.UUID,
+) -> list[CaseCommentMention]:
+    result = await session.execute(
+        select(CaseCommentMention)
+        .where(CaseCommentMention.comment_id == comment_id)
+        .order_by(CaseCommentMention.created_at, CaseCommentMention.surrogate_id)
+    )
+    return list(result.scalars().all())
+
+
+async def _create_agent_preset(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    *,
+    name: str,
+    deleted_at: datetime | None = None,
+) -> AgentPreset:
+    preset = AgentPreset(
+        workspace_id=workspace_id,
+        name=name,
+        slug=f"case-comment-mention-{name.lower().replace(' ', '-')}",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        deleted_at=deleted_at,
+    )
+    session.add(preset)
+    await session.commit()
+    await session.refresh(preset)
+    return preset
+
+
+def _mention_token(label: str, target_id: uuid.UUID) -> str:
+    return f"[@{label}](mention://agent/{target_id})"
 
 
 @pytest.fixture
@@ -222,6 +269,234 @@ class TestCaseCommentsService:
         assert retrieved_comment.content == comment_create_params.content
         assert retrieved_comment.parent_id == comment_create_params.parent_id
         assert retrieved_comment.user_id == case_comments_service.role.user_id
+
+    async def test_create_comment_persists_valid_agent_mention(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Response agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token("Response agent", preset.id)),
+        )
+
+        mentions = await _load_comment_mentions(session, comment.id)
+        assert len(mentions) == 1
+        mention = mentions[0]
+        assert mention.case_id == test_case.id
+        assert mention.comment_id == comment.id
+        assert mention.target_type == MentionTargetType.AGENT
+        assert mention.target_id == preset.id
+        assert mention.label == "Response agent"
+
+        serialized_comment = next(
+            item
+            for item in await case_comments_service.list_comments(test_case)
+            if item.id == comment.id
+        )
+        assert len(serialized_comment.mentions) == 1
+        assert serialized_comment.mentions[0].target_id == preset.id
+        assert serialized_comment.mentions[0].label == "Response agent"
+
+        threads = await case_comments_service.list_comment_threads(test_case)
+        assert len(threads) == 1
+        assert threads[0].comment.mentions[0].target_id == preset.id
+
+        thread = await case_comments_service.get_comment_thread(comment.id)
+        assert thread is not None
+        assert thread.comment.mentions[0].target_id == preset.id
+
+    async def test_create_comment_deduplicates_agent_mentions(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Deduplicated agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=" ".join(
+                    [
+                        _mention_token("First label", preset.id),
+                        _mention_token("Second label", preset.id),
+                    ]
+                )
+            ),
+        )
+
+        mentions = await _load_comment_mentions(session, comment.id)
+        assert len(mentions) == 1
+        assert mentions[0].target_id == preset.id
+        assert mentions[0].label == "First label"
+
+    async def test_create_comment_persists_multiple_agent_mentions(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        first_preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="First agent",
+        )
+        second_preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Second agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=" ".join(
+                    [
+                        _mention_token("First agent", first_preset.id),
+                        _mention_token("Second agent", second_preset.id),
+                    ]
+                )
+            ),
+        )
+
+        mentions = await _load_comment_mentions(session, comment.id)
+        assert {(mention.target_id, mention.label) for mention in mentions} == {
+            (first_preset.id, "First agent"),
+            (second_preset.id, "Second agent"),
+        }
+
+    async def test_create_comment_skips_missing_and_deleted_agent_mentions(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        deleted_preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Deleted agent",
+            deleted_at=datetime.now(UTC),
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=" ".join(
+                    [
+                        _mention_token("Missing agent", MISSING_AGENT_TARGET_ID),
+                        _mention_token("Deleted agent", deleted_preset.id),
+                    ]
+                )
+            ),
+        )
+
+        assert await _load_comment_mentions(session, comment.id) == []
+
+    async def test_create_comment_skips_overlong_label_mention(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        """An otherwise-valid mention with a label over the column width is inert.
+
+        The label column is `String(255)`; a longer label must not reach the
+        database (which would fail the whole comment insert) and must not
+        raise from `create_comment`.
+        """
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Overlong label agent",
+        )
+        overlong_label = "a" * 256
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token(overlong_label, preset.id)),
+        )
+
+        assert await _load_comment_mentions(session, comment.id) == []
+
+    async def test_update_comment_does_not_change_mentions(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        original_preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Original agent",
+        )
+        replacement_preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Replacement agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Original agent", original_preset.id)
+            ),
+        )
+        before = [
+            (
+                mention.id,
+                mention.target_type,
+                mention.target_id,
+                mention.label,
+                mention.created_at,
+            )
+            for mention in await _load_comment_mentions(session, comment.id)
+        ]
+
+        await case_comments_service.update_comment(
+            comment,
+            CaseCommentUpdate(
+                content=_mention_token("Replacement agent", replacement_preset.id)
+            ),
+        )
+
+        after = [
+            (
+                mention.id,
+                mention.target_type,
+                mention.target_id,
+                mention.label,
+                mention.created_at,
+            )
+            for mention in await _load_comment_mentions(session, comment.id)
+        ]
+        assert after == before
+
+    async def test_delete_comment_cascades_to_mentions(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Temporary agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token("Temporary agent", preset.id)),
+        )
+        assert len(await _load_comment_mentions(session, comment.id)) == 1
+
+        await case_comments_service.delete_comment(comment)
+
+        assert await _load_comment_mentions(session, comment.id) == []
 
     async def test_create_workflow_backed_comment(
         self,
@@ -1048,9 +1323,17 @@ class TestCaseCommentsService:
     ) -> None:
         """Top-level comments with replies are soft deleted and rendered as tombstones."""
         existing_audit_count = len(audit_event_calls)
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Tombstoned comment agent",
+        )
         parent = await case_comments_service.create_comment(
             test_case,
-            CaseCommentCreate(content="Parent", parent_id=None),
+            CaseCommentCreate(
+                content=_mention_token("Tombstoned comment agent", preset.id),
+                parent_id=None,
+            ),
         )
         await case_comments_service.create_comment(
             test_case,
@@ -1068,6 +1351,7 @@ class TestCaseCommentsService:
         assert threads[0].comment.id == parent.id
         assert threads[0].comment.is_deleted is True
         assert threads[0].comment.content == "Comment deleted"
+        assert threads[0].comment.mentions[0].target_id == preset.id
 
         case_events = await _load_case_events(session, test_case.id)
         assert case_events[-1].type == CaseEventType.COMMENT_DELETED

@@ -23,6 +23,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.tags.schemas import CaseTagRead
@@ -290,6 +291,14 @@ class CaseCommentWorkflowRead(Schema):
     status: CaseCommentWorkflowStatus
 
 
+class CaseCommentMentionRead(Schema):
+    id: uuid.UUID
+    target_type: MentionTargetType
+    target_id: uuid.UUID
+    label: str
+    created_at: datetime
+
+
 class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
@@ -301,6 +310,7 @@ class CaseCommentRead(Schema):
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None
     is_deleted: bool = Field(default=False)
+    mentions: list[CaseCommentMentionRead] = Field(default_factory=list)
 
 
 class CaseCommentThreadRead(Schema):

@@ -1687,6 +1687,14 @@ export type CaseCommentCreate = {
 
 export type CaseCommentDeleteMode = "soft" | "hard"
 
+export type CaseCommentMentionRead = {
+  id: string
+  target_type: MentionTargetType
+  target_id: string
+  label: string
+  created_at: string
+}
+
 export type CaseCommentRead = {
   id: string
   created_at: string
@@ -1698,6 +1706,7 @@ export type CaseCommentRead = {
   last_edited_at?: string | null
   deleted_at?: string | null
   is_deleted?: boolean
+  mentions?: Array<CaseCommentMentionRead>
 }
 
 export type CaseCommentThreadRead = {
@@ -5314,6 +5323,16 @@ export type status5 =
   | "succeeded"
   | "failed"
   | "superseded"
+
+/**
+ * Polymorphic target kind for a parsed case-comment mention.
+ *
+ * Only ``AGENT`` is supported today. The finite set lives here (rather than
+ * as a bare ``str`` checked at runtime) so every mention-aware call site —
+ * the parser, persistence, and API read schema — shares one exhaustive,
+ * type-checked domain of valid target kinds.
+ */
+export type MentionTargetType = "agent"
 
 /**
  * The type/kind of message stored in the chat.

@@ -6475,6 +6475,36 @@ export const $CaseCommentDeleteMode = {
   enum: ["soft", "hard"],
 } as const
 
+export const $CaseCommentMentionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_type: {
+      $ref: "#/components/schemas/MentionTargetType",
+    },
+    target_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Id",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "target_type", "target_id", "label", "created_at"],
+  title: "CaseCommentMentionRead",
+} as const
+
 export const $CaseCommentRead = {
   properties: {
     id: {
@@ -6556,6 +6586,13 @@ export const $CaseCommentRead = {
       type: "boolean",
       title: "Is Deleted",
       default: false,
+    },
+    mentions: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentMentionRead",
+      },
+      type: "array",
+      title: "Mentions",
     },
   },
   type: "object",
@@ -17369,6 +17406,18 @@ export const $MCPVerificationStatusRead = {
   required: ["status"],
   title: "MCPVerificationStatusRead",
   description: "Response model for saved MCP verification status.",
+} as const
+
+export const $MentionTargetType = {
+  type: "string",
+  enum: ["agent"],
+  title: "MentionTargetType",
+  description: `Polymorphic target kind for a parsed case-comment mention.
+
+Only \`\`AGENT\`\` is supported today. The finite set lives here (rather than
+as a bare \`\`str\`\` checked at runtime) so every mention-aware call site —
+the parser, persistence, and API read schema — shares one exhaustive,
+type-checked domain of valid target kinds.`,
 } as const
 
 export const $MessageKind = {

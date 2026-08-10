@@ -42,12 +42,15 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
+from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseBatchItemResult,
     CaseBatchResponse,
     CaseCommentCreate,
+    CaseCommentMentionRead,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseCommentUpdate,
@@ -95,8 +98,10 @@ from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
 from tracecat.db.models import (
+    AgentPreset,
     Case,
     CaseComment,
+    CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
@@ -2251,6 +2256,7 @@ class CaseCommentsService(BaseWorkspaceService):
         comment: CaseComment,
         *,
         user: User | None = None,
+        mentions: list[CaseCommentMention] | None = None,
     ) -> CaseCommentRead:
         """Serialize a comment for API responses with tombstone semantics."""
         comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
@@ -2258,10 +2264,53 @@ class CaseCommentsService(BaseWorkspaceService):
         comment_data.user = (
             UserRead.model_validate(user, from_attributes=True) if user else None
         )
+        comment_data.mentions = [
+            CaseCommentMentionRead.model_validate(mention, from_attributes=True)
+            for mention in mentions or []
+        ]
         if comment.deleted_at is not None:
             comment_data.content = _COMMENT_TOMBSTONE_CONTENT
             comment_data.is_deleted = True
         return comment_data
+
+    async def _list_mentions_for_comments(
+        self,
+        comment_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, list[CaseCommentMention]]:
+        """Batch-load mention records grouped by comment ID."""
+        if not comment_ids:
+            return {}
+
+        statement = (
+            select(CaseCommentMention)
+            .where(
+                CaseCommentMention.workspace_id == self.workspace_id,
+                CaseCommentMention.comment_id.in_(comment_ids),
+            )
+            .order_by(
+                CaseCommentMention.created_at,
+                CaseCommentMention.surrogate_id,
+            )
+        )
+        result = await self.session.execute(statement)
+        mentions_by_comment_id: dict[uuid.UUID, list[CaseCommentMention]] = {}
+        for mention in result.scalars().all():
+            mentions_by_comment_id.setdefault(mention.comment_id, []).append(mention)
+        return mentions_by_comment_id
+
+    async def serialize_comment_with_mentions(
+        self,
+        comment: CaseComment,
+        *,
+        user: User | None = None,
+    ) -> CaseCommentRead:
+        """Serialize one comment after loading its persisted mentions."""
+        mentions_by_comment_id = await self._list_mentions_for_comments([comment.id])
+        return self.serialize_comment(
+            comment,
+            user=user,
+            mentions=mentions_by_comment_id.get(comment.id),
+        )
 
     async def _list_comment_rows(
         self,
@@ -2292,17 +2341,34 @@ class CaseCommentsService(BaseWorkspaceService):
     async def list_comments(self, case: Case) -> list[CaseCommentRead]:
         """List all comments for a case as a flat compatibility view."""
         rows = await self._list_comment_rows(case_id=case.id)
-        return [self.serialize_comment(comment, user=user) for comment, user in rows]
+        mentions_by_comment_id = await self._list_mentions_for_comments(
+            [comment.id for comment, _ in rows]
+        )
+        return [
+            self.serialize_comment(
+                comment,
+                user=user,
+                mentions=mentions_by_comment_id.get(comment.id),
+            )
+            for comment, user in rows
+        ]
 
     async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
         await self._require_replies_entitlement()
         rows = await self._list_comment_rows(case_id=case.id)
+        mentions_by_comment_id = await self._list_mentions_for_comments(
+            [comment.id for comment, _ in rows]
+        )
         threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
         ordered_threads: list[CaseCommentThreadRead] = []
 
         for comment, user in rows:
-            serialized = self.serialize_comment(comment, user=user)
+            serialized = self.serialize_comment(
+                comment,
+                user=user,
+                mentions=mentions_by_comment_id.get(comment.id),
+            )
             if comment.parent_id is None:
                 if (thread := threads_by_id.get(comment.id)) is not None:
                     if thread.comment.parent_id is not None:
@@ -2357,12 +2423,20 @@ class CaseCommentsService(BaseWorkspaceService):
         if not rows:
             return None
 
+        mentions_by_comment_id = await self._list_mentions_for_comments(
+            [row_comment.id for row_comment, _ in rows]
+        )
+
         thread_comment: CaseCommentRead | None = None
         replies: list[CaseCommentRead] = []
         last_activity_at: datetime | None = None
 
         for row_comment, user in rows:
-            serialized = self.serialize_comment(row_comment, user=user)
+            serialized = self.serialize_comment(
+                row_comment,
+                user=user,
+                mentions=mentions_by_comment_id.get(row_comment.id),
+            )
             if row_comment.id == thread_root_id:
                 thread_comment = serialized
             else:
@@ -2413,6 +2487,55 @@ class CaseCommentsService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return bool(result.scalar())
+
+    async def _persist_comment_mentions(
+        self,
+        *,
+        comment: CaseComment,
+        content: str,
+    ) -> None:
+        """Persist live, workspace-local mention targets for a new comment."""
+        unique_tokens: list[MentionToken] = []
+        seen_targets: set[tuple[MentionTargetType, uuid.UUID]] = set()
+        for token in parse_mentions(content):
+            target_key = (token.target_type, token.target_id)
+            if target_key in seen_targets:
+                continue
+            seen_targets.add(target_key)
+            unique_tokens.append(token)
+
+        agent_ids: set[uuid.UUID] = {
+            token.target_id
+            for token in unique_tokens
+            if token.target_type == MentionTargetType.AGENT
+        }
+        if not agent_ids:
+            return
+
+        result = await self.session.execute(
+            select(AgentPreset.id).where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(agent_ids),
+                AgentPreset.deleted_at.is_(None),
+            )
+        )
+        live_agent_ids: set[uuid.UUID] = set(result.scalars().all())
+        for token in unique_tokens:
+            if (
+                token.target_type != MentionTargetType.AGENT
+                or token.target_id not in live_agent_ids
+            ):
+                continue
+            self.session.add(
+                CaseCommentMention(
+                    workspace_id=self.workspace_id,
+                    case_id=comment.case_id,
+                    comment_id=comment.id,
+                    target_type=token.target_type,
+                    target_id=token.target_id,
+                    label=token.label,
+                )
+            )
 
     @require_scope("case:update")
     async def create_comment(
@@ -2475,6 +2598,9 @@ class CaseCommentsService(BaseWorkspaceService):
             )
 
             self.session.add(comment)
+            await self._persist_comment_mentions(
+                comment=comment, content=params.content
+            )
             db_event = await CaseEventsService(
                 session=self.session, role=self.role
             ).create_event(
