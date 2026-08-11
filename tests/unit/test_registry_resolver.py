@@ -109,7 +109,7 @@ class TestManifestCache:
     @pytest.mark.anyio
     async def test_platform_manifest_is_shared_across_organizations(self):
         manifest = _make_manifest({})
-        entry = (manifest, {})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
 
         with patch.object(
             registry_resolver,
@@ -130,7 +130,7 @@ class TestManifestCache:
     @pytest.mark.anyio
     async def test_org_manifest_remains_scoped_to_organization(self):
         manifest = _make_manifest({})
-        entry = (manifest, {})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
         first_org = uuid.uuid4()
         second_org = uuid.uuid4()
 
@@ -154,7 +154,7 @@ class TestManifestCache:
     @pytest.mark.anyio
     async def test_concurrent_platform_misses_are_coalesced(self):
         manifest = _make_manifest({})
-        entry = (manifest, {})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
         load_started = asyncio.Event()
         release_load = asyncio.Event()
         load_count = 0
@@ -190,7 +190,7 @@ class TestManifestCache:
     @pytest.mark.anyio
     async def test_failed_manifest_load_can_retry(self):
         manifest = _make_manifest({})
-        entry = (manifest, {})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
 
         with patch.object(
             registry_resolver,
@@ -238,7 +238,10 @@ class TestResolveAction:
             registry_resolver,
             "_get_manifest_entry",
             new_callable=AsyncMock,
-            return_value=(manifest, impl_index),
+            return_value=registry_resolver.ManifestCacheEntry(
+                manifest=manifest,
+                impl_index=impl_index,
+            ),
         ):
             action_impl = await registry_resolver.resolve_action(
                 "core.transform.reshape",
@@ -340,7 +343,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
@@ -372,7 +378,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=organization_id)
@@ -449,7 +458,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
@@ -493,7 +505,10 @@ class TestCollectActionSecretsFromManifest:
             registry_resolver,
             "_get_manifest_entry",
             new_callable=AsyncMock,
-            return_value=(manifest, impl_index),
+            return_value=registry_resolver.ManifestCacheEntry(
+                manifest=manifest,
+                impl_index=impl_index,
+            ),
         ):
             secrets = await registry_resolver.collect_action_secrets_from_manifest(
                 "tools.api.call",

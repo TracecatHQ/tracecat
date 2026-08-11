@@ -6,6 +6,8 @@ Provides O(1) action resolution using registry locks with action-level bindings.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 from aiocache import Cache, cached
 from async_lru import alru_cache
@@ -41,10 +43,13 @@ PLATFORM_MANIFEST_CACHE_SIZE = 8
 ORG_MANIFEST_CACHE_SIZE = 32
 MANIFEST_CACHE_TTL_SECONDS = 60
 
-type ManifestCacheEntry = tuple[
-    RegistryVersionManifest,
-    dict[str, ActionImplementation],
-]
+
+@dataclass(frozen=True, slots=True)
+class ManifestCacheEntry:
+    """Cached registry manifest and its action implementation index."""
+
+    manifest: RegistryVersionManifest
+    impl_index: Mapping[str, ActionImplementation]
 
 
 def _build_impl_index(
@@ -156,7 +161,7 @@ async def _load_manifest_entry(
             num_actions=len(impl_index),
         )
 
-        return (manifest, impl_index)
+        return ManifestCacheEntry(manifest=manifest, impl_index=impl_index)
 
 
 @alru_cache(
@@ -301,15 +306,15 @@ async def resolve_action(
     version = lock.origins[origin]
 
     # Get from cache (or fetch if miss)
-    _, impl_index = await _get_manifest_entry(origin, version, organization_id)
+    entry = await _get_manifest_entry(origin, version, organization_id)
 
-    if action_name not in impl_index:
+    if action_name not in entry.impl_index:
         raise RegistryError(
             f"Action '{action_name}' not found in manifest for "
             f"origin={origin!r}, version={version!r}"
         )
 
-    return impl_index[action_name]
+    return entry.impl_index[action_name]
 
 
 async def resolve_manifest_action(
@@ -326,8 +331,8 @@ async def resolve_manifest_action(
     if version is None:
         raise RegistryError(f"Origin '{origin}' not found in registry_lock")
 
-    manifest, _ = await _get_manifest_entry(origin, version, organization_id)
-    manifest_action = manifest.actions.get(action_name)
+    entry = await _get_manifest_entry(origin, version, organization_id)
+    manifest_action = entry.manifest.actions.get(action_name)
     if manifest_action is None:
         raise RegistryError(
             f"Action '{action_name}' not found in manifest for "
@@ -363,9 +368,9 @@ async def collect_action_secrets_from_manifest(
         raise RegistryError(f"Origin '{origin}' not found in registry_lock")
 
     # Get from cache (or fetch if miss)
-    manifest, _ = await _get_manifest_entry(origin, version, organization_id)
+    entry = await _get_manifest_entry(origin, version, organization_id)
 
-    manifest_action = manifest.actions.get(action_name)
+    manifest_action = entry.manifest.actions.get(action_name)
     if manifest_action is None:
         raise RegistryError(
             f"Action '{action_name}' not found in manifest for "
@@ -412,14 +417,14 @@ async def _collect_secrets_recursive(
 
             # Get from cache (will be a cache hit if prefetch was called)
             try:
-                step_manifest, _ = await _get_manifest_entry(
+                entry = await _get_manifest_entry(
                     step_origin, step_version, organization_id
                 )
             except RegistryError:
                 # Step manifest not available - skip
                 continue
 
-            step_manifest_action = step_manifest.actions.get(step_action_name)
+            step_manifest_action = entry.manifest.actions.get(step_action_name)
             if step_manifest_action is None:
                 continue
 
