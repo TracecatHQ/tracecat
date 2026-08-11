@@ -24,12 +24,13 @@ from tracecat_ee.agent.workflows.durable import (
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
     _agent_token_ttl_seconds,
+    _apply_configured_timeout,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
 )
 
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.executor.activity import AgentExecutorResult
+from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
@@ -38,6 +39,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import _serializer
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
@@ -100,6 +102,36 @@ def test_agent_token_ttl_includes_executor_queue_and_setup_budget(
     )
 
     assert _agent_token_ttl_seconds(65) == 365
+
+
+@pytest.mark.parametrize("configured_timeout_seconds", [None, 3600])
+def test_apply_configured_timeout_preserves_inheritance_or_pins_explicit_value(
+    configured_timeout_seconds: int | None,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-service",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    assert role.workspace_id is not None
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        user_prompt="hello",
+        config=AgentConfig(model_name="gpt-4o-mini", model_provider="openai"),
+        role=role,
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+    )
+
+    result = _apply_configured_timeout(executor_input, configured_timeout_seconds)
+    payload = _serializer(result)
+
+    if configured_timeout_seconds is None:
+        assert "timeout_seconds" not in payload
+    else:
+        assert payload["timeout_seconds"] == configured_timeout_seconds
 
 
 def test_workflow_rotates_stream_from_new_approval_update() -> None:

@@ -84,7 +84,8 @@ class PresetCreateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    timeout_seconds: int = Field(
+    # Explicit null inherits the deployment default; omitted stays the fixed default.
+    timeout_seconds: int | None = Field(
         default=AGENT_TIMEOUT_SECONDS_DEFAULT,
         ge=AGENT_TIMEOUT_SECONDS_MIN,
         le=AGENT_TIMEOUT_SECONDS_MAX,

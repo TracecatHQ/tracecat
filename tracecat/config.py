@@ -735,12 +735,15 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
-    or (AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS)
+    or (
+        max(AGENT_TIMEOUT_SECONDS_MAX, TRACECAT__AGENT_SANDBOX_TIMEOUT)
+        + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    )
 )
 """Agent executor worker drain timeout in seconds.
 
-Defaults to the maximum configurable agent timeout plus the cleanup buffer so
-planned worker shutdowns can let every valid agent activity finish.
+Defaults to the larger of the configurable ceiling and the unrestricted legacy
+deployment timeout, plus the cleanup buffer.
 """
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(

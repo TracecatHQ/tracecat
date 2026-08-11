@@ -165,6 +165,18 @@ def _agent_token_ttl_seconds(activity_timeout_seconds: int) -> int:
     return activity_timeout_seconds + int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
 
 
+def _apply_configured_timeout(
+    executor_input: AgentExecutorInput,
+    configured_timeout_seconds: int | None,
+) -> AgentExecutorInput:
+    """Pin explicit timeouts while preserving deployment-level inheritance."""
+    if configured_timeout_seconds is None:
+        return executor_input
+    return executor_input.model_copy(
+        update={"timeout_seconds": configured_timeout_seconds}
+    )
+
+
 def _build_approved_tool_run_input(
     *,
     tool_call: ApprovedToolCall,
@@ -1358,8 +1370,9 @@ class DurableAgentWorkflow:
             is_fork=load_result.is_fork,
         )
         if configurable_timeout:
-            executor_input = executor_input.model_copy(
-                update={"timeout_seconds": timeout_seconds}
+            executor_input = _apply_configured_timeout(
+                executor_input,
+                cfg.timeout_seconds,
             )
 
         # Run the executor activity
@@ -1637,8 +1650,9 @@ class DurableAgentWorkflow:
                     is_approval_continuation=True,
                 )
                 if configurable_timeout:
-                    executor_input = executor_input.model_copy(
-                        update={"timeout_seconds": timeout_seconds}
+                    executor_input = _apply_configured_timeout(
+                        executor_input,
+                        cfg.timeout_seconds,
                     )
                 self._turn += 1
                 continue

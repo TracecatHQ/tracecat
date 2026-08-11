@@ -554,7 +554,7 @@ export type AgentPresetCreate = {
   mcp_integrations?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
   retries?: number
-  timeout_seconds?: number
+  timeout_seconds?: number | null
   enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null

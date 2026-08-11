@@ -2149,9 +2149,16 @@ export const $AgentPresetCreate = {
       default: 3,
     },
     timeout_seconds: {
-      type: "integer",
-      maximum: 3600,
-      minimum: 5,
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 3600,
+          minimum: 5,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Timeout Seconds",
       default: 1800,
     },

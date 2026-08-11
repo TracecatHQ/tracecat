@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.agent import types as agent_types
 from tracecat.agent.channels.schemas import (
     AgentChannelTokenCreate,
     ChannelType,
@@ -3286,8 +3287,10 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test conversion of a preset version into executable config."""
+        monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
         # Create a preset with comprehensive configuration
         agent_preset_create_params.actions = ["tools.test.test_action"]
         agent_preset_create_params.namespaces = ["tools.test", "core"]
@@ -3296,6 +3299,7 @@ class TestAgentPresetService:
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version = await agent_preset_service.get_current_version_for_preset(preset)
+        version.timeout_seconds = None
 
         # Test conversion
         agent_config = await agent_preset_service._version_to_agent_config(version)
@@ -3310,6 +3314,7 @@ class TestAgentPresetService:
         assert agent_config.namespaces == preset.namespaces
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
+        assert agent_config.timeout_seconds is None
         assert agent_config.model_settings == {"parallel_tool_calls": False}
 
     async def test_create_preset_with_tool_approvals(

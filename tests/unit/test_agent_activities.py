@@ -29,10 +29,7 @@ from tracecat_ee.agent.activities import (
     EmitSessionErrorInputs,
 )
 
-from tracecat.agent.common.config import (
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
-    build_agent_runtime_uv_env,
-)
+from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -1235,9 +1232,17 @@ class TestRunAgentActivity:
         )
 
     @pytest.mark.anyio
-    async def test_successful_execution(self, mock_executor_input: AgentExecutorInput):
-        """Test successful agent execution."""
+    async def test_inherited_deployment_timeout(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An absent explicit timeout preserves the unrestricted deployment value."""
         expected_result = AgentExecutorResult(success=True)
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+            7200,
+        )
 
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
@@ -1255,7 +1260,7 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT,
+                timeout_seconds=7200,
             )
 
     def test_rejects_timeout_above_configurable_maximum(
