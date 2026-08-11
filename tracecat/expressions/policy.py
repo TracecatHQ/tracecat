@@ -267,17 +267,42 @@ def build_provenance(
 
 
 @dataclass(frozen=True, slots=True)
-class _RedactionPolicy:
-    """Mask secret-dependent ASTs before ordinary expression evaluation."""
+class _CollectionPolicy:
+    """Mask secret expressions while leaving safe source unevaluated.
 
-    provenance: ProvenanceMap | None = None
-    """Input provenance used to detect transitive secret dependencies."""
+    Used before runtime context exists, so masking falls back to direct
+    ``secrets.*`` detection without provenance.
+    """
 
     reject: bool = False
     """Whether a secret dependency raises instead of returning a mask."""
 
-    defer: bool = False
-    """Whether safe expressions remain authored source instead of evaluating."""
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Mask secret expressions and return everything else as source."""
+        del standalone, default
+        if _tree_dependencies(tree, None).secret:
+            if self.reject:
+                _raise_secret_key_error()
+            return MASK_VALUE
+        return source
+
+
+@dataclass(frozen=True, slots=True)
+class _RedactionPolicy:
+    """Mask secret-dependent ASTs before ordinary expression evaluation."""
+
+    provenance: ProvenanceMap
+    """Input provenance used to detect transitive secret dependencies."""
+
+    reject: bool = False
+    """Whether a secret dependency raises instead of returning a mask."""
 
     def resolve(
         self,
@@ -288,21 +313,21 @@ class _RedactionPolicy:
         standalone: bool,
     ) -> Any:
         """Mask secret dependencies or delegate to ordinary evaluation."""
-        del standalone
-        if self.provenance is not None and (ref := _direct_input_ref(tree)) is not None:
+        del source, standalone
+        if (ref := _direct_input_ref(tree)) is not None:
             selection = _select_input(ref, self.provenance)
             if selection is None or not selection.dependencies.secret:
-                return source if self.defer else default()
+                return default()
             if self.reject or selection.dependencies.secret_keys:
                 _raise_secret_key_error()
-            return MASK_VALUE if self.defer else _mask_runtime_value(default())
+            return _mask_runtime_value(default())
 
         if _tree_dependencies(tree, self.provenance).secret:
             if self.reject:
                 _raise_secret_key_error()
             return MASK_VALUE
 
-        return source if self.defer else default()
+        return default()
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,8 +392,8 @@ class ActionArgumentPlan:
         action: str,
         arguments: Mapping[str, Any],
     ) -> ActionArgumentPlan:
-        redaction_policy = _RedactionPolicy(defer=True)
-        key_policy = _RedactionPolicy(reject=True, defer=True)
+        redaction_policy = _CollectionPolicy()
+        key_policy = _CollectionPolicy(reject=True)
         evaluable: dict[str, Any] = {}
         for parameter, value in arguments.items():
             match expression_policy(action, parameter):
