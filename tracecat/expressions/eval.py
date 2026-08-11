@@ -3,45 +3,87 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
 from tracecat.expressions.core import (
     CollectedExprs,
     Expression,
     ExprPathCollector,
+    ExprResolutionPolicy,
     SecretPathExtractor,
     TemplateExpression,
 )
 from tracecat.parse import traverse_expressions
 
 
-def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
-    obj: T, operator: Callable[[str], Any]
-) -> T:
+def _eval_templated_obj_rec(
+    obj: Any,
+    operator: Callable[[str], Any],
+    key_operator: Callable[[str], Any] | None = None,
+) -> Any:
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():
             return operator(obj)
         case list():
-            return [_eval_templated_obj_rec(item, operator) for item in obj]
+            return [
+                _eval_templated_obj_rec(item, operator, key_operator) for item in obj
+            ]
         case dict():
-            return {
-                operator(k) if isinstance(k, str) else k: _eval_templated_obj_rec(
-                    v, operator
+            processed: dict[Any, Any] = {}
+            for key, value in obj.items():
+                processed_key = (
+                    (key_operator or operator)(key) if isinstance(key, str) else key
                 )
-                for k, v in obj.items()
-            }
+                if processed_key in processed:
+                    raise TracecatExpressionError(
+                        "Expression resolution produced a duplicate dictionary key",
+                        detail={"code": "expression_key_collision"},
+                    )
+                processed[processed_key] = _eval_templated_obj_rec(
+                    value,
+                    operator,
+                    key_operator,
+                )
+            return processed
         case _:
             return obj
 
 
-def _eval_expression_op(match: re.Match[str], operand: ExprOperand | None) -> str:
+def _eval_expression_op(
+    match: re.Match[str],
+    operand: ExprOperand | None,
+    policy: ExprResolutionPolicy | None,
+) -> str:
     expr = match.group("template")
-    result = TemplateExpression(expr, operand=operand).result()
+    result = TemplateExpression(
+        expr,
+        operand=operand,
+        policy=policy,
+        standalone=False,
+    ).result()
     try:
         return str(result)
     except Exception as e:
         raise ValueError(f"Error evaluating str expression: {expr!r}") from e
+
+
+def _make_templated_string_operator(
+    *,
+    operand: ExprOperand | None,
+    pattern: re.Pattern[str],
+    policy: ExprResolutionPolicy | None,
+) -> Callable[[str], Any]:
+    evaluator = partial(_eval_expression_op, operand=operand, policy=policy)
+
+    def operator(line: str) -> Any:
+        """Evaluate one standalone or inline templated string."""
+        if is_template_only(line) and len(pattern.findall(line)) == 1:
+            return TemplateExpression(line, operand=operand, policy=policy).result()
+        return pattern.sub(evaluator, line)
+
+    return operator
 
 
 def eval_templated_object(
@@ -49,32 +91,26 @@ def eval_templated_object(
     *,
     operand: ExprOperand | None = None,
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
+    policy: ExprResolutionPolicy | None = None,
+    key_policy: ExprResolutionPolicy | None = None,
 ) -> Any:
     """Populate templated fields with actual values."""
-    evaluator = partial(_eval_expression_op, operand=operand)
+    operator = _make_templated_string_operator(
+        operand=operand,
+        pattern=pattern,
+        policy=policy,
+    )
+    key_operator = (
+        _make_templated_string_operator(
+            operand=operand,
+            pattern=pattern,
+            policy=key_policy,
+        )
+        if key_policy is not None
+        else None
+    )
 
-    def operator(line: str) -> Any:
-        """Evaluate the templated string.
-
-        When we reach this point, the target is a string.
-        The string could be an inline templated future or just the templated
-        future itself.
-        Note that we don't remove leading/trailing whitespace from the string.
-        Case A - Inline template: "The answer is ${{42}}!!!"
-        Case B - Template only: "${{42}}"
-
-        """
-        if is_template_only(line) and len(pattern.findall(line)) == 1:
-            # Non-inline template
-            # If the template expression isn't given a reolve type, its underlying
-            # value is returned as is.
-            return TemplateExpression(line, operand=operand).result()
-        # Inline template
-        # If the template expression is inline, we evaluate the result
-        # and attempt to cast each underlying value into a string.
-        return pattern.sub(evaluator, line)
-
-    processed_kwargs = _eval_templated_obj_rec(obj, operator)
+    processed_kwargs = _eval_templated_obj_rec(obj, operator, key_operator)
     return processed_kwargs
 
 

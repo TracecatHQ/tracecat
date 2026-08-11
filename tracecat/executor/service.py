@@ -61,6 +61,12 @@ from tracecat.expressions.eval import (
     get_iterables_from_expression,
 )
 from tracecat.expressions.expectations import create_expectation_model
+from tracecat.expressions.policy import (
+    ActionArgumentPlan,
+    ProvenanceMap,
+    build_provenance,
+    resolve_action_args,
+)
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.registry.actions.bound import BoundRegistryAction
@@ -446,6 +452,7 @@ async def _execute_template_action(
     ctx: DispatchActionContext,
     resolved_context: ResolvedContext,
     timeout: float,
+    provenance: ProvenanceMap,
 ) -> Any:
     """Execute a template action by orchestrating its steps.
 
@@ -461,6 +468,7 @@ async def _execute_template_action(
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
         timeout: Execution timeout
+        provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The evaluated returns expression result
@@ -504,7 +512,6 @@ async def _execute_template_action(
         inputs=validated_input_args,
         steps={},
     )
-
     logger.info(
         "Executing template action via backend",
         action=template_def.action,
@@ -519,10 +526,11 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Evaluate step args with template context
-        evaled_args = cast(
-            dict[str, Any],
-            eval_templated_object(step.args, operand=template_context),
+        evaled_args = resolve_action_args(
+            step.action,
+            step.args,
+            template_context,
+            provenance,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -534,6 +542,13 @@ async def _execute_template_action(
             role=role,
         )
 
+        # Nested templates receive provenance derived in this scope.
+        child_provenance = (
+            build_provenance(step.args, provenance)
+            if step_resolved.action_impl.type == "template"
+            else {}
+        )
+
         # Execute step via _invoke_step (handles nested templates)
         try:
             step_result = await _invoke_step(
@@ -542,6 +557,7 @@ async def _execute_template_action(
                 input=input,
                 ctx=ctx,
                 timeout=timeout,
+                provenance=child_provenance,
             )
         except ExecutionError:
             # Re-raise with step context preserved
@@ -574,6 +590,7 @@ async def _invoke_step(
     input: RunActionInput,
     ctx: DispatchActionContext,
     timeout: float,
+    provenance: ProvenanceMap,
 ) -> Any:
     """Execute a template step. Skips masking (done at root level).
 
@@ -587,6 +604,7 @@ async def _invoke_step(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         timeout: Execution timeout
+        provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The step execution result (unmasked)
@@ -600,6 +618,7 @@ async def _invoke_step(
                 ctx=ctx,
                 resolved_context=resolved_context,
                 timeout=timeout,
+                provenance=provenance,
             )
         case "udf":
             # Leaf node - execute via backend
@@ -628,6 +647,7 @@ class PreparedContext:
 
     resolved_context: ResolvedContext
     mask_values: set[str] | None
+    provenance: ProvenanceMap | None = None
 
 
 async def _get_template_secret_projection(
@@ -679,8 +699,12 @@ async def prepare_resolved_context(
         action_name, input.registry_lock, role.organization_id
     )
 
-    # Collect expressions to know what secrets/variables are needed
-    collected = collect_expressions(task.args)
+    # Apply field policy before expression collection: preserved source is
+    # excluded, while secret-dependent occurrences in durable content are
+    # replaced before any argument-driven secret lookup.
+    argument_plan = ActionArgumentPlan.build(action_name, task.args)
+    provenance = build_provenance(task.args) if action_impl.type == "template" else None
+    collected = collect_expressions(argument_plan.evaluable)
 
     # Fetch secrets and variables
     secrets = await secrets_manager.get_action_secrets(
@@ -720,9 +744,7 @@ async def prepare_resolved_context(
             logical_time=logical_time,
             has_interaction=input.interaction_context is not None,
         )
-
-        # Evaluate templated args (now with logical_time and interaction context set)
-        evaluated_args = evaluate_templated_args(task, context)
+        evaluated_args = argument_plan.evaluate(context)
     finally:
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
@@ -762,7 +784,11 @@ async def prepare_resolved_context(
         secret_projection=secret_projection,
     )
 
-    return PreparedContext(resolved_context=resolved_context, mask_values=mask_values)
+    return PreparedContext(
+        resolved_context=resolved_context,
+        mask_values=mask_values,
+        provenance=provenance,
+    )
 
 
 async def invoke_once(
@@ -813,6 +839,7 @@ async def invoke_once(
             input=input,
             ctx=ctx,
             timeout=timeout,
+            provenance=prepared.provenance or {},
         )
 
     except ExecutionError as e:

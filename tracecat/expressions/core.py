@@ -3,9 +3,9 @@ from __future__ import annotations
 import abc
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
@@ -22,6 +22,34 @@ ExtractorResult = TypeVar("ExtractorResult", covariant=True)
 ValidatorResult = TypeVar("ValidatorResult")
 
 
+class ExprResolutionPolicy(Protocol):
+    """Lifecycle policy for a parsed template expression."""
+
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Run after parsing and immediately before ordinary evaluation.
+
+        The policy may return its own value or call ``default`` exactly where
+        normal expression evaluation should occur.
+
+        Args:
+            source: Exact authored template occurrence, including ``${{ }}``.
+            tree: Parsed expression AST.
+            default: Performs ordinary expression evaluation when called.
+            standalone: Whether the entire traversed string is exactly this one
+                template expression. Inline occurrences are ``False``. Policies
+                use this to materialize a field-level carrier without evaluating
+                expressions nested inside otherwise preserved source.
+        """
+        ...
+
+
 class Expression:
     """An expression that can be evaluated."""
 
@@ -31,11 +59,17 @@ class Expression:
         *,
         operand: ExprOperand[str] | None = None,
         visitor: Visitor[Token] | None = None,
+        policy: ExprResolutionPolicy | None = None,
+        source: str | None = None,
+        standalone: bool = True,
     ) -> None:
         self._expr = expression
         self._operand = operand
         self._parser = parser
         self._visitor = visitor
+        self._policy = policy
+        self._source = source
+        self._standalone = standalone
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -75,11 +109,22 @@ class Expression:
             visitor = ExprEvaluator(operand=self._operand)
             if parse_tree is None:
                 raise ValueError(f"Parser returned None for expression `{self._expr}`")
-            return visitor.evaluate(parse_tree)
+
+            def default() -> Any:
+                return visitor.evaluate(parse_tree)
+
+            if self._policy is not None:
+                return self._policy.resolve(
+                    self._source or self._expr,
+                    parse_tree,
+                    default,
+                    standalone=self._standalone,
+                )
+            return default()
         except TracecatExpressionError as e:
             raise TracecatExpressionError(
                 f"Error evaluating expression `{self._expr}`\n\n{e}",
-                detail=str(e),
+                detail=e.detail if e.detail is not None else str(e),
             ) from e
 
     def validate(
@@ -142,6 +187,8 @@ class TemplateExpression:
         template: str,
         operand: ExprOperand[str] | None = None,
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
+        policy: ExprResolutionPolicy | None = None,
+        standalone: bool = True,
         **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
@@ -154,7 +201,13 @@ class TemplateExpression:
             raise TracecatExpressionError(
                 f"Template expression {template!r} matched pattern but contained no expression. "
             )
-        self.expr = Expression(expr, operand=operand)
+        self.expr = Expression(
+            expr,
+            operand=operand,
+            policy=policy,
+            source=match.group("template"),
+            standalone=standalone,
+        )
 
     def __str__(self) -> str:
         return self.__repr__()
