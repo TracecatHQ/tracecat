@@ -140,16 +140,7 @@ def collect_expressions(templated_obj: Any) -> CollectedExprs:
 
 def extract_expressions(templated_obj: Any) -> list[Expression]:
     """Extract all templates from a templated object."""
-    exprs: list[Expression] = []
-
-    def operator(line: str) -> None:
-        exprs.extend(
-            Expression(match.group("expr"))
-            for match in re.finditer(patterns.TEMPLATE_STRING, line)
-        )
-
-    _eval_templated_obj_rec(templated_obj, operator)
-    return exprs
+    return [Expression(expr_str) for expr_str in traverse_expressions(templated_obj)]
 
 
 def get_iterables_from_expression(
