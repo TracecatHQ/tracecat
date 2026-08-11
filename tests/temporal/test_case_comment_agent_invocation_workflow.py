@@ -121,6 +121,19 @@ async def fail_record_failure(
 class SuccessfulAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
+        blocked_actions = {
+            "core.cases.create_comment",
+            "core.cases.reply_to_comment",
+        }
+        config_actions = (
+            args.agent_args.config.actions if args.agent_args.config else None
+        )
+        assert blocked_actions.isdisjoint(config_actions or [])
+        assert blocked_actions.isdisjoint(args.tools or [])
+        if config_actions is not None:
+            assert "core.cases.get_case" in config_actions
+        if args.tools is not None:
+            assert "core.cases.get_case" in args.tools
         return AgentOutput(
             output="child output",
             duration=0,
@@ -424,6 +437,11 @@ async def test_comment_mention_runs_agent_and_posts_reply(
                     instructions="Return a deterministic answer.",
                     model_name=preset.model_name,
                     model_provider=preset.model_provider,
+                    actions=[
+                        "core.cases.create_comment",
+                        "core.cases.get_case",
+                        "core.cases.reply_to_comment",
+                    ],
                 )
                 case = Case(
                     workspace_id=role.workspace_id,

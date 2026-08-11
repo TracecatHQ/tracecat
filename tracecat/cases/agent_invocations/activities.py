@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from temporalio import activity
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
@@ -28,6 +30,16 @@ from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 
 _MAX_STORED_ERROR_LENGTH = 2_000
+_COMMENT_REPLY_ACTIONS = {
+    "core.cases.create_comment",
+    "core.cases.reply_to_comment",
+}
+
+
+def _without_comment_reply_actions(actions: list[str] | None) -> list[str] | None:
+    if actions is None:
+        return None
+    return [action for action in actions if action not in _COMMENT_REPLY_ACTIONS]
 
 
 @activity.defn
@@ -46,6 +58,10 @@ async def prepare_comment_agent_invocation_activity(
             dispatcher.session,
             input.role,
         ).prepare_new_turn(prepared.session_id, prepared.prompt)
+        config = replace(
+            prepared_turn.config,
+            actions=_without_comment_reply_actions(prepared_turn.config.actions),
+        )
         workflow_args = AgentWorkflowArgs(
             role=input.role,
             agent_args=RunAgentArgs(
@@ -53,12 +69,12 @@ async def prepare_comment_agent_invocation_activity(
                 session_id=prepared_turn.session_id,
                 active_stream_id=prepared_turn.active_stream_id,
                 curr_run_id=prepared_turn.run_id,
-                config=prepared_turn.config,
+                config=config,
             ),
             title=prepared_turn.title,
             entity_type=prepared_turn.entity_type,
             entity_id=prepared_turn.entity_id,
-            tools=prepared_turn.tools,
+            tools=_without_comment_reply_actions(prepared_turn.tools),
             agent_preset_id=prepared_turn.agent_preset_id,
             agent_preset_version_id=prepared_turn.agent_preset_version_id,
         )
