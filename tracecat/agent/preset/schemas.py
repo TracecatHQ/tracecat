@@ -15,7 +15,7 @@ from tracecat.agent.constants import (
     AGENT_TIMEOUT_SECONDS_MIN,
 )
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
-from tracecat.agent.types import AgentConfig, OutputType, resolve_agent_timeout_seconds
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 from tracecat.tags.schemas import TagRead
@@ -119,7 +119,8 @@ class AgentPresetExecutionConfigWrite(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
-    timeout_seconds: int = Field(
+    # Explicit null inherits the deployment default; omitted stays the fixed default.
+    timeout_seconds: int | None = Field(
         default=AGENT_TIMEOUT_SECONDS_DEFAULT,
         ge=AGENT_TIMEOUT_SECONDS_MIN,
         le=AGENT_TIMEOUT_SECONDS_MAX,
@@ -313,7 +314,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             tool_approvals=self.tool_approvals,
             agents=self.agents,
             retries=self.retries,
-            timeout_seconds=resolve_agent_timeout_seconds(self.timeout_seconds),
+            timeout_seconds=self.timeout_seconds,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
         )

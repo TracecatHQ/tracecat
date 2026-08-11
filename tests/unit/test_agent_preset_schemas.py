@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from tracecat.agent import types as agent_types
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.preset.internal_router import (
     PresetCreateRequest,
@@ -100,6 +101,22 @@ def test_agent_preset_update_schemas_preserve_null_timeout_inheritance(
 
     omitted = schema_cls.model_validate({})
     assert "timeout_seconds" not in omitted.model_dump(exclude_unset=True)
+
+
+@pytest.mark.parametrize("schema_cls", [AgentPresetCreate, PresetCreateRequest])
+def test_agent_preset_create_schemas_accept_null_timeout_inheritance(
+    schema_cls: type[AgentPresetCreate] | type[PresetCreateRequest],
+) -> None:
+    base = {
+        "name": "Triage preset",
+        "model_name": "gpt-4o-mini",
+        "model_provider": "openai",
+    }
+    inherited = schema_cls.model_validate({**base, "timeout_seconds": None})
+    assert inherited.timeout_seconds is None
+
+    omitted = schema_cls.model_validate(base)
+    assert omitted.timeout_seconds == AGENT_TIMEOUT_SECONDS_DEFAULT
 
 
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
@@ -215,7 +232,10 @@ def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
         )
 
 
-def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> None:
+def test_agent_preset_read_preserves_legacy_fields_and_timeout_inheritance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
     payload = AgentPresetRead.model_validate(
         {
             "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
@@ -244,6 +264,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
     assert payload.enable_thinking is True
+    assert payload.to_agent_config().timeout_seconds is None
 
 
 def test_agent_preset_read_minimal_exposes_capabilities() -> None:

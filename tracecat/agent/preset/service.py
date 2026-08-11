@@ -50,7 +50,6 @@ from tracecat.agent.subagents import (
 from tracecat.agent.types import (
     AgentConfig,
     OutputType,
-    resolve_agent_timeout_seconds,
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -2030,7 +2029,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_servers=mcp_servers,
             agents=agents,
             retries=version.retries,
-            timeout_seconds=resolve_agent_timeout_seconds(version.timeout_seconds),
+            timeout_seconds=version.timeout_seconds,
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,

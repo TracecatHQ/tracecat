@@ -18,7 +18,6 @@ from pydantic import Discriminator, TypeAdapter
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_DEFAULT,
     AGENT_TIMEOUT_SECONDS_MAX,
     AGENT_TIMEOUT_SECONDS_MIN,
 )
@@ -156,7 +155,7 @@ class AgentConfig:
     agents: AgentSubagentsConfig = field(default_factory=AgentSubagentsConfig)
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     timeout_seconds: int | None = pydantic.Field(
-        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        default=None,
         ge=AGENT_TIMEOUT_SECONDS_MIN,
         le=AGENT_TIMEOUT_SECONDS_MAX,
         exclude_if=lambda value: value is None,
