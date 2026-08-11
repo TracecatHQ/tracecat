@@ -226,6 +226,11 @@ def _deduplicate_networks(networks: tuple[IPNetwork, ...]) -> tuple[IPNetwork, .
 def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
     rules: list[_NstunRule] = []
     for route in routes:
+        # Public resolvers must remain subject to the normal egress policy. They
+        # do not need an exception because the public catch-all decides whether
+        # their address family is reachable.
+        if route.guest_address.is_global and not route.requires_redirect:
+            continue
         destination = _network_for_address(route.guest_address)
         action: NstunAction = "REDIRECT" if route.requires_redirect else "ALLOW"
         for protocol in (

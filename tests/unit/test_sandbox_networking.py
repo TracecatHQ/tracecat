@@ -193,6 +193,29 @@ def test_filtered_nstun_policy_rejects_all_ipv6_by_default() -> None:
     assert 'dst_ip: "fc00::/7"' not in config_text
 
 
+@pytest.mark.parametrize(
+    ("allow_public_ipv6", "expected_action"),
+    [(False, "REJECT"), (True, "ALLOW")],
+)
+def test_filtered_nstun_policy_applies_ipv6_policy_to_public_dns(
+    allow_public_ipv6: bool,
+    expected_action: str,
+) -> None:
+    resolver = IPv6Address("2001:4860:4860::8888")
+    dns_route = SandboxDnsRoute(
+        guest_address=resolver,
+        host_address=resolver,
+    )
+    policy = SandboxNetworkPolicy(allow_public_ipv6=allow_public_ipv6)
+
+    config_text = "\n".join(nstun_user_net_config_lines(policy, (dns_route,)))
+
+    assert f'dst_ip: "{resolver}/128"' not in config_text
+    assert (
+        f'action: {expected_action}\n    proto: ANY\n    dst_ip: "::/0"' in config_text
+    )
+
+
 def test_filtered_nstun_policy_allows_public_ipv6_when_opted_in() -> None:
     policy = SandboxNetworkPolicy(
         mode=SandboxNetworkMode.FILTERED,
