@@ -39,7 +39,7 @@ from tracecat.tiers.enums import Entitlement
 
 PLATFORM_MANIFEST_CACHE_SIZE = 8
 ORG_MANIFEST_CACHE_SIZE = 32
-MANIFEST_CACHE_TTL_SECONDS = 3600
+MANIFEST_CACHE_TTL_SECONDS = 60
 
 type ManifestCacheEntry = tuple[
     RegistryVersionManifest,
