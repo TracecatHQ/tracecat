@@ -831,7 +831,14 @@ class SandboxedAgentExecutor:
             )
             return job_dir
         except BaseException:
-            await asyncio.to_thread(force_rmtree, job_dir)
+            try:
+                await asyncio.to_thread(force_rmtree, job_dir)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to clean up job directory after setup failure",
+                    job_dir=str(job_dir),
+                    error=str(cleanup_error),
+                )
             raise
 
     async def _load_artifact_working_set(self) -> ArtifactWorkingSetInput | None:

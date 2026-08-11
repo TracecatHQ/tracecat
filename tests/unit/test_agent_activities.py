@@ -2582,6 +2582,79 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert kwargs == {}
         assert not job_dir.exists()
 
+    @pytest.mark.parametrize(
+        "setup_error",
+        [
+            pytest.param(RuntimeError("staging failed"), id="ordinary-error"),
+            pytest.param(
+                asyncio.CancelledError("staging cancelled"),
+                id="cancellation",
+            ),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_create_job_directory_preserves_setup_failure_when_cleanup_fails(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        setup_error: BaseException,
+    ) -> None:
+        """Cleanup errors do not replace the setup failure being handled."""
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "agent-job-test"
+        warning = MagicMock()
+
+        async def fail_stage_resolved_skills(_skills_dir: Path) -> None:
+            raise setup_error
+
+        async def fail_cleanup_in_thread(
+            func: object, /, *args: object, **kwargs: object
+        ) -> None:
+            assert func is force_rmtree
+            assert args == (job_dir,)
+            assert kwargs == {}
+            raise OSError("cleanup failed")
+
+        def fake_mkdtemp(*, prefix: str, dir: Path) -> str:
+            del prefix, dir
+            job_dir.mkdir()
+            return str(job_dir)
+
+        monkeypatch.setattr(
+            mock_executor, "_stage_resolved_skills", fail_stage_resolved_skills
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fail_cleanup_in_thread,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.tempfile.mkdtemp", fake_mkdtemp
+        )
+        monkeypatch.setattr("tracecat.agent.executor.activity.logger.warning", warning)
+
+        with pytest.raises(type(setup_error)) as exc_info:
+            await mock_executor._create_job_directory()
+
+        assert exc_info.value is setup_error
+        assert job_dir.exists()
+        warning.assert_called_once_with(
+            "Failed to clean up job directory after setup failure",
+            job_dir=str(job_dir),
+            error="cleanup failed",
+        )
+
 
 class TestSandboxedAgentExecutorJobCleanup:
     """Tests for activity-owned per-job directory cleanup."""
