@@ -1,7 +1,9 @@
 "use client"
 
+import type { EditorView } from "@tiptap/pm/view"
 import type { Editor } from "@tiptap/react"
 import * as React from "react"
+import { createPortal } from "react-dom"
 // --- Icons ---
 import { CornerDownLeftIcon } from "@/components/tiptap-icons/corner-down-left-icon"
 import { ExternalLinkIcon } from "@/components/tiptap-icons/external-link-icon"
@@ -21,6 +23,7 @@ import {
 import { Input, InputGroup } from "@/components/tiptap-ui-primitive/input"
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/tiptap-ui-primitive/popover"
@@ -28,6 +31,67 @@ import { Separator } from "@/components/tiptap-ui-primitive/separator"
 // --- Hooks ---
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
+import "@/components/tiptap-ui/link-popover/link-popover.scss"
+
+/** Viewport-space rect the link popover is anchored to. */
+interface AnchorRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/** True when two anchor rects describe the same position and size. */
+function isSameAnchorRect(a: AnchorRect | null, b: AnchorRect): boolean {
+  return (
+    a !== null &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.width === b.width &&
+    a.height === b.height
+  )
+}
+
+/**
+ * Find the anchor element that renders the document position, if any.
+ */
+function findLinkElementAtPos(
+  view: EditorView,
+  pos: number
+): HTMLElement | null {
+  const { node } = view.domAtPos(pos)
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    return (node as HTMLElement).closest("a")
+  }
+  return node.parentElement?.closest("a") ?? null
+}
+
+/**
+ * Resolve the viewport rect the link popover should be anchored to. Prefers the
+ * rendered anchor element and falls back to the selection coordinates.
+ */
+function resolveLinkAnchorRect(editor: Editor): DOMRect {
+  const { view } = editor
+  const { from, to } = editor.state.selection
+  try {
+    const linkElement = findLinkElementAtPos(view, from)
+    if (linkElement) {
+      return linkElement.getBoundingClientRect()
+    }
+    const start = view.coordsAtPos(from)
+    const end = view.coordsAtPos(to)
+    const left = Math.min(start.left, end.left)
+    const top = Math.min(start.top, end.top)
+    return DOMRect.fromRect({
+      x: left,
+      y: top,
+      width: Math.max(start.right, end.right) - left,
+      height: Math.max(start.bottom, end.bottom) - top,
+    })
+  } catch {
+    return view.dom.getBoundingClientRect()
+  }
+}
 
 export interface LinkMainProps {
   /**
@@ -133,6 +197,12 @@ const LinkMain: React.FC<LinkMainProps> = ({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={handleKeyDown}
+              onFocus={(e) => {
+                // Select for quick replacement, but keep the start of a long URL
+                // in view rather than the tail the caret would scroll to.
+                e.currentTarget.select()
+                e.currentTarget.scrollLeft = 0
+              }}
               autoFocus
               autoComplete="off"
               autoCorrect="off"
@@ -219,6 +289,10 @@ export const LinkPopover = React.forwardRef<
     const { editor } = useTiptapEditor(providedEditor)
     const [isOpen, setIsOpen] = React.useState(false)
 
+    // Viewport rect of the link the popover points at. Tracked in state (rather
+    // than a virtual anchor ref) so Radix always measures a real, mounted node.
+    const [anchorRect, setAnchorRect] = React.useState<AnchorRect | null>(null)
+
     const {
       isVisible,
       canSet,
@@ -264,12 +338,57 @@ export const LinkPopover = React.forwardRef<
       }
     }, [autoOpenOnLinkActive, isActive])
 
+    // Keep the anchor over the link while the popover is open, including as the
+    // page scrolls or resizes underneath it.
+    React.useEffect(() => {
+      if (!isOpen || !editor?.view) {
+        setAnchorRect(null)
+        return
+      }
+
+      const syncAnchorRect = () => {
+        const rect = resolveLinkAnchorRect(editor)
+        const next: AnchorRect = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        }
+        setAnchorRect((prev) => (isSameAnchorRect(prev, next) ? prev : next))
+      }
+
+      syncAnchorRect()
+      window.addEventListener("scroll", syncAnchorRect, true)
+      window.addEventListener("resize", syncAnchorRect)
+      return () => {
+        window.removeEventListener("scroll", syncAnchorRect, true)
+        window.removeEventListener("resize", syncAnchorRect)
+      }
+    }, [isOpen, editor])
+
     if (!isVisible) {
       return null
     }
 
     return (
       <Popover open={isOpen} onOpenChange={handleOnOpenChange}>
+        {anchorRect
+          ? createPortal(
+              <PopoverAnchor
+                aria-hidden
+                style={{
+                  position: "fixed",
+                  left: anchorRect.left,
+                  top: anchorRect.top,
+                  width: anchorRect.width,
+                  height: anchorRect.height,
+                  pointerEvents: "none",
+                }}
+              />,
+              document.body
+            )
+          : null}
+
         <PopoverTrigger asChild>
           <LinkButton
             disabled={!canSet}
@@ -285,7 +404,11 @@ export const LinkPopover = React.forwardRef<
           </LinkButton>
         </PopoverTrigger>
 
-        <PopoverContent>
+        <PopoverContent
+          className="tiptap-link-popover"
+          align="start"
+          collisionPadding={8}
+        >
           <LinkMain
             url={url}
             setUrl={setUrl}

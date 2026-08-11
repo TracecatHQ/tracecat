@@ -41,12 +41,20 @@ import { CaseFeed } from "@/components/cases/cases-feed"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -73,7 +81,7 @@ import {
   useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
-import { cn, undoSlugify } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
@@ -481,7 +489,7 @@ export function CasePanelView({
           <div className="flex flex-col gap-2">
             {visibleCustomFields.length > 0 ? (
               visibleCustomFields.map((field) => {
-                const label = undoSlugify(field.id)
+                const label = field.id
                 return (
                   <div
                     key={field.id}
@@ -589,8 +597,8 @@ export function CasePanelView({
                       )}
                     </div>
                     {caseTags && caseTags.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <Popover>
+                        <PopoverTrigger asChild>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -599,34 +607,50 @@ export function CasePanelView({
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Manage tags</span>
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="text-xs">
-                          {caseTags.map((tag) => {
-                            const hasTag = caseData.tags?.some(
-                              (t) => t.id === tag.id
-                            )
-                            return (
-                              <DropdownMenuCheckboxItem
-                                key={tag.id}
-                                className="text-xs"
-                                checked={hasTag}
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  await handleTagToggle(tag.id, !!hasTag)
-                                }}
-                              >
-                                <div
-                                  className="mr-2 flex size-2 rounded-full"
-                                  style={{
-                                    backgroundColor: tag.color || undefined,
-                                  }}
-                                />
-                                <span>{tag.name}</span>
-                              </DropdownMenuCheckboxItem>
-                            )
-                          })}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          align="end"
+                          className="w-56 p-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Command>
+                            <CommandInput
+                              placeholder="Search tags..."
+                              className="text-xs"
+                            />
+                            <CommandList>
+                              <CommandEmpty>No tags found.</CommandEmpty>
+                              <CommandGroup>
+                                {caseTags.map((tag) => {
+                                  const hasTag = caseData.tags?.some(
+                                    (t) => t.id === tag.id
+                                  )
+                                  return (
+                                    <CommandItem
+                                      key={tag.id}
+                                      value={tag.name}
+                                      className="group text-xs"
+                                      onSelect={async () => {
+                                        await handleTagToggle(tag.id, !!hasTag)
+                                      }}
+                                    >
+                                      <CheckIndicator checked={!!hasTag} />
+                                      <div
+                                        className="size-2 shrink-0 rounded-full"
+                                        style={{
+                                          backgroundColor:
+                                            tag.color || undefined,
+                                        }}
+                                      />
+                                      <span>{tag.name}</span>
+                                    </CommandItem>
+                                  )
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                     )}
                   </div>
                 </div>

@@ -30,6 +30,16 @@
   min-height: 160px;
 }
 
+.case-description-editor--boxed
+  .case-description-editor
+  .simple-editor-content
+  .simple-editor,
+.case-description-editor--boxed
+  .case-description-editor
+  .simple-editor-toolbar {
+  padding-inline: 0.75rem;
+}
+
 .case-description-editor {
   width: 100%;
   padding: 0;

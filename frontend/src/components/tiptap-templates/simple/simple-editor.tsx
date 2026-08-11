@@ -90,7 +90,11 @@ import {
   createPastedImageFile,
   extractImageFiles,
 } from "@/lib/cases/use-case-image-upload"
-import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
+import {
+  handleImageUpload,
+  MAX_FILE_SIZE,
+  sanitizeUrl,
+} from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
 
 /** Upload images then insert image nodes at the drop position or selection. */
@@ -627,6 +631,18 @@ export function SimpleEditor({
         "aria-label": "Main content area, start typing to enter text.",
         class: cn("simple-editor", !editable && "simple-editor--readonly"),
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
+      },
+      handleClick: (_view, _pos, event) => {
+        if (!event.metaKey && !event.ctrlKey) return false
+        const href = (event.target as HTMLElement | null)
+          ?.closest("a")
+          ?.getAttribute("href")
+        if (!href) return false
+        const safeUrl = sanitizeUrl(href, window.location.href)
+        if (safeUrl === "#") return false
+        event.preventDefault()
+        window.open(safeUrl, "_blank", "noopener,noreferrer")
+        return true
       },
       handlePaste: (view, event) => {
         const upload = imageUploadRef.current

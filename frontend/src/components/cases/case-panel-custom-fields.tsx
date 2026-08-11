@@ -12,6 +12,7 @@ import {
 } from "@/components/cases/case-field-kind-dialogs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -775,16 +776,11 @@ export function CustomFieldInner({
                             <CommandItem
                               key={option}
                               value={option}
-                              className="text-sm"
+                              className="group text-sm"
                               onSelect={() => toggleOption(option)}
                             >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  currentValues.includes(option)
-                                    ? "opacity-100"
-                                    : "opacity-0"
-                                )}
+                              <CheckIndicator
+                                checked={currentValues.includes(option)}
                               />
                               {option}
                             </CommandItem>
