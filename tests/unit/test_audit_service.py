@@ -888,6 +888,68 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
 
 
 @pytest.mark.anyio
+async def test_test_delivery_reads_fresh_without_evicting_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    role: Role,
+) -> None:
+    """A test reads fresh settings without touching any tenant's cache."""
+    organization_a = role.organization_id
+    organization_b = uuid.uuid4()
+    assert organization_a is not None
+    urls = {
+        organization_a: "https://a.example.com/old",
+        organization_b: "https://b.example.com/old",
+    }
+    reads: list[uuid.UUID] = []
+
+    async def get_setting(
+        key: str,
+        *,
+        role: Role | None = None,
+        session: Any = None,
+        default: Any = None,
+    ) -> Any:
+        assert role is not None and role.organization_id is not None
+        assert session is None
+        reads.append(role.organization_id)
+        if key == "audit_webhook_url":
+            return urls[role.organization_id]
+        return default
+
+    monkeypatch.setattr("tracecat.settings.service.get_setting", get_setting)
+    service_a = AuditService(AsyncMock(), role=role)
+    role_b = role.model_copy(update={"organization_id": organization_b})
+    service_b = AuditService(AsyncMock(), role=role_b)
+
+    assert await service_a._get_webhook_url() == "https://a.example.com/old"
+    assert await service_b._get_webhook_url() == "https://b.example.com/old"
+    urls[organization_a] = "https://a.example.com/new"
+    urls[organization_b] = "https://b.example.com/new"
+    event = AuditEvent(
+        organization_id=organization_a,
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label=None,
+        resource_type="organization_setting",
+        resource_id=None,
+        action="connect",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    delivery = await AuditService._resolve_test_delivery(
+        sink="organization",
+        organization_id=organization_a,
+        payload=event,
+    )
+
+    assert delivery is not None
+    assert delivery.webhook_url == "https://a.example.com/new"
+    assert await service_b._get_webhook_url() == "https://b.example.com/old"
+    assert reads.count(organization_b) == 1
+
+
+@pytest.mark.anyio
 async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
@@ -1129,7 +1191,13 @@ async def test_create_event_settings_failure_does_not_raise(
     assert "secret-host" not in str(logger_mock.warning.call_args_list)
 
 
-def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDelivery:
+def _delivery(
+    tag: str,
+    url: str = "https://example.com/audit",
+    *,
+    organization_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> _AuditDelivery:
     """Build a minimal delivery whose resource_id doubles as an identifying tag."""
     return _AuditDelivery(
         webhook_url=url,
@@ -1138,6 +1206,8 @@ def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDeliver
         verify_ssl=True,
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -1243,6 +1313,8 @@ async def test_deliver_http_status_failures_log_status_without_secrets(
         verify_ssl=True,
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
+        organization_id=None,
+        workspace_id=None,
     )
 
     with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
@@ -1261,6 +1333,109 @@ async def test_deliver_http_status_failures_log_status_without_secrets(
     assert webhook_url not in all_logs
     assert payload_marker not in all_logs
     assert str(status_code) in all_logs  # status is present, only as the field
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_success_logs_outcome_without_secrets(
+    fresh_delivery_tasks: None,
+) -> None:
+    """A successful delivery logs its outcome and discriminators, never secrets.
+
+    The spawn-time debug line only proves a task started, so this info line is
+    the sole confirmation that the sink actually accepted the event.
+    """
+    webhook_url = "https://secret-host.example.com/audit-hook"
+    payload_marker = "payload-secret-marker"
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    respx.post(webhook_url).mock(return_value=httpx.Response(200))
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
+        _spawn_delivery(
+            _delivery(
+                payload_marker,
+                url=webhook_url,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+            )
+        )
+        await flush_audit_deliveries()
+
+    delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
+    assert len(delivered) == 1
+    kwargs = delivered[0]
+    assert kwargs["status_code"] == 200
+    assert kwargs["attempts"] == 1
+    assert kwargs["retried"] is False
+    assert kwargs["resource_type"] == "workflow"
+    assert kwargs["action"] == "update"
+    assert kwargs["organization_id"] == organization_id
+    assert kwargs["workspace_id"] == workspace_id
+    assert isinstance(kwargs["duration_ms"], int)
+    # Same containment guarantee as the failure path.
+    all_logs = repr(infos)
+    assert webhook_url not in all_logs
+    assert "secret-host" not in all_logs
+    assert payload_marker not in all_logs
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_success_after_retry_is_flagged(
+    fresh_delivery_tasks: None,
+) -> None:
+    """A delivery that recovers from a transient failure logs retried=True.
+
+    Without this, a flaky sink is indistinguishable from a healthy one because
+    the eventual success is the only line emitted.
+    """
+    webhook_url = "https://example.com/audit"
+    respx.post(webhook_url).mock(side_effect=[httpx.Response(503), httpx.Response(200)])
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
+        _spawn_delivery(_delivery("retried"))
+        await flush_audit_deliveries()
+
+    delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
+    assert len(delivered) == 1
+    assert delivered[0]["status_code"] == 200
+    assert delivered[0]["attempts"] == 2
+    assert delivered[0]["retried"] is True
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_exhausted_retries_logs_no_success(
+    fresh_delivery_tasks: None,
+) -> None:
+    """An exhausted delivery must not emit the success line."""
+    webhook_url = "https://example.com/audit"
+    respx.post(webhook_url).mock(return_value=httpx.Response(500))
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with (
+        patch("tracecat.audit.service.logger.info", side_effect=capture_info),
+        patch("tracecat.audit.service.logger.warning"),
+    ):
+        _spawn_delivery(_delivery("exhausted"))
+        await flush_audit_deliveries()
+
+    assert [kwargs for m, kwargs in infos if m == "Delivered audit webhook"] == []
 
 
 @pytest.mark.anyio

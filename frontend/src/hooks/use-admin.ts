@@ -20,6 +20,7 @@ import {
   type AdminUserRead,
   type AgentCatalogListResponse,
   type AgentCatalogRead,
+  type AuditWebhookTestResult,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -55,6 +56,7 @@ import {
   adminRegistrySyncRepository,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminTestAuditWebhook,
   adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
@@ -80,7 +82,16 @@ import {
   type TierUpdate,
 } from "@/client"
 import { request as apiRequest } from "@/client/core/request"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { toast } from "@/components/ui/use-toast"
+import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
+  getApiErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
 
 export interface AdminPlatformCatalogEntry {
   id: string
@@ -888,6 +899,25 @@ export function useAdminAuditSettings() {
     },
   })
 
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<AuditWebhookTestResult, TracecatApiError>({
+      mutationFn: adminTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to test platform audit webhook", error)
+        toast({
+          title: "Failed to test audit webhook",
+          description: getApiErrorDetail(error) ?? "Unknown error",
+        })
+      },
+    })
+
   return {
     auditSettings,
     auditSettingsIsLoading,
@@ -895,6 +925,8 @@ export function useAdminAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 

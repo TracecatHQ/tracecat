@@ -10,16 +10,18 @@ ENG-1514 spool.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import httpx
 import orjson
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
@@ -69,9 +71,12 @@ class _AuditDelivery:
     request_payload: dict[str, Any]
     headers: dict[str, str] | None
     verify_ssl: bool
-    # Non-sensitive discriminators for failure logging; never the payload contents.
+    # Non-sensitive discriminators for delivery logging; never the payload
+    # contents and never the sink URL, whose path may carry a credential.
     resource_type: AuditResourceType
     action: AuditAction
+    organization_id: uuid.UUID | None
+    workspace_id: uuid.UUID | None
 
 
 # Strong refs to in-flight delivery tasks; done callbacks release them.
@@ -143,6 +148,7 @@ async def _deliver(delivery: _AuditDelivery) -> None:
     """
     response: httpx.Response | None = None
     attempts = 0
+    started = time.perf_counter()
     try:
         # One slot spans all attempts; the socket itself is only open per post.
         async with _get_post_semaphore():
@@ -173,8 +179,27 @@ async def _deliver(delivery: _AuditDelivery) -> None:
             status_code=response.status_code if response is not None else None,
             resource_type=delivery.resource_type,
             action=delivery.action,
+            organization_id=delivery.organization_id,
+            workspace_id=delivery.workspace_id,
             attempts=attempts,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
+        return
+    # Confirms the sink actually accepted the event, which the spawn-time
+    # "Streamed audit event" line cannot. `retried` flags a delivery that
+    # recovered from a transient failure. Same discriminators as the failure
+    # path: no payload contents, no sink URL.
+    logger.info(
+        "Delivered audit webhook",
+        status_code=response.status_code if response is not None else None,
+        resource_type=delivery.resource_type,
+        action=delivery.action,
+        organization_id=delivery.organization_id,
+        workspace_id=delivery.workspace_id,
+        attempts=attempts,
+        retried=attempts > 1,
+        duration_ms=round((time.perf_counter() - started) * 1000),
+    )
 
 
 async def _fetch_platform_setting(key: str) -> Any | None:
@@ -198,21 +223,18 @@ async def _fetch_platform_setting(key: str) -> Any | None:
     return orjson.loads(value)
 
 
-@alru_cache(ttl=30)
-async def _get_audit_setting_cached(
+async def _read_audit_setting(
     sink: AuditSink,
     organization_id: OrganizationID | None,
     key: str,
     default: Any = None,
 ) -> Any | None:
-    """Cached audit-setting read keyed by (sink, org, key, default).
+    """Uncached audit-setting read on its own short-lived session.
 
-    Runs on its own session so no request session is captured or hashed; bounded
-    30s staleness. ``organization_id`` is ``None`` for the platform sink or
-    org-sink calls with no org identity. Decrypted values live in process memory
-    only and are never logged.
+    ``organization_id`` is ``None`` for the platform sink or org-sink calls
+    with no org identity. Decrypted values live in process memory only and are
+    never logged.
     """
-    logger.debug("Audit setting cache miss", sink=sink, key=key)
     if sink == "platform":
         value = await _fetch_platform_setting(key)
         return default if value is None and default is not None else value
@@ -231,9 +253,48 @@ async def _get_audit_setting_cached(
     return await get_setting(key, role=role, session=None, default=default)
 
 
+@alru_cache(ttl=30)
+async def _get_audit_setting_cached(
+    sink: AuditSink,
+    organization_id: OrganizationID | None,
+    key: str,
+    default: Any = None,
+) -> Any | None:
+    """Cached audit-setting read keyed by (sink, org, key, default).
+
+    Runs on its own session so no request session is captured or hashed;
+    bounded 30s staleness.
+    """
+    logger.debug("Audit setting cache miss", sink=sink, key=key)
+    return await _read_audit_setting(sink, organization_id, key, default)
+
+
 def clear_audit_setting_cache() -> None:
     """Make committed audit setting changes visible to the next event."""
     _get_audit_setting_cached.cache_clear()
+
+
+_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS = 5.0
+
+_TEST_HEADER = "X-Tracecat-Test"
+
+AuditWebhookTestErrorCategory = Literal[
+    "receiver_error",
+    "timeout",
+    "request_error",
+]
+
+
+class AuditWebhookNotConfiguredError(Exception):
+    """Raised when an audit webhook test is requested without a sink."""
+
+
+class AuditWebhookTestResult(BaseModel):
+    """Result of a synchronous audit webhook test-fire request."""
+
+    ok: bool
+    receiver_status_code: int | None = None
+    error_category: AuditWebhookTestErrorCategory | None = None
 
 
 class AuditService(BaseService):
@@ -318,11 +379,17 @@ class AuditService(BaseService):
         2. Organization setting `audit_webhook_url`
         """
 
-        value = await self._get_audit_setting("audit_webhook_url")
+        return self._normalize_webhook_url(
+            await self._get_audit_setting("audit_webhook_url")
+        )
+
+    @staticmethod
+    def _normalize_webhook_url(value: Any) -> str | None:
+        """Validate and normalize a stored audit webhook URL."""
         if value is None:
             return None
         if not isinstance(value, str):
-            self.logger.warning(
+            logger.warning(
                 "audit_webhook_url must be a string",
                 value_type=type(value),
             )
@@ -337,11 +404,17 @@ class AuditService(BaseService):
         Note: reads are cached with a 30s TTL, so setting changes take effect
         within that bounded window rather than immediately.
         """
-        value = await self._get_audit_setting("audit_webhook_custom_headers")
+        return self._normalize_custom_headers(
+            await self._get_audit_setting("audit_webhook_custom_headers")
+        )
+
+    @staticmethod
+    def _normalize_custom_headers(value: Any) -> dict[str, str] | None:
+        """Validate stored custom audit webhook headers."""
         if value is None:
             return None
         if not isinstance(value, dict):
-            self.logger.warning(
+            logger.warning(
                 "audit_webhook_custom_headers must be a dict",
                 value_type=type(value),
             )
@@ -351,11 +424,17 @@ class AuditService(BaseService):
 
     async def _get_custom_payload(self) -> dict[str, Any] | None:
         """Fetch the configured custom payload for the audit webhook."""
-        value = await self._get_audit_setting("audit_webhook_custom_payload")
+        return self._normalize_custom_payload(
+            await self._get_audit_setting("audit_webhook_custom_payload")
+        )
+
+    @staticmethod
+    def _normalize_custom_payload(value: Any) -> dict[str, Any] | None:
+        """Validate a stored custom audit webhook payload."""
         if value is None:
             return None
         if not isinstance(value, dict):
-            self.logger.warning(
+            logger.warning(
                 "audit_webhook_custom_payload must be a dict",
                 value_type=type(value),
             )
@@ -364,9 +443,15 @@ class AuditService(BaseService):
 
     async def _get_verify_ssl(self) -> bool:
         """Fetch SSL verification setting for audit webhook requests."""
-        value = await self._get_audit_setting("audit_webhook_verify_ssl", default=True)
+        return self._normalize_verify_ssl(
+            await self._get_audit_setting("audit_webhook_verify_ssl", default=True)
+        )
+
+    @staticmethod
+    def _normalize_verify_ssl(value: Any) -> bool:
+        """Validate the stored audit webhook TLS verification setting."""
         if not isinstance(value, bool):
-            self.logger.warning(
+            logger.warning(
                 "audit_webhook_verify_ssl must be a bool",
                 value_type=type(value),
             )
@@ -375,11 +460,17 @@ class AuditService(BaseService):
 
     async def _get_payload_attribute(self) -> str | None:
         """Fetch optional wrapper attribute for webhook payloads."""
-        value = await self._get_audit_setting("audit_webhook_payload_attribute")
+        return self._normalize_payload_attribute(
+            await self._get_audit_setting("audit_webhook_payload_attribute")
+        )
+
+    @staticmethod
+    def _normalize_payload_attribute(value: Any) -> str | None:
+        """Validate and normalize the stored payload wrapper attribute."""
         if value is None:
             return None
         if not isinstance(value, str):
-            self.logger.warning(
+            logger.warning(
                 "audit_webhook_payload_attribute must be a string",
                 value_type=type(value),
             )
@@ -400,6 +491,26 @@ class AuditService(BaseService):
         custom_payload = await self._get_custom_payload()
         verify_ssl = await self._get_verify_ssl()
         payload_attribute = await self._get_payload_attribute()
+        return self._assemble_delivery(
+            webhook_url=webhook_url,
+            payload=payload,
+            custom_headers=custom_headers,
+            custom_payload=custom_payload,
+            verify_ssl=verify_ssl,
+            payload_attribute=payload_attribute,
+        )
+
+    @staticmethod
+    def _assemble_delivery(
+        *,
+        webhook_url: str,
+        payload: AuditEvent,
+        custom_headers: dict[str, str] | None,
+        custom_payload: dict[str, Any] | None,
+        verify_ssl: bool,
+        payload_attribute: str | None,
+    ) -> _AuditDelivery:
+        """Assemble a detached delivery from already-resolved settings."""
         event_payload = payload.model_dump(mode="json")
         if custom_payload:
             # Custom fields may enrich an event but cannot replace the canonical
@@ -417,6 +528,154 @@ class AuditService(BaseService):
             verify_ssl=verify_ssl,
             resource_type=payload.resource_type,
             action=payload.action,
+            organization_id=payload.organization_id,
+            workspace_id=payload.workspace_id,
+        )
+
+    @classmethod
+    async def probe_webhook(
+        cls,
+        *,
+        sink: AuditSink,
+        organization_id: OrganizationID | None,
+        role: AuditableRole,
+    ) -> AuditWebhookTestResult:
+        """Post one marked test event and report the receiver's response.
+
+        Reuses the real payload assembly and delivery headers so a passing
+        probe exercises the same request shape as live delivery.
+        """
+        event = cls._build_test_event(
+            sink=sink, organization_id=organization_id, role=role
+        )
+        delivery = await cls._resolve_test_delivery(
+            sink=sink,
+            organization_id=organization_id,
+            payload=event,
+        )
+        if delivery is None:
+            raise AuditWebhookNotConfiguredError
+
+        headers = {
+            key: value
+            for key, value in (delivery.headers or {}).items()
+            if key.lower() != _TEST_HEADER.lower()
+        }
+        headers[_TEST_HEADER] = "true"
+
+        try:
+            async with asyncio.timeout(_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS):
+                async with httpx.AsyncClient(
+                    timeout=_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS,
+                    verify=delivery.verify_ssl,
+                ) as client:
+                    response = await client.post(
+                        delivery.webhook_url,
+                        json=delivery.request_payload,
+                        headers=headers,
+                    )
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            logger.warning(
+                "Audit webhook test timed out",
+                sink=sink,
+                error_type=type(exc).__name__,
+            )
+            return AuditWebhookTestResult(ok=False, error_category="timeout")
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Audit webhook test request failed",
+                sink=sink,
+                error_type=type(exc).__name__,
+            )
+            return AuditWebhookTestResult(ok=False, error_category="request_error")
+
+        ok = response.is_success
+        return AuditWebhookTestResult(
+            ok=ok,
+            receiver_status_code=response.status_code,
+            error_category=None if ok else "receiver_error",
+        )
+
+    @staticmethod
+    def _build_test_event(
+        *,
+        sink: AuditSink,
+        organization_id: OrganizationID | None,
+        role: AuditableRole,
+    ) -> AuditEvent:
+        """Build the clearly-marked synthetic event a probe delivers."""
+        actor_id = role.actor_id
+        if actor_id is None:
+            raise ValueError("Audit webhook test requires an auditable actor")
+        resource_type = (
+            "platform_setting" if sink == "platform" else "organization_setting"
+        )
+        request_audit = ctx_request_audit.get()
+        return AuditEvent(
+            organization_id=organization_id,
+            workspace_id=role.workspace_id if isinstance(role, Role) else None,
+            actor_type=AuditEventActor.USER,
+            actor_id=actor_id,
+            actor_label=None,
+            ip_address=request_audit.client_ip if request_audit is not None else None,
+            user_agent=request_audit.user_agent if request_audit is not None else None,
+            resource_type=resource_type,
+            resource_id=None,
+            action="connect",
+            status=AuditEventStatus.SUCCESS,
+            data={"test": True},
+        )
+
+    @classmethod
+    async def _resolve_test_delivery(
+        cls,
+        *,
+        sink: AuditSink,
+        organization_id: OrganizationID | None,
+        payload: AuditEvent,
+    ) -> _AuditDelivery | None:
+        """Resolve a test delivery from uncached settings reads.
+
+        Each sequential read opens and closes its own short-lived session, so a
+        probe fired right after a save tests the saved settings on any replica,
+        and the returned delivery posts without holding a database connection.
+        """
+        if sink == "organization" and organization_id is None:
+            raise ValueError("Organization audit settings require an organization ID")
+
+        webhook_url = cls._normalize_webhook_url(
+            await _read_audit_setting(sink, organization_id, "audit_webhook_url")
+        )
+        if not webhook_url:
+            return None
+
+        custom_headers = cls._normalize_custom_headers(
+            await _read_audit_setting(
+                sink, organization_id, "audit_webhook_custom_headers"
+            )
+        )
+        custom_payload = cls._normalize_custom_payload(
+            await _read_audit_setting(
+                sink, organization_id, "audit_webhook_custom_payload"
+            )
+        )
+        verify_ssl = cls._normalize_verify_ssl(
+            await _read_audit_setting(
+                sink, organization_id, "audit_webhook_verify_ssl", True
+            )
+        )
+        payload_attribute = cls._normalize_payload_attribute(
+            await _read_audit_setting(
+                sink, organization_id, "audit_webhook_payload_attribute"
+            )
+        )
+        return cls._assemble_delivery(
+            webhook_url=webhook_url,
+            payload=payload,
+            custom_headers=custom_headers,
+            custom_payload=custom_payload,
+            verify_ssl=verify_ssl,
+            payload_attribute=payload_attribute,
         )
 
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:

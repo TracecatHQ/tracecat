@@ -88,6 +88,7 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
@@ -693,6 +694,7 @@ import type {
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsTestAuditWebhookResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -7599,6 +7601,20 @@ export const adminUpdateAuditSettings = (
 }
 
 /**
+ * Test Audit Webhook
+ * Send a test event to the platform audit webhook.
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const adminTestAuditWebhook =
+  (): CancelablePromise<AdminTestAuditWebhookResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/settings/audit/test",
+    })
+  }
+
+/**
  * Get Registry Settings
  * Get platform registry settings.
  * @returns PlatformRegistrySettingsRead Successful Response
@@ -8874,6 +8890,19 @@ export const settingsUpdateAuditSettings = (
     },
   })
 }
+
+/**
+ * Test Audit Webhook
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const settingsTestAuditWebhook =
+  (): CancelablePromise<SettingsTestAuditWebhookResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/settings/audit/test",
+    })
+  }
 
 /**
  * Get Agent Settings
