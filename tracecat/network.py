@@ -59,11 +59,15 @@ async def validate_url_resolves_public_async(url: str, *, default_port: int) -> 
     Raises :class:`DisallowedUrlError` on a missing host, resolution failure, or
     any non-public address, without echoing the resolved address.
     """
-    parsed = urlparse(url)
-    hostname = parsed.hostname
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise DisallowedUrlError("URL is invalid") from exc
     if not hostname:
         raise DisallowedUrlError("URL must include a hostname")
-    port = parsed.port or default_port
+    port = port or default_port
     try:
         # getaddrinfo is blocking C I/O (hosts file, resolv.conf, network
         # resolver); keep it off the event loop so a slow DNS server for one

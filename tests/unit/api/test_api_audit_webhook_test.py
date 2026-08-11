@@ -12,6 +12,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.admin.settings import router as admin_settings_router
 
+from tracecat import network
 from tracecat.audit import service as audit_service_module
 from tracecat.auth.types import Role
 from tracecat.settings import router as settings_router
@@ -227,6 +228,36 @@ async def test_org_audit_webhook_test_enforces_wall_clock_timeout(
 
 
 @pytest.mark.anyio
+async def test_org_audit_webhook_test_timeout_includes_dns_resolution(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _hang(url: str, *, default_port: int) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "tracecat.audit.service._AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS", 0.01
+    )
+    monkeypatch.setattr(
+        audit_service_module, "validate_url_resolves_public_async", _hang
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
+    )
+
+    response = client.post("/settings/audit/test", json=_TEST_BODY)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "ok": False,
+        "receiver_status_code": None,
+        "error_category": "timeout",
+    }
+    assert FakeAuditWebhookClient.calls == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "body",
     [
@@ -311,12 +342,42 @@ async def test_probe_rejects_private_address_without_connecting(
 @pytest.mark.anyio
 async def test_probe_url_guard_uses_real_resolver_for_loopback() -> None:
     """The shared guard rejects a loopback URL end to end."""
-    from tracecat import network
-
     with pytest.raises(network.DisallowedUrlError):
         await network.validate_url_resolves_public_async(
             "http://127.0.0.1:9000/ingest", default_port=443
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com:99999/hook",
+        "https://[::1/hook",
+    ],
+)
+async def test_org_audit_webhook_test_returns_400_for_malformed_url(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    url: str,
+) -> None:
+    monkeypatch.setattr(
+        audit_service_module,
+        "validate_url_resolves_public_async",
+        network.validate_url_resolves_public_async,
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
+    )
+
+    response = client.post(
+        "/settings/audit/test", json={**_TEST_BODY, "audit_webhook_url": url}
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Audit webhook URL is not allowed"}
+    assert FakeAuditWebhookClient.calls == []
 
 
 @pytest.mark.anyio

@@ -13,6 +13,7 @@ function formatErrorCategory(category: string | null | undefined): string {
   }
 }
 
+/** Return the toast title for an audit webhook test result. */
 export function getAuditWebhookTestTitle(
   result: AuditWebhookTestResult
 ): string {
@@ -21,6 +22,7 @@ export function getAuditWebhookTestTitle(
     : "Audit webhook test failed"
 }
 
+/** Return the receiver status or categorized failure description. */
 export function getAuditWebhookTestDescription(
   result: AuditWebhookTestResult
 ): string {

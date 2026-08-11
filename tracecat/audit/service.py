@@ -538,43 +538,46 @@ class AuditService(BaseService):
         if not webhook_url:
             raise AuditWebhookNotConfiguredError
 
-        # A probe is a caller-controlled request that echoes the receiver's
-        # status, so an unresolved-to-public URL would be an internal-network
-        # oracle. Reject before any connection; the error carries no address.
-        try:
-            await validate_url_resolves_public_async(
-                webhook_url, default_port=_AUDIT_WEBHOOK_TEST_DEFAULT_PORT
-            )
-        except DisallowedUrlError as exc:
-            raise AuditWebhookUrlNotAllowedError from exc
-
-        event = cls._build_test_event(
-            sink=sink, organization_id=organization_id, role=role
-        )
-        delivery = cls._assemble_delivery(
-            webhook_url=webhook_url,
-            payload=event,
-            custom_headers=cls._normalize_custom_headers(
-                settings.audit_webhook_custom_headers
-            ),
-            custom_payload=cls._normalize_custom_payload(
-                settings.audit_webhook_custom_payload
-            ),
-            verify_ssl=cls._normalize_verify_ssl(settings.audit_webhook_verify_ssl),
-            payload_attribute=cls._normalize_payload_attribute(
-                settings.audit_webhook_payload_attribute
-            ),
-        )
-
-        headers = {
-            key: value
-            for key, value in (delivery.headers or {}).items()
-            if key.lower() != _TEST_HEADER.lower()
-        }
-        headers[_TEST_HEADER] = "true"
-
         try:
             async with asyncio.timeout(_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS):
+                # A probe is a caller-controlled request that echoes the
+                # receiver's status, so an unresolved-to-public URL would be an
+                # internal-network oracle. Reject before any connection; the
+                # error carries no address.
+                try:
+                    await validate_url_resolves_public_async(
+                        webhook_url, default_port=_AUDIT_WEBHOOK_TEST_DEFAULT_PORT
+                    )
+                except DisallowedUrlError as exc:
+                    raise AuditWebhookUrlNotAllowedError from exc
+
+                event = cls._build_test_event(
+                    sink=sink, organization_id=organization_id, role=role
+                )
+                delivery = cls._assemble_delivery(
+                    webhook_url=webhook_url,
+                    payload=event,
+                    custom_headers=cls._normalize_custom_headers(
+                        settings.audit_webhook_custom_headers
+                    ),
+                    custom_payload=cls._normalize_custom_payload(
+                        settings.audit_webhook_custom_payload
+                    ),
+                    verify_ssl=cls._normalize_verify_ssl(
+                        settings.audit_webhook_verify_ssl
+                    ),
+                    payload_attribute=cls._normalize_payload_attribute(
+                        settings.audit_webhook_payload_attribute
+                    ),
+                )
+
+                headers = {
+                    key: value
+                    for key, value in (delivery.headers or {}).items()
+                    if key.lower() != _TEST_HEADER.lower()
+                }
+                headers[_TEST_HEADER] = "true"
+
                 # Probes share the process-wide socket budget with live
                 # delivery; one that cannot get a slot within the wall clock
                 # times out instead of queueing without bound.
