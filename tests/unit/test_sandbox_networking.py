@@ -242,8 +242,10 @@ def test_filtered_nstun_policy_allows_public_ipv6_when_opted_in() -> None:
         "fc00::/7",
         "fe80::/10",
     ):
-        assert f'action: REJECT\n    proto: ANY\n    dst_ip: "{blocked}"' in (
-            config_text
+        canonical_blocked = ip_network(blocked)
+        assert (
+            f'action: REJECT\n    proto: ANY\n    dst_ip: "{canonical_blocked}"'
+            in config_text
         )
     assert 'action: ALLOW\n    proto: ANY\n    dst_ip: "::/0"' in config_text
     assert 'action: REJECT\n    proto: ANY\n    dst_ip: "::/0"' not in config_text
