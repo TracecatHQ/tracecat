@@ -48,7 +48,9 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
+from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
@@ -68,6 +70,7 @@ class SmokeCase(StrEnum):
     NSJAIL_SQUASHFS = "nsjail-squashfs"
     NSJAIL_GATEWAY = "nsjail-gateway"
     NSJAIL_NETWORK_POLICY = "nsjail-network-policy"
+    NSJAIL_SOCKET_BUDGET = "nsjail-socket-budget"
     NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
@@ -840,10 +843,61 @@ async def _run_current_builtin_smoke_case(
     assert result.result == {"source": "current-builtin"}
 
 
+async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
+    """A low-FD guest cannot amplify one UDP socket into unbounded parent FDs."""
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    script_name = "udp_socket_budget.py"
+    (tmp_path / script_name).write_text(
+        "\n".join(
+            [
+                "import socket",
+                "import time",
+                "",
+                "udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)",
+                "for port in range(10_000, 10_256):",
+                '    udp_socket.sendto(b"x", ("1.1.1.1", port))',
+                "time.sleep(2)",
+                "",
+            ]
+        )
+    )
+
+    result = await NsjailExecutor().execute(
+        tmp_path,
+        SandboxConfig(
+            network_enabled=True,
+            resources=ResourceLimits(
+                memory_mb=128,
+                cpu_seconds=10,
+                max_open_files=16,
+                max_processes=16,
+                timeout_seconds=10,
+            ),
+        ),
+        script_name=script_name,
+    )
+
+    assert result.success, result.error
+    assert "UDP/ICMP parent socket budget exhausted" in result.stderr
+    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+
+
 _CURRENT_BUILTIN_CASES = {
     SmokeCase.DIRECT_CURRENT_BUILTIN,
     SmokeCase.NSJAIL_CURRENT_BUILTIN,
 }
+
+
+@pytest.mark.anyio
+async def test_nstun_bounds_parent_udp_sockets(tmp_path: Path) -> None:
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+    await _run_nstun_socket_budget_smoke_case(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -899,7 +953,9 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         monkeypatch = pytest.MonkeyPatch()
         tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-executor-nsjail-"))
         try:
-            if smoke_case in _CURRENT_BUILTIN_CASES:
+            if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET:
+                await _run_nstun_socket_budget_smoke_case(tmp_path)
+            elif smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
                     smoke_case=smoke_case, monkeypatch=monkeypatch
                 )
