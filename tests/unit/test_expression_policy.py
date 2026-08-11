@@ -337,7 +337,7 @@ def test_compound_dependency_propagates_across_template_boundaries() -> None:
 
     child = outer.child_provenance({"value": '${{ inputs.value || "fallback" }}'})
 
-    assert child["value"].secret_paths == {()}
+    assert child["value"].dependencies.value
     assert child["value"].source == '${{ inputs.value || "fallback" }}'
 
 
@@ -433,7 +433,7 @@ def test_adjacent_templates_mask_independently() -> None:
         source_args={"a": "left", "b": "${{ SECRETS.api.TOKEN }}"},
         runtime_inputs={"a": "left", "b": "runtime-secret"},
     )
-    assert state.provenance["b"].secret_paths == {()}
+    assert state.provenance["b"].dependencies.value
 
     prepared = state.resolve_action_args(
         "core.cases.create_comment",
@@ -468,7 +468,7 @@ def test_step_results_do_not_taint_child_provenance() -> None:
 
     child = state.child_provenance({"value": "${{ steps.normalize.result }}"})
 
-    assert child["value"].secret_paths == set()
+    assert not child["value"].dependencies.secret
 
 
 def test_workflow_metadata_redacts_secret_expressions() -> None:
@@ -683,7 +683,7 @@ def test_source_provenance_never_evaluates_authored_source() -> None:
         {"content": "${{ FN.uuid4() }} ${{ SECRETS.api.TOKEN }}"},
     )
 
-    assert provenance["content"].secret_paths == {()}
+    assert provenance["content"].dependencies.value
     assert provenance["content"].source == (
         "${{ FN.uuid4() }} ${{ SECRETS.api.TOKEN }}"
     )
@@ -738,7 +738,7 @@ def test_partition_restores_preserved_subtree_without_reordering() -> None:
 def test_provenance_does_not_taint_step_results() -> None:
     provenance = build_provenance({"value": "${{ steps.normalize.result }}"})
 
-    assert provenance["value"].secret_paths == set()
+    assert not provenance["value"].dependencies.secret
 
 
 def test_preserve_splices_null_input_value_but_leaves_missing_reference() -> None:

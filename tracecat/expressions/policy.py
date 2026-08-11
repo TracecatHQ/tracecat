@@ -1,9 +1,11 @@
 """Field policy and secret provenance for expression resolution.
 
 Provenance is built once per template invocation as a plain mapping from input
-names to authored source and secret-dependent relative paths. The mapping is
-then threaded into the existing expression traversal through resolution-policy
-hooks that run immediately before each expression is evaluated.
+names to authored source and a secret-dependency trie mirroring the value's
+shape.
+The mapping is then threaded into the existing expression traversal through
+resolution-policy hooks that run immediately before each expression is
+evaluated.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import ast
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
@@ -117,39 +119,116 @@ def expression_policy(action: str, parameter: str) -> ExpressionPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class _SecretDependencies:
+    """Secret dependencies of one value, as a trie mirroring the value's shape.
+
+    Empty subtrees are never stored: a child is present only if a secret
+    dependency exists somewhere below it.
+    """
+
+    value: bool = False
+    """Whether the value at this node depends on a secret."""
+
+    keys: bool = False
+    """Whether the mapping at this node contains secret-dependent keys."""
+
+    children: Mapping[PathSegment, _SecretDependencies] = field(default_factory=dict)
+    """Dependencies of nested container entries, keyed by field, index, or key."""
+
+    @property
+    def secret(self) -> bool:
+        """Whether any value or key in this subtree depends on a secret."""
+        return (
+            self.value
+            or self.keys
+            or any(child.secret for child in self.children.values())
+        )
+
+    @property
+    def secret_values(self) -> bool:
+        """Whether any value in this subtree depends on a secret."""
+        return self.value or any(
+            child.secret_values for child in self.children.values()
+        )
+
+    @property
+    def secret_keys(self) -> bool:
+        """Whether any mapping in this subtree has secret-dependent keys."""
+        return self.keys or any(child.secret_keys for child in self.children.values())
+
+    def nested(self, segment: PathSegment) -> _SecretDependencies:
+        """Wrap these dependencies one container level down, under ``segment``."""
+        return (
+            _SecretDependencies(children={segment: self})
+            if self.secret
+            else _NO_DEPENDENCIES
+        )
+
+    def select(self, path: DataPath) -> _SecretDependencies:
+        """Dependencies of the subtree at ``path``, inheriting marked ancestors."""
+        node = self
+        value = False
+        keys = False
+        for segment in path:
+            value = value or node.value
+            keys = keys or node.keys
+            node = node.children.get(segment, _NO_DEPENDENCIES)
+        if not (value or keys):
+            return node
+        return _SecretDependencies(
+            value=node.value or value,
+            keys=node.keys or keys,
+            children=node.children,
+        )
+
+    def collapsed(self) -> _SecretDependencies:
+        """Collapse all dependencies onto the root, discarding path precision."""
+        return _SecretDependencies(value=self.secret_values, keys=self.secret_keys)
+
+    def without_values(self) -> _SecretDependencies:
+        """Drop value dependencies everywhere, keeping key-dependency structure."""
+        children = {
+            segment: stripped
+            for segment, child in self.children.items()
+            if (stripped := child.without_values()).secret
+        }
+        return _SecretDependencies(keys=self.keys, children=children)
+
+    @classmethod
+    def merged(cls, items: Iterable[_SecretDependencies]) -> _SecretDependencies:
+        """Union of several dependency tries, merged segment by segment."""
+        value = False
+        keys = False
+        grouped: dict[PathSegment, list[_SecretDependencies]] = {}
+        for item in items:
+            value = value or item.value
+            keys = keys or item.keys
+            for segment, child in item.children.items():
+                grouped.setdefault(segment, []).append(child)
+        return cls(
+            value=value,
+            keys=keys,
+            children={
+                segment: cls.merged(children) for segment, children in grouped.items()
+            },
+        )
+
+
+_NO_DEPENDENCIES = _SecretDependencies()
+
+
+@dataclass(frozen=True, slots=True)
 class _InputProvenance:
-    """Authored source and secret-dependent paths for one template input."""
+    """Authored source and secret dependencies for one template input."""
 
     source: Any
     """Caller-authored value before expression evaluation."""
 
-    secret_paths: frozenset[DataPath]
-    """Relative value paths that directly or transitively depend on secrets."""
-
-    secret_key_paths: frozenset[DataPath]
-    """Relative mapping paths containing secret-dependent keys."""
+    dependencies: _SecretDependencies
+    """Secret dependencies that directly or transitively apply to the value."""
 
 
 type ProvenanceMap = Mapping[str, _InputProvenance]
-
-
-@dataclass(frozen=True, slots=True)
-class _Dependencies:
-    values: frozenset[DataPath] = frozenset()
-    """Secret-dependent value paths relative to the scanned value."""
-
-    keys: frozenset[DataPath] = frozenset()
-    """Mapping paths containing secret-dependent keys."""
-
-    @property
-    def secret(self) -> bool:
-        return bool(self.values or self.keys)
-
-    def prefixed(self, segment: PathSegment) -> _Dependencies:
-        return _Dependencies(
-            values=frozenset((segment, *path) for path in self.values),
-            keys=frozenset((segment, *path) for path in self.keys),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +239,7 @@ class _InputSelection:
     source: Any
     """Authored value selected by the input expression."""
 
-    dependencies: _Dependencies
+    dependencies: _SecretDependencies
     """Secret dependencies scoped to the selected input path."""
 
 
@@ -182,8 +261,7 @@ def build_provenance(
         )
         provenance[parameter] = _InputProvenance(
             source=source,
-            secret_paths=dependencies.values,
-            secret_key_paths=dependencies.keys,
+            dependencies=dependencies,
         )
     return provenance
 
@@ -211,14 +289,11 @@ class _RedactionPolicy:
     ) -> Any:
         """Mask secret dependencies or delegate to ordinary evaluation."""
         del standalone
-        if (
-            self.provenance is not None
-            and (path := _direct_input_path_from_tree(tree)) is not None
-        ):
-            selection = _select_input(path, self.provenance)
+        if self.provenance is not None and (ref := _direct_input_ref(tree)) is not None:
+            selection = _select_input(ref, self.provenance)
             if selection is None or not selection.dependencies.secret:
                 return source if self.defer else default()
-            if self.reject or selection.dependencies.keys:
+            if self.reject or selection.dependencies.secret_keys:
                 _raise_secret_key_error()
             return MASK_VALUE if self.defer else _mask_runtime_value(default())
 
@@ -249,8 +324,8 @@ class _PreservePolicy:
         standalone: bool,
     ) -> Any:
         """Substitute input source and materialize only a safe field carrier."""
-        if (path := _direct_input_path_from_tree(tree)) is not None:
-            selection = _select_input(path, self.provenance)
+        if (ref := _direct_input_ref(tree)) is not None:
+            selection = _select_input(ref, self.provenance)
             if selection is None or not selection.source_found:
                 return source
             authored = selection.source
@@ -358,13 +433,13 @@ def resolve_action_args(
 def _derive_dependencies(
     value: Any,
     parent: ProvenanceMap | None,
-) -> _Dependencies:
+) -> _SecretDependencies:
     match value:
         case str():
             if (
                 parent is not None
-                and (path := _direct_input_path(value)) is not None
-                and (selection := _select_input(path, parent)) is not None
+                and (ref := _template_input_ref(value)) is not None
+                and (selection := _select_input(ref, parent)) is not None
             ):
                 return selection.dependencies
 
@@ -379,75 +454,53 @@ def _derive_dependencies(
                     parent,
                 )
                 secret = secret or tree_dependencies.secret
-                secret_keys = secret_keys or bool(tree_dependencies.keys)
-            return _Dependencies(
-                values=frozenset({()}) if secret else frozenset(),
-                keys=frozenset({()}) if secret_keys else frozenset(),
-            )
+                secret_keys = secret_keys or tree_dependencies.secret_keys
+            return _SecretDependencies(value=secret, keys=secret_keys)
         case list():
-            return _merge_dependencies(
-                _derive_dependencies(item, parent).prefixed(index)
+            return _SecretDependencies.merged(
+                _derive_dependencies(item, parent).nested(index)
                 for index, item in enumerate(value)
             )
         case dict():
-            dependencies: list[_Dependencies] = []
+            collected: list[_SecretDependencies] = []
             dynamic_key = False
             secret_key = False
             for key, item in value.items():
                 if isinstance(key, str):
-                    key_dependencies = _derive_dependencies(key, parent)
-                    secret_key = secret_key or key_dependencies.secret
+                    secret_key = secret_key or _derive_dependencies(key, parent).secret
                     dynamic_key = dynamic_key or bool(
                         patterns.TEMPLATE_STRING.search(key)
                     )
-                dependencies.append(_derive_dependencies(item, parent).prefixed(key))
-            merged = _merge_dependencies(dependencies)
+                collected.append(_derive_dependencies(item, parent).nested(key))
+            merged = _SecretDependencies.merged(collected)
             if secret_key:
-                merged = _Dependencies(merged.values, merged.keys | {()})
-            if dynamic_key and merged.values:
-                merged = _Dependencies(frozenset({()}), merged.keys)
+                merged = replace(merged, keys=True)
+            if dynamic_key and merged.secret_values:
+                merged = replace(merged.without_values(), value=True)
             return merged
         case _:
-            return _Dependencies()
+            return _NO_DEPENDENCIES
 
 
-def _merge_dependencies(items: Iterable[_Dependencies]) -> _Dependencies:
-    values: set[DataPath] = set()
-    keys: set[DataPath] = set()
-    for item in items:
-        values.update(item.values)
-        keys.update(item.keys)
-    return _Dependencies(frozenset(values), frozenset(keys))
-
-
-def _select_input(path: str, provenance: ProvenanceMap) -> _InputSelection | None:
-    root_match = _ROOT_INPUT.match(path)
-    if root_match is None:
-        return None
-    parameter = root_match.group(1)
-    binding = provenance.get(parameter)
+def _select_input(
+    ref: _InputRef,
+    provenance: ProvenanceMap,
+) -> _InputSelection | None:
+    binding = provenance.get(ref.parameter)
     if binding is None:
         return None
 
-    segments = _parse_input_path(path)
-    if segments is None or not isinstance(segments[0], str):
-        dependencies = _Dependencies(
-            values=frozenset({()}) if binding.secret_paths else frozenset(),
-            keys=frozenset({()}) if binding.secret_key_paths else frozenset(),
-        )
-    else:
-        relative_path = segments[1:]
-        dependencies = _Dependencies(
-            values=_select_paths(binding.secret_paths, relative_path),
-            keys=_select_paths(binding.secret_key_paths, relative_path),
-        )
+    dependencies = (
+        binding.dependencies.select(ref.path)
+        if ref.path is not None
+        else binding.dependencies.collapsed()
+    )
 
-    suffix = path[root_match.end() :]
-    if not suffix:
+    if not ref.suffix:
         return _InputSelection(True, binding.source, dependencies)
     try:
         source = eval_jsonpath(
-            f"source{suffix}",
+            f"source{ref.suffix}",
             {"source": binding.source},
             strict=True,
         )
@@ -456,36 +509,18 @@ def _select_input(path: str, provenance: ProvenanceMap) -> _InputSelection | Non
     return _InputSelection(True, source, dependencies)
 
 
-def _select_paths(
-    paths: frozenset[DataPath],
-    prefix: DataPath,
-) -> frozenset[DataPath]:
-    selected: set[DataPath] = set()
-    for path in paths:
-        if path[: len(prefix)] == prefix:
-            selected.add(path[len(prefix) :])
-        elif prefix[: len(path)] == path:
-            selected.add(())
-    return frozenset(selected)
-
-
 def _tree_dependencies(
     tree: Tree[Token],
     provenance: ProvenanceMap | None,
-) -> _Dependencies:
-    dependencies = [
-        _Dependencies(values=frozenset({()})) for _ in tree.find_data("secrets")
-    ]
-    if provenance is None:
-        return _merge_dependencies(dependencies)
-
-    for node in tree.find_data("template_action_inputs"):
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise TracecatExpressionError("Expected template input path token")
-        if (selection := _select_input(str(token), provenance)) is not None:
-            dependencies.append(selection.dependencies)
-    return _merge_dependencies(dependencies)
+) -> _SecretDependencies:
+    collected = [_SecretDependencies(value=True) for _ in tree.find_data("secrets")]
+    if provenance is not None:
+        for node in tree.find_data("template_action_inputs"):
+            if (ref := _direct_input_ref(node)) is None:
+                continue
+            if (selection := _select_input(ref, provenance)) is not None:
+                collected.append(selection.dependencies)
+    return _SecretDependencies.merged(collected)
 
 
 def _mask_runtime_value(value: Any) -> Any:
@@ -520,15 +555,41 @@ def _parse_expression(expression: str) -> Tree[Token]:
     return tree
 
 
-def _parse_input_path(path: str) -> DataPath | None:
+@dataclass(frozen=True, slots=True)
+class _InputRef:
+    """One parsed ``inputs.<parameter><suffix>`` reference."""
+
+    parameter: str
+    """Referenced template input name."""
+
+    suffix: str
+    """Raw path suffix used to select within the authored source."""
+
+    path: DataPath | None
+    """Parsed suffix segments, or None when the suffix defies path parsing."""
+
+
+def _parse_input_ref(path: str) -> _InputRef | None:
+    root = _ROOT_INPUT.match(path)
+    if root is None:
+        return None
+    suffix = path[root.end() :]
+    return _InputRef(
+        parameter=root.group(1),
+        suffix=suffix,
+        path=_parse_path_segments(suffix),
+    )
+
+
+def _parse_path_segments(suffix: str) -> DataPath | None:
     segments: list[PathSegment] = []
     position = 0
-    while position < len(path):
-        match = _PATH_SEGMENT.match(path, position)
+    while position < len(suffix):
+        match = _PATH_SEGMENT.match(suffix, position)
         if match is None:
             return None
-        if (field := match.group("field")) is not None:
-            segments.append(field)
+        if (attribute := match.group("field")) is not None:
+            segments.append(attribute)
         elif (index := match.group("index")) is not None:
             segments.append(int(index))
         elif (quoted := match.group("quoted")) is not None:
@@ -537,7 +598,24 @@ def _parse_input_path(path: str) -> DataPath | None:
                 return None
             segments.append(value)
         position = match.end()
-    return tuple(segments) if segments else None
+    return tuple(segments)
+
+
+def _direct_input_ref(tree: Tree[Token]) -> _InputRef | None:
+    """Reference for an expression that is exactly one ``inputs.*`` lookup."""
+    if tree.data != "template_action_inputs":
+        return None
+    token = tree.children[0]
+    if not isinstance(token, Token):
+        raise TracecatExpressionError("Expected template input path token")
+    return _parse_input_ref(str(token))
+
+
+def _template_input_ref(template: str) -> _InputRef | None:
+    """Reference for a template string that is exactly one ``inputs.*`` lookup."""
+    if (expression := _standalone_expression(template)) is None:
+        return None
+    return _direct_input_ref(_parse_expression(expression))
 
 
 def _standalone_expression(value: str) -> str | None:
@@ -547,21 +625,6 @@ def _standalone_expression(value: str) -> str | None:
     if match is None or not (expression := match.group("expr")):
         return None
     return expression
-
-
-def _direct_input_path(template: str) -> str | None:
-    if (expression := _standalone_expression(template)) is None:
-        return None
-    return _direct_input_path_from_tree(_parse_expression(expression))
-
-
-def _direct_input_path_from_tree(tree: Tree[Token]) -> str | None:
-    if tree.data != "template_action_inputs":
-        return None
-    token = tree.children[0]
-    if not isinstance(token, Token):
-        raise TracecatExpressionError("Expected template input path token")
-    return str(token)
 
 
 def _raise_secret_key_error() -> None:
