@@ -18,20 +18,14 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
-from tracecat.sandbox.networking import (
-    configured_sandbox_network_policy,
-    nstun_user_net_config_lines,
-    sandbox_dns_mount_config_lines,
-    write_sandbox_network_files,
-)
+from tracecat.sandbox.networking import resolve_sandbox_network_plan
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
-    SandboxNetworkMode,
-    SandboxNetworkPolicy,
     SandboxNetworkPurpose,
+    SandboxNetworkRequest,
     SandboxResult,
 )
 from tracecat.sandbox.utils import communicate_process_group
@@ -56,7 +50,7 @@ class ActionSandboxConfig:
         action_gateway_socket: Optional host-side action gateway Unix socket to bind
             into the sandbox for SDK calls.
         action_gateway_socket_mount_path: Socket path visible inside the sandbox.
-        network_policy: Trusted egress policy. None uses the deployment policy.
+        network: Requested outbound capability. None disables networking.
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
     """
@@ -69,7 +63,9 @@ class ActionSandboxConfig:
     action_gateway_socket_mount_path: Path = Path(
         "/var/run/tracecat/action-gateway.sock"
     )
-    network_policy: SandboxNetworkPolicy | None = None
+    network: SandboxNetworkRequest | None = field(
+        default_factory=lambda: SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
+    )
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
 
@@ -238,24 +234,7 @@ class NsjailExecutor:
         if config.action_gateway_socket is not None:
             _validate_path(config.action_gateway_socket, "action_gateway_socket")
 
-        # Determine if network should be enabled
-        # - Install phase: always enabled for package downloads
-        # - Execute phase: per config.network_enabled
-        network_enabled = phase == "install" or config.network_enabled
-
-        if phase == "install":
-            network_policy = configured_sandbox_network_policy(
-                SandboxNetworkPurpose.INSTALL
-            )
-        elif network_enabled:
-            network_policy = config.network_policy or configured_sandbox_network_policy(
-                SandboxNetworkPurpose.SCRIPT
-            )
-        else:
-            network_policy = SandboxNetworkPolicy(mode=SandboxNetworkMode.DISABLED)
-        network_files = None
-        if network_policy.mode is not SandboxNetworkMode.DISABLED:
-            network_files = write_sandbox_network_files(job_dir)
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
 
         # Network behavior:
         # - always isolate the network namespace and its private loopback
@@ -276,12 +255,7 @@ class NsjailExecutor:
             "clone_newuts: true",
         ]
 
-        lines.extend(
-            nstun_user_net_config_lines(
-                network_policy,
-                network_files.dns_routes if network_files is not None else (),
-            )
-        )
+        lines.extend(network_plan.user_net_lines)
 
         lines.extend(
             [
@@ -314,8 +288,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        if network_files is not None:
-            lines.extend(sandbox_dns_mount_config_lines(network_files))
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [
@@ -606,9 +579,9 @@ class NsjailExecutor:
         Returns:
             SandboxResult with installation outcome.
         """
-        # Create config for installation (always with network)
+        # Package installation always uses the deployment-owned install policy.
         config = SandboxConfig(
-            network_enabled=True,
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL),
             resources=ResourceLimits(
                 timeout_seconds=timeout_seconds,
                 memory_mb=2048,  # Same as execution
@@ -732,12 +705,7 @@ class NsjailExecutor:
                 "action_gateway_socket_mount_path",
             )
 
-        network_policy = config.network_policy or configured_sandbox_network_policy(
-            SandboxNetworkPurpose.ACTION
-        )
-        network_files = None
-        if network_policy.mode is not SandboxNetworkMode.DISABLED:
-            network_files = write_sandbox_network_files(job_dir)
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
 
         lines = [
             'name: "action_sandbox"',
@@ -767,12 +735,7 @@ class NsjailExecutor:
             f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
         ]
 
-        lines.extend(
-            nstun_user_net_config_lines(
-                network_policy,
-                network_files.dns_routes if network_files is not None else (),
-            )
-        )
+        lines.extend(network_plan.user_net_lines)
 
         # Optional mounts - only include if the directories exist in rootfs
         lib64_path = self.rootfs / "lib64"
@@ -787,8 +750,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        if network_files is not None:
-            lines.extend(sandbox_dns_mount_config_lines(network_files))
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [

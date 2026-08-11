@@ -25,6 +25,10 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tracecat.sandbox.types import SandboxNetworkRequest
 
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_DIR,
@@ -220,7 +224,7 @@ def build_agent_nsjail_config(
     control_socket_path: Path | None = None,
     session_home_dir: Path | None = None,
     session_work_dir: Path | None = None,
-    enable_internet_access: bool = False,
+    network: SandboxNetworkRequest | None = None,
     skills_dir: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
@@ -241,9 +245,8 @@ def build_agent_nsjail_config(
             and mount_control_socket is True, defaults to socket_dir/control.sock.
         session_home_dir: Optional host directory mounted as the jailed agent home.
         session_work_dir: Optional host directory mounted as the jailed work dir.
-        enable_internet_access: If True, enables filtered NSTUN userspace
-            networking for outbound internet access. Default is False (network
-            isolated with private loopback only).
+        network: Requested outbound capability. None leaves the private network
+            namespace without an outbound backend.
         skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
@@ -254,14 +257,8 @@ def build_agent_nsjail_config(
     """
     # Import lazily so sandboxed runtime imports of this module do not require
     # the full tracecat.sandbox package to be mounted inside the jail.
-    from tracecat.sandbox.networking import (
-        configured_sandbox_network_policy,
-        nstun_user_net_config_lines,
-        sandbox_dns_mount_config_lines,
-        write_sandbox_network_files,
-    )
+    from tracecat.sandbox.networking import resolve_sandbox_network_plan
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
-    from tracecat.sandbox.types import SandboxNetworkPurpose
 
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
@@ -293,9 +290,7 @@ def build_agent_nsjail_config(
     _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
 
-    network_files = (
-        write_sandbox_network_files(socket_dir) if enable_internet_access else None
-    )
+    network_plan = resolve_sandbox_network_plan(socket_dir, network)
 
     # Network behavior:
     # - always isolate the network namespace and its private loopback
@@ -329,13 +324,7 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
 
-    if network_files is not None:
-        lines.extend(
-            nstun_user_net_config_lines(
-                configured_sandbox_network_policy(SandboxNetworkPurpose.AGENT),
-                network_files.dns_routes,
-            )
-        )
+    lines.extend(network_plan.user_net_lines)
 
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
@@ -350,8 +339,7 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
         )
 
-    if network_files is not None:
-        lines.extend(sandbox_dns_mount_config_lines(network_files))
+    lines.extend(network_plan.dns_mount_lines)
 
     # Fresh procfs avoids leaking executor-container process metadata. Docker
     # runtimes must run these containers with systempaths=unconfined; otherwise

@@ -50,7 +50,12 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
 
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
@@ -689,12 +694,15 @@ async def _run_executor_action_smoke_case(
             )
         if parent_resolv_path is not None:
 
-            def write_test_network_files(target_dir: Path):
+            def write_test_network_files(
+                target_dir: Path,
+                host_resolv_path: Path | None = None,
+            ):
                 return write_sandbox_network_files(target_dir, parent_resolv_path)
 
             patches.append(
                 patch(
-                    "tracecat.sandbox.executor.write_sandbox_network_files",
+                    "tracecat.sandbox.networking.write_sandbox_network_files",
                     side_effect=write_test_network_files,
                 )
             )
@@ -868,7 +876,7 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
     result = await NsjailExecutor().execute(
         tmp_path,
         SandboxConfig(
-            network_enabled=True,
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT),
             resources=ResourceLimits(
                 memory_mb=128,
                 cpu_seconds=10,

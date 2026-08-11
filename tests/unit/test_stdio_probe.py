@@ -17,8 +17,6 @@ from tracecat.agent.mcp.stdio_probe import (
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import (
     SandboxErrorCode,
-    SandboxNetworkMode,
-    SandboxNetworkPolicy,
     SandboxNetworkPurpose,
     SandboxResult,
 )
@@ -179,7 +177,6 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
 @pytest.mark.anyio
 async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     """With nsjail available, the probe executes inside the sandbox."""
-    agent_policy = SandboxNetworkPolicy(mode=SandboxNetworkMode.FILTERED)
     sandbox_result = MagicMock(
         success=True,
         output={
@@ -201,10 +198,6 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
-        patch(
-            "tracecat.agent.mcp.stdio_probe.configured_sandbox_network_policy",
-            return_value=agent_policy,
-        ) as configured_network_policy,
     ):
         result = await probe_stdio_mcp_tools_in_sandbox(
             command="python",
@@ -216,9 +209,10 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     assert result.success is True
     assert [tool.name for tool in result.tools] == ["list_alerts"]
     executor.execute.assert_awaited_once()
-    configured_network_policy.assert_called_once_with(SandboxNetworkPurpose.AGENT)
     config = executor.execute.await_args.args[1]
-    assert config.network_policy is agent_policy
+    assert config.network is not None
+    assert config.network.purpose is SandboxNetworkPurpose.AGENT
+    assert config.network.policy is None
 
 
 @pytest.mark.anyio

@@ -73,11 +73,14 @@ class SandboxNetworkPolicy:
         mode: Whether networking is disabled, filtered, or unrestricted.
         allowed_rules: Administrator-approved exceptions evaluated before blocks.
         blocked_cidrs: Deployment-specific networks rejected in filtered mode.
+        allow_public_ipv6: Allow public IPv6 destinations in filtered mode
+            instead of rejecting all IPv6 egress.
     """
 
     mode: SandboxNetworkMode = SandboxNetworkMode.FILTERED
     allowed_rules: tuple[SandboxEgressRule, ...] = ()
     blocked_cidrs: tuple[IPNetwork, ...] = ()
+    allow_public_ipv6: bool = False
 
     def __post_init__(self) -> None:
         """Reject CIDR rules that cannot affect the selected mode."""
@@ -87,6 +90,32 @@ class SandboxNetworkPolicy:
             self.allowed_rules or self.blocked_cidrs
         ):
             raise ValueError("egress rules are only valid for filtered networking")
+        if self.mode is not SandboxNetworkMode.FILTERED and self.allow_public_ipv6:
+            raise ValueError("allow_public_ipv6 is only valid for filtered networking")
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxNetworkRequest:
+    """One caller-selected sandbox networking capability.
+
+    Absence of a request means the sandbox has no outbound network backend.
+    The purpose selects deployment-owned policy, while ``policy`` is reserved
+    for trusted internal overrides such as tests and operator-controlled flows.
+    """
+
+    purpose: SandboxNetworkPurpose
+    policy: SandboxNetworkPolicy | None = None
+
+    def __post_init__(self) -> None:
+        """Keep disabled state and policy selection unambiguous."""
+        if not isinstance(self.purpose, SandboxNetworkPurpose):
+            raise ValueError("purpose must be a SandboxNetworkPurpose")
+        if self.policy is None:
+            return
+        if not isinstance(self.policy, SandboxNetworkPolicy):
+            raise ValueError("policy must be a SandboxNetworkPolicy")
+        if self.policy.mode is SandboxNetworkMode.DISABLED:
+            raise ValueError("omit the network request to disable networking")
 
 
 @dataclass(frozen=True)
@@ -130,8 +159,7 @@ class SandboxConfig:
     """Configuration for sandbox execution.
 
     Attributes:
-        network_enabled: Whether to allow network access during script execution.
-        network_policy: Trusted egress policy. None uses the deployment policy.
+        network: Requested outbound capability. None disables networking.
         resources: Resource limits for the sandbox.
         env_vars: Environment variables to inject into the sandbox.
         dependencies: Python packages to install before execution.
@@ -141,8 +169,7 @@ class SandboxConfig:
             bind into nsjail for internal Tracecat SDK calls.
     """
 
-    network_enabled: bool = False
-    network_policy: SandboxNetworkPolicy | None = None
+    network: SandboxNetworkRequest | None = None
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     env_vars: dict[str, str] = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)

@@ -1,8 +1,16 @@
 diff --git a/nstun/core.h b/nstun/core.h
-index 0e033ff..3f366b6 100644
+index 0e033ff..3be3bdf 100644
 --- a/nstun/core.h
 +++ b/nstun/core.h
-@@ -25,11 +25,21 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
+@@ -11,6 +11,7 @@
+ #include <compare>
+ #include <cstddef>
+ #include <memory>
++#include <utility>
+ 
+ #include "net_defs.h"
+ #include "nstun.h"
+@@ -25,11 +26,23 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
  constexpr size_t UDP_QUEUE_MAX_PACKETS = 50;
  constexpr int VLEN = 64;
  
@@ -20,6 +28,8 @@ index 0e033ff..3f366b6 100644
 + * jailed child's RLIMIT_AS, so enforce a hard aggregate limit here. */
 +constexpr size_t TCP_BUFFER_BUDGET = 16 * 1024 * 1024;
 +static_assert(TCP_FLOW_BUFFER_BYTES <= TCP_BUFFER_BUDGET);
++constexpr size_t TCP_FLOW_BUDGET = TCP_BUFFER_BUDGET / TCP_FLOW_BUFFER_BYTES;
++static_assert(TCP_FLOW_BUDGET > 0);
 +/* UDP and ICMP sockets are owned by the parent NSTUN process and are not
 + * constrained by the jailed child's RLIMIT_NOFILE. Keep their aggregate bound
 + * in the same range as the roughly 120 TCP flows admitted by the buffer budget. */
@@ -27,9 +37,35 @@ index 0e033ff..3f366b6 100644
  
  
  /* Removed MemcmpLess in favor of C++20 operator<=> */
-@@ -119,10 +129,13 @@ struct UdpFlow {
+@@ -62,6 +75,22 @@ struct __attribute__((packed)) IcmpFlowKey6 {
+ 
+ struct Context;
+ 
++class ParentSocketReservation {
++ public:
++	ParentSocketReservation() = default;
++	ParentSocketReservation(const ParentSocketReservation&) = delete;
++	ParentSocketReservation& operator=(const ParentSocketReservation&) = delete;
++	ParentSocketReservation(ParentSocketReservation&& other) noexcept;
++	ParentSocketReservation& operator=(ParentSocketReservation&& other) noexcept;
++	~ParentSocketReservation();
++
++	[[nodiscard]] bool acquire(Context* ctx);
++	void reset();
++
++ private:
++	Context* ctx_ = nullptr;
++};
++
+ enum class FlowType { TCP, UDP, ICMP };
+ enum class ProxyMode : uint8_t { NONE, SOCKS5, HTTP_CONNECT };
+ 
+@@ -118,11 +147,16 @@ struct UdpFlow {
+ 	uint32_t bnd_ip;
  	uint16_t bnd_port;
  	bool host_fd_is_listener;
++	ParentSocketReservation host_socket_reservation;
++	ParentSocketReservation control_socket_reservation;
  
 -	struct {
 +	struct QueuedPacket {
@@ -43,189 +79,200 @@ index 0e033ff..3f366b6 100644
  	size_t c_tx_queue_head;
  	size_t c_tx_queue_tail;
  	size_t c_tx_queue_count;
-@@ -149,7 +162,7 @@ struct TcpFlow {
+@@ -149,7 +183,7 @@ struct TcpFlow {
  	size_t tx_acked_offset;
  	size_t rx_sent_offset;
  
 -	/* Heap-allocated buffers (allocated per active flow, freed via RAII) */
-+	/* Heap-allocated buffers charged to Context::tcp_buffer_bytes. */
++	/* Heap-allocated buffers bounded by the aggregate active-flow count. */
  	std::unique_ptr<uint8_t[]> c_tcp_tx_buf;
  	size_t c_tcp_tx_len;
  	std::unique_ptr<uint8_t[]> c_proxy_rx_buf;
-@@ -185,6 +198,8 @@ struct Context {
+@@ -164,6 +198,7 @@ struct TcpFlow {
+ 
+ struct IcmpFlow {
+ 	struct FlowHeader header;
++	ParentSocketReservation socket_reservation;
+ };
+ 
+ 
+@@ -185,6 +220,7 @@ struct Context {
  
  	TcpFlow c_ipv4_tcp_flows[NSTUN_MAX_FLOWS];
  	size_t num_c_ipv4_tcp_flows;
-+	size_t tcp_buffer_bytes;
 +	size_t udp_icmp_socket_count;
  	UdpFlow c_ipv4_udp_flows[NSTUN_MAX_FLOWS];
  	size_t num_c_ipv4_udp_flows;
  	UdpFlow c_ipv6_udp_flows[NSTUN_MAX_FLOWS];
-@@ -222,6 +237,25 @@ struct Context {
+@@ -222,6 +258,44 @@ struct Context {
  
  };
  
 +static_assert(sizeof(Context) <= 8 * 1024 * 1024,
 +    "NSTUN Context must not reserve large per-flow packet queues");
 +
-+[[nodiscard]] inline bool try_reserve_udp_icmp_socket(Context* ctx) {
-+	if (ctx->udp_icmp_socket_count >= UDP_ICMP_SOCKET_BUDGET) {
++inline ParentSocketReservation::ParentSocketReservation(
++    ParentSocketReservation&& other) noexcept
++    : ctx_(std::exchange(other.ctx_, nullptr)) {}
++
++inline ParentSocketReservation& ParentSocketReservation::operator=(
++    ParentSocketReservation&& other) noexcept {
++	if (this != &other) {
++		reset();
++		ctx_ = std::exchange(other.ctx_, nullptr);
++	}
++	return *this;
++}
++
++inline ParentSocketReservation::~ParentSocketReservation() {
++	reset();
++}
++
++[[nodiscard]] inline bool ParentSocketReservation::acquire(Context* ctx) {
++	if (ctx_ != nullptr || ctx->udp_icmp_socket_count >= UDP_ICMP_SOCKET_BUDGET) {
 +		return false;
 +	}
-+	ctx->udp_icmp_socket_count++;
++	ctx_ = ctx;
++	ctx_->udp_icmp_socket_count++;
 +	return true;
 +}
 +
-+[[nodiscard]] inline bool release_udp_icmp_socket(Context* ctx) {
-+	if (ctx->udp_icmp_socket_count == 0) {
-+		return false;
++inline void ParentSocketReservation::reset() {
++	if (ctx_ == nullptr) {
++		return;
 +	}
-+	ctx->udp_icmp_socket_count--;
-+	return true;
++	/* Move-only ownership guarantees one release for every successful acquire. */
++	ctx_->udp_icmp_socket_count--;
++	ctx_ = nullptr;
 +}
 +
  void handle_host_events(Context* ctx, int fd, uint32_t events);
  void host_callback(int fd, uint32_t events, void* data);
  
 diff --git a/nstun/icmp.cc b/nstun/icmp.cc
-index 5791c22..bd2a828 100644
+index 5791c22..ebe84df 100644
 --- a/nstun/icmp.cc
 +++ b/nstun/icmp.cc
-@@ -20,6 +20,20 @@ namespace nstun {
+@@ -20,6 +20,15 @@ namespace nstun {
  
  static constexpr time_t ICMP_TIMEOUT = 10;
  
-+static bool reserve_icmp_socket(Context* ctx) {
-+	if (try_reserve_udp_icmp_socket(ctx)) {
++static bool acquire_icmp_socket(
++    Context* ctx, ParentSocketReservation* reservation) {
++	if (reservation->acquire(ctx)) {
 +		return true;
 +	}
 +	LOG_W("UDP/ICMP parent socket budget exhausted, dropping");
 +	return false;
 +}
 +
-+static void release_icmp_socket(Context* ctx) {
-+	if (!release_udp_icmp_socket(ctx)) {
-+		LOG_E("UDP/ICMP parent socket accounting underflow");
-+	}
-+}
-+
  static IcmpFlow* find_ipv4_icmp_flow(Context* ctx, const IcmpFlowKey4& key4) {
  	size_t active_seen = 0;
  	for (size_t i = 0; i < NSTUN_MAX_FLOWS; ++i) {
-@@ -94,6 +108,7 @@ static void icmp_destroy_flow(Context* ctx, IcmpFlow* flow) {
+@@ -94,6 +103,7 @@ static void icmp_destroy_flow(Context* ctx, IcmpFlow* flow) {
  			LOG_W("Failed to remove host_fd from monitor");
  		}
  		close(flow->header.host_fd);
-+		release_icmp_socket(ctx);
++		flow->socket_reservation.reset();
  		if (flow->header.host_fd >= 0 &&
  		    static_cast<size_t>(flow->header.host_fd) < nstun::NSTUN_MAX_FDS) {
  			ctx->c_icmp_flows_by_fd[flow->header.host_fd] = nullptr;
-@@ -275,9 +290,13 @@ static void proxy_icmp6(Context* ctx, const ip6_hdr* ip, const icmp6_hdr* icmp,
+@@ -275,6 +285,10 @@ static void proxy_icmp6(Context* ctx, const ip6_hdr* ip, const icmp6_hdr* icmp,
  			return;
  		}
  
-+		if (!reserve_icmp_socket(ctx)) {
++		ParentSocketReservation reservation;
++		if (!acquire_icmp_socket(ctx, &reservation)) {
 +			return;
 +		}
  		int fd =
  		    socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_ICMPV6);
  		if (fd == -1) {
-+			release_icmp_socket(ctx);
- 			PLOG_W("socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6) failed.");
- 			send_icmp6_error(ctx, ip, sizeof(ip6_hdr) + len, ICMP6_DST_UNREACH,
+@@ -283,21 +297,27 @@ static void proxy_icmp6(Context* ctx, const ip6_hdr* ip, const icmp6_hdr* icmp,
  			    ICMP6_DST_UNREACH_ADDR);
-@@ -286,12 +305,14 @@ static void proxy_icmp6(Context* ctx, const ip6_hdr* ip, const icmp6_hdr* icmp,
+ 			return;
+ 		}
++		bool fd_owned_by_flow = false;
++		defer {
++			if (!fd_owned_by_flow) {
++				close(fd);
++			}
++		};
  		if (fd >= static_cast<int>(nstun::NSTUN_MAX_FDS)) {
  			LOG_E("FD limit reached (fd=%d)", fd);
- 			close(fd);
-+			release_icmp_socket(ctx);
+-			close(fd);
  			return;
  		}
  
  		if (!monitor::addFd(fd, EPOLLIN, host_callback, ctx)) {
  			PLOG_E("monitor::addFd() for ICMPv6 failed");
- 			close(fd);
-+			release_icmp_socket(ctx);
+-			close(fd);
  			return;
  		}
  
-@@ -413,8 +434,12 @@ static void proxy_icmp4(Context* ctx, const ip4_hdr* ip, const icmp4_hdr* icmp,
+ 		init_icmp_flow_zero(flow);
+ 		flow->header.active = true;
+ 		flow->header.host_fd = fd;
++		flow->socket_reservation = std::move(reservation);
++		fd_owned_by_flow = true;
+ 		flow->header.is_ipv6 = true;
+ 		flow->header.icmp_key6 = key6;
+ 
+@@ -413,6 +433,10 @@ static void proxy_icmp4(Context* ctx, const ip4_hdr* ip, const icmp4_hdr* icmp,
  			return;
  		}
  
-+		if (!reserve_icmp_socket(ctx)) {
++		ParentSocketReservation reservation;
++		if (!acquire_icmp_socket(ctx, &reservation)) {
 +			return;
 +		}
  		int fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_ICMP);
  		if (fd == -1) {
-+			release_icmp_socket(ctx);
  			PLOG_W("socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) failed. "
- 			       "You may need: sysctl -w net.ipv4.ping_group_range='0 2147483647'");
- 			send_icmp4_error(ctx, ip, ntohs(ip->tot_len), ICMP_DEST_UNREACH,
-@@ -424,12 +449,14 @@ static void proxy_icmp4(Context* ctx, const ip4_hdr* ip, const icmp4_hdr* icmp,
+@@ -421,15 +445,19 @@ static void proxy_icmp4(Context* ctx, const ip4_hdr* ip, const icmp4_hdr* icmp,
+ 			    ICMP_HOST_UNREACH); /* host unreachable */
+ 			return;
+ 		}
++		bool fd_owned_by_flow = false;
++		defer {
++			if (!fd_owned_by_flow) {
++				close(fd);
++			}
++		};
  		if (fd >= static_cast<int>(nstun::NSTUN_MAX_FDS)) {
  			LOG_E("FD limit reached (fd=%d)", fd);
- 			close(fd);
-+			release_icmp_socket(ctx);
+-			close(fd);
  			return;
  		}
  
  		if (!monitor::addFd(fd, EPOLLIN, host_callback, ctx)) {
  			PLOG_E("monitor::addFd() for ICMP failed");
- 			close(fd);
-+			release_icmp_socket(ctx);
+-			close(fd);
  			return;
  		}
  
+@@ -437,6 +465,8 @@ static void proxy_icmp4(Context* ctx, const ip4_hdr* ip, const icmp4_hdr* icmp,
+ 		init_icmp_flow_zero(flow);
+ 		flow->header.active = true;
+ 		flow->header.host_fd = fd;
++		flow->socket_reservation = std::move(reservation);
++		fd_owned_by_flow = true;
+ 		flow->header.is_ipv6 = false;
+ 		flow->header.icmp_key4 = key4;
+ 		flow->header.last_active = time(nullptr);
 diff --git a/nstun/tcp.cc b/nstun/tcp.cc
-index 643d037..d40c136 100644
+index 643d037..d1edeb8 100644
 --- a/nstun/tcp.cc
 +++ b/nstun/tcp.cc
-@@ -396,6 +396,31 @@ void tcp_rst_and_destroy(Context* ctx, TcpFlow* flow) {
- 	tcp_destroy_flow(ctx, flow);
- }
- 
-+static void release_tcp_flow_buffers(Context* ctx, TcpFlow* flow) {
-+	size_t released = 0;
-+	if (flow->c_tcp_tx_buf) {
-+		released += TCP_TX_BUF_CAP;
-+	}
-+	if (flow->c_tcp_rx_buf) {
-+		released += TCP_RX_BUF_CAP;
-+	}
-+	if (flow->c_proxy_rx_buf) {
-+		released += PROXY_RX_BUF_CAP;
-+	}
-+
-+	flow->c_tcp_tx_buf.reset();
-+	flow->c_tcp_rx_buf.reset();
-+	flow->c_proxy_rx_buf.reset();
-+
-+	if (released > ctx->tcp_buffer_bytes) {
-+		LOG_E("TCP buffer accounting underflow: released=%zu tracked=%zu", released,
-+		    ctx->tcp_buffer_bytes);
-+		ctx->tcp_buffer_bytes = TCP_BUFFER_BUDGET;
-+		return;
-+	}
-+	ctx->tcp_buffer_bytes -= released;
-+}
-+
- void tcp_destroy_flow(Context* ctx, TcpFlow* flow) {
- 	if (!flow->header.active) {
- 		return;
-@@ -420,10 +445,7 @@ void tcp_destroy_flow(Context* ctx, TcpFlow* flow) {
+@@ -420,7 +420,6 @@ void tcp_destroy_flow(Context* ctx, TcpFlow* flow) {
  		}
  	}
  
 -	/* Free heap-allocated buffers via RAII */
--	flow->c_tcp_tx_buf.reset();
--	flow->c_tcp_rx_buf.reset();
--	flow->c_proxy_rx_buf.reset();
-+	release_tcp_flow_buffers(ctx, flow);
- 
- 	/* Mark inactive */
- 	flow->header.active = false;
-@@ -904,36 +926,31 @@ static void init_outbound_flow_common(
+ 	flow->c_tcp_tx_buf.reset();
+ 	flow->c_tcp_rx_buf.reset();
+ 	flow->c_proxy_rx_buf.reset();
+@@ -904,36 +903,31 @@ static void init_outbound_flow_common(
  		return false;
  	}
  }
@@ -260,8 +307,9 @@ index 643d037..d40c136 100644
 -		flow->c_tcp_tx_buf.reset();
 -		flow->c_tcp_rx_buf.reset();
 -		flow->c_proxy_rx_buf.reset();
-+	if (ctx->tcp_buffer_bytes > TCP_BUFFER_BUDGET ||
-+	    TCP_FLOW_BUFFER_BYTES > TCP_BUFFER_BUDGET - ctx->tcp_buffer_bytes) {
++	const size_t active_flow_count =
++	    ctx->num_c_ipv4_tcp_flows + ctx->num_c_ipv6_tcp_flows;
++	if (active_flow_count >= TCP_FLOW_BUDGET) {
  		return false;
  	}
 +
@@ -275,11 +323,10 @@ index 643d037..d40c136 100644
 +	flow->c_tcp_tx_buf = std::move(tx);
 +	flow->c_tcp_rx_buf = std::move(rx);
 +	flow->c_proxy_rx_buf = std::move(proxy);
-+	ctx->tcp_buffer_bytes += TCP_FLOW_BUFFER_BYTES;
  	return true;
  }
  
-@@ -958,7 +975,7 @@ static TcpFlow* alloc_v4_tcp_flow(Context* ctx, const FlowKey4& key) {
+@@ -958,7 +952,7 @@ static TcpFlow* alloc_v4_tcp_flow(Context* ctx, const FlowKey4& key) {
  	for (size_t i = 0; i < NSTUN_MAX_FLOWS; i++) {
  		TcpFlow& flow = ctx->c_ipv4_tcp_flows[i];
  		if (!flow.header.active) {
@@ -288,7 +335,7 @@ index 643d037..d40c136 100644
  				return nullptr;
  			}
  			flow.header.active = true;
-@@ -991,7 +1008,7 @@ static TcpFlow* alloc_v6_tcp_flow(Context* ctx, const FlowKey6& key) {
+@@ -991,7 +985,7 @@ static TcpFlow* alloc_v6_tcp_flow(Context* ctx, const FlowKey6& key) {
  	for (size_t i = 0; i < NSTUN_MAX_FLOWS; i++) {
  		TcpFlow& flow = ctx->c_ipv6_tcp_flows[i];
  		if (!flow.header.active) {
@@ -297,7 +344,7 @@ index 643d037..d40c136 100644
  				return nullptr;
  			}
  			flow.header.active = true;
-@@ -1049,7 +1066,7 @@ static TcpFlow* create_outbound_flow4(
+@@ -1049,7 +1043,7 @@ static TcpFlow* create_outbound_flow4(
  
  	TcpFlow* flow = alloc_v4_tcp_flow(ctx, key4);
  	if (!flow) {
@@ -306,7 +353,7 @@ index 643d037..d40c136 100644
  		tcp_send_rst4(ctx, key4, 0, seq + 1);
  		return nullptr;
  	}
-@@ -1124,7 +1141,7 @@ static TcpFlow* create_outbound_flow6(
+@@ -1124,7 +1118,7 @@ static TcpFlow* create_outbound_flow6(
  
  	TcpFlow* flow = alloc_v6_tcp_flow(ctx, key6);
  	if (!flow) {
@@ -316,7 +363,7 @@ index 643d037..d40c136 100644
  		return nullptr;
  	}
 diff --git a/nstun/udp.cc b/nstun/udp.cc
-index 6f7804b..e533d9f 100644
+index 6f7804b..bb37b9a 100644
 --- a/nstun/udp.cc
 +++ b/nstun/udp.cc
 @@ -5,6 +5,7 @@
@@ -327,40 +374,35 @@ index 6f7804b..e533d9f 100644
  #include <string.h>
  #include <sys/epoll.h>
  #include <sys/socket.h>
-@@ -20,6 +21,20 @@
+@@ -20,6 +21,15 @@
  
  namespace nstun {
  
-+static bool reserve_udp_socket(Context* ctx) {
-+	if (try_reserve_udp_icmp_socket(ctx)) {
++static bool acquire_udp_socket(
++    Context* ctx, ParentSocketReservation* reservation) {
++	if (reservation->acquire(ctx)) {
 +		return true;
 +	}
 +	LOG_W("UDP/ICMP parent socket budget exhausted, dropping");
 +	return false;
 +}
 +
-+static void release_udp_socket(Context* ctx) {
-+	if (!release_udp_icmp_socket(ctx)) {
-+		LOG_E("UDP/ICMP parent socket accounting underflow");
-+	}
-+}
-+
  static const char* udp_state_to_str(UdpSocks5State state) {
  	struct {
  		const uint64_t state;
-@@ -133,6 +148,7 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
+@@ -133,6 +143,7 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
  			LOG_W("Failed to remove host_fd from monitor");
  		}
  		close(flow->header.host_fd);
-+		release_udp_socket(ctx);
++		flow->host_socket_reservation.reset();
  		set_udp_flow_by_fd(ctx, flow->header.host_fd, nullptr);
  		flow->header.host_fd = -1;
  	}
-@@ -141,9 +157,11 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
+@@ -141,9 +152,11 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
  			LOG_W("Failed to remove tcp_fd from monitor");
  		}
  		close(flow->tcp_fd);
-+		release_udp_socket(ctx);
++		flow->control_socket_reservation.reset();
  		set_udp_flow_by_fd(ctx, flow->tcp_fd, nullptr);
  		flow->tcp_fd = -1;
  	}
@@ -368,35 +410,46 @@ index 6f7804b..e533d9f 100644
  	if (flow->header.is_ipv6) {
  		flow->header.active = false;
  		ctx->num_c_ipv6_udp_flows--;
-@@ -422,8 +440,13 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
+@@ -422,25 +435,36 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
  		return;
  	}
  
-+	if (!reserve_udp_socket(ctx)) {
++	ParentSocketReservation reservation;
++	if (!acquire_udp_socket(ctx, &reservation)) {
 +		udp_destroy_flow(ctx, flow);
 +		return;
 +	}
  	int udp_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
  	if (udp_fd == -1) {
-+		release_udp_socket(ctx);
  		udp_destroy_flow(ctx, flow);
  		return;
  	}
-@@ -432,11 +455,13 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
++	bool fd_owned_by_flow = false;
++	defer {
++		if (!fd_owned_by_flow) {
++			close(udp_fd);
++		}
++	};
+ 	struct sockaddr_in bind_addr = INIT_SOCKADDR_IN(AF_INET);
+ 	bind_addr.sin_addr.s_addr = INADDR_ANY;
  	bind_addr.sin_port = 0;
  	if (bind(udp_fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) == -1) {
- 		close(udp_fd);
-+		release_udp_socket(ctx);
+-		close(udp_fd);
  		udp_destroy_flow(ctx, flow);
  		return;
  	}
  	if (!monitor::addFd(udp_fd, EPOLLIN, host_callback, ctx)) {
- 		close(udp_fd);
-+		release_udp_socket(ctx);
+-		close(udp_fd);
  		udp_destroy_flow(ctx, flow);
  		return;
  	}
-@@ -516,6 +541,7 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
+ 	flow->header.host_fd = udp_fd;
++	flow->host_socket_reservation = std::move(reservation);
++	fd_owned_by_flow = true;
+ 	set_udp_flow_by_fd(ctx, udp_fd, flow);
+ 	flow->state = UDP_S5_ESTABLISHED;
+ 	LOG_D("Flow %d: UDP_S5_ASSOCIATE -> UDP_S5_ESTABLISHED", flow->tcp_fd);
+@@ -516,6 +540,7 @@ static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t ev
  	flow->c_tx_queue_head = 0;
  	flow->c_tx_queue_tail = 0;
  	flow->c_tx_queue_count = 0;
@@ -404,13 +457,14 @@ index 6f7804b..e533d9f 100644
  }
  
  static void handle_udp_established(Context* ctx, UdpFlow* flow, uint32_t events) {
-@@ -556,13 +582,12 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
+@@ -556,13 +581,12 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
  
  [[nodiscard]] static bool udp_setup_socks5_control(
      Context* ctx, UdpFlow* flow, uint32_t proxy_ip4, uint16_t proxy_port) {
 -	int tcp_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 -	if (tcp_fd == -1) {
-+	if (!reserve_udp_socket(ctx)) {
++	ParentSocketReservation reservation;
++	if (!acquire_udp_socket(ctx, &reservation)) {
  		return false;
  	}
 -	if (tcp_fd >= static_cast<int>(NSTUN_MAX_FDS)) {
@@ -418,15 +472,11 @@ index 6f7804b..e533d9f 100644
 -		close(tcp_fd);
 +	int tcp_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 +	if (tcp_fd == -1) {
-+		release_udp_socket(ctx);
  		return false;
  	}
  
-@@ -570,8 +595,13 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
- 	defer {
- 		if (!fd_success) {
+@@ -572,6 +596,10 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
  			close(tcp_fd);
-+			release_udp_socket(ctx);
  		}
  	};
 +	if (tcp_fd >= static_cast<int>(NSTUN_MAX_FDS)) {
@@ -436,31 +486,43 @@ index 6f7804b..e533d9f 100644
  
  	if (!monitor::addFd(tcp_fd, EPOLLIN | EPOLLOUT | EPOLLERR | EPOLLHUP, host_callback, ctx)) {
  		return false;
-@@ -598,21 +628,27 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
+@@ -589,30 +617,36 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
+ 		}
+ 		return false;
+ 	}
+-	fd_success = true;
+-
+ 	flow->tcp_fd = tcp_fd;
++	flow->control_socket_reservation = std::move(reservation);
++	fd_success = true;
+ 	flow->state = UDP_S5_TCP_CONNECTING;
+ 	LOG_D("Flow %d: initialized to UDP_S5_TCP_CONNECTING", tcp_fd);
+ 	return true;
  }
  
- [[nodiscard]] static int create_and_bind_udp_socket(Context* ctx) {
-+	if (!reserve_udp_socket(ctx)) {
+-[[nodiscard]] static int create_and_bind_udp_socket(Context* ctx) {
++[[nodiscard]] static int create_and_bind_udp_socket(
++    Context* ctx, ParentSocketReservation* owner) {
++	ParentSocketReservation reservation;
++	if (!acquire_udp_socket(ctx, &reservation)) {
 +		return -1;
 +	}
  	int fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
  	if (fd == -1) {
  		PLOG_E("socket(AF_INET, SOCK_DGRAM) for UDP flow failed");
--		return -1;
--	}
+ 		return -1;
+ 	}
 -	if (fd >= static_cast<int>(NSTUN_MAX_FDS)) {
 -		LOG_E("FD limit reached (fd=%d)", fd);
 -		close(fd);
-+		release_udp_socket(ctx);
- 		return -1;
- 	}
+-		return -1;
+-	}
  
  	bool success = false;
  	defer {
 -		if (!success) close(fd);
 +		if (!success) {
 +			close(fd);
-+			release_udp_socket(ctx);
 +		}
  	};
 +	if (fd >= static_cast<int>(NSTUN_MAX_FDS)) {
@@ -470,7 +532,24 @@ index 6f7804b..e533d9f 100644
  
  	struct sockaddr_in bind_addr = INIT_SOCKADDR_IN(AF_INET);
  	bind_addr.sin_addr.s_addr = INADDR_ANY;
-@@ -688,6 +724,14 @@ static UdpFlow* udp_create_flow4(Context* ctx, const FlowKey4& key4, const RuleR
+@@ -627,6 +661,7 @@ static void handle_host_udp_control(Context* ctx, UdpFlow* flow, uint32_t events
+ 		return -1;
+ 	}
+ 
++	*owner = std::move(reservation);
+ 	success = true;
+ 	return fd;
+ }
+@@ -666,7 +701,7 @@ static UdpFlow* udp_create_flow4(Context* ctx, const FlowKey4& key4, const RuleR
+ 		    flow->use_socks5 ? 1 : 0, guest_port, tcp_fd,
+ 		    flow->header.is_redirected ? " [redirected]" : "");
+ 	} else {
+-		int fd = create_and_bind_udp_socket(ctx);
++		int fd = create_and_bind_udp_socket(ctx, &flow->host_socket_reservation);
+ 		if (fd == -1) {
+ 			udp_destroy_flow(ctx, flow);
+ 			return nullptr;
+@@ -688,6 +723,14 @@ static UdpFlow* udp_create_flow4(Context* ctx, const FlowKey4& key4, const RuleR
  		    data_len, UDP_QUEUE_PACKET_MAX);
  		return false;
  	}
@@ -485,18 +564,18 @@ index 6f7804b..e533d9f 100644
  	size_t idx = flow->c_tx_queue_tail;
  	memcpy(flow->c_tx_queue[idx].data, data, data_len);
  	flow->c_tx_queue[idx].len = data_len;
-@@ -1152,22 +1196,29 @@ static UdpFlow* udp_create_flow6(Context* ctx, const FlowKey6& key6, const RuleR
+@@ -1152,22 +1195,28 @@ static UdpFlow* udp_create_flow6(Context* ctx, const FlowKey6& key6, const RuleR
  		    flow->use_socks5 ? 1 : 0, guest_port, tcp_fd,
  		    flow->header.is_redirected ? " [redirected]" : "");
  	} else {
-+		if (!reserve_udp_socket(ctx)) {
++		ParentSocketReservation reservation;
++		if (!acquire_udp_socket(ctx, &reservation)) {
 +			udp_destroy_flow(ctx, flow);
 +			return nullptr;
 +		}
  		int fd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
  		if (fd == -1) {
  			PLOG_E("socket(AF_INET6, SOCK_DGRAM) for IPv6 UDP flow failed");
-+			release_udp_socket(ctx);
  			udp_destroy_flow(ctx, flow);
  			return nullptr;
  		}
@@ -504,7 +583,6 @@ index 6f7804b..e533d9f 100644
 +		defer {
 +			if (!fd_success) {
 +				close(fd);
-+				release_udp_socket(ctx);
 +			}
 +		};
  		if (fd >= static_cast<int>(NSTUN_MAX_FDS)) {
@@ -520,3 +598,15 @@ index 6f7804b..e533d9f 100644
  
  		struct sockaddr_in6 bind_addr = INIT_SOCKADDR_IN6(AF_INET6);
  		if (bind(fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) ==
+@@ -1182,9 +1231,9 @@ static UdpFlow* udp_create_flow6(Context* ctx, const FlowKey6& key6, const RuleR
+ 			udp_destroy_flow(ctx, flow);
+ 			return nullptr;
+ 		}
+-		fd_success = true;
+-
+ 		flow->header.host_fd = fd;
++		flow->host_socket_reservation = std::move(reservation);
++		fd_success = true;
+ 		flow->state = UDP_S5_ESTABLISHED;
+ 		LOG_D("Flow %d: initialized to UDP_S5_ESTABLISHED (IPv6)", fd);
+ 		set_udp_flow_by_fd(ctx, fd, flow);

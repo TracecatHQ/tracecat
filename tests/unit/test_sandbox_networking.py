@@ -16,6 +16,7 @@ from tracecat.sandbox.networking import (
     build_sandbox_dns_config,
     configured_sandbox_network_policy,
     nstun_user_net_config_lines,
+    resolve_sandbox_network_plan,
     write_sandbox_network_files,
 )
 from tracecat.sandbox.types import (
@@ -26,6 +27,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkPolicy,
     SandboxNetworkProtocol,
     SandboxNetworkPurpose,
+    SandboxNetworkRequest,
 )
 
 
@@ -183,6 +185,104 @@ def test_filtered_nstun_policy_orders_dns_and_exceptions_before_blocks() -> None
     assert "map_gw" not in config_text
 
 
+def test_filtered_nstun_policy_rejects_all_ipv6_by_default() -> None:
+    config_text = "\n".join(nstun_user_net_config_lines(SandboxNetworkPolicy()))
+
+    assert 'action: REJECT\n    proto: ANY\n    dst_ip: "::/0"' in config_text
+    assert 'action: ALLOW\n    proto: ANY\n    dst_ip: "::/0"' not in config_text
+    assert 'dst_ip: "fc00::/7"' not in config_text
+
+
+def test_filtered_nstun_policy_allows_public_ipv6_when_opted_in() -> None:
+    policy = SandboxNetworkPolicy(
+        mode=SandboxNetworkMode.FILTERED,
+        allowed_rules=(
+            SandboxEgressRule(
+                destination=ip_network("2001:db8:42::/48"),
+                protocol=SandboxNetworkProtocol.TCP,
+                destination_port=8443,
+            ),
+        ),
+        allow_public_ipv6=True,
+    )
+
+    config_text = "\n".join(nstun_user_net_config_lines(policy))
+
+    # Transition mechanisms embedding IPv4 stay blocked ahead of the allow.
+    for blocked in (
+        "::ffff:0:0/96",
+        "64:ff9b::/96",
+        "2002::/16",
+        "2001::/32",
+        "fc00::/7",
+        "fe80::/10",
+    ):
+        assert f'action: REJECT\n    proto: ANY\n    dst_ip: "{blocked}"' in (
+            config_text
+        )
+    assert 'action: ALLOW\n    proto: ANY\n    dst_ip: "::/0"' in config_text
+    assert 'action: REJECT\n    proto: ANY\n    dst_ip: "::/0"' not in config_text
+    # Administrator exceptions still precede every reject.
+    assert config_text.index('dst_ip: "2001:db8:42::/48"') < config_text.index(
+        "action: REJECT"
+    )
+    # The catch-all IPv6 allow is evaluated after every reject.
+    assert config_text.rindex("action: REJECT") < config_text.rindex(
+        'action: ALLOW\n    proto: ANY\n    dst_ip: "::/0"'
+    )
+
+
+def test_configured_network_policy_reads_public_ipv6_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for flag in (True, False):
+        monkeypatch.setattr(
+            tracecat_config, "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", flag
+        )
+
+        policy = configured_sandbox_network_policy(SandboxNetworkPurpose.SCRIPT)
+
+        assert policy.allow_public_ipv6 is flag
+
+
+def test_non_filtered_policy_rejects_public_ipv6_flag() -> None:
+    with pytest.raises(ValueError, match="only valid for filtered"):
+        SandboxNetworkPolicy(
+            mode=SandboxNetworkMode.UNRESTRICTED,
+            allow_public_ipv6=True,
+        )
+
+
+def test_network_request_uses_absence_as_the_only_disabled_state() -> None:
+    with pytest.raises(ValueError, match="omit the network request"):
+        SandboxNetworkRequest(
+            purpose=SandboxNetworkPurpose.SCRIPT,
+            policy=SandboxNetworkPolicy(mode=SandboxNetworkMode.DISABLED),
+        )
+
+
+def test_resolve_network_plan_owns_policy_dns_and_mount_assembly(
+    tmp_path: Path,
+) -> None:
+    host_resolv = tmp_path / "host-resolv.conf"
+    host_resolv.write_text("nameserver 127.0.0.1\n")
+    plan = resolve_sandbox_network_plan(
+        tmp_path / "network",
+        SandboxNetworkRequest(
+            purpose=SandboxNetworkPurpose.SCRIPT,
+            policy=SandboxNetworkPolicy(mode=SandboxNetworkMode.UNRESTRICTED),
+        ),
+        host_resolv_path=host_resolv,
+    )
+
+    config_text = "\n".join(plan.user_net_lines)
+    mounts_text = "\n".join(plan.dns_mount_lines)
+    assert "backend: NSTUN" in config_text
+    assert f'dst_ip: "{NSTUN_GATEWAY_IP4}/32"' in config_text
+    assert 'action: ALLOW\n    proto: ANY\n    dst_ip: "0.0.0.0/0"' in config_text
+    assert f'src: "{tmp_path}/network/resolv.conf"' in mounts_text
+
+
 def test_filtered_nstun_policy_redirects_only_dns_to_parent_loopback() -> None:
     dns_route = SandboxDnsRoute(
         guest_address=IPv4Address(NSTUN_GATEWAY_IP4),
@@ -317,7 +417,7 @@ def test_agent_nsjail_config_enables_filtered_nstun_for_internet_access(
         config=AgentSandboxConfig(),
         site_packages_dir=tmp_path / "site-packages",
         llm_socket_path=tmp_path / "llm.sock",
-        enable_internet_access=True,
+        network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
     )
 
     assert "clone_newnet: true" in config_text
@@ -334,7 +434,9 @@ def test_python_sandbox_install_phase_enables_filtered_nstun(tmp_path: Path) -> 
     config_text = executor._build_config(
         job_dir=tmp_path / "job",
         phase="install",
-        config=SandboxConfig(network_enabled=False),
+        config=SandboxConfig(
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL)
+        ),
     )
 
     assert "clone_newnet: true" in config_text
@@ -343,18 +445,20 @@ def test_python_sandbox_install_phase_enables_filtered_nstun(tmp_path: Path) -> 
     assert f'src: "{tmp_path}/job/resolv.conf"' in config_text
 
 
-def test_python_sandbox_execute_phase_respects_network_flag(tmp_path: Path) -> None:
+def test_python_sandbox_execute_phase_respects_network_request(tmp_path: Path) -> None:
     executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
 
     isolated_config = executor._build_config(
         job_dir=tmp_path / "isolated-job",
         phase="execute",
-        config=SandboxConfig(network_enabled=False),
+        config=SandboxConfig(),
     )
     networked_config = executor._build_config(
         job_dir=tmp_path / "networked-job",
         phase="execute",
-        config=SandboxConfig(network_enabled=True),
+        config=SandboxConfig(
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT)
+        ),
     )
 
     assert "clone_newnet: true" in isolated_config
@@ -432,12 +536,16 @@ def test_python_sandbox_scopes_install_and_script_private_egress(
     install_config = executor._build_config(
         job_dir=tmp_path / "install-job",
         phase="install",
-        config=SandboxConfig(network_enabled=False),
+        config=SandboxConfig(
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL)
+        ),
     )
     script_config = executor._build_config(
         job_dir=tmp_path / "script-job",
         phase="execute",
-        config=SandboxConfig(network_enabled=True),
+        config=SandboxConfig(
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT)
+        ),
     )
 
     assert 'dst_ip: "10.10.0.0/16"' in install_config
@@ -507,7 +615,7 @@ def test_action_and_agent_sandboxes_use_separate_private_egress(
         config=AgentSandboxConfig(),
         site_packages_dir=tmp_path / "site-packages",
         llm_socket_path=tmp_path / "llm.sock",
-        enable_internet_access=True,
+        network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
     )
 
     assert 'dst_ip: "10.30.0.0/16"' in action_config
@@ -526,9 +634,7 @@ def test_action_sandbox_can_explicitly_disable_networking(tmp_path: Path) -> Non
         config=ActionSandboxConfig(
             registry_paths=[tmp_path / "registry"],
             tracecat_app_dir=tmp_path / "app",
-            network_policy=SandboxNetworkPolicy(
-                mode=SandboxNetworkMode.DISABLED,
-            ),
+            network=None,
         ),
     )
 

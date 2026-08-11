@@ -22,6 +22,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkPolicy,
     SandboxNetworkProtocol,
     SandboxNetworkPurpose,
+    SandboxNetworkRequest,
 )
 
 NSTUN_GUEST_IP4 = "10.255.255.2"
@@ -42,9 +43,9 @@ _NSTUN_GATEWAY_ADDRESS6 = IPv6Address(NSTUN_GATEWAY_IP6)
 # NSTUN rules require explicit dst_ip CIDRs, so the property-based check cannot
 # be used here. The registry's other globally-routable anycast assignments
 # (192.31.196.0/24, 192.52.193.0/24, 192.175.48.0/24) are deliberately not
-# blocked. IPv6 is denied separately in its entirety until public-only IPv6
-# classification is implemented without risking mapped-address or
-# transition-mechanism bypasses.
+# blocked. IPv6 is denied by default; TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS
+# opts a deployment into public-only IPv6 egress guarded by
+# ``_FILTERED_BLOCKED_IPV6_CIDRS``.
 _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
     IPv4Network("0.0.0.0/8"),  # "This network" (RFC 1122)
     IPv4Network("10.0.0.0/8"),  # Private-use (RFC 1918)
@@ -61,6 +62,32 @@ _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
     IPv4Network("203.0.113.0/24"),  # TEST-NET-3 documentation (RFC 5737)
     IPv4Network("224.0.0.0/4"),  # Multicast (RFC 5771)
     IPv4Network("240.0.0.0/4"),  # Reserved, incl. broadcast (RFC 1112)
+)
+
+# IPv6 networks rejected when a deployment opts into public IPv6 egress. This
+# covers non-global IPv6 space plus every IPv4-embedding transition mechanism
+# that would otherwise smuggle traffic past ``_FILTERED_BLOCKED_IPV4_CIDRS``.
+# Deployments running NAT64 on a network-specific prefix (RFC 6052) must add
+# that prefix to TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS themselves; a static
+# baseline cannot know it.
+_FILTERED_BLOCKED_IPV6_CIDRS: tuple[IPv6Network, ...] = (
+    IPv6Network("::/96"),  # IPv4-compatible (deprecated, RFC 4291); covers :: and ::1
+    IPv6Network("::ffff:0:0/96"),  # IPv4-mapped (RFC 4291)
+    IPv6Network("64:ff9b::/96"),  # NAT64 well-known prefix (RFC 6052)
+    IPv6Network("64:ff9b:1::/48"),  # Local-use NAT64 (RFC 8215)
+    IPv6Network("100::/64"),  # Discard-only (RFC 6666)
+    IPv6Network("2001::/32"),  # Teredo tunneling (RFC 4380)
+    IPv6Network("2001:2::/48"),  # Benchmarking (RFC 5180)
+    IPv6Network("2001:10::/28"),  # ORCHID (deprecated, RFC 4843)
+    IPv6Network("2001:20::/28"),  # ORCHIDv2 (RFC 7343)
+    IPv6Network("2001:db8::/32"),  # Documentation (RFC 3849)
+    IPv6Network("2002::/16"),  # 6to4 (RFC 3056)
+    IPv6Network("3fff::/20"),  # Documentation (RFC 9637)
+    IPv6Network("5f00::/16"),  # Segment Routing SIDs (RFC 9602)
+    IPv6Network("fc00::/7"),  # Unique local (RFC 4193)
+    IPv6Network("fe80::/10"),  # Link-local (RFC 4291)
+    IPv6Network("fec0::/10"),  # Site-local (deprecated, RFC 3879)
+    IPv6Network("ff00::/8"),  # Multicast (RFC 4291)
 )
 
 type IPAddress = IPv4Address | IPv6Address
@@ -96,6 +123,14 @@ class SandboxNetworkFiles:
     hosts: Path
     nsswitch_conf: Path
     dns_routes: tuple[SandboxDnsRoute, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxNetworkPlan:
+    """Fully resolved NSTUN and resolver-mount configuration."""
+
+    user_net_lines: tuple[str, ...] = ()
+    dns_mount_lines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +210,7 @@ def configured_sandbox_network_policy(
         mode=SandboxNetworkMode.FILTERED,
         allowed_rules=allowed_rules,
         blocked_cidrs=tracecat_config.TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS,
+        allow_public_ipv6=tracecat_config.TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS,
     )
 
 
@@ -223,6 +259,7 @@ def _filtered_rules(policy: SandboxNetworkPolicy) -> list[_NstunRule]:
     ]
     blocked_networks: tuple[IPNetwork, ...] = (
         *_FILTERED_BLOCKED_IPV4_CIDRS,
+        *(_FILTERED_BLOCKED_IPV6_CIDRS if policy.allow_public_ipv6 else ()),
         *policy.blocked_cidrs,
     )
     rules.extend(
@@ -237,8 +274,12 @@ def _filtered_rules(policy: SandboxNetworkPolicy) -> list[_NstunRule]:
                 action="ALLOW",
                 destination=IPv4Network("0.0.0.0/0"),
             ),
-            # Block IPv6 until public-only IPv6 egress has equivalent coverage.
-            _NstunRule(action="REJECT", destination=IPv6Network("::/0")),
+            # Remaining IPv6 addresses are public only when the deployment has
+            # opted in; otherwise all IPv6 egress stays blocked.
+            _NstunRule(
+                action="ALLOW" if policy.allow_public_ipv6 else "REJECT",
+                destination=IPv6Network("::/0"),
+            ),
         ]
     )
     return rules
@@ -420,3 +461,28 @@ def sandbox_dns_mount_config_lines(files: SandboxNetworkFiles) -> list[str]:
         f'mount {{ src: "{files.hosts}" dst: "/etc/hosts" is_bind: true rw: false }}',
         f'mount {{ src: "{files.nsswitch_conf}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
     ]
+
+
+def resolve_sandbox_network_plan(
+    target_dir: Path,
+    request: SandboxNetworkRequest | None,
+    *,
+    host_resolv_path: Path = Path("/etc/resolv.conf"),
+) -> SandboxNetworkPlan:
+    """Resolve one network request and materialize its resolver files.
+
+    This is the single assembly path for script, action, agent, and stdio
+    sandboxes. Callers select only a trusted purpose or explicit policy; this
+    helper owns deployment-policy lookup, DNS routing, and NsJail rendering.
+    """
+    if request is None:
+        return SandboxNetworkPlan()
+
+    policy = request.policy or configured_sandbox_network_policy(request.purpose)
+    files = write_sandbox_network_files(target_dir, host_resolv_path)
+    return SandboxNetworkPlan(
+        user_net_lines=tuple(
+            nstun_user_net_config_lines(policy, dns_routes=files.dns_routes)
+        ),
+        dns_mount_lines=tuple(sandbox_dns_mount_config_lines(files)),
+    )

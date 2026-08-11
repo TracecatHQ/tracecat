@@ -743,6 +743,11 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
+    "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
+)
+"""Allow filtered sandboxes to reach public IPv6 destinations."""
+
 TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead.
 

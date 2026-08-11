@@ -18,7 +18,11 @@ from tracecat.registry.sync.artifact import (
 from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
 from tracecat.registry.sync.schemas import SyncResultError, SyncResultSuccess
 from tracecat.sandbox.exceptions import SandboxTimeoutError
-from tracecat.sandbox.types import SandboxConfig, SandboxResult
+from tracecat.sandbox.types import (
+    SandboxConfig,
+    SandboxNetworkPurpose,
+    SandboxResult,
+)
 from tracecat.ssh import SshEnv
 
 
@@ -96,7 +100,8 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
         if script_name == "keyscan.py":
             events.append("keyscan")
             assert job_dir == tmp_path / "sync" / "sandbox-keyscan"
-            assert sandbox_config.network_enabled is True
+            assert sandbox_config.network is not None
+            assert sandbox_config.network.purpose is SandboxNetworkPurpose.SCRIPT
             assert sandbox_config.resources.timeout_seconds == 30
             assert sandbox_config.resources.cpu_seconds == 30
             assert sandbox_config.env_vars == {}
@@ -117,7 +122,8 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
         events.append("clone")
         assert events == ["keyscan", "agent", "clone"]
         assert script_name == "wrapper.py"
-        assert sandbox_config.network_enabled is True
+        assert sandbox_config.network is not None
+        assert sandbox_config.network.purpose is SandboxNetworkPurpose.SCRIPT
         assert sandbox_config.env_vars["SSH_AUTH_SOCK"] == (
             "/run/registry-agent/agent.sock"
         )
@@ -331,7 +337,7 @@ async def test_registry_packaging_runs_in_fresh_no_network_jail(
     ) -> SandboxResult:
         assert cache_key is None
         assert script_name == "wrapper.py"
-        assert sandbox_config.network_enabled is False
+        assert sandbox_config.network is None
         assert sandbox_config.env_vars == {}
         assert sandbox_config.bind_mounts == [
             mocker.ANY,
@@ -440,7 +446,7 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
     ) -> SandboxResult:
         assert cache_key is None
         assert script_name == "wrapper.py"
-        assert sandbox_config.network_enabled is False
+        assert sandbox_config.network is None
         assert sandbox_config.env_vars == {}
         assert job_dir.parent.name.startswith("tracecat_registry_discovery_")
         assert job_dir.parent != site_packages.parent.parent / "sandbox-discovery"
