@@ -57,6 +57,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -621,6 +622,7 @@ class TestCaseCommentsService:
             events = await _load_case_events(session, test_case.id)
             assert events[-1].type == CaseEventType.COMMENT_REPLY_CREATED
             assert events[-1].data["thread_root_id"] == str(root.id)
+            assert events[-1].user_id is None
 
             retried = await completion.create_reply_and_mark_succeeded(
                 first.session_id, "different output"
@@ -633,6 +635,66 @@ class TestCaseCommentsService:
                 is None
             )
             assert await invocation_service.mark_failed(invocation.id, "late") is None
+
+    async def test_agent_completion_rejects_deleted_thread_root(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Deleted thread agent",
+        )
+        root = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Delete this thread"),
+        )
+        root_id = root.id
+        invoking = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Deleted thread agent", preset.id),
+                parent_id=root.id,
+            ),
+        )
+        [invocation] = await _load_comment_invocations(session, invoking.id)
+        agent_session = AgentSession(
+            workspace_id=case_comments_service.workspace_id,
+            entity_type="case",
+            entity_id=test_case.id,
+            agent_preset_id=preset.id,
+        )
+        session.add(agent_session)
+        await session.flush()
+        session_id = agent_session.id
+        invocation.session_id = session_id
+        invocation.status = CaseCommentAgentInvocationStatus.RUNNING.value
+        await session.commit()
+
+        await case_comments_service.delete_comment(root)
+        completion = CaseCommentAgentInvocationCompletionService(
+            session,
+            case_comments_service.role,
+        )
+        with pytest.raises(
+            TracecatConflictError,
+            match="Cannot reply to a deleted comment thread",
+        ):
+            await completion.create_reply_and_mark_succeeded(
+                session_id,
+                "late agent output",
+            )
+
+        await session.rollback()
+        await session.refresh(invocation)
+        assert invocation.status == CaseCommentAgentInvocationStatus.RUNNING.value
+        assert invocation.reply_comment_id is None
+        replies = await session.scalars(
+            select(CaseComment).where(CaseComment.parent_id == root_id)
+        )
+        assert [reply.id for reply in replies] == [invoking.id]
 
     async def test_create_comment_skips_missing_and_deleted_agent_mentions(
         self,

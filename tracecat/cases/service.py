@@ -2913,6 +2913,7 @@ class CaseEventsService(BaseWorkspaceService):
         *,
         publish_case_trigger: bool = True,
         sync_durations: bool = True,
+        system_generated: bool = False,
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2929,7 +2930,7 @@ class CaseEventsService(BaseWorkspaceService):
             case_id=case.id,
             type=event.type,
             data=event.model_dump(exclude={"type"}, mode="json"),
-            user_id=self.role.user_id,
+            user_id=None if system_generated else self.role.user_id,
         )
         self.session.add(db_event)
         # Flush so that generated fields (e.g., id) are available if needed

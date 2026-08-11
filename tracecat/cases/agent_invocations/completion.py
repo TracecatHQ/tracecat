@@ -77,6 +77,18 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
 
         content = render_agent_output_as_comment(output)
         thread_root_id = source_comment.parent_id or source_comment.id
+        thread_root = await self.session.scalar(
+            select(CaseComment)
+            .where(
+                CaseComment.id == thread_root_id,
+                CaseComment.case_id == case.id,
+                CaseComment.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        if thread_root is None or thread_root.deleted_at is not None:
+            raise TracecatConflictError("Cannot reply to a deleted comment thread")
+
         reply = CaseComment(
             id=uuid.uuid4(),
             workspace_id=self.workspace_id,
@@ -94,6 +106,7 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
                 parent_id=thread_root_id,
                 thread_root_id=thread_root_id,
             ),
+            system_generated=True,
         )
         transitioned = await CaseCommentAgentInvocationService(
             self.session, self.role
