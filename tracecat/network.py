@@ -11,11 +11,15 @@ import asyncio
 import ipaddress
 import socket
 from collections.abc import Sequence
-from typing import Any, NamedTuple
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 
-class SocketInfo(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class SocketInfo:
+    """Named representation of one ``socket.getaddrinfo`` result."""
+
     address_family: socket.AddressFamily
     socket_kind: socket.SocketKind
     protocol: int
@@ -76,12 +80,21 @@ async def validate_url_resolves_public_async(url: str) -> None:
     # derive it from the scheme so http and https URLs both resolve correctly.
     port = port or (443 if parsed.scheme == "https" else 80)
     try:
-        # getaddrinfo is blocking C I/O (hosts file, resolv.conf, network
-        # resolver); keep it off the event loop so a slow DNS server for one
-        # URL cannot stall every other coroutine on the loop.
         infos = [
-            SocketInfo(*info)
-            for info in await asyncio.to_thread(
+            SocketInfo(
+                address_family=address_family,
+                socket_kind=socket_kind,
+                protocol=protocol,
+                canonical_name=canonical_name,
+                socket_address=socket_address,
+            )
+            for (
+                address_family,
+                socket_kind,
+                protocol,
+                canonical_name,
+                socket_address,
+            ) in await asyncio.to_thread(
                 socket.getaddrinfo,
                 hostname,
                 port,
