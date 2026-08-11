@@ -320,8 +320,11 @@ class CaseCommentThreadRead(Schema):
     last_activity_at: datetime
 
 
+CASE_COMMENT_MAX_LENGTH = 25_000
+
+
 class CaseCommentCreate(Schema):
-    content: str = Field(default=..., min_length=1, max_length=25_000)
+    content: str = Field(default=..., min_length=1, max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
@@ -335,7 +338,9 @@ class CaseCommentCreate(Schema):
 
 
 class CaseCommentUpdate(Schema):
-    content: str | None = Field(default=None, min_length=1, max_length=25_000)
+    content: str | None = Field(
+        default=None, min_length=1, max_length=CASE_COMMENT_MAX_LENGTH
+    )
     parent_id: uuid.UUID | None = Field(default=None)
 
     @field_validator("content")

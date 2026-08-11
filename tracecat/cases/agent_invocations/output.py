@@ -5,7 +5,9 @@ from __future__ import annotations
 import orjson
 from pydantic import BaseModel
 
-from tracecat.cases.schemas import CaseCommentCreate
+from tracecat.cases.schemas import CASE_COMMENT_MAX_LENGTH, CaseCommentCreate
+
+_TRUNCATION_NOTICE = "\n\n[Agent output truncated]"
 
 
 def _json_default(value: object) -> object:
@@ -43,5 +45,9 @@ def render_agent_output_as_comment(output: object) -> str:
             ).decode()
         except TypeError as exc:
             raise ValueError("Agent output must be text or JSON-serializable") from exc
+
+    if len(content) > CASE_COMMENT_MAX_LENGTH:
+        prefix_length = CASE_COMMENT_MAX_LENGTH - len(_TRUNCATION_NOTICE)
+        content = f"{content[:prefix_length]}{_TRUNCATION_NOTICE}"
 
     return CaseCommentCreate(content=content).content
