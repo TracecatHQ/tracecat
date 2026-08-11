@@ -354,6 +354,9 @@ async def test_probe_url_guard_uses_real_resolver_for_loopback() -> None:
     [
         "https://example.com:99999/hook",
         "https://[::1/hook",
+        # An over-long DNS label makes getaddrinfo raise UnicodeError, not
+        # gaierror; the guard must still map it to a client error.
+        f"https://{'a' * 64}.example.test/hook",
     ],
 )
 async def test_org_audit_webhook_test_returns_400_for_malformed_url(

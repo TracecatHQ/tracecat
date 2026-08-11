@@ -79,6 +79,8 @@ async def validate_url_resolves_public_async(url: str, *, default_port: int) -> 
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         )
-    except socket.gaierror as exc:
+    except (socket.gaierror, UnicodeError) as exc:
+        # UnicodeError covers malformed DNS labels (e.g. a label over 63 chars),
+        # which getaddrinfo raises instead of gaierror.
         raise DisallowedUrlError("Host could not be resolved") from exc
     validate_resolved_addresses(infos)
