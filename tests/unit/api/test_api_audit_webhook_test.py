@@ -106,7 +106,7 @@ def allow_probe_url(monkeypatch: pytest.MonkeyPatch) -> None:
     delivery-path tests must not depend on real DNS for their example hosts.
     """
 
-    async def _noop(url: str, *, default_port: int) -> None:
+    async def _noop(url: str) -> None:
         return None
 
     monkeypatch.setattr(
@@ -233,7 +233,7 @@ async def test_org_audit_webhook_test_timeout_includes_dns_resolution(
     test_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _hang(url: str, *, default_port: int) -> None:
+    async def _hang(url: str) -> None:
         await asyncio.Event().wait()
 
     monkeypatch.setattr(
@@ -322,7 +322,7 @@ async def test_probe_rejects_private_address_without_connecting(
 ) -> None:
     """A URL resolving to a private address is a 400 and never connects."""
 
-    async def _reject(url: str, *, default_port: int) -> None:
+    async def _reject(url: str) -> None:
         raise audit_service_module.DisallowedUrlError("Host is not allowed")
 
     monkeypatch.setattr(
@@ -343,9 +343,7 @@ async def test_probe_rejects_private_address_without_connecting(
 async def test_probe_url_guard_uses_real_resolver_for_loopback() -> None:
     """The shared guard rejects a loopback URL end to end."""
     with pytest.raises(network.DisallowedUrlError):
-        await network.validate_url_resolves_public_async(
-            "http://127.0.0.1:9000/ingest", default_port=443
-        )
+        await network.validate_url_resolves_public_async("http://127.0.0.1:9000/ingest")
 
 
 @pytest.mark.anyio

@@ -31,12 +31,11 @@ from tracecat.integrations.types import (
 from tracecat.logger import logger
 from tracecat.network import (
     DisallowedUrlError,
+    SocketInfo,
     is_disallowed_address,
     validate_resolved_addresses,
 )
 
-SocketAddress = tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
-SocketInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, SocketAddress]
 _OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN = "/.well-known/oauth-authorization-server"
 
 
@@ -218,12 +217,15 @@ def validate_oauth_endpoint_resolves_public(
         raise ValueError(f"OAuth endpoint must include a hostname: {url}")
     port = parsed.port or 443
     try:
-        infos = socket.getaddrinfo(
-            hostname,
-            port,
-            type=socket.SOCK_STREAM,
-            proto=socket.IPPROTO_TCP,
-        )
+        infos = [
+            SocketInfo(*info)
+            for info in socket.getaddrinfo(
+                hostname,
+                port,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            )
+        ]
     except socket.gaierror as exc:
         raise ValueError("OAuth endpoint host could not be resolved") from exc
     _validate_oauth_resolved_addresses(infos)
@@ -241,13 +243,16 @@ async def validate_oauth_endpoint_resolves_public_async(
         raise ValueError(f"OAuth endpoint must include a hostname: {url}")
     port = parsed.port or 443
     try:
-        infos = await asyncio.to_thread(
-            socket.getaddrinfo,
-            hostname,
-            port,
-            type=socket.SOCK_STREAM,
-            proto=socket.IPPROTO_TCP,
-        )
+        infos = [
+            SocketInfo(*info)
+            for info in await asyncio.to_thread(
+                socket.getaddrinfo,
+                hostname,
+                port,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            )
+        ]
     except socket.gaierror as exc:
         raise ValueError("OAuth endpoint host could not be resolved") from exc
     _validate_oauth_resolved_addresses(infos)

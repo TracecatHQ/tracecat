@@ -11,10 +11,16 @@ import asyncio
 import ipaddress
 import socket
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
-_SocketInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[Any, ...]]
+
+class SocketInfo(NamedTuple):
+    address_family: socket.AddressFamily
+    socket_kind: socket.SocketKind
+    protocol: int
+    canonical_name: str
+    socket_address: tuple[Any, ...]
 
 
 class DisallowedUrlError(ValueError):
@@ -39,23 +45,22 @@ def is_disallowed_address(
     )
 
 
-def validate_resolved_addresses(infos: Sequence[_SocketInfo]) -> None:
+def validate_resolved_addresses(infos: Sequence[SocketInfo]) -> None:
     """Reject any resolved address that is not publicly routable."""
     if not infos:
         raise DisallowedUrlError("Host could not be resolved")
-    for *_, sockaddr in infos:
+    for info in infos:
         try:
-            address = ipaddress.ip_address(sockaddr[0])
+            address = ipaddress.ip_address(info.socket_address[0])
         except (IndexError, ValueError) as exc:
             raise DisallowedUrlError("Host is not allowed") from exc
         if is_disallowed_address(address):
             raise DisallowedUrlError("Host is not allowed")
 
 
-async def validate_url_resolves_public_async(url: str, *, default_port: int) -> None:
+async def validate_url_resolves_public_async(url: str) -> None:
     """Resolve the URL host off-thread and require public addresses.
 
-    ``default_port`` is used only for resolution when the URL omits a port.
     Raises :class:`DisallowedUrlError` on a missing host, resolution failure, or
     any non-public address, without echoing the resolved address.
     """
@@ -67,18 +72,23 @@ async def validate_url_resolves_public_async(url: str, *, default_port: int) -> 
         raise DisallowedUrlError("URL is invalid") from exc
     if not hostname:
         raise DisallowedUrlError("URL must include a hostname")
-    port = port or default_port
+    # The port barely affects host resolution, but getaddrinfo requires one;
+    # derive it from the scheme so http and https URLs both resolve correctly.
+    port = port or (443 if parsed.scheme == "https" else 80)
     try:
         # getaddrinfo is blocking C I/O (hosts file, resolv.conf, network
         # resolver); keep it off the event loop so a slow DNS server for one
         # URL cannot stall every other coroutine on the loop.
-        infos = await asyncio.to_thread(
-            socket.getaddrinfo,
-            hostname,
-            port,
-            type=socket.SOCK_STREAM,
-            proto=socket.IPPROTO_TCP,
-        )
+        infos = [
+            SocketInfo(*info)
+            for info in await asyncio.to_thread(
+                socket.getaddrinfo,
+                hostname,
+                port,
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+            )
+        ]
     except (socket.gaierror, UnicodeError) as exc:
         # UnicodeError covers malformed DNS labels (e.g. a label over 63 chars),
         # which getaddrinfo raises instead of gaierror.

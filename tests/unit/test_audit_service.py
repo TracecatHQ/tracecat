@@ -31,7 +31,7 @@ from tracecat.audit.service import (
     _AuditDelivery,
     _spawn_delivery,
 )
-from tracecat.audit.types import AuditEvent, AuditMetadata
+from tracecat.audit.types import AuditEvent, AuditMetadata, AuditWebhookConfig
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -307,14 +307,9 @@ async def test_create_event_streams_exact_payload_contract(
         audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
     )
     monkeypatch.setattr(
-        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+        audit_service,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
     mock_user = MagicMock()
     mock_user.email = "actor@example.test"
@@ -894,30 +889,20 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     webhook_url = "https://example.com/audit"
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
+        "_resolve_config",
         AsyncMock(
-            return_value={
-                "resource_type": "organization",
-                "resource_id": "not-a-uuid",
-                "status": "INVALID_STATUS",
-                "custom": "yes",
-            }
+            return_value=AuditWebhookConfig(
+                webhook_url=webhook_url,
+                custom_headers={"X-Custom-Header": "custom-value"},
+                custom_payload={
+                    "resource_type": "organization",
+                    "resource_id": "not-a-uuid",
+                    "status": "INVALID_STATUS",
+                    "custom": "yes",
+                },
+                verify_ssl=False,
+            )
         ),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value=None),
     )
 
     response_mock = MagicMock()
@@ -967,23 +952,15 @@ async def test_post_event_wraps_payload_when_attribute_configured(
     webhook_url = "https://example.com/audit"
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
-        AsyncMock(return_value={"custom": "yes"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value="event"),
+        "_resolve_config",
+        AsyncMock(
+            return_value=AuditWebhookConfig(
+                webhook_url=webhook_url,
+                custom_headers={"X-Custom-Header": "custom-value"},
+                custom_payload={"custom": "yes"},
+                payload_attribute="event",
+            )
+        ),
     )
 
     response_mock = MagicMock()
@@ -1027,14 +1004,9 @@ async def test_post_event_failure_does_not_log_webhook_url(
 ) -> None:
     webhook_url = "https://secret-host.example.com/audit-hook"
     monkeypatch.setattr(
-        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+        audit_service,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
 
     client_mock = AsyncMock()
@@ -1107,7 +1079,7 @@ async def test_create_event_settings_failure_does_not_raise(
     )
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
+        "_resolve_config",
         AsyncMock(side_effect=SQLAlchemyError("settings lookup failed")),
     )
     monkeypatch.setattr(audit_service, "_get_actor_label", AsyncMock(return_value=None))
@@ -1432,14 +1404,9 @@ async def test_decorator_delivers_attempt_and_terminal(
     monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
     monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
     monkeypatch.setattr(
-        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(AuditService, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
+        AuditService,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
 
     service = _AuditedService(AsyncMock(), role)
@@ -1470,7 +1437,9 @@ async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
     async def get_actor_label(_self: AuditService) -> str | None:
         return None
 
-    async def broken_verify_ssl(_self: AuditService) -> bool:
+    async def broken_resolve_config(
+        _self: AuditService, *, webhook_url: str
+    ) -> AuditWebhookConfig:
         raise RuntimeError("settings backend down")
 
     async def deliver(delivery: _AuditDelivery) -> None:
@@ -1478,16 +1447,7 @@ async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
 
     monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
     monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
-    monkeypatch.setattr(
-        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(AuditService, "_get_verify_ssl", broken_verify_ssl)
-    monkeypatch.setattr(
-        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(AuditService, "_resolve_config", broken_resolve_config)
 
     warnings: list[tuple[str, dict[str, object]]] = []
 
