@@ -1,8 +1,4 @@
-"""Per-parameter expression policy assignments for registry actions.
-
-Interim single source of truth until policies move beside registry parameter
-declarations and travel through the manifest interface (ENG-1572).
-"""
+"""Per-parameter expression policy assignments for registry actions."""
 
 from __future__ import annotations
 
