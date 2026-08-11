@@ -8244,6 +8244,37 @@ async def list_skills(
 
 
 @mcp.tool()
+async def get_skill(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+) -> SkillRead:
+    """Return a workspace skill summary, including its current draft revision.
+
+    Use the returned `draft_revision` as `base_revision` for `update_skill`
+    and as `expected_draft_revision` for `publish_skill`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            skill = await svc.get_skill_read(skill_id)
+        if skill is None:
+            raise ToolError(f"Skill '{skill_id}' not found")
+        return skill
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get skill", error=str(e), skill_id=str(skill_id))
+        raise ToolError(f"Failed to get skill: {e}") from None
+
+
+@mcp.tool()
 async def upload_skill(
     workspace_id: uuid.UUID,
     name: str,
@@ -8289,15 +8320,32 @@ async def upload_skill(
         raise ToolError(f"Failed to upload skill: {e}") from None
 
 
+def _skill_validation_tool_error(e: TracecatValidationError) -> ToolError:
+    """Render a skill validation error with its structured detail attached.
+
+    Revision conflicts carry ``current_revision`` in the detail; agents need it
+    to recover without another read.
+    """
+
+    if e.detail is not None:
+        return ToolError(f"{e}: {e.detail}")
+    return ToolError(str(e))
+
+
 @mcp.tool()
 async def update_skill(
     workspace_id: uuid.UUID,
     skill_id: uuid.UUID,
     name: str,
+    base_revision: int,
     files: list[SkillUploadFile],
     description: str | None = None,
 ) -> SkillRead:
     """Replace an existing skill draft with a local skill directory.
+
+    `base_revision` must equal the skill's current `draft_revision` (fetch it
+    with `get_skill`); on a `draft_revision_conflict` error, re-read the skill
+    and reconcile before retrying so concurrent edits are never overwritten.
 
     This does not publish the draft. Call `publish_skill` after the update if
     the skill should be attachable to agent presets.
@@ -8319,14 +8367,18 @@ async def update_skill(
             }
         )
         async with SkillService.with_session(role=role) as svc:
-            updated = await svc.replace_skill_draft(skill_id=skill_id, params=params)
+            updated = await svc.replace_skill_draft(
+                skill_id=skill_id,
+                params=params,
+                base_revision=base_revision,
+            )
         return SkillRead.model_validate(updated)
     except ToolError:
         raise
     except ValidationError as e:
         raise ToolError(str(e)) from e
     except TracecatValidationError as e:
-        raise ToolError(str(e)) from e
+        raise _skill_validation_tool_error(e) from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8338,8 +8390,15 @@ async def update_skill(
 async def publish_skill(
     workspace_id: uuid.UUID,
     skill_id: uuid.UUID,
+    expected_draft_revision: int,
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
+
+    `expected_draft_revision` must equal the skill's current `draft_revision`
+    (returned by `get_skill` and `update_skill`); on a
+    `draft_revision_conflict` error, re-read the skill and confirm the draft
+    contents before retrying so an unreviewed concurrent edit is never
+    published.
 
     Only published skill versions can be attached to agent presets.
     """
@@ -8347,13 +8406,16 @@ async def publish_skill(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with SkillService.with_session(role=role) as svc:
-            return await svc.publish_skill(skill_id)
+            return await svc.publish_skill(
+                skill_id,
+                expected_draft_revision=expected_draft_revision,
+            )
     except ToolError:
         raise
     except ValidationError as e:
         raise ToolError(str(e)) from e
     except TracecatValidationError as e:
-        raise ToolError(str(e)) from e
+        raise _skill_validation_tool_error(e) from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except Exception as e:

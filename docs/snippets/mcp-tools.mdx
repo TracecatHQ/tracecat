@@ -437,6 +437,12 @@
   Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
+<ResponseField name="get_skill" type="tool">
+  Return a workspace skill summary, including its current draft revision.
+
+  Use the returned `draft_revision` as `base_revision` for `update_skill` and as `expected_draft_revision` for `publish_skill`.
+</ResponseField>
+
 <ResponseField name="upload_skill" type="tool">
   Upload a local skill directory into Tracecat as a workspace skill.
 
@@ -448,11 +454,15 @@
 <ResponseField name="update_skill" type="tool">
   Replace an existing skill draft with a local skill directory.
 
+  `base_revision` must equal the skill's current `draft_revision` (fetch it with `get_skill`); on a `draft_revision_conflict` error, re-read the skill and reconcile before retrying so concurrent edits are never overwritten.
+
   This does not publish the draft. Call `publish_skill` after the update if the skill should be attachable to agent presets.
 </ResponseField>
 
 <ResponseField name="publish_skill" type="tool">
   Publish a skill draft into an immutable skill version.
+
+  `expected_draft_revision` must equal the skill's current `draft_revision` (returned by `get_skill` and `update_skill`); on a `draft_revision_conflict` error, re-read the skill and confirm the draft contents before retrying so an unreviewed concurrent edit is never published.
 
   Only published skill versions can be attached to agent presets.
 </ResponseField>

@@ -1567,13 +1567,23 @@ class SkillService(BaseWorkspaceService):
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def replace_skill_draft(
-        self, *, skill_id: uuid.UUID, params: SkillUpload
+        self,
+        *,
+        skill_id: uuid.UUID,
+        params: SkillUpload,
+        base_revision: int | None = None,
     ) -> SkillRead:
-        """Replace an existing skill's mutable draft with a full file tree."""
+        """Replace an existing skill's mutable draft with a full file tree.
+
+        When ``base_revision`` is provided, the replacement only applies if the
+        draft is still at that revision; otherwise a structured
+        ``draft_revision_conflict`` validation error is raised.
+        """
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        self._check_draft_revision(skill, base_revision)
 
         prepared_draft = await self._prepare_validated_upload_draft(params)
         await self._replace_draft_with_blob_map(
@@ -1902,6 +1912,21 @@ class SkillService(BaseWorkspaceService):
                     )
         return prepared_operations
 
+    @staticmethod
+    def _check_draft_revision(skill: Skill, expected_revision: int | None) -> None:
+        """Enforce optimistic concurrency on the skill draft when requested."""
+
+        if expected_revision is None:
+            return
+        if skill.draft_revision != expected_revision:
+            raise TracecatValidationError(
+                "Draft revision conflict",
+                detail={
+                    "code": "draft_revision_conflict",
+                    "current_revision": skill.draft_revision,
+                },
+            )
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
@@ -1912,14 +1937,7 @@ class SkillService(BaseWorkspaceService):
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        if skill.draft_revision != params.base_revision:
-            raise TracecatValidationError(
-                "Draft revision conflict",
-                detail={
-                    "code": "draft_revision_conflict",
-                    "current_revision": skill.draft_revision,
-                },
-            )
+        self._check_draft_revision(skill, params.base_revision)
 
         prepared_operations = await self._prepare_draft_patch_operations(
             skill=skill,
@@ -2072,12 +2090,23 @@ class SkillService(BaseWorkspaceService):
 
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
-        """Publish the current draft into a new immutable skill version."""
+    async def publish_skill(
+        self,
+        skill_id: uuid.UUID,
+        *,
+        expected_draft_revision: int | None = None,
+    ) -> SkillVersionRead:
+        """Publish the current draft into a new immutable skill version.
+
+        When ``expected_draft_revision`` is provided, publishing only applies
+        if the draft is still at that revision; otherwise a structured
+        ``draft_revision_conflict`` validation error is raised.
+        """
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        self._check_draft_revision(skill, expected_draft_revision)
         rows = await self._list_draft_rows(skill.id)
         validation = await self._validate_manifest_rows(
             [(draft_file.path, blob_row) for draft_file, blob_row in rows]

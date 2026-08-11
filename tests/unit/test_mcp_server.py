@@ -10061,9 +10061,12 @@ async def test_update_skill_replaces_existing_draft(
         return workspace_id, role
 
     class _SkillService:
-        async def replace_skill_draft(self, *, skill_id: uuid.UUID, params):
+        async def replace_skill_draft(
+            self, *, skill_id: uuid.UUID, params, base_revision=None
+        ):
             captured["skill_id"] = skill_id
             captured["params"] = params
+            captured["base_revision"] = base_revision
             now = datetime.now(UTC)
             return SkillRead(
                 id=skill_id,
@@ -10093,6 +10096,7 @@ async def test_update_skill_replaces_existing_draft(
         workspace_id=str(workspace_id),
         skill_id=skill_id,
         name="botsv3-ir",
+        base_revision=1,
         description="Updated description",
         files=[
             SkillUploadFile(
@@ -10109,6 +10113,7 @@ async def test_update_skill_replaces_existing_draft(
     params = captured["params"]
     uploaded_content = base64.b64decode(params.files[0].content_base64).decode("utf-8")
     assert captured["skill_id"] == skill_id
+    assert captured["base_revision"] == 1
     assert params.name == "botsv3-ir"
     assert "name: botsv3-ir" in uploaded_content
     assert "description: Updated description" in uploaded_content
@@ -10130,8 +10135,11 @@ async def test_publish_skill_uses_workspace_skill_service(
         return workspace_id, role
 
     class _SkillService:
-        async def publish_skill(self, requested_skill_id: uuid.UUID):
+        async def publish_skill(
+            self, requested_skill_id: uuid.UUID, *, expected_draft_revision=None
+        ):
             captured["skill_id"] = requested_skill_id
+            captured["expected_draft_revision"] = expected_draft_revision
             now = datetime.now(UTC)
             return SkillVersionRead(
                 id=version_id,
@@ -10158,13 +10166,186 @@ async def test_publish_skill_uses_workspace_skill_service(
     result = await _tool(mcp_server.publish_skill)(
         workspace_id=str(workspace_id),
         skill_id=skill_id,
+        expected_draft_revision=3,
     )
 
     payload = _payload(result)
     assert captured["skill_id"] == skill_id
+    assert captured["expected_draft_revision"] == 3
     assert payload["id"] == str(version_id)
     assert payload["skill_id"] == str(skill_id)
     assert payload["version"] == 1
+
+
+@pytest.mark.anyio
+async def test_get_skill_returns_draft_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_skill_read(self, requested_skill_id: uuid.UUID):
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=requested_skill_id,
+                workspace_id=workspace_id,
+                name="botsv3-ir",
+                slug="botsv3-ir",
+                description="BOTSv3 IR skill",
+                current_version_id=None,
+                draft_revision=7,
+                created_at=now,
+                updated_at=now,
+                deleted_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=1,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.get_skill)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+    )
+
+    payload = _payload(result)
+    assert payload["id"] == str(skill_id)
+    assert payload["draft_revision"] == 7
+
+
+@pytest.mark.anyio
+async def test_get_skill_missing_raises_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_skill_read(self, requested_skill_id: uuid.UUID):
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.get_skill)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+        )
+
+
+@pytest.mark.anyio
+async def test_update_skill_surfaces_draft_revision_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def replace_skill_draft(
+            self, *, skill_id: uuid.UUID, params, base_revision=None
+        ):
+            raise TracecatValidationError(
+                "Draft revision conflict",
+                detail={
+                    "code": "draft_revision_conflict",
+                    "current_revision": 5,
+                },
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.update_skill)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            name="botsv3-ir",
+            base_revision=4,
+            files=[
+                SkillUploadFile(
+                    path="SKILL.md",
+                    content_base64=base64.b64encode(
+                        b"---\nname: botsv3-ir\n---\n\n# Triage\n"
+                    ).decode("ascii"),
+                    content_type="text/markdown; charset=utf-8",
+                )
+            ],
+        )
+
+    message = str(exc_info.value)
+    assert "draft_revision_conflict" in message
+    assert "'current_revision': 5" in message
+
+
+@pytest.mark.anyio
+async def test_publish_skill_surfaces_draft_revision_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def publish_skill(
+            self, requested_skill_id: uuid.UUID, *, expected_draft_revision=None
+        ):
+            raise TracecatValidationError(
+                "Draft revision conflict",
+                detail={
+                    "code": "draft_revision_conflict",
+                    "current_revision": 9,
+                },
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.publish_skill)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            expected_draft_revision=8,
+        )
+
+    message = str(exc_info.value)
+    assert "draft_revision_conflict" in message
+    assert "'current_revision': 9" in message
 
 
 def _prompt_source_text() -> str:

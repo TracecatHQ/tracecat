@@ -610,6 +610,63 @@ class TestSkillService:
         assert {file.path for file in draft.files} == {"SKILL.md", "payload.bin"}
         assert old_file is None
 
+    async def test_replace_skill_draft_enforces_base_revision(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A stale base revision conflicts; the matching revision applies."""
+
+        async def _has_entitlement(_entitlement):
+            return True
+
+        monkeypatch.setattr(skill_service, "has_entitlement", _has_entitlement)
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="revision-guard-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: revision-guard-skill\n---\n\n# Original\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+        params = SkillUpload(
+            name="revision-guard-skill",
+            files=[
+                SkillUploadFile(
+                    path="SKILL.md",
+                    content_base64=base64.b64encode(
+                        b"---\nname: revision-guard-skill\n---\n\n# Updated\n"
+                    ).decode(),
+                    content_type="text/markdown; charset=utf-8",
+                ),
+            ],
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.replace_skill_draft(
+                skill_id=created.id,
+                params=params,
+                base_revision=created.draft_revision + 1,
+            )
+        assert exc_info.value.detail == {
+            "code": "draft_revision_conflict",
+            "current_revision": created.draft_revision,
+        }
+
+        updated = await skill_service.replace_skill_draft(
+            skill_id=created.id,
+            params=params,
+            base_revision=created.draft_revision,
+        )
+        assert updated.draft_revision == created.draft_revision + 1
+
     async def test_replace_skill_draft_rejects_invalid_manifest_before_blob_upload(
         self,
         skill_service: SkillService,
@@ -1712,6 +1769,35 @@ class TestSkillService:
 
         with pytest.raises(TracecatValidationError, match="failed validation"):
             await skill_service.publish_skill(created.id)
+
+    async def test_publish_skill_enforces_expected_draft_revision(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """A stale expected revision conflicts; the matching revision publishes."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="publish-revision-skill")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill(
+                created.id,
+                expected_draft_revision=draft.draft_revision + 1,
+            )
+        assert exc_info.value.detail == {
+            "code": "draft_revision_conflict",
+            "current_revision": draft.draft_revision,
+        }
+
+        published = await skill_service.publish_skill(
+            created.id,
+            expected_draft_revision=draft.draft_revision,
+        )
+        assert published.skill_id == created.id
+        assert published.version == 1
 
     async def test_publish_rejects_file_directory_path_collisions(
         self,
