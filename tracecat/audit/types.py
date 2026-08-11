@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,19 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 AuditSink = Literal["organization", "platform"]
 type AuditMetadataValue = str | bool | int | None | list[str]
 type AuditMetadata = Mapping[str, AuditMetadataValue]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditWebhookConfig:
+    """Validated settings used to assemble an audit webhook delivery."""
+
+    webhook_url: str
+    custom_headers: dict[str, str] | None = None
+    custom_payload: dict[str, Any] | None = None
+    verify_ssl: bool = True
+    payload_attribute: str | None = None
+
+
 AuditAction = Literal[
     "create",
     "update",
@@ -25,6 +39,7 @@ AuditAction = Literal[
     "accept",
     "revoke",
     "sign_in",
+    "connect",
     "sync",
     "promote",
     "demote",

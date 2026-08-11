@@ -88,6 +88,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminTestAuditWebhookData,
+  AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
@@ -693,6 +695,8 @@ import type {
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsTestAuditWebhookData,
+  SettingsTestAuditWebhookResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -7599,6 +7603,28 @@ export const adminUpdateAuditSettings = (
 }
 
 /**
+ * Test Audit Webhook
+ * Probe the submitted platform audit webhook configuration.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const adminTestAuditWebhook = (
+  data: AdminTestAuditWebhookData
+): CancelablePromise<AdminTestAuditWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/settings/audit/test",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Registry Settings
  * Get platform registry settings.
  * @returns PlatformRegistrySettingsRead Successful Response
@@ -8867,6 +8893,28 @@ export const settingsUpdateAuditSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Audit Webhook
+ * Probe the submitted audit webhook configuration with a marked test event.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const settingsTestAuditWebhook = (
+  data: SettingsTestAuditWebhookData
+): CancelablePromise<SettingsTestAuditWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/settings/audit/test",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
