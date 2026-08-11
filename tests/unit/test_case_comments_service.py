@@ -364,6 +364,53 @@ class TestCaseCommentsService:
         assert thread is not None
         assert thread.comment.mentions[0].target_id == preset.id
 
+    async def test_create_comment_agent_mention_requires_agent_execute_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            test_case.workspace_id,
+            name="Scoped agent",
+        )
+        role = svc_role.model_copy(update={"scopes": frozenset({"case:update"})})
+        service = CaseCommentsService(session=session, role=role)
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await service.create_comment(
+                test_case,
+                CaseCommentCreate(content=_mention_token("Scoped agent", preset.id)),
+            )
+
+        assert exc_info.value.missing_scopes == ["agent:execute"]
+
+    async def test_create_comment_agent_mention_requires_case_addons(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Entitled agent",
+        )
+
+        with (
+            patch.object(
+                case_comments_service,
+                "has_entitlement",
+                new=AsyncMock(return_value=False),
+            ),
+            pytest.raises(EntitlementRequired, match="case_addons"),
+        ):
+            await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(content=_mention_token("Entitled agent", preset.id)),
+            )
+
     async def test_create_comment_deduplicates_agent_mentions(
         self,
         case_comments_service: CaseCommentsService,

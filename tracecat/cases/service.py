@@ -24,7 +24,7 @@ from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
-from tracecat.authz.controls import get_missing_scopes, require_scope
+from tracecat.authz.controls import check_scopes, get_missing_scopes, require_scope
 from tracecat.cases.agent_invocations.queue import (
     invoke_comment_agent_turns_after_commit,
 )
@@ -2499,8 +2499,8 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         comment: CaseComment,
         content: str,
-    ) -> None:
-        """Persist live, workspace-local mention targets for a new comment."""
+    ) -> bool:
+        """Persist live agent mentions and report whether any were added."""
         unique_tokens: list[MentionToken] = []
         seen_targets: set[tuple[MentionTargetType, uuid.UUID]] = set()
         for token in parse_mentions(content):
@@ -2516,7 +2516,7 @@ class CaseCommentsService(BaseWorkspaceService):
             if token.target_type == MentionTargetType.AGENT
         }
         if not agent_ids:
-            return
+            return False
 
         result = await self.session.execute(
             select(AgentPreset.id).where(
@@ -2526,6 +2526,7 @@ class CaseCommentsService(BaseWorkspaceService):
             )
         )
         live_agent_ids: set[uuid.UUID] = set(result.scalars().all())
+        persisted_agent_mention = False
         for token in unique_tokens:
             if (
                 token.target_type != MentionTargetType.AGENT
@@ -2542,6 +2543,8 @@ class CaseCommentsService(BaseWorkspaceService):
                     label=token.label,
                 )
             )
+            persisted_agent_mention = True
+        return persisted_agent_mention
 
     @require_scope("case:update")
     async def create_comment(
@@ -2604,13 +2607,20 @@ class CaseCommentsService(BaseWorkspaceService):
             )
 
             self.session.add(comment)
-            await self._persist_comment_mentions(
+            has_agent_mention = await self._persist_comment_mentions(
                 comment=comment, content=params.content
             )
+            if has_agent_mention:
+                check_scopes(self.role, "agent:execute")
+                await self._require_replies_entitlement()
             await self.session.flush()
-            invocations = await CaseCommentAgentInvocationService(
-                session=self.session, role=self.role
-            ).create_pending_for_comment(comment.id)
+            invocations = (
+                await CaseCommentAgentInvocationService(
+                    session=self.session, role=self.role
+                ).create_pending_for_comment(comment.id)
+                if has_agent_mention
+                else []
+            )
             invoke_comment_agent_turns_after_commit(
                 self.session,
                 invocation_ids=[invocation.id for invocation in invocations],
