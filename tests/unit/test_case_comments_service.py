@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from claude_agent_sdk.types import UserMessage
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -884,11 +885,11 @@ class TestCaseCommentsService:
             first = await dispatcher.create_or_get_agent_session(invocation.id)
             retry = await dispatcher.create_or_get_agent_session(invocation.id)
             assert first is not None and retry == first
+            assert first.display_messages == ("@Thread agent",)
+            assert first.prompt.startswith("<tracecat-model-context>\n")
             assert "Root &lt;context&gt;" in first.prompt
-            assert (
-                f'id="{invoking.id}"' in first.prompt
-                and 'invoking="true"' in first.prompt
-            )
+            assert "Workflow: Investigation workflow" in first.prompt
+            assert 'invoking="true"' in first.prompt
             agent_session = await session.scalar(
                 select(AgentSession).where(AgentSession.id == first.session_id)
             )
@@ -896,12 +897,20 @@ class TestCaseCommentsService:
             assert agent_session.agent_preset_version_id == version.id
             assert agent_session.title == "Thread agent"
             assert agent_session.channel_context == {"session_origin": "case_comment"}
+
+            session_service = AgentSessionService(session, case_comments_service.role)
+            messages = await session_service.list_messages(first.session_id)
+            assert [
+                message.message.content
+                for message in messages
+                if isinstance(message.message, UserMessage)
+            ] == list(first.display_messages)
+
             await session.refresh(other)
             assert other.session_id is None
             second = await dispatcher.create_or_get_agent_session(other.id)
             assert second is not None and second.session_id != first.session_id
 
-            session_service = AgentSessionService(session, case_comments_service.role)
             prepared = await session_service.prepare_new_turn(
                 first.session_id, first.prompt
             )
