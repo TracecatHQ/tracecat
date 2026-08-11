@@ -10,6 +10,7 @@ import type {
   ChatReadVercel,
   UIMessage,
 } from "@/client"
+import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
 export type ApprovalCard = {
@@ -305,10 +306,7 @@ export const ENTITY_TO_INVALIDATION: Record<
       // Invalidate cases list for workspace
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
       invalidateCaseActivityQueries(queryClient, entityId, workspaceId)
-      // Invalidate case comments
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", entityId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, entityId, workspaceId)
     },
   },
   agent_preset: {
