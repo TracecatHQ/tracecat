@@ -536,3 +536,46 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     agent_entry = cast(dict[str, Any], agent.mcpServers[0])
     child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
     assert child_server["url"] == f"http://127.0.0.1:{selected_port}/mcp"
+
+
+@pytest.mark.anyio
+async def test_transport_close_removes_runtime_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close removes a job directory owned by the spawned runtime."""
+    job_dir = tmp_path / "runtime-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=job_dir,
+    )
+
+    await transport.close()
+
+    assert not job_dir.exists()
+    assert transport._spawned_runtime is None
+
+
+@pytest.mark.anyio
+async def test_transport_close_preserves_caller_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close leaves activity-owned state when the spawn owns no job dir."""
+    job_dir = tmp_path / "caller-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=None,
+    )
+
+    await transport.close()
+
+    assert job_dir.is_dir()
+    assert uv_file.is_file()
+    assert transport._spawned_runtime is None

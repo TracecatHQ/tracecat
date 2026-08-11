@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
+from tracecat.agent.common.config import (
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.sandbox.config import (
     AgentSandboxConfig,
@@ -156,3 +163,71 @@ def test_build_agent_nsjail_config_mounts_fresh_procfs() -> None:
 
     assert 'src: "/proc"' not in config_text
     assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text
+
+
+@pytest.mark.slow
+def test_real_uv_resolves_managed_directories_inside_job_state(
+    tmp_path: Path,
+) -> None:
+    """Real UV path commands resolve only inside the configured per-job state."""
+    uv_binary = shutil.which("uv")
+    if uv_binary is None:
+        prefix_uv = Path(sys.prefix) / "bin" / "uv"
+        if prefix_uv.is_file():
+            uv_binary = str(prefix_uv)
+        else:
+            pytest.skip("uv executable is not available")
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    uv_state_dir = tmp_path / "uv-state"
+    uv_env = build_agent_runtime_uv_env(uv_state_dir)
+    path_env_values = [value for key, value in uv_env.items() if key != "UV_LINK_MODE"]
+    assert len(path_env_values) == 7
+    env = {
+        "HOME": str(home_dir),
+        "PATH": os.environ.get("PATH", os.defpath),
+        **uv_env,
+    }
+    command_candidates: tuple[tuple[tuple[str, ...], str | None], ...] = (
+        (("cache", "dir"), None),
+        (("auth", "dir"), None),
+        (("tool", "dir"), None),
+        (("tool", "dir"), "--bin"),
+        (("python", "dir"), None),
+        (("python", "dir"), "--bin"),
+    )
+    supported_commands: list[tuple[str, ...]] = []
+    for command, required_flag in command_candidates:
+        help_result = subprocess.run(
+            [uv_binary, *command, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        help_text = help_result.stdout + help_result.stderr
+        if help_result.returncode != 0:
+            continue
+        if required_flag is not None and required_flag not in help_text:
+            continue
+        if required_flag is None:
+            supported_commands.append(command)
+        else:
+            supported_commands.append((*command, required_flag))
+
+    assert supported_commands
+    for command in supported_commands:
+        result = subprocess.run(
+            [uv_binary, *command, "--offline", "--no-config"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        reported_dir = Path(result.stdout.strip()).resolve()
+        # Assert against uv_state_dir, not tmp_path: HOME also lives under tmp_path,
+        # so a variable uv ignored would fall back to HOME and still pass.
+        assert reported_dir.is_relative_to(uv_state_dir.resolve()), (
+            f"uv {' '.join(command)} escaped per-job state: {reported_dir}"
+        )
