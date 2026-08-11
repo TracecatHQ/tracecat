@@ -2611,6 +2611,7 @@ class CaseCommentsService(BaseWorkspaceService):
                 comment=comment, content=params.content
             )
             if has_agent_mention:
+                await self.require_entitlement(Entitlement.AGENT_ADDONS)
                 check_scopes(self.role, "agent:execute")
                 await self._require_replies_entitlement()
             await self.session.flush()

@@ -52,6 +52,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
+from tracecat.cases.agent_invocations.types import PersistedCommentAgentRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseCommentAgentInvocationStatus,
@@ -2568,6 +2569,11 @@ class CaseCommentAgentInvocation(WorkspaceModel):
         String(160),
         nullable=False,
         doc="Agent preset slug captured when the invocation was created.",
+    )
+    role: Mapped[PersistedCommentAgentRole] = mapped_column(
+        JSONB,
+        nullable=False,
+        doc="Original authorization context used for durable workflow delivery.",
     )
     status: Mapped[str] = mapped_column(
         String(32),

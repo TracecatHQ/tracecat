@@ -43,6 +43,9 @@ with workflow.unsafe.imports_passed_through():
         fail_comment_agent_invocation_activity,
         prepare_comment_agent_invocation_activity,
     )
+    from tracecat.cases.agent_invocations.queue import (
+        run_comment_agent_invocation_reconciler,
+    )
     from tracecat.cases.agent_invocations.workflows import (
         CaseCommentAgentInvocationWorkflow,
     )
@@ -161,8 +164,16 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 graceful_shutdown_timeout=timedelta(seconds=30),
             ):
                 logger.info("AgentWorker started, ctrl+c to exit")
-                await shutdown_event.wait()
-                logger.info("AgentWorker shutdown requested")
+                reconciler_task = asyncio.create_task(
+                    run_comment_agent_invocation_reconciler(client, shutdown_event),
+                    name="comment_agent_invocation_reconciler",
+                )
+                try:
+                    await shutdown_event.wait()
+                    logger.info("AgentWorker shutdown requested")
+                finally:
+                    reconciler_task.cancel()
+                    await asyncio.gather(reconciler_task, return_exceptions=True)
             logger.info("Temporal Worker context exited")
     finally:
         await close_storage_client_cache()

@@ -5,6 +5,21 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal, TypedDict
+
+
+class PersistedCommentAgentRole(TypedDict):
+    """JSON-safe authorization context retained for durable delivery."""
+
+    type: Literal["user", "service", "service_account"]
+    workspace_id: str | None
+    bound_workspace_id: str | None
+    organization_id: str | None
+    user_id: str | None
+    service_account_id: str | None
+    service_id: str
+    is_platform_superuser: bool
+    scopes: list[str] | None
 
 
 @dataclass(frozen=True, slots=True)
