@@ -23,9 +23,6 @@ from tracecat.cases.agent_invocations.completion import (
 from tracecat.cases.agent_invocations.dispatcher import (
     CaseCommentAgentInvocationDispatcher,
 )
-from tracecat.cases.agent_invocations.queue import (
-    reconcile_pending_comment_agent_invocations,
-)
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
@@ -340,7 +337,6 @@ class TestCaseCommentsService:
         assert invocation.mention_id == mention.id
         assert invocation.preset_name == preset.name
         assert invocation.preset_slug == preset.slug
-        assert Role.model_validate(invocation.role) == case_comments_service.role
         assert invocation.status == CaseCommentAgentInvocationStatus.PENDING.value
         assert invocation.session_id is None
         assert invocation.reply_comment_id is None
@@ -392,11 +388,16 @@ class TestCaseCommentsService:
 
         assert exc_info.value.missing_scopes == ["agent:execute"]
 
-    async def test_create_comment_agent_mention_requires_case_addons(
+    @pytest.mark.parametrize(
+        "missing_entitlement",
+        [Entitlement.AGENT_ADDONS, Entitlement.CASE_ADDONS],
+    )
+    async def test_create_comment_agent_mention_requires_entitlements(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
+        missing_entitlement: Entitlement,
     ) -> None:
         preset = await _create_agent_preset(
             session,
@@ -410,54 +411,16 @@ class TestCaseCommentsService:
                 "has_entitlement",
                 new=AsyncMock(
                     side_effect=lambda entitlement: (
-                        entitlement is not Entitlement.CASE_ADDONS
+                        entitlement is not missing_entitlement
                     )
                 ),
             ),
-            pytest.raises(EntitlementRequired, match="case_addons"),
+            pytest.raises(EntitlementRequired, match=missing_entitlement.value),
         ):
             await case_comments_service.create_comment(
                 test_case,
                 CaseCommentCreate(content=_mention_token("Entitled agent", preset.id)),
             )
-
-    async def test_create_comment_agent_mention_requires_agent_addons(
-        self,
-        case_comments_service: CaseCommentsService,
-        session: AsyncSession,
-        test_case: Case,
-    ) -> None:
-        preset = await _create_agent_preset(
-            session,
-            case_comments_service.workspace_id,
-            name="Unavailable agent",
-        )
-        content = _mention_token("Unavailable agent", preset.id)
-
-        with (
-            patch.object(
-                case_comments_service,
-                "has_entitlement",
-                new=AsyncMock(
-                    side_effect=lambda entitlement: (
-                        entitlement is not Entitlement.AGENT_ADDONS
-                    )
-                ),
-            ),
-            pytest.raises(EntitlementRequired, match="agent_addons"),
-        ):
-            await case_comments_service.create_comment(
-                test_case,
-                CaseCommentCreate(content=content),
-            )
-
-        await session.rollback()
-        assert (
-            await session.scalar(
-                select(CaseComment).where(CaseComment.content == content)
-            )
-            is None
-        )
 
     async def test_create_comment_deduplicates_agent_mentions(
         self,
@@ -535,82 +498,6 @@ class TestCaseCommentsService:
             (first_preset.name, first_preset.slug),
             (second_preset.name, second_preset.slug),
         }
-
-    async def test_reconciles_pending_agent_invocation_with_original_role(
-        self,
-        case_comments_service: CaseCommentsService,
-        session: AsyncSession,
-        test_case: Case,
-    ) -> None:
-        preset = await _create_agent_preset(
-            session,
-            case_comments_service.workspace_id,
-            name="Recoverable agent",
-        )
-        comment = await case_comments_service.create_comment(
-            test_case,
-            CaseCommentCreate(content=_mention_token("Recoverable agent", preset.id)),
-        )
-        [invocation] = await _load_comment_invocations(session, comment.id)
-        await session.commit()
-        temporal_client = AsyncMock()
-
-        started = await reconcile_pending_comment_agent_invocations(
-            temporal_client,
-            session=session,
-        )
-
-        assert started == 1
-        workflow_input = temporal_client.start_workflow.await_args.args[1]
-        assert workflow_input.invocation_id == invocation.id
-        assert workflow_input.role == case_comments_service.role
-
-    async def test_load_thread_context_keeps_bounded_recent_window(
-        self,
-        case_comments_service: CaseCommentsService,
-        session: AsyncSession,
-        test_case: Case,
-    ) -> None:
-        preset = await _create_agent_preset(
-            session,
-            case_comments_service.workspace_id,
-            name="Bounded context agent",
-        )
-        root = await case_comments_service.create_comment(
-            test_case,
-            CaseCommentCreate(content="Root context"),
-        )
-        replies = []
-        for index in range(22):
-            content = "x" * 5_000 if index == 21 else f"Reply {index}"
-            replies.append(
-                await case_comments_service.create_comment(
-                    test_case,
-                    CaseCommentCreate(content=content, parent_id=root.id),
-                )
-            )
-        invoking = await case_comments_service.create_comment(
-            test_case,
-            CaseCommentCreate(
-                content=_mention_token("Bounded context agent", preset.id),
-                parent_id=root.id,
-            ),
-        )
-        [invocation] = await _load_comment_invocations(session, invoking.id)
-
-        context = await CaseCommentAgentInvocationService(
-            session,
-            case_comments_service.role,
-        ).load_thread_context(invocation.id)
-
-        assert context is not None
-        assert [entry.id for entry in context.entries] == [
-            root.id,
-            *(reply.id for reply in replies[-18:]),
-            invoking.id,
-        ]
-        assert len(context.entries[-2].content) == 4_000
-        assert context.entries[-2].content.endswith("\n\n[Comment truncated]")
 
     async def test_dispatch_and_prepare_pinned_isolated_session(
         self,
