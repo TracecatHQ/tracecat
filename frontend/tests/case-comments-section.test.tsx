@@ -12,6 +12,9 @@ import {
 } from "@testing-library/react"
 import {
   type AgentPresetReadMinimal,
+  type CaseCommentAgentInvocationStatus,
+  type CaseCommentMentionRead,
+  type CaseCommentRead,
   type CaseCommentThreadRead,
   foldersListFolders,
   workflowsListWorkflows,
@@ -30,6 +33,8 @@ import {
   useUpdateCaseComment,
 } from "@/lib/hooks"
 import { getTextareaCaretCoordinates } from "@/lib/textarea-caret"
+
+const mockOpenChatSession = jest.fn()
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
@@ -50,6 +55,13 @@ jest.mock("@/hooks/use-entitlements", () => ({
 
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: jest.fn(),
+}))
+
+jest.mock("@/hooks/use-case-chat-session", () => ({
+  useCaseChatSession: () => ({
+    chatId: undefined,
+    openChatSession: mockOpenChatSession,
+  }),
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -251,6 +263,36 @@ function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
       updated_at: "2024-01-01T00:00:00Z",
     },
   ]
+}
+
+function createAgentMention({
+  id,
+  presetName,
+  status,
+  sessionId,
+  error,
+}: {
+  id: string
+  presetName: string
+  status: CaseCommentAgentInvocationStatus
+  sessionId?: string | null
+  error?: string | null
+}): CaseCommentMentionRead {
+  return {
+    id: `${id}-mention`,
+    target_type: "agent",
+    target_id: `${id}-preset`,
+    label: `Outdated ${presetName}`,
+    created_at: "2024-01-01T00:00:00Z",
+    invocation: {
+      id: `${id}-invocation`,
+      preset_name: presetName,
+      preset_slug: id,
+      status,
+      session_id: sessionId,
+      error,
+    },
+  }
 }
 
 function mockAgentPresets(presets: AgentPresetReadMinimal[]) {
@@ -762,6 +804,200 @@ describe("CommentSection", () => {
       "href",
       "/workspaces/workspace-1/workflows/wf_789/executions/exec_999"
     )
+  })
+
+  it("renders the complete agent lifecycle and reply attribution contract", () => {
+    const timestamp = "2024-01-03T00:00:00Z"
+    const sourceComment: CaseCommentRead = {
+      id: "agent-source",
+      created_at: timestamp,
+      updated_at: timestamp,
+      content: "Please investigate this case",
+      parent_id: null,
+      workflow: null,
+      user: {
+        id: "user-1",
+        email: "owner@example.com",
+        role: "admin",
+        first_name: "Owner",
+        last_name: "One",
+        settings: {},
+      },
+      is_deleted: false,
+      mentions: [
+        createAgentMention({
+          id: "preparing",
+          presetName: "Preparing agent",
+          status: "pending",
+        }),
+        createAgentMention({
+          id: "thinking",
+          presetName: "Thinking agent",
+          status: "running",
+          sessionId: "thinking-session",
+        }),
+        createAgentMention({
+          id: "succeeded",
+          presetName: "Succeeded agent",
+          status: "succeeded",
+          sessionId: "succeeded-session",
+        }),
+        createAgentMention({
+          id: "failed",
+          presetName: "Failed agent",
+          status: "failed",
+          sessionId: "failed-session",
+          error: "Timed out while investigating the case.",
+        }),
+      ],
+    }
+    const attributedReply: CaseCommentRead = {
+      id: "agent-reply",
+      created_at: timestamp,
+      updated_at: timestamp,
+      content: "Here is what I found",
+      parent_id: sourceComment.id,
+      user: null,
+      workflow: null,
+      agent: {
+        invocation_id: "succeeded-invocation",
+        preset_name: "Snapshot reply agent",
+        preset_slug: "snapshot-reply-agent",
+        session_id: "reply-session",
+      },
+      is_deleted: false,
+    }
+    const attributedReplyWithoutSession: CaseCommentRead = {
+      ...attributedReply,
+      id: "agent-reply-without-session",
+      content: "A historical agent reply",
+      agent: {
+        invocation_id: "historical-invocation",
+        preset_name: "Historical reply agent",
+        preset_slug: "historical-reply-agent",
+        session_id: null,
+      },
+    }
+    const systemReply: CaseCommentRead = {
+      id: "system-reply",
+      created_at: timestamp,
+      updated_at: timestamp,
+      content: "A system-authored comment",
+      parent_id: sourceComment.id,
+      user: null,
+      workflow: null,
+      agent: null,
+      is_deleted: false,
+    }
+    const workflowComment: CaseCommentRead = {
+      id: "workflow-fallback",
+      created_at: timestamp,
+      updated_at: timestamp,
+      content: "A workflow-authored comment",
+      parent_id: null,
+      user: null,
+      workflow: {
+        workflow_id: "workflow-1",
+        title: "Automated workflow",
+        alias: null,
+        wf_exec_id: null,
+        status: "succeeded",
+      },
+      agent: null,
+      is_deleted: false,
+    }
+
+    mockUseCaseCommentThreads.mockReturnValue({
+      caseCommentThreads: [
+        {
+          comment: sourceComment,
+          replies: [
+            attributedReply,
+            attributedReplyWithoutSession,
+            systemReply,
+          ],
+          reply_count: 3,
+          last_activity_at: timestamp,
+        },
+        {
+          comment: workflowComment,
+          replies: [],
+          reply_count: 0,
+          last_activity_at: timestamp,
+        },
+      ],
+      caseCommentThreadsIsLoading: false,
+      caseCommentThreadsError: null,
+    })
+    mockUseCaseComments.mockReturnValue({
+      caseComments: [],
+      caseCommentsIsLoading: false,
+      caseCommentsError: null,
+    })
+
+    renderCommentSection()
+
+    const activity = screen.getByLabelText("Agent activity")
+    expect(activity.children).toHaveLength(3)
+    expect(activity.children[0]).toHaveTextContent(
+      "Preparing agent is preparing..."
+    )
+    expect(activity.children[1]).toHaveTextContent(
+      "Thinking agent is thinking..."
+    )
+    expect(activity.children[2]).toHaveTextContent(
+      "Failed agent could not finish."
+    )
+    expect(within(activity).getAllByRole("status")).toHaveLength(2)
+    expect(within(activity).getByRole("alert")).toHaveTextContent(
+      "Mention Failed agent again to retry."
+    )
+    expect(
+      screen.getByText("Timed out while investigating the case.")
+    ).toHaveClass("whitespace-pre-wrap", "break-words")
+    expect(screen.queryByText("Succeeded agent")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Outdated .* agent/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /retry/i })
+    ).not.toBeInTheDocument()
+
+    expect(screen.getByText("Snapshot reply agent")).toBeInTheDocument()
+    expect(screen.getByText("Historical reply agent")).toBeInTheDocument()
+    expect(screen.getAllByText("Agent")).toHaveLength(2)
+    expect(
+      screen.getByRole("img", {
+        name: "Agent avatar for Snapshot reply agent",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Tracecat")).toBeInTheDocument()
+    expect(screen.getByText("Automated workflow")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", {
+        name: "View Historical reply agent session",
+      })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "View Preparing agent session" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "View Succeeded agent session" })
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "View Thinking agent session" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "View Failed agent session" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "View Snapshot reply agent session" })
+    )
+    expect(mockOpenChatSession).toHaveBeenNthCalledWith(1, "thinking-session")
+    expect(mockOpenChatSession).toHaveBeenNthCalledWith(2, "failed-session")
+    expect(mockOpenChatSession).toHaveBeenNthCalledWith(3, "reply-session")
+    expect(
+      screen.getAllByRole("button", { name: "More options" })
+    ).toHaveLength(1)
   })
 
   describe("agent mention autocomplete", () => {
