@@ -237,6 +237,8 @@ def test_filtered_nstun_policy_allows_public_ipv6_when_opted_in() -> None:
         "64:ff9b::/96",
         "2002::/16",
         "2001::/32",
+        "2001:1::1/128",
+        "2001:1::2/128",
         "fc00::/7",
         "fe80::/10",
     ):

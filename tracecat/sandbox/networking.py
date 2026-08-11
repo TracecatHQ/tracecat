@@ -65,8 +65,9 @@ _FILTERED_BLOCKED_IPV4_CIDRS: tuple[IPv4Network, ...] = (
 )
 
 # IPv6 networks rejected when a deployment opts into public IPv6 egress. This
-# covers non-global IPv6 space plus every IPv4-embedding transition mechanism
-# that would otherwise smuggle traffic past ``_FILTERED_BLOCKED_IPV4_CIDRS``.
+# covers non-global IPv6 space, public control/discovery anycast endpoints, and
+# every IPv4-embedding transition mechanism that would otherwise smuggle
+# traffic past ``_FILTERED_BLOCKED_IPV4_CIDRS``.
 # Deployments running NAT64 on a network-specific prefix (RFC 6052) must add
 # that prefix to TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS themselves; a static
 # baseline cannot know it.
@@ -77,6 +78,8 @@ _FILTERED_BLOCKED_IPV6_CIDRS: tuple[IPv6Network, ...] = (
     IPv6Network("64:ff9b:1::/48"),  # Local-use NAT64 (RFC 8215)
     IPv6Network("100::/64"),  # Discard-only (RFC 6666)
     IPv6Network("2001::/32"),  # Teredo tunneling (RFC 4380)
+    IPv6Network("2001:1::1/128"),  # PCP anycast (RFC 7723)
+    IPv6Network("2001:1::2/128"),  # TURN anycast (RFC 8155)
     IPv6Network("2001:2::/48"),  # Benchmarking (RFC 5180)
     IPv6Network("2001:10::/28"),  # ORCHID (deprecated, RFC 4843)
     IPv6Network("2001:20::/28"),  # ORCHIDv2 (RFC 7343)
