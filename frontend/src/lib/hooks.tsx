@@ -238,6 +238,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsTestAuditWebhookData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -3125,7 +3126,11 @@ export function useOrgAuditSettings() {
   })
 
   const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
-    useMutation<AuditWebhookTestResult, TracecatApiError>({
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      SettingsTestAuditWebhookData
+    >({
       mutationFn: settingsTestAuditWebhook,
       onSuccess: (result) => {
         toast({

@@ -15,13 +15,12 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Literal, Self
+from typing import Any, Self
 
 import httpx
 import orjson
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
@@ -51,9 +50,14 @@ from tracecat.db.engine import (
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.network import (
+    DisallowedUrlError,
+    validate_url_resolves_public_async,
+)
 from tracecat.sanitization import redact_sensitive_text
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
+from tracecat.settings.schemas import AuditSettingsUpdate, AuditWebhookTestResult
 
 # Union type for roles that can be used for audit logging
 AuditableRole = Role | PlatformRole
@@ -223,18 +227,21 @@ async def _fetch_platform_setting(key: str) -> Any | None:
     return orjson.loads(value)
 
 
-async def _read_audit_setting(
+@alru_cache(ttl=30)
+async def _get_audit_setting_cached(
     sink: AuditSink,
     organization_id: OrganizationID | None,
     key: str,
     default: Any = None,
 ) -> Any | None:
-    """Uncached audit-setting read on its own short-lived session.
+    """Cached audit-setting read keyed by (sink, org, key, default).
 
-    ``organization_id`` is ``None`` for the platform sink or org-sink calls
-    with no org identity. Decrypted values live in process memory only and are
-    never logged.
+    Runs on its own session so no request session is captured or hashed; bounded
+    30s staleness. ``organization_id`` is ``None`` for the platform sink or
+    org-sink calls with no org identity. Decrypted values live in process memory
+    only and are never logged.
     """
+    logger.debug("Audit setting cache miss", sink=sink, key=key)
     if sink == "platform":
         value = await _fetch_platform_setting(key)
         return default if value is None and default is not None else value
@@ -253,22 +260,6 @@ async def _read_audit_setting(
     return await get_setting(key, role=role, session=None, default=default)
 
 
-@alru_cache(ttl=30)
-async def _get_audit_setting_cached(
-    sink: AuditSink,
-    organization_id: OrganizationID | None,
-    key: str,
-    default: Any = None,
-) -> Any | None:
-    """Cached audit-setting read keyed by (sink, org, key, default).
-
-    Runs on its own session so no request session is captured or hashed;
-    bounded 30s staleness.
-    """
-    logger.debug("Audit setting cache miss", sink=sink, key=key)
-    return await _read_audit_setting(sink, organization_id, key, default)
-
-
 def clear_audit_setting_cache() -> None:
     """Make committed audit setting changes visible to the next event."""
     _get_audit_setting_cached.cache_clear()
@@ -278,23 +269,17 @@ _AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS = 5.0
 
 _TEST_HEADER = "X-Tracecat-Test"
 
-AuditWebhookTestErrorCategory = Literal[
-    "receiver_error",
-    "timeout",
-    "request_error",
-]
-
 
 class AuditWebhookNotConfiguredError(Exception):
     """Raised when an audit webhook test is requested without a sink."""
 
 
-class AuditWebhookTestResult(BaseModel):
-    """Result of a synchronous audit webhook test-fire request."""
+class AuditWebhookUrlNotAllowedError(Exception):
+    """Raised when a probe URL resolves to a non-public address."""
 
-    ok: bool
-    receiver_status_code: int | None = None
-    error_category: AuditWebhookTestErrorCategory | None = None
+
+# Probe posts happen over unpadded default HTTP/HTTPS ports when none is given.
+_AUDIT_WEBHOOK_TEST_DEFAULT_PORT = 443
 
 
 class AuditService(BaseService):
@@ -539,22 +524,47 @@ class AuditService(BaseService):
         sink: AuditSink,
         organization_id: OrganizationID | None,
         role: AuditableRole,
+        settings: AuditSettingsUpdate,
     ) -> AuditWebhookTestResult:
-        """Post one marked test event and report the receiver's response.
+        """Post one marked test event to the submitted webhook configuration.
 
-        Reuses the real payload assembly and delivery headers so a passing
-        probe exercises the same request shape as live delivery.
+        Probes the caller-provided settings rather than persisted state, so a
+        connection can be tested while it is being configured and a save can be
+        verified with exactly the values that were just written. Reuses the
+        real payload assembly and delivery headers so a passing probe exercises
+        the same request shape as live delivery. Never touches the database.
         """
+        webhook_url = cls._normalize_webhook_url(settings.audit_webhook_url)
+        if not webhook_url:
+            raise AuditWebhookNotConfiguredError
+
+        # A probe is a caller-controlled request that echoes the receiver's
+        # status, so an unresolved-to-public URL would be an internal-network
+        # oracle. Reject before any connection; the error carries no address.
+        try:
+            await validate_url_resolves_public_async(
+                webhook_url, default_port=_AUDIT_WEBHOOK_TEST_DEFAULT_PORT
+            )
+        except DisallowedUrlError as exc:
+            raise AuditWebhookUrlNotAllowedError from exc
+
         event = cls._build_test_event(
             sink=sink, organization_id=organization_id, role=role
         )
-        delivery = await cls._resolve_test_delivery(
-            sink=sink,
-            organization_id=organization_id,
+        delivery = cls._assemble_delivery(
+            webhook_url=webhook_url,
             payload=event,
+            custom_headers=cls._normalize_custom_headers(
+                settings.audit_webhook_custom_headers
+            ),
+            custom_payload=cls._normalize_custom_payload(
+                settings.audit_webhook_custom_payload
+            ),
+            verify_ssl=cls._normalize_verify_ssl(settings.audit_webhook_verify_ssl),
+            payload_attribute=cls._normalize_payload_attribute(
+                settings.audit_webhook_payload_attribute
+            ),
         )
-        if delivery is None:
-            raise AuditWebhookNotConfiguredError
 
         headers = {
             key: value
@@ -565,15 +575,24 @@ class AuditService(BaseService):
 
         try:
             async with asyncio.timeout(_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS):
-                async with httpx.AsyncClient(
-                    timeout=_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS,
-                    verify=delivery.verify_ssl,
-                ) as client:
-                    response = await client.post(
-                        delivery.webhook_url,
-                        json=delivery.request_payload,
-                        headers=headers,
-                    )
+                # Probes share the process-wide socket budget with live
+                # delivery; one that cannot get a slot within the wall clock
+                # times out instead of queueing without bound.
+                async with _get_post_semaphore():
+                    async with httpx.AsyncClient(
+                        timeout=_AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS,
+                        verify=delivery.verify_ssl,
+                    ) as client:
+                        # Stream so the receiver's body is never buffered; the
+                        # probe only ever reads the status line.
+                        async with client.stream(
+                            "POST",
+                            delivery.webhook_url,
+                            json=delivery.request_payload,
+                            headers=headers,
+                        ) as response:
+                            ok = response.is_success
+                            receiver_status_code = response.status_code
         except (TimeoutError, httpx.TimeoutException) as exc:
             logger.warning(
                 "Audit webhook test timed out",
@@ -589,10 +608,9 @@ class AuditService(BaseService):
             )
             return AuditWebhookTestResult(ok=False, error_category="request_error")
 
-        ok = response.is_success
         return AuditWebhookTestResult(
             ok=ok,
-            receiver_status_code=response.status_code,
+            receiver_status_code=receiver_status_code,
             error_category=None if ok else "receiver_error",
         )
 
@@ -624,58 +642,6 @@ class AuditService(BaseService):
             action="connect",
             status=AuditEventStatus.SUCCESS,
             data={"test": True},
-        )
-
-    @classmethod
-    async def _resolve_test_delivery(
-        cls,
-        *,
-        sink: AuditSink,
-        organization_id: OrganizationID | None,
-        payload: AuditEvent,
-    ) -> _AuditDelivery | None:
-        """Resolve a test delivery from uncached settings reads.
-
-        Each sequential read opens and closes its own short-lived session, so a
-        probe fired right after a save tests the saved settings on any replica,
-        and the returned delivery posts without holding a database connection.
-        """
-        if sink == "organization" and organization_id is None:
-            raise ValueError("Organization audit settings require an organization ID")
-
-        webhook_url = cls._normalize_webhook_url(
-            await _read_audit_setting(sink, organization_id, "audit_webhook_url")
-        )
-        if not webhook_url:
-            return None
-
-        custom_headers = cls._normalize_custom_headers(
-            await _read_audit_setting(
-                sink, organization_id, "audit_webhook_custom_headers"
-            )
-        )
-        custom_payload = cls._normalize_custom_payload(
-            await _read_audit_setting(
-                sink, organization_id, "audit_webhook_custom_payload"
-            )
-        )
-        verify_ssl = cls._normalize_verify_ssl(
-            await _read_audit_setting(
-                sink, organization_id, "audit_webhook_verify_ssl", True
-            )
-        )
-        payload_attribute = cls._normalize_payload_attribute(
-            await _read_audit_setting(
-                sink, organization_id, "audit_webhook_payload_attribute"
-            )
-        )
-        return cls._assemble_delivery(
-            webhook_url=webhook_url,
-            payload=payload,
-            custom_headers=custom_headers,
-            custom_payload=custom_payload,
-            verify_ssl=verify_ssl,
-            payload_attribute=payload_attribute,
         )
 
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:

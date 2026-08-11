@@ -12102,6 +12102,10 @@ export type AdminUpdateAuditSettingsData = {
 
 export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
 
+export type AdminTestAuditWebhookData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
 export type AdminTestAuditWebhookResponse = AuditWebhookTestResult
 
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
@@ -12473,6 +12477,10 @@ export type SettingsUpdateAuditSettingsData = {
 }
 
 export type SettingsUpdateAuditSettingsResponse = void
+
+export type SettingsTestAuditWebhookData = {
+  requestBody: AuditSettingsUpdate
+}
 
 export type SettingsTestAuditWebhookResponse = AuditWebhookTestResult
 
@@ -17530,11 +17538,16 @@ export type $OpenApiTs = {
   }
   "/admin/settings/audit/test": {
     post: {
+      req: AdminTestAuditWebhookData
       res: {
         /**
          * Successful Response
          */
         200: AuditWebhookTestResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -18285,11 +18298,16 @@ export type $OpenApiTs = {
   }
   "/settings/audit/test": {
     post: {
+      req: SettingsTestAuditWebhookData
       res: {
         /**
          * Successful Response
          */
         200: AuditWebhookTestResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

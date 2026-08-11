@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from inspect import signature
 from typing import Any
 
@@ -14,8 +15,9 @@ from tracecat_ee.admin.settings import router as admin_settings_router
 from tracecat.audit import service as audit_service_module
 from tracecat.auth.types import Role
 from tracecat.settings import router as settings_router
+from tracecat.settings.schemas import AuditSettingsUpdate
 
-_SINK_SETTINGS: dict[str, Any] = {
+_TEST_BODY: dict[str, Any] = {
     "audit_webhook_url": "https://audit.example.test/ingest",
     "audit_webhook_custom_headers": {
         "X-Custom-Audit": "secret-value",
@@ -30,8 +32,6 @@ _SINK_SETTINGS: dict[str, Any] = {
 class FakeAuditWebhookClient:
     status_code = status.HTTP_200_OK
     calls: list[dict[str, Any]] = []
-    settings_reads = 0
-    settings_reads_active = 0
 
     def __init__(self, *, timeout: float, verify: bool) -> None:
         self.timeout = timeout
@@ -43,16 +43,18 @@ class FakeAuditWebhookClient:
     async def __aexit__(self, *args: object) -> None:
         return None
 
-    async def post(
+    @asynccontextmanager
+    async def stream(
         self,
+        method: str,
         url: str,
         *,
         json: dict[str, Any],
         headers: dict[str, str],
-    ) -> httpx.Response:
-        assert self.settings_reads_active == 0
+    ) -> AsyncIterator[httpx.Response]:
         self.calls.append(
             {
+                "method": method,
                 "url": url,
                 "json": json,
                 "headers": headers,
@@ -60,20 +62,22 @@ class FakeAuditWebhookClient:
                 "verify": self.verify,
             }
         )
-        return httpx.Response(self.status_code)
+        yield httpx.Response(self.status_code)
 
 
 class HangingAuditWebhookClient(FakeAuditWebhookClient):
-    async def post(
+    @asynccontextmanager
+    async def stream(
         self,
+        method: str,
         url: str,
         *,
         json: dict[str, Any],
         headers: dict[str, str],
-    ) -> httpx.Response:
-        assert self.settings_reads_active == 0
+    ) -> AsyncIterator[httpx.Response]:
         self.calls.append(
             {
+                "method": method,
                 "url": url,
                 "json": json,
                 "headers": headers,
@@ -83,52 +87,30 @@ class HangingAuditWebhookClient(FakeAuditWebhookClient):
         )
         await asyncio.Event().wait()
         raise AssertionError("wall-clock timeout should cancel the request")
+        yield httpx.Response(self.status_code)
 
 
 @pytest.fixture(autouse=True)
 def reset_fake_client() -> None:
     FakeAuditWebhookClient.status_code = status.HTTP_200_OK
     FakeAuditWebhookClient.calls = []
-    FakeAuditWebhookClient.settings_reads = 0
-    FakeAuditWebhookClient.settings_reads_active = 0
     HangingAuditWebhookClient.calls = []
 
 
 @pytest.fixture(autouse=True)
-def clear_audit_setting_cache() -> Iterator[None]:
-    audit_service_module._get_audit_setting_cached.cache_clear()
-    yield
-    audit_service_module._get_audit_setting_cached.cache_clear()
+def allow_probe_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve every probe URL to a public address unless a test overrides it.
 
+    The probe rejects URLs that do not resolve to public addresses, so the
+    delivery-path tests must not depend on real DNS for their example hosts.
+    """
 
-@pytest.fixture
-def sink_settings(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Back self-managed cache misses without touching PostgreSQL."""
-    settings = dict(_SINK_SETTINGS)
-
-    async def read_setting(key: str, *, default: Any = None) -> Any | None:
-        FakeAuditWebhookClient.settings_reads += 1
-        FakeAuditWebhookClient.settings_reads_active += 1
-        try:
-            value = settings.get(key)
-            return default if value is None and default is not None else value
-        finally:
-            FakeAuditWebhookClient.settings_reads_active -= 1
-
-    async def fetch_platform_setting(key: str) -> Any | None:
-        return await read_setting(key)
-
-    async def get_setting(
-        key: str, *, role: Any = None, session: Any = None, default: Any = None
-    ) -> Any | None:
-        assert session is None
-        return await read_setting(key, default=default)
+    async def _noop(url: str, *, default_port: int) -> None:
+        return None
 
     monkeypatch.setattr(
-        audit_service_module, "_fetch_platform_setting", fetch_platform_setting
+        audit_service_module, "validate_url_resolves_public_async", _noop
     )
-    monkeypatch.setattr("tracecat.settings.service.get_setting", get_setting)
-    return settings
 
 
 def test_audit_webhook_test_routes_do_not_hold_request_sessions() -> None:
@@ -139,17 +121,16 @@ def test_audit_webhook_test_routes_do_not_hold_request_sessions() -> None:
 
 
 @pytest.mark.anyio
-async def test_org_audit_webhook_test_posts_marked_event(
+async def test_org_audit_webhook_test_posts_marked_event_from_submitted_config(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
     )
 
-    response = client.post("/settings/audit/test")
+    response = client.post("/settings/audit/test", json=_TEST_BODY)
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -176,20 +157,22 @@ async def test_org_audit_webhook_test_posts_marked_event(
 
 
 @pytest.mark.anyio
-async def test_org_audit_webhook_test_reads_fresh_settings(
+async def test_org_audit_webhook_test_probes_submitted_not_saved_url(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A test fired right after a save must not post to the stale URL."""
+    """The probe must target exactly the submitted configuration."""
     monkeypatch.setattr(
         "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
     )
 
-    client.post("/settings/audit/test")
-    sink_settings["audit_webhook_url"] = "https://audit.example.test/updated"
-    client.post("/settings/audit/test")
+    client.post("/settings/audit/test", json=_TEST_BODY)
+    updated_body = {
+        **_TEST_BODY,
+        "audit_webhook_url": "https://audit.example.test/updated",
+    }
+    client.post("/settings/audit/test", json=updated_body)
 
     assert len(FakeAuditWebhookClient.calls) == 2
     assert (
@@ -201,7 +184,6 @@ async def test_org_audit_webhook_test_reads_fresh_settings(
 async def test_org_audit_webhook_test_surfaces_receiver_error(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeAuditWebhookClient.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -209,7 +191,7 @@ async def test_org_audit_webhook_test_surfaces_receiver_error(
         "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
     )
 
-    response = client.post("/settings/audit/test")
+    response = client.post("/settings/audit/test", json=_TEST_BODY)
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -223,7 +205,6 @@ async def test_org_audit_webhook_test_surfaces_receiver_error(
 async def test_org_audit_webhook_test_enforces_wall_clock_timeout(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -233,7 +214,7 @@ async def test_org_audit_webhook_test_enforces_wall_clock_timeout(
         "tracecat.audit.service.httpx.AsyncClient", HangingAuditWebhookClient
     )
 
-    response = client.post("/settings/audit/test")
+    response = client.post("/settings/audit/test", json=_TEST_BODY)
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -246,18 +227,25 @@ async def test_org_audit_webhook_test_enforces_wall_clock_timeout(
 
 
 @pytest.mark.anyio
-async def test_org_audit_webhook_test_returns_400_when_unconfigured(
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"audit_webhook_url": None},
+        {"audit_webhook_url": "   "},
+    ],
+)
+async def test_org_audit_webhook_test_returns_400_without_url(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
+    body: dict[str, Any],
 ) -> None:
-    sink_settings["audit_webhook_url"] = None
     monkeypatch.setattr(
         "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
     )
 
-    response = client.post("/settings/audit/test")
+    response = client.post("/settings/audit/test", json=body)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json() == {"detail": "Audit webhook is not configured"}
@@ -265,17 +253,83 @@ async def test_org_audit_webhook_test_returns_400_when_unconfigured(
 
 
 @pytest.mark.anyio
+async def test_probe_times_out_when_socket_budget_exhausted(
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A probe shares the delivery socket cap and honors the wall clock."""
+    monkeypatch.setattr(
+        "tracecat.audit.service._AUDIT_WEBHOOK_TEST_TIMEOUT_SECONDS", 0.05
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
+    )
+    loop = asyncio.get_running_loop()
+    audit_service_module._post_semaphores[loop] = asyncio.Semaphore(0)
+    try:
+        result = await audit_service_module.AuditService.probe_webhook(
+            sink="organization",
+            organization_id=test_admin_role.organization_id,
+            role=test_admin_role,
+            settings=AuditSettingsUpdate(
+                audit_webhook_url="https://audit.example.test/ingest"
+            ),
+        )
+    finally:
+        audit_service_module._post_semaphores.pop(loop, None)
+
+    assert result.ok is False
+    assert result.error_category == "timeout"
+    assert FakeAuditWebhookClient.calls == []
+
+
+@pytest.mark.anyio
+async def test_probe_rejects_private_address_without_connecting(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A URL resolving to a private address is a 400 and never connects."""
+
+    async def _reject(url: str, *, default_port: int) -> None:
+        raise audit_service_module.DisallowedUrlError("Host is not allowed")
+
+    monkeypatch.setattr(
+        audit_service_module, "validate_url_resolves_public_async", _reject
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
+    )
+
+    response = client.post("/settings/audit/test", json=_TEST_BODY)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Audit webhook URL is not allowed"}
+    assert FakeAuditWebhookClient.calls == []
+
+
+@pytest.mark.anyio
+async def test_probe_url_guard_uses_real_resolver_for_loopback() -> None:
+    """The shared guard rejects a loopback URL end to end."""
+    from tracecat import network
+
+    with pytest.raises(network.DisallowedUrlError):
+        await network.validate_url_resolves_public_async(
+            "http://127.0.0.1:9000/ingest", default_port=443
+        )
+
+
+@pytest.mark.anyio
 async def test_platform_audit_webhook_test_posts_platform_event(
     client: TestClient,
     test_admin_role: Role,
-    sink_settings: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "tracecat.audit.service.httpx.AsyncClient", FakeAuditWebhookClient
     )
 
-    response = client.post("/admin/settings/audit/test")
+    response = client.post("/admin/settings/audit/test", json=_TEST_BODY)
 
     assert response.status_code == status.HTTP_200_OK
     assert len(FakeAuditWebhookClient.calls) == 1

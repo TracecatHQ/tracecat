@@ -16,6 +16,7 @@ import {
   type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminTestAuditWebhookData,
   type AdminUserCreate,
   type AdminUserRead,
   type AgentCatalogListResponse,
@@ -900,7 +901,11 @@ export function useAdminAuditSettings() {
   })
 
   const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
-    useMutation<AuditWebhookTestResult, TracecatApiError>({
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      AdminTestAuditWebhookData
+    >({
       mutationFn: adminTestAuditWebhook,
       onSuccess: (result) => {
         toast({

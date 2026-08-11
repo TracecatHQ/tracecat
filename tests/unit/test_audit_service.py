@@ -888,68 +888,6 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
 
 
 @pytest.mark.anyio
-async def test_test_delivery_reads_fresh_without_evicting_cache(
-    monkeypatch: pytest.MonkeyPatch,
-    role: Role,
-) -> None:
-    """A test reads fresh settings without touching any tenant's cache."""
-    organization_a = role.organization_id
-    organization_b = uuid.uuid4()
-    assert organization_a is not None
-    urls = {
-        organization_a: "https://a.example.com/old",
-        organization_b: "https://b.example.com/old",
-    }
-    reads: list[uuid.UUID] = []
-
-    async def get_setting(
-        key: str,
-        *,
-        role: Role | None = None,
-        session: Any = None,
-        default: Any = None,
-    ) -> Any:
-        assert role is not None and role.organization_id is not None
-        assert session is None
-        reads.append(role.organization_id)
-        if key == "audit_webhook_url":
-            return urls[role.organization_id]
-        return default
-
-    monkeypatch.setattr("tracecat.settings.service.get_setting", get_setting)
-    service_a = AuditService(AsyncMock(), role=role)
-    role_b = role.model_copy(update={"organization_id": organization_b})
-    service_b = AuditService(AsyncMock(), role=role_b)
-
-    assert await service_a._get_webhook_url() == "https://a.example.com/old"
-    assert await service_b._get_webhook_url() == "https://b.example.com/old"
-    urls[organization_a] = "https://a.example.com/new"
-    urls[organization_b] = "https://b.example.com/new"
-    event = AuditEvent(
-        organization_id=organization_a,
-        workspace_id=None,
-        actor_type=AuditEventActor.USER,
-        actor_id=uuid.uuid4(),
-        actor_label=None,
-        resource_type="organization_setting",
-        resource_id=None,
-        action="connect",
-        status=AuditEventStatus.SUCCESS,
-    )
-
-    delivery = await AuditService._resolve_test_delivery(
-        sink="organization",
-        organization_id=organization_a,
-        payload=event,
-    )
-
-    assert delivery is not None
-    assert delivery.webhook_url == "https://a.example.com/new"
-    assert await service_b._get_webhook_url() == "https://b.example.com/old"
-    assert reads.count(organization_b) == 1
-
-
-@pytest.mark.anyio
 async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:

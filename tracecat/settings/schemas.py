@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -185,6 +185,21 @@ class AuditSettingsUpdate(BaseSettingsGroup):
             "Disable only for trusted on-prem/self-signed endpoints."
         ),
     )
+
+
+AuditWebhookTestErrorCategory = Literal[
+    "receiver_error",
+    "timeout",
+    "request_error",
+]
+
+
+class AuditWebhookTestResult(BaseModel):
+    """Result of a synchronous audit webhook test-fire request."""
+
+    ok: bool
+    receiver_status_code: int | None = None
+    error_category: AuditWebhookTestErrorCategory | None = None
 
 
 class AgentSettingsRead(BaseSettingsGroup):

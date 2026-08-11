@@ -35,7 +35,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { useOrgAuditSettings } from "@/lib/hooks"
 
@@ -151,7 +150,7 @@ interface AuditSettingsFormProps {
     requestBody: AuditSettingsUpdateBody
   }) => Promise<unknown>
   updateAuditSettingsIsPending: boolean
-  testAuditWebhook: () => void
+  testAuditWebhook: (params: { requestBody: AuditSettingsUpdateBody }) => void
   testAuditWebhookIsPending: boolean
   decryptFailureTitle?: string
 }
@@ -272,9 +271,23 @@ export function AuditSettingsForm({
     control: form.control,
     name: "headers",
   })
+  const formUrlIsEmpty = form.watch("audit_webhook_url").trim() === ""
 
-  const onSubmit = async (data: AuditDialogFormValues) => {
+  const buildUpdateBody = (
+    data: AuditDialogFormValues
+  ): AuditSettingsUpdateBody | null => {
     const nextUrl = data.audit_webhook_url.trim()
+    if (nextUrl === "") {
+      // Saving without a URL disconnects: clear the whole configuration so no
+      // stale headers, payload, wrapper, or TLS override outlives the URL.
+      return {
+        audit_webhook_url: null,
+        audit_webhook_custom_headers: null,
+        audit_webhook_payload_attribute: null,
+        audit_webhook_custom_payload: null,
+        audit_webhook_verify_ssl: true,
+      }
+    }
     const nextHeaders = data.headers.reduce<Record<string, string>>(
       (headers, header) => {
         const headerKey = header.key.trim()
@@ -294,27 +307,41 @@ export function AuditSettingsForm({
         message:
           'Custom payload must be a JSON object, e.g. { "event": "audit" }',
       })
-      return
+      return null
     }
 
+    return {
+      audit_webhook_url: nextUrl,
+      audit_webhook_custom_headers:
+        Object.keys(nextHeaders).length > 0 ? nextHeaders : null,
+      audit_webhook_payload_attribute:
+        data.audit_webhook_payload_attribute.trim() === ""
+          ? null
+          : data.audit_webhook_payload_attribute.trim(),
+      audit_webhook_custom_payload: customPayload,
+      audit_webhook_verify_ssl: data.audit_webhook_verify_ssl,
+    }
+  }
+
+  const onSubmit = async (data: AuditDialogFormValues) => {
+    const requestBody = buildUpdateBody(data)
+    if (!requestBody) {
+      return
+    }
     try {
-      await updateAuditSettings({
-        requestBody: {
-          audit_webhook_url: nextUrl === "" ? null : nextUrl,
-          audit_webhook_custom_headers:
-            Object.keys(nextHeaders).length > 0 ? nextHeaders : null,
-          audit_webhook_payload_attribute:
-            data.audit_webhook_payload_attribute.trim() === ""
-              ? null
-              : data.audit_webhook_payload_attribute.trim(),
-          audit_webhook_custom_payload: customPayload,
-          audit_webhook_verify_ssl: data.audit_webhook_verify_ssl,
-        },
-      })
+      await updateAuditSettings({ requestBody })
       setDialogOpen(false)
     } catch {
       console.error("Failed to update audit settings")
     }
+  }
+
+  const onTestForm = (data: AuditDialogFormValues) => {
+    const requestBody = buildUpdateBody(data)
+    if (!requestBody?.audit_webhook_url) {
+      return
+    }
+    testAuditWebhook({ requestBody })
   }
 
   const handleDisconnect = async () => {
@@ -429,19 +456,6 @@ export function AuditSettingsForm({
         </div>
         {isConnected ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => testAuditWebhook()}
-              disabled={
-                testAuditWebhookIsPending || updateAuditSettingsIsPending
-              }
-              className="gap-2"
-            >
-              <SendIcon className="size-3.5" />
-              {testAuditWebhookIsPending ? "Testing..." : "Test"}
-            </Button>
             <Button size="sm" onClick={() => handleDialogOpenChange(true)}>
               Update
             </Button>
@@ -464,7 +478,7 @@ export function AuditSettingsForm({
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-xl">
+        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
               {isConnected ? "Update audit webhook" : "Connect audit webhook"}
@@ -474,7 +488,7 @@ export function AuditSettingsForm({
               request options.
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-1">
+          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onSubmit)}
@@ -637,12 +651,35 @@ export function AuditSettingsForm({
                   )}
                 />
 
-                <Button type="submit" disabled={updateAuditSettingsIsPending}>
-                  {updateAuditSettingsIsPending ? "Saving..." : "Save changes"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={form.handleSubmit(onTestForm)}
+                    disabled={
+                      testAuditWebhookIsPending ||
+                      updateAuditSettingsIsPending ||
+                      formUrlIsEmpty
+                    }
+                    className="gap-2"
+                  >
+                    <SendIcon className="size-3.5" />
+                    {testAuditWebhookIsPending ? "Testing..." : "Test"}
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      updateAuditSettingsIsPending || testAuditWebhookIsPending
+                    }
+                  >
+                    {updateAuditSettingsIsPending
+                      ? "Saving..."
+                      : "Save changes"}
+                  </Button>
+                </div>
               </form>
             </Form>
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
     </>

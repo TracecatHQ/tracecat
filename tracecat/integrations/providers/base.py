@@ -29,6 +29,11 @@ from tracecat.integrations.types import (
     TokenResponse,
 )
 from tracecat.logger import logger
+from tracecat.network import (
+    DisallowedUrlError,
+    is_disallowed_address,
+    validate_resolved_addresses,
+)
 
 SocketAddress = tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
 SocketInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, SocketAddress]
@@ -103,7 +108,7 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
         address = ipaddress.ip_address(normalized_hostname)
     except ValueError:
         address = None
-    if address and _is_disallowed_oauth_address(address):
+    if address and is_disallowed_address(address):
         raise ValueError("OAuth endpoint host is not allowed")
 
     # Validate against base domain if provided
@@ -194,34 +199,11 @@ def mcp_requested_scopes(
     return requested
 
 
-def _is_disallowed_oauth_address(
-    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
-) -> bool:
-    # ``is_global`` is the authoritative "publicly routable" check and rejects
-    # ranges the explicit flags miss (e.g. CGNAT 100.64.0.0/10, TEST-NET, and
-    # other non-global assignments). Keep the explicit flags for clarity and to
-    # guard against any address class not yet covered by ``is_global``.
-    return (
-        not address.is_global
-        or address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_reserved
-        or address.is_multicast
-        or address.is_unspecified
-    )
-
-
 def _validate_oauth_resolved_addresses(infos: Sequence[SocketInfo]) -> None:
-    if not infos:
-        raise ValueError("OAuth endpoint host could not be resolved")
-    for *_, sockaddr in infos:
-        try:
-            address = ipaddress.ip_address(sockaddr[0])
-        except (IndexError, ValueError) as exc:
-            raise ValueError("OAuth endpoint host is not allowed") from exc
-        if _is_disallowed_oauth_address(address):
-            raise ValueError("OAuth endpoint host is not allowed")
+    try:
+        validate_resolved_addresses(infos)
+    except DisallowedUrlError as exc:
+        raise ValueError("OAuth endpoint host is not allowed") from exc
 
 
 def validate_oauth_endpoint_resolves_public(
