@@ -6464,6 +6464,40 @@ export const $CaseBatchUpdate = {
   description: "Request body for updating multiple cases.",
 } as const
 
+export const $CaseCommentAgentAttributionRead = {
+  properties: {
+    invocation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invocation Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["invocation_id", "preset_name", "preset_slug"],
+  title: "CaseCommentAgentAttributionRead",
+  description: "Read model for agent attribution on a generated comment reply.",
+} as const
+
 export const $CaseCommentAgentInvocationRead = {
   properties: {
     id: {
@@ -6645,6 +6679,16 @@ export const $CaseCommentRead = {
       anyOf: [
         {
           $ref: "#/components/schemas/CaseCommentWorkflowRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    agent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentAttributionRead",
         },
         {
           type: "null",

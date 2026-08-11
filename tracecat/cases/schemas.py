@@ -303,6 +303,15 @@ class CaseCommentAgentInvocationRead(Schema):
     error: str | None = None
 
 
+class CaseCommentAgentAttributionRead(Schema):
+    """Read model for agent attribution on a generated comment reply."""
+
+    invocation_id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    session_id: uuid.UUID | None = None
+
+
 class CaseCommentMentionRead(Schema):
     id: uuid.UUID
     target_type: MentionTargetType
@@ -319,6 +328,7 @@ class CaseCommentRead(Schema):
     content: str
     parent_id: uuid.UUID | None = None
     workflow: CaseCommentWorkflowRead | None = None
+    agent: CaseCommentAgentAttributionRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None

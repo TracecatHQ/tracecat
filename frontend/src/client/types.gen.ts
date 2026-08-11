@@ -1689,6 +1689,16 @@ export type CaseBatchUpdate = {
 }
 
 /**
+ * Read model for agent attribution on a generated comment reply.
+ */
+export type CaseCommentAgentAttributionRead = {
+  invocation_id: string
+  preset_name: string
+  preset_slug: string
+  session_id?: string | null
+}
+
+/**
  * Read model for an agent invocation triggered by a comment mention.
  */
 export type CaseCommentAgentInvocationRead = {
@@ -1733,6 +1743,7 @@ export type CaseCommentRead = {
   content: string
   parent_id?: string | null
   workflow?: CaseCommentWorkflowRead | null
+  agent?: CaseCommentAgentAttributionRead | null
   user?: UserRead | null
   last_edited_at?: string | null
   deleted_at?: string | null
