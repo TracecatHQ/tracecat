@@ -1688,6 +1688,27 @@ export type CaseBatchUpdate = {
   update: CaseUpdate
 }
 
+/**
+ * Read model for an agent invocation triggered by a comment mention.
+ */
+export type CaseCommentAgentInvocationRead = {
+  id: string
+  preset_name: string
+  preset_slug: string
+  status: CaseCommentAgentInvocationStatus
+  session_id?: string | null
+  error?: string | null
+}
+
+/**
+ * Lifecycle state for an agent invoked from a case-comment mention.
+ */
+export type CaseCommentAgentInvocationStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+
 export type CaseCommentCreate = {
   content: string
   parent_id?: string | null
@@ -1702,6 +1723,7 @@ export type CaseCommentMentionRead = {
   target_id: string
   label: string
   created_at: string
+  invocation?: CaseCommentAgentInvocationRead | null
 }
 
 export type CaseCommentRead = {

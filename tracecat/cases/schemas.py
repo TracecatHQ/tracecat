@@ -16,6 +16,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CaseFieldKind,
     CaseFieldReadType,
@@ -291,12 +292,24 @@ class CaseCommentWorkflowRead(Schema):
     status: CaseCommentWorkflowStatus
 
 
+class CaseCommentAgentInvocationRead(Schema):
+    """Read model for an agent invocation triggered by a comment mention."""
+
+    id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    status: CaseCommentAgentInvocationStatus
+    session_id: uuid.UUID | None = None
+    error: str | None = None
+
+
 class CaseCommentMentionRead(Schema):
     id: uuid.UUID
     target_type: MentionTargetType
     target_id: uuid.UUID
     label: str
     created_at: datetime
+    invocation: CaseCommentAgentInvocationRead | None = None
 
 
 class CaseCommentRead(Schema):
