@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tracecat.agent import types as agent_types
 from tracecat.agent.preset.internal_router import (
     PresetCreateRequest,
     PresetUpdateRequest,
@@ -71,51 +70,6 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
-    assert payload.timeout_seconds is None
-
-
-@pytest.mark.parametrize("timeout_seconds", [4, 3601])
-def test_agent_preset_write_schemas_reject_timeout_outside_one_hour(
-    timeout_seconds: int,
-) -> None:
-    with pytest.raises(ValidationError):
-        AgentPresetCreate(
-            name="Triage preset",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            timeout_seconds=timeout_seconds,
-        )
-
-    with pytest.raises(ValidationError):
-        AgentPresetUpdate(timeout_seconds=timeout_seconds)
-
-
-@pytest.mark.parametrize("schema_cls", [AgentPresetUpdate, PresetUpdateRequest])
-def test_agent_preset_update_schemas_preserve_null_timeout_inheritance(
-    schema_cls: type[AgentPresetUpdate] | type[PresetUpdateRequest],
-) -> None:
-    inherited = schema_cls.model_validate({"timeout_seconds": None})
-    assert inherited.timeout_seconds is None
-    assert inherited.model_dump(exclude_unset=True) == {"timeout_seconds": None}
-
-    omitted = schema_cls.model_validate({})
-    assert "timeout_seconds" not in omitted.model_dump(exclude_unset=True)
-
-
-@pytest.mark.parametrize("schema_cls", [AgentPresetCreate, PresetCreateRequest])
-def test_agent_preset_create_schemas_default_to_timeout_inheritance(
-    schema_cls: type[AgentPresetCreate] | type[PresetCreateRequest],
-) -> None:
-    base = {
-        "name": "Triage preset",
-        "model_name": "gpt-4o-mini",
-        "model_provider": "openai",
-    }
-    inherited = schema_cls.model_validate({**base, "timeout_seconds": None})
-    assert inherited.timeout_seconds is None
-
-    omitted = schema_cls.model_validate(base)
-    assert omitted.timeout_seconds is None
 
 
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
@@ -231,10 +185,7 @@ def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
         )
 
 
-def test_agent_preset_read_preserves_legacy_fields_and_timeout_inheritance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
+def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> None:
     payload = AgentPresetRead.model_validate(
         {
             "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
@@ -263,7 +214,6 @@ def test_agent_preset_read_preserves_legacy_fields_and_timeout_inheritance(
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
     assert payload.enable_thinking is True
-    assert payload.to_agent_config().timeout_seconds is None
 
 
 def test_agent_preset_read_minimal_exposes_capabilities() -> None:

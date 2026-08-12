@@ -88,7 +88,6 @@ class TestBuildAgentArgsActivity:
         assert result.model_name == "claude-sonnet-4-5-20250929"
         assert result.model_provider == "anthropic"
         assert result.user_prompt == "Hello"
-        assert result.timeout_seconds is None
 
     @pytest.mark.anyio
     async def test_resolves_multiple_vars(self, role: Role):
@@ -483,26 +482,6 @@ class TestBuildAgentArgsMcpResolution:
 
         mock_resolve.assert_not_called()
         assert result.mcp_servers is None
-
-    @pytest.mark.anyio
-    async def test_preserves_configured_timeout(self, role: Role):
-        args = {
-            "user_prompt": "Hello",
-            "model_name": "claude-sonnet-4-5-20250929",
-            "model_provider": "anthropic",
-            "timeout_seconds": 3600,
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        result = await DSLActivities.build_agent_args_activity(input)
-
-        assert result.timeout_seconds == 3600
 
     @pytest.mark.anyio
     async def test_multiple_mcp_integration_ids_resolve(self, role: Role):

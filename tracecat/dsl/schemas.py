@@ -14,8 +14,13 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema, core_schema
 
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
-from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
+from tracecat.dsl.enums import (
+    JoinStrategy,
+    PlatformAction,
+    StreamErrorHandlingStrategy,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
@@ -289,7 +294,11 @@ class ActionRetryPolicy(BaseModel):
         description="Total number of execution attempts. 0 means unlimited, 1 means no retries.",
     )
     timeout: int = Field(
-        default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."
+        default=DEFAULT_ACTION_TIMEOUT,
+        description=(
+            "Timeout for the action in seconds. Agent-backed AI actions "
+            "default to 1800s instead (see ActionStatement)."
+        ),
     )
     retry_until: RequiredExpressionStr | None = Field(
         default=None, description="Retry until a specific condition is met."
@@ -381,6 +390,16 @@ class ActionStatement(BaseModel):
             raise TracecatValidationError(
                 "Interaction is not allowed when for_each is provided."
             )
+        return self
+
+    @model_validator(mode="after")
+    def apply_agent_timeout_default(self) -> Self:
+        # Agent turns get a 30-minute budget unless the action sets one.
+        if (
+            PlatformAction.is_agent(self.action)
+            and "timeout" not in self.retry_policy.model_fields_set
+        ):
+            self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
         return self
 
 

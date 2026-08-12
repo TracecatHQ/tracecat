@@ -8946,18 +8946,8 @@ async def test_create_agent_preset_uses_default_model_selection_catalog_id(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("timeout_kwargs", "expected_timeout", "timeout_was_set"),
-    [
-        pytest.param({}, 900, False, id="omitted"),
-        pytest.param({"timeout_seconds": None}, None, True, id="explicit-null"),
-    ],
-)
 async def test_update_agent_preset_updates_existing_preset(
     monkeypatch: pytest.MonkeyPatch,
-    timeout_kwargs: dict[str, int | None],
-    expected_timeout: int | None,
-    timeout_was_set: bool,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -8979,7 +8969,6 @@ async def test_update_agent_preset_updates_existing_preset(
         tool_approvals={"tools.alpha": False},
         mcp_integrations=[str(uuid.uuid4())],
         retries=3,
-        timeout_seconds=900,
         enable_thinking=True,
         enable_internet_access=False,
         current_version_id=None,
@@ -9006,11 +8995,6 @@ async def test_update_agent_preset_updates_existing_preset(
                 "actions": params.actions,
                 "mcp_integrations": params.mcp_integrations,
                 "retries": params.retries,
-                "timeout_seconds": (
-                    params.timeout_seconds
-                    if "timeout_seconds" in params.model_fields_set
-                    else preset.timeout_seconds
-                ),
                 "enable_thinking": params.enable_thinking,
                 "enable_internet_access": params.enable_internet_access,
                 "updated_at": datetime.now(UTC),
@@ -9034,7 +9018,6 @@ async def test_update_agent_preset_updates_existing_preset(
         retries=5,
         enable_thinking=False,
         enable_internet_access=True,
-        **timeout_kwargs,
     )
 
     payload = _payload(result)
@@ -9043,14 +9026,12 @@ async def test_update_agent_preset_updates_existing_preset(
     assert params.actions == ["tools.bravo"]
     assert params.mcp_integrations == [integration_id]
     assert params.retries == 5
-    assert ("timeout_seconds" in params.model_fields_set) is timeout_was_set
     assert params.enable_thinking is False
     assert params.enable_internet_access is True
     assert payload["instructions"] == "Updated prompt"
     assert payload["actions"] == ["tools.bravo"]
     assert payload["mcp_integrations"] == [integration_id]
     assert payload["retries"] == 5
-    assert payload["timeout_seconds"] == expected_timeout
     assert payload["enable_thinking"] is False
     assert payload["enable_internet_access"] is True
 
@@ -9200,17 +9181,8 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("timeout_kwargs", "expected_timeout"),
-    [
-        pytest.param({}, None, id="omitted-inherits-deployment-default"),
-        pytest.param({"timeout_seconds": 900}, 900, id="explicit-value"),
-    ],
-)
-async def test_create_agent_preset_omitted_fields_use_schema_defaults(
+async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     monkeypatch: pytest.MonkeyPatch,
-    timeout_kwargs: dict[str, int],
-    expected_timeout: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     catalog_id = uuid.uuid4()
@@ -9256,7 +9228,6 @@ async def test_create_agent_preset_omitted_fields_use_schema_defaults(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
-                timeout_seconds=params.timeout_seconds,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
@@ -9284,17 +9255,14 @@ async def test_create_agent_preset_omitted_fields_use_schema_defaults(
     result = await _tool(mcp_server.create_agent_preset)(
         workspace_id=str(workspace_id),
         name="Security triage",
-        **timeout_kwargs,
     )
 
     payload = _payload(result)
     params = created["params"]
     assert params.retries == 3
-    assert params.timeout_seconds == expected_timeout
     assert params.enable_thinking is True
     assert params.enable_internet_access is False
     assert payload["retries"] == 3
-    assert payload["timeout_seconds"] == expected_timeout
     assert payload["enable_thinking"] is True
     assert payload["enable_internet_access"] is False
 

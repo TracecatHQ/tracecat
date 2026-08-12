@@ -153,8 +153,6 @@ import {
   type AgentPresetFormMode,
   buildAgentPresetUpdatePayload,
   buildSkillCommandItemValue,
-  getAgentPresetFormTimeout,
-  getAgentPresetUpdateTimeout,
 } from "@/lib/agent-presets"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import type { ModelInfo } from "@/lib/chat"
@@ -185,7 +183,6 @@ const DATA_TYPE_OUTPUT_TYPES = [
 ] as const
 
 const DEFAULT_RETRIES = 3
-const MAX_TIMEOUT_SECONDS = 3600
 const SUBAGENT_ALIAS_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/
 const RESERVED_SUBAGENT_ALIASES = new Set([
@@ -263,14 +260,6 @@ const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
-    timeoutSeconds: z.union([
-      z.coerce
-        .number({ invalid_type_error: "Timeout must be a number" })
-        .int()
-        .min(5, "Timeout must be at least 5 seconds")
-        .max(MAX_TIMEOUT_SECONDS, "Timeout cannot exceed 3600 seconds"),
-      z.null(),
-    ]),
     enableThinking: z.boolean().default(true),
     enableInternetAccess: z.boolean().default(false),
   })
@@ -431,7 +420,6 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   skills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
-  timeoutSeconds: null,
   enableThinking: true,
   enableInternetAccess: false,
 }
@@ -1147,7 +1135,6 @@ function getAgentPresetErrorTab(
     errors.namespaces ||
     errors.toolApprovals ||
     errors.retries ||
-    errors.timeoutSeconds ||
     errors.enableInternetAccess
   ) {
     return "configuration"
@@ -1694,11 +1681,6 @@ function AgentPresetForm({
         const updatePayload = buildAgentPresetUpdatePayload(payload, {
           skillsChanged: Boolean(form.formState.dirtyFields.skills),
         })
-        updatePayload.timeout_seconds = getAgentPresetUpdateTimeout({
-          currentTimeoutSeconds: preset.timeout_seconds,
-          formTimeoutSeconds: values.timeoutSeconds,
-          timeoutChanged: Boolean(form.formState.dirtyFields.timeoutSeconds),
-        })
         const updated = await onUpdate(preset.id, updatePayload)
         form.reset(presetToFormValues(updated))
       } else {
@@ -1893,7 +1875,7 @@ function AgentPresetForm({
 
   return (
     <Form {...form}>
-      <form noValidate onSubmit={handleFormSubmit} className="h-full min-h-0">
+      <form onSubmit={handleFormSubmit} className="h-full min-h-0">
         {layout === "stacked" ? (
           <ResizablePanelGroup direction="vertical" className="h-full">
             <ResizablePanel
@@ -2314,7 +2296,7 @@ function AgentPresetConfigurationPanel({
 
   return (
     <ScrollArea className="h-full">
-      <div className="@container flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
+      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
         <section className="space-y-4">
           <div className="grid gap-4">
             <FormField
@@ -2463,7 +2445,7 @@ function AgentPresetConfigurationPanel({
               )}
             />
           </div>
-          <div className="grid gap-4 [@container(min-width:640px)]:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
             <FormField
               control={form.control}
               name="retries"
@@ -2478,33 +2460,6 @@ function AgentPresetConfigurationPanel({
                       disabled={isSaving}
                     />
                   </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="timeoutSeconds"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Timeout (seconds)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={MAX_TIMEOUT_SECONDS}
-                      step={1}
-                      {...field}
-                      value={field.value ?? ""}
-                      onChange={(event) =>
-                        field.onChange(event.target.value || null)
-                      }
-                      disabled={isSaving}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    5–3600 sec (1 hr) · Default 30 min
-                  </FormDescription>
-                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -3925,7 +3880,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         })
       ) ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
-    timeoutSeconds: getAgentPresetFormTimeout(preset.timeout_seconds),
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
   }
@@ -3968,7 +3922,6 @@ function formValuesToPayload(
     })),
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
-    timeout_seconds: values.timeoutSeconds,
     enable_thinking: values.enableThinking,
     enable_internet_access:
       values.enableInternetAccess || options?.forceInternetAccess === true,

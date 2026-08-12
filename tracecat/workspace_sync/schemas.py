@@ -8,10 +8,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_MAX,
-    AGENT_TIMEOUT_SECONDS_MIN,
-)
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
@@ -305,12 +301,6 @@ class AgentPresetVersionResourceSpec(BaseModel):
         ge=0,
         description="Maximum agent run retries.",
     )
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=AGENT_TIMEOUT_SECONDS_MIN,
-        le=AGENT_TIMEOUT_SECONDS_MAX,
-        description="Maximum active runtime for each agent turn in seconds.",
-    )
     enable_thinking: bool = Field(
         default=True,
         description="Whether extended thinking is enabled.",
@@ -429,13 +419,6 @@ class AgentPresetResourceSpec(BaseModel):
         ge=0,
         exclude=True,
         description="Maximum agent run retries.",
-    )
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=AGENT_TIMEOUT_SECONDS_MIN,
-        le=AGENT_TIMEOUT_SECONDS_MAX,
-        exclude=True,
-        description="Maximum active runtime for each agent turn in seconds.",
     )
     enable_thinking: bool = Field(
         default=True,
