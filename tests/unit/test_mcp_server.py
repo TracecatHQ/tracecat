@@ -32,7 +32,6 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import (
     SkillRead,
@@ -9204,15 +9203,13 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
 @pytest.mark.parametrize(
     ("timeout_kwargs", "expected_timeout"),
     [
-        pytest.param(
-            {}, AGENT_TIMEOUT_SECONDS_DEFAULT, id="omitted-uses-schema-default"
-        ),
-        pytest.param({"timeout_seconds": None}, None, id="explicit-null"),
+        pytest.param({}, None, id="omitted-inherits-deployment-default"),
+        pytest.param({"timeout_seconds": 900}, 900, id="explicit-value"),
     ],
 )
 async def test_create_agent_preset_omitted_fields_use_schema_defaults(
     monkeypatch: pytest.MonkeyPatch,
-    timeout_kwargs: dict[str, int | None],
+    timeout_kwargs: dict[str, int],
     expected_timeout: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()

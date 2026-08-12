@@ -20,8 +20,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Existing rows retain null as an explicit "inherit the deployment timeout"
-    # sentinel. New presets receive the product default at the API boundary.
+    # Null is an explicit "inherit the deployment timeout" sentinel for both
+    # existing rows and newly created presets without a timeout override.
     op.add_column(
         "agent_preset",
         sa.Column("timeout_seconds", sa.Integer(), nullable=True),

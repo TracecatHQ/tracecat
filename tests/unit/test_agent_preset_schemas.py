@@ -7,7 +7,6 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from tracecat.agent import types as agent_types
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.preset.internal_router import (
     PresetCreateRequest,
     PresetUpdateRequest,
@@ -72,7 +71,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
-    assert payload.timeout_seconds == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert payload.timeout_seconds is None
 
 
 @pytest.mark.parametrize("timeout_seconds", [4, 3601])
@@ -104,7 +103,7 @@ def test_agent_preset_update_schemas_preserve_null_timeout_inheritance(
 
 
 @pytest.mark.parametrize("schema_cls", [AgentPresetCreate, PresetCreateRequest])
-def test_agent_preset_create_schemas_accept_null_timeout_inheritance(
+def test_agent_preset_create_schemas_default_to_timeout_inheritance(
     schema_cls: type[AgentPresetCreate] | type[PresetCreateRequest],
 ) -> None:
     base = {
@@ -116,7 +115,7 @@ def test_agent_preset_create_schemas_accept_null_timeout_inheritance(
     assert inherited.timeout_seconds is None
 
     omitted = schema_cls.model_validate(base)
-    assert omitted.timeout_seconds == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert omitted.timeout_seconds is None
 
 
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:

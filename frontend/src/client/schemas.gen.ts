@@ -2160,7 +2160,6 @@ export const $AgentPresetCreate = {
         },
       ],
       title: "Timeout Seconds",
-      default: 1800,
     },
     enable_thinking: {
       type: "boolean",

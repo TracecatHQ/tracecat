@@ -76,8 +76,6 @@ export function buildDuplicateAgentPresetPayload(
     retries: preset.retries,
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
-    // Explicit null keeps an inherited (deployment-default) timeout inherited;
-    // omitting it would silently pin the duplicate to the fixed default.
     timeout_seconds: preset.timeout_seconds ?? null,
   }
   return payload
