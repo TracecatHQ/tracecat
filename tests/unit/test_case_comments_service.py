@@ -648,7 +648,7 @@ class TestCaseCommentsService:
         assert (
             await invocation_service.mark_failed(
                 failed_id,
-                "agent_turn: model unavailable",
+                {"kind": "agent_turn", "message": "model unavailable"},
             )
             is not None
         )
@@ -673,7 +673,10 @@ class TestCaseCommentsService:
         failed_data = invocation_data_by_name["Failed agent"]
         assert failed_data.id == failed_id
         assert failed_data.status == CaseCommentAgentInvocationStatus.FAILED
-        assert failed_data.error == "agent_turn: model unavailable"
+        assert failed_data.error == {
+            "kind": "agent_turn",
+            "message": "model unavailable",
+        }
 
     async def test_comment_reads_project_agent_attribution_across_surfaces(
         self,

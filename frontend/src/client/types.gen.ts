@@ -1699,6 +1699,21 @@ export type CaseCommentAgentAttributionRead = {
 }
 
 /**
+ * Structured terminal failure persisted for a comment agent invocation.
+ */
+export type CaseCommentAgentInvocationError = {
+  kind: CaseCommentAgentInvocationErrorKind
+  message: string
+}
+
+export type CaseCommentAgentInvocationErrorKind =
+  | "startup"
+  | "preparation"
+  | "agent_turn"
+  | "completion"
+  | "cancelled"
+
+/**
  * Read model for an agent invocation triggered by a comment mention.
  */
 export type CaseCommentAgentInvocationRead = {
@@ -1707,7 +1722,7 @@ export type CaseCommentAgentInvocationRead = {
   preset_slug: string
   status: CaseCommentAgentInvocationStatus
   session_id?: string | null
-  error?: string | null
+  error?: CaseCommentAgentInvocationError | null
 }
 
 /**

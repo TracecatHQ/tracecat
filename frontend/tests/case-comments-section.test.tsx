@@ -12,6 +12,7 @@ import {
 } from "@testing-library/react"
 import {
   type AgentPresetReadMinimal,
+  type CaseCommentAgentInvocationRead,
   type CaseCommentAgentInvocationStatus,
   type CaseCommentMentionRead,
   type CaseCommentRead,
@@ -276,7 +277,7 @@ function createAgentMention({
   presetName: string
   status: CaseCommentAgentInvocationStatus
   sessionId?: string | null
-  error?: string | null
+  error?: CaseCommentAgentInvocationRead["error"]
 }): CaseCommentMentionRead {
   return {
     id: `${id}-mention`,
@@ -847,7 +848,10 @@ describe("CommentSection", () => {
           presetName: "Failed agent",
           status: "failed",
           sessionId: "failed-session",
-          error: "Timed out while investigating the case.",
+          error: {
+            kind: "agent_turn",
+            message: "Timed out while investigating the case.",
+          },
         }),
       ],
     }

@@ -138,7 +138,8 @@ function FailedInvocationStatus({
           {invocation.preset_name} could not finish.
         </p>
         <p className="whitespace-pre-wrap break-words text-muted-foreground">
-          {invocation.error ?? "The agent could not complete the request."}
+          {invocation.error?.message ??
+            "The agent could not complete the request."}
         </p>
         <p className="text-xs text-muted-foreground">
           Mention {invocation.preset_name} again to retry.

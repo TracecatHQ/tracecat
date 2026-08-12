@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
@@ -300,7 +301,7 @@ class CaseCommentAgentInvocationRead(Schema):
     preset_slug: str
     status: CaseCommentAgentInvocationStatus
     session_id: uuid.UUID | None = None
-    error: str | None = None
+    error: CaseCommentAgentInvocationError | None = None
 
 
 class CaseCommentAgentAttributionRead(Schema):

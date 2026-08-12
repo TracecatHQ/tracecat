@@ -6498,6 +6498,28 @@ export const $CaseCommentAgentAttributionRead = {
   description: "Read model for agent attribution on a generated comment reply.",
 } as const
 
+export const $CaseCommentAgentInvocationError = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationErrorKind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["kind", "message"],
+  title: "CaseCommentAgentInvocationError",
+  description:
+    "Structured terminal failure persisted for a comment agent invocation.",
+} as const
+
+export const $CaseCommentAgentInvocationErrorKind = {
+  type: "string",
+  enum: ["startup", "preparation", "agent_turn", "completion", "cancelled"],
+} as const
+
 export const $CaseCommentAgentInvocationRead = {
   properties: {
     id: {
@@ -6531,13 +6553,12 @@ export const $CaseCommentAgentInvocationRead = {
     error: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/CaseCommentAgentInvocationError",
         },
         {
           type: "null",
         },
       ],
-      title: "Error",
     },
   },
   type: "object",
