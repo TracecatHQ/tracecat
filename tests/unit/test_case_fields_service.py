@@ -168,6 +168,47 @@ class TestCaseFieldsService:
         assert field.type is CaseFieldReadType.SELECT
         assert field.options == ["low", "high"]
 
+    async def test_case_field_read_display_name(self) -> None:
+        """Read display names from metadata and fall back to the field ID."""
+        cases = [
+            (
+                "analyst_verdict",
+                sa.types.Text(),
+                {
+                    "analyst_verdict": {
+                        "type": "TEXT",
+                        "display_name": "Analyst Verdict",
+                    }
+                },
+                "Analyst Verdict",
+            ),
+            (
+                "analyst_verdict",
+                sa.types.Text(),
+                {"analyst_verdict": {"type": "TEXT"}},
+                "analyst_verdict",
+            ),
+            ("analyst_verdict", sa.types.Text(), None, "analyst_verdict"),
+            ("case_id", sa.types.UUID(), None, "case_id"),
+        ]
+
+        for field_id, field_type, field_schema, expected_display_name in cases:
+            column = ReflectedColumn(
+                name=field_id,
+                type=field_type,
+                nullable=True,
+                default=None,
+                comment=None,
+            )
+
+            field = CaseFieldReadMinimal.from_sa(
+                column,
+                field_schema=field_schema,
+            )
+
+            assert field.id == field_id
+            assert field.display_name == expected_display_name
+
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""
         # Create field parameters

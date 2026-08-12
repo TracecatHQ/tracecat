@@ -2215,6 +2215,7 @@ export type CaseFieldKind = "LONG_TEXT" | "URL"
  */
 export type CaseFieldRead = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2231,6 +2232,7 @@ export type CaseFieldRead = {
  */
 export type CaseFieldReadMinimal = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
