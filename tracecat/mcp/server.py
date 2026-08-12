@@ -83,14 +83,12 @@ from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
+    SkillDraftFileRead,
     SkillDraftOperation,
     SkillDraftPatch,
     SkillDraftRead,
     SkillPath,
-    SkillRead,
     SkillReadMinimal,
-    SkillUpload,
-    SkillUploadFile,
     SkillUploadSessionCreate,
     SkillVersionRead,
 )
@@ -1318,8 +1316,11 @@ _CSV_FILE_WARNING = (
     "clients. Local filesystem export/import paths are not supported."
 )
 _SKILL_FILE_WARNING = (
-    "For local skill directories, prefer prepare_skill_upload plus direct HTTP "
-    "PUTs and complete_skill_upload. Do not inline file contents as base64."
+    "Inline base64 skill uploads are not supported. Local skill directories "
+    "must use prepare_skill_upload plus direct HTTP PUTs and "
+    "complete_skill_upload. "
+    "Read an existing skill with `get_skill_draft` / `get_skill_draft_file` "
+    "before editing or resolving a revision conflict."
 )
 _INLINE_WORKFLOW_YAML_MAX_BYTES = TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
 _workflow_artifact_redis: AsyncRedis | None = None
@@ -1427,52 +1428,6 @@ def _normalize_workflow_file_relative_path(relative_path: str) -> str:
     if path.suffix.lower() not in _WORKFLOW_FILE_ALLOWED_EXTENSIONS:
         raise ToolError("YAML file path must end with .yaml or .yml")
     return path.as_posix()
-
-
-def _read_uploaded_skill_markdown_for_metadata_merge(
-    files: Sequence[SkillUploadFile],
-) -> str:
-    """Return the uploaded root SKILL.md text for a metadata merge."""
-
-    skill_md_file = next((file for file in files if file.path == "SKILL.md"), None)
-    if skill_md_file is None:
-        raise ToolError("Uploaded skill must include a root SKILL.md")
-
-    try:
-        content = base64.b64decode(skill_md_file.content_base64, validate=True)
-    except ValueError as exc:
-        raise ToolError(
-            "Uploaded skill SKILL.md must contain valid base64 content"
-        ) from exc
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ToolError("Uploaded skill SKILL.md must be UTF-8 text") from exc
-
-
-def _merge_uploaded_skill_markdown_metadata(
-    files: Sequence[SkillUploadFile],
-    *,
-    name: str,
-    description: str | None,
-) -> list[SkillUploadFile]:
-    """Return upload files with root SKILL.md metadata merged before validation."""
-
-    skill_md = _read_uploaded_skill_markdown_for_metadata_merge(files)
-    merged_skill_md = SkillService._merge_skill_markdown_metadata(
-        skill_md,
-        name=name,
-        description=description,
-    )
-    merged_content_base64 = base64.b64encode(merged_skill_md.encode("utf-8")).decode(
-        "ascii"
-    )
-    return [
-        file.model_copy(update={"content_base64": merged_content_base64})
-        if file.path == "SKILL.md"
-        else file
-        for file in files
-    ]
 
 
 def _validate_staged_skill_paths(paths: Sequence[str]) -> list[str]:
@@ -2276,8 +2231,6 @@ bulk replacement.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
-- `upload_skill` and `update_skill` are legacy compatibility tools for clients
-  that cannot run the direct-upload helper.
 
 ## Agent preset authoring
 1. `get_agent_preset_authoring_context` — inspect models, integrations, variables, and output_type options
@@ -8334,6 +8287,75 @@ async def list_skills(
 
 
 @mcp.tool()
+async def get_skill_draft(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+) -> SkillDraftRead:
+    """Return the mutable draft manifest for an existing skill.
+
+    The manifest includes paths, SHA-256 digests, sizes, `draft_revision`,
+    `is_publishable`, and `validation_errors`; it never returns file contents.
+    Call this before updating an existing skill to reconcile after a
+    `draft_revision_conflict` and to see what a complete-tree replacement would
+    delete.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            draft = await svc.get_draft(skill_id)
+            if draft is None:
+                raise ToolError(f"Skill '{skill_id}' not found")
+            return draft
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get skill draft", error=str(e))
+        raise ToolError(f"Failed to get skill draft: {e}") from None
+
+
+@mcp.tool()
+async def get_skill_draft_file(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+    path: str,
+    ctx: Context | None = None,
+) -> SkillDraftFileRead:
+    """Read one file from a mutable skill draft.
+
+    Small UTF-8 text files are returned inline. Other files return a short-lived
+    download URL whose bytes must be fetched to disk with a plain HTTP GET;
+    never inline downloaded bytes into context.
+    """
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="get_skill_draft_file")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            draft_file = await svc.get_draft_file(skill_id=skill_id, path=path)
+            if draft_file is None:
+                raise ToolError(f"Draft file '{path}' not found for skill '{skill_id}'")
+            return draft_file
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise _skill_validation_tool_error(e) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get skill draft file", error=str(e))
+        raise ToolError(f"Failed to get skill draft file: {e}") from None
+
+
+@mcp.tool()
 async def prepare_skill_upload(
     workspace_id: uuid.UUID,
     files: list[SkillUploadFileMetadata],
@@ -8494,103 +8516,6 @@ async def complete_skill_upload(
     except Exception as e:
         logger.error("Failed to complete skill upload", error=str(e))
         raise ToolError(f"Failed to complete skill upload: {e}") from None
-
-
-@mcp.tool()
-async def upload_skill(
-    workspace_id: uuid.UUID,
-    name: str,
-    files: list[SkillUploadFile],
-    description: str | None = None,
-) -> SkillRead:
-    """Upload a local skill directory using legacy inline base64 contents.
-
-    This creates a new logical skill. Use `update_skill` when replacing an
-    existing skill draft to avoid duplicate skill rows with the same name.
-
-    Remote clients that can run local scripts should use `prepare_skill_upload`
-    and `complete_skill_upload` instead so the model never handles file bytes.
-
-    Agents should read the local directory themselves, preserve relative paths,
-    include the root `SKILL.md` file, and pass every file in `files` using
-    `content_base64`.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        files_for_upload = _merge_uploaded_skill_markdown_metadata(
-            files,
-            name=name,
-            description=description,
-        )
-        params = SkillUpload.model_validate(
-            {
-                "name": name,
-                "files": SkillUploadFile.list_adapter().dump_python(
-                    files_for_upload, mode="json"
-                ),
-            }
-        )
-        async with SkillService.with_session(role=role) as svc:
-            created = await svc.upload_skill(params)
-        return SkillRead.model_validate(created)
-    except ToolError:
-        raise
-    except ValidationError as e:
-        raise ToolError(str(e)) from e
-    except TracecatValidationError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to upload skill", error=str(e), name=name)
-        raise ToolError(f"Failed to upload skill: {e}") from None
-
-
-@mcp.tool()
-async def update_skill(
-    workspace_id: uuid.UUID,
-    skill_id: uuid.UUID,
-    name: str,
-    files: list[SkillUploadFile],
-    description: str | None = None,
-) -> SkillRead:
-    """Replace a skill draft using legacy inline base64 contents.
-
-    This does not publish the draft. Call `publish_skill` after the update if
-    the skill should be attachable to agent presets.
-
-    Remote clients that can run local scripts should use `prepare_skill_upload`
-    and `complete_skill_upload` instead so the model never handles file bytes.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        files_for_upload = _merge_uploaded_skill_markdown_metadata(
-            files,
-            name=name,
-            description=description,
-        )
-        params = SkillUpload.model_validate(
-            {
-                "name": name,
-                "files": SkillUploadFile.list_adapter().dump_python(
-                    files_for_upload, mode="json"
-                ),
-            }
-        )
-        async with SkillService.with_session(role=role) as svc:
-            updated = await svc.replace_skill_draft(skill_id=skill_id, params=params)
-        return SkillRead.model_validate(updated)
-    except ToolError:
-        raise
-    except ValidationError as e:
-        raise ToolError(str(e)) from e
-    except TracecatValidationError as e:
-        raise ToolError(str(e)) from e
-    except TracecatNotFoundError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to update skill", error=str(e), skill_id=str(skill_id))
-        raise ToolError(f"Failed to update skill: {e}") from None
 
 
 @mcp.tool()

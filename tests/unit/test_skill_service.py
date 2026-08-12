@@ -111,7 +111,7 @@ async def configure_minio_for_skills(
     monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
-        "http://localhost:9000",
+        f"http://localhost:{os.environ.get('MINIO_PORT', '9000')}",
         raising=False,
     )
     monkeypatch.setattr(

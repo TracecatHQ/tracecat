@@ -138,7 +138,8 @@ Notes:
 
 ### Skill file transfer notes
 
-- Local skill directories should use `prepare_skill_upload`, raw HTTP PUTs to the returned short-lived URLs, and `complete_skill_upload`. The base64 `upload_skill` and `update_skill` tools remain compatibility fallbacks.
+- The staged flow is the only skill upload path: call `prepare_skill_upload`, send raw HTTP PUTs to the returned short-lived URLs, then call `complete_skill_upload`. Inline base64 skill uploads are not supported.
+- Skill reads are draft-only. `get_skill_draft_file` returns small UTF-8 text inline and otherwise returns a short-lived presigned download URL.
 
 ## Variable and secret metadata tools
 
@@ -152,10 +153,10 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
+- `get_skill_draft(workspace_id, skill_id)`
+- `get_skill_draft_file(workspace_id, skill_id, path)`
 - `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`
 - `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
-- `upload_skill(workspace_id, name, files, description=None)`
-- `update_skill(workspace_id, skill_id, name, files, description=None)`
 - `publish_skill(workspace_id, skill_id)`
 - `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`

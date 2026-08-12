@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import inspect
 import json
 import re
@@ -36,11 +35,11 @@ from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import (
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
+    SkillDraftFileRead,
     SkillDraftRead,
     SkillFileEntry,
     SkillRead,
     SkillReadMinimal,
-    SkillUploadFile,
     SkillUploadSessionRead,
     SkillVersionRead,
 )
@@ -9677,6 +9676,245 @@ async def test_list_skills_uses_workspace_skill_service(
 
 
 @pytest.mark.anyio
+async def test_get_skill_draft_returns_mutable_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    files = [
+        SkillFileEntry(
+            path="SKILL.md",
+            blob_id=uuid.uuid4(),
+            sha256="1" * 64,
+            size_bytes=42,
+            content_type="text/markdown; charset=utf-8",
+        ),
+        SkillFileEntry(
+            path="scripts/helper.py",
+            blob_id=uuid.uuid4(),
+            sha256="2" * 64,
+            size_bytes=84,
+            content_type="text/x-python; charset=utf-8",
+        ),
+    ]
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft(self, requested_skill_id):
+            assert requested_skill_id == skill_id
+            return SkillDraftRead(
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=7,
+                name="triage-skill",
+                description="Triage alerts",
+                files=files,
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.get_skill_draft)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+    )
+
+    payload = _payload(result)
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["draft_revision"] == 7
+    assert payload["is_publishable"] is True
+    assert payload["validation_errors"] == []
+    assert [file["path"] for file in payload["files"]] == [
+        "SKILL.md",
+        "scripts/helper.py",
+    ]
+    assert [file["sha256"] for file in payload["files"]] == ["1" * 64, "2" * 64]
+    assert [file["size_bytes"] for file in payload["files"]] == [42, 84]
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft(self, requested_skill_id):
+            assert requested_skill_id == skill_id
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError, match=rf"Skill '{skill_id}' not found"):
+        await _tool(mcp_server.get_skill_draft)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+        )
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_file_returns_inline_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    expected_skill_id = skill_id
+    role = SimpleNamespace(workspace_id=workspace_id)
+    text_content = "---\nname: triage-skill\n---\n"
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft_file(self, *, skill_id, path):
+            assert skill_id == expected_skill_id
+            assert path == "SKILL.md"
+            return SkillDraftFileRead(
+                kind="inline",
+                path=path,
+                content_type="text/markdown; charset=utf-8",
+                size_bytes=len(text_content.encode()),
+                sha256="3" * 64,
+                text_content=text_content,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.get_skill_draft_file)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        path="SKILL.md",
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    assert payload["kind"] == "inline"
+    assert payload["path"] == "SKILL.md"
+    assert payload["sha256"] == "3" * 64
+    assert payload["text_content"] == text_content
+    assert payload["download_url"] is None
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_file_returns_presigned_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    expected_skill_id = skill_id
+    role = SimpleNamespace(workspace_id=workspace_id)
+    download_url = "https://downloads.example/helper.py?signature=secret"
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft_file(self, *, skill_id, path):
+            assert skill_id == expected_skill_id
+            assert path == "scripts/helper.py"
+            return SkillDraftFileRead(
+                kind="download",
+                path=path,
+                content_type="application/octet-stream",
+                size_bytes=1_000_000,
+                sha256="4" * 64,
+                download_url=download_url,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.get_skill_draft_file)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        path="scripts/helper.py",
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    assert payload["kind"] == "download"
+    assert payload["download_url"] == download_url
+    assert payload["text_content"] is None
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_file_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    path = "scripts/missing.py"
+    expected_skill_id = skill_id
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft_file(self, *, skill_id, path):
+            assert skill_id == expected_skill_id
+            assert path == "scripts/missing.py"
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    message = f"Draft file '{path}' not found for skill '{skill_id}'"
+    with pytest.raises(ToolError, match=re.escape(message)):
+        await _tool(mcp_server.get_skill_draft_file)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            path=path,
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
+async def test_get_skill_draft_file_rejects_stdio_transport() -> None:
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
+        await _tool(mcp_server.get_skill_draft_file)(
+            workspace_id=str(uuid.uuid4()),
+            skill_id=uuid.uuid4(),
+            path="SKILL.md",
+            ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
 async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -9978,448 +10216,11 @@ async def test_complete_skill_upload_reports_current_revision_on_conflict(
 
 
 @pytest.mark.anyio
-async def test_upload_skill_uses_workspace_skill_service(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    captured: dict[str, Any] = {}
+async def test_legacy_inline_base64_skill_tools_are_not_registered() -> None:
+    tool_names = {tool.name for tool in await mcp_server.mcp.list_tools()}
 
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            captured["params"] = params
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=uuid.uuid4(),
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description=None,
-                current_version_id=None,
-                draft_revision=1,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=len(params.files),
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    result = await _tool(mcp_server.upload_skill)(
-        workspace_id=str(workspace_id),
-        name="triage-skill",
-        files=[
-            SkillUploadFile(
-                path="SKILL.md",
-                content_base64=base64.b64encode(
-                    b"---\nname: triage-skill\n---\n\n# Triage\n"
-                ).decode("ascii"),
-                content_type="text/markdown; charset=utf-8",
-            )
-        ],
-    )
-
-    payload = _payload(result)
-    params = captured["params"]
-    assert params.name == "triage-skill"
-    assert len(params.files) == 1
-    assert params.files[0].path == "SKILL.md"
-    assert payload["name"] == "triage-skill"
-    assert payload["draft_file_count"] == 1
-
-
-@pytest.mark.anyio
-async def test_upload_skill_preserves_uploaded_skill_markdown_body(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    captured: dict[str, Any] = {}
-    existing_skill_md = (
-        "---\n"
-        "name: triage-skill\n"
-        "description: Existing description\n"
-        "tags:\n"
-        "  - keep\n"
-        "---\n"
-        "\n"
-        "# Real instructions\n"
-        "\n"
-        "Use the uploaded body.\n"
-    )
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            captured["upload_params"] = params
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=uuid.uuid4(),
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description="Updated description",
-                current_version_id=None,
-                draft_revision=1,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=len(params.files),
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    result = await _tool(mcp_server.upload_skill)(
-        workspace_id=str(workspace_id),
-        name="triage-skill",
-        description="Updated description",
-        files=[
-            SkillUploadFile(
-                path="SKILL.md",
-                content_base64=base64.b64encode(
-                    existing_skill_md.encode("utf-8")
-                ).decode("ascii"),
-                content_type="text/markdown; charset=utf-8",
-            )
-        ],
-    )
-
-    payload = _payload(result)
-    upload_file = captured["upload_params"].files[0]
-    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
-
-    assert payload["description"] == "Updated description"
-    assert "name: triage-skill" in uploaded_content
-    assert "description: Updated description" in uploaded_content
-    assert "tags:" in uploaded_content
-    assert "# Real instructions" in uploaded_content
-
-
-@pytest.mark.anyio
-async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    captured: dict[str, Any] = {}
-    malformed_skill_md = (
-        "---\nname: [broken\n---\n\n# Real instructions\n\nKeep this body.\n"
-    )
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            captured["upload_params"] = params
-            uploaded_content = base64.b64decode(params.files[0].content_base64).decode(
-                "utf-8"
-            )
-            name, description = mcp_server.SkillService._extract_frontmatter(
-                uploaded_content
-            )
-            assert name == "triage-skill"
-            assert description == "Recovered description"
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=uuid.uuid4(),
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description="Recovered description",
-                current_version_id=None,
-                draft_revision=1,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=len(params.files),
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    result = await _tool(mcp_server.upload_skill)(
-        workspace_id=str(workspace_id),
-        name="triage-skill",
-        description="Recovered description",
-        files=[
-            SkillUploadFile(
-                path="SKILL.md",
-                content_base64=base64.b64encode(
-                    malformed_skill_md.encode("utf-8")
-                ).decode("ascii"),
-                content_type="text/markdown; charset=utf-8",
-            )
-        ],
-    )
-
-    payload = _payload(result)
-    upload_file = captured["upload_params"].files[0]
-    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
-    _, _, remainder = uploaded_content.partition("---\n")
-    frontmatter, separator, body = remainder.partition("\n---\n")
-
-    assert payload["name"] == "triage-skill"
-    assert payload["description"] == "Recovered description"
-    assert separator == "\n---\n"
-    assert yaml.safe_load(frontmatter) == {
-        "name": "triage-skill",
-        "description": "Recovered description",
-    }
-    assert "# Real instructions" in body
-    assert "Keep this body." in body
-    assert "Describe when this skill should be used" not in uploaded_content
-
-
-@pytest.mark.anyio
-async def test_upload_skill_merges_metadata_for_large_skill_markdown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    captured: dict[str, Any] = {}
-    large_skill_md = "---\nname: triage-skill\n---\n\n# Real instructions\n\n" + (
-        "A" * 300_000
-    )
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            captured["upload_params"] = params
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=uuid.uuid4(),
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description="Updated description",
-                current_version_id=None,
-                draft_revision=1,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=len(params.files),
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    result = await _tool(mcp_server.upload_skill)(
-        workspace_id=str(workspace_id),
-        name="triage-skill",
-        description="Updated description",
-        files=[
-            SkillUploadFile(
-                path="SKILL.md",
-                content_base64=base64.b64encode(large_skill_md.encode("utf-8")).decode(
-                    "ascii"
-                ),
-                content_type="text/markdown; charset=utf-8",
-            )
-        ],
-    )
-
-    payload = _payload(result)
-    upload_file = captured["upload_params"].files[0]
-    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
-
-    assert payload["name"] == "triage-skill"
-    assert payload["description"] == "Updated description"
-    assert "# Real instructions" in uploaded_content
-    assert "Updated description" in uploaded_content
-    assert len(uploaded_content) > 300_000
-
-
-@pytest.mark.anyio
-async def test_upload_skill_rejects_missing_root_skill_markdown_before_upload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    upload_called = False
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            del params
-            nonlocal upload_called
-            upload_called = True
-            raise AssertionError("upload_skill should not be called")
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    with pytest.raises(
-        ToolError,
-        match="Uploaded skill must include a root SKILL.md",
-    ):
-        await _tool(mcp_server.upload_skill)(
-            workspace_id=str(workspace_id),
-            name="triage-skill",
-            description="Updated description",
-            files=[
-                SkillUploadFile(
-                    path="helper.py",
-                    content_base64="cHJpbnQoJ29rJykK",
-                    content_type="text/x-python; charset=utf-8",
-                )
-            ],
-        )
-
-    assert upload_called is False
-
-
-@pytest.mark.anyio
-async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    upload_called = False
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def upload_skill(self, params):
-            del params
-            nonlocal upload_called
-            upload_called = True
-            raise AssertionError("upload_skill should not be called")
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    with pytest.raises(ToolError, match="Uploaded skill SKILL.md must be UTF-8 text"):
-        await _tool(mcp_server.upload_skill)(
-            workspace_id=str(workspace_id),
-            name="triage-skill",
-            description="Updated description",
-            files=[
-                SkillUploadFile(
-                    path="SKILL.md",
-                    content_base64="//4=",
-                    content_type="text/markdown; charset=utf-8",
-                )
-            ],
-        )
-
-    assert upload_called is False
-
-
-@pytest.mark.anyio
-async def test_update_skill_replaces_existing_draft(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-    captured: dict[str, Any] = {}
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _SkillService:
-        async def replace_skill_draft(self, *, skill_id: uuid.UUID, params):
-            captured["skill_id"] = skill_id
-            captured["params"] = params
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=skill_id,
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description="Updated description",
-                current_version_id=None,
-                draft_revision=2,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=len(params.files),
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.SkillService,
-        "with_session",
-        lambda role: _AsyncContext(_SkillService()),
-    )
-
-    result = await _tool(mcp_server.update_skill)(
-        workspace_id=str(workspace_id),
-        skill_id=skill_id,
-        name="botsv3-ir",
-        description="Updated description",
-        files=[
-            SkillUploadFile(
-                path="SKILL.md",
-                content_base64=base64.b64encode(
-                    b"---\nname: old-name\n---\n\n# Triage\n"
-                ).decode("ascii"),
-                content_type="text/markdown; charset=utf-8",
-            )
-        ],
-    )
-
-    payload = _payload(result)
-    params = captured["params"]
-    uploaded_content = base64.b64decode(params.files[0].content_base64).decode("utf-8")
-    assert captured["skill_id"] == skill_id
-    assert params.name == "botsv3-ir"
-    assert "name: botsv3-ir" in uploaded_content
-    assert "description: Updated description" in uploaded_content
-    assert payload["id"] == str(skill_id)
-    assert payload["draft_revision"] == 2
+    assert "upload_skill" not in tool_names
+    assert "update_skill" not in tool_names
 
 
 @pytest.mark.anyio

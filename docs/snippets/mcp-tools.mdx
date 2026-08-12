@@ -437,6 +437,18 @@
   Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
+<ResponseField name="get_skill_draft" type="tool">
+  Return the mutable draft manifest for an existing skill.
+
+  The manifest includes paths, SHA-256 digests, sizes, `draft_revision`, `is_publishable`, and `validation_errors`; it never returns file contents. Call this before updating an existing skill to reconcile after a `draft_revision_conflict` and to see what a complete-tree replacement would delete.
+</ResponseField>
+
+<ResponseField name="get_skill_draft_file" type="tool">
+  Read one file from a mutable skill draft.
+
+  Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
+</ResponseField>
+
 <ResponseField name="prepare_skill_upload" type="tool">
   Prepare direct HTTP uploads for a complete local skill directory.
 
@@ -449,24 +461,6 @@
   Attach staged uploads and replace a skill draft with the local file set.
 
   Call this only after every URL returned by `prepare_skill_upload` has received its raw file bytes. Files absent from this complete set are removed. `base_revision` prevents overwriting a concurrent draft edit. This does not publish the draft.
-</ResponseField>
-
-<ResponseField name="upload_skill" type="tool">
-  Upload a local skill directory using legacy inline base64 contents.
-
-  This creates a new logical skill. Use `update_skill` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
-
-  Remote clients that can run local scripts should use `prepare_skill_upload` and `complete_skill_upload` instead so the model never handles file bytes.
-
-  Agents should read the local directory themselves, preserve relative paths, include the root `SKILL.md` file, and pass every file in `files` using `content_base64`.
-</ResponseField>
-
-<ResponseField name="update_skill" type="tool">
-  Replace a skill draft using legacy inline base64 contents.
-
-  This does not publish the draft. Call `publish_skill` after the update if the skill should be attachable to agent presets.
-
-  Remote clients that can run local scripts should use `prepare_skill_upload` and `complete_skill_upload` instead so the model never handles file bytes.
 </ResponseField>
 
 <ResponseField name="publish_skill" type="tool">
