@@ -442,6 +442,14 @@ async def generate_presigned_upload_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
+            if (
+                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
+                and config.TRACECAT__BLOB_STORAGE_ENDPOINT
+            ):
+                url = url.replace(
+                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
+                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
+                )
             logger.debug(
                 "Generated presigned upload URL",
                 key=key,
