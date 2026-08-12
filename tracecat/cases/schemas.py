@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
@@ -16,6 +17,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CaseFieldKind,
     CaseFieldReadType,
@@ -291,12 +293,33 @@ class CaseCommentWorkflowRead(Schema):
     status: CaseCommentWorkflowStatus
 
 
+class CaseCommentAgentInvocationRead(Schema):
+    """Read model for an agent invocation triggered by a comment mention."""
+
+    id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    status: CaseCommentAgentInvocationStatus
+    session_id: uuid.UUID | None = None
+    error: CaseCommentAgentInvocationError | None = None
+
+
+class CaseCommentAgentAttributionRead(Schema):
+    """Read model for agent attribution on a generated comment reply."""
+
+    invocation_id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    session_id: uuid.UUID | None = None
+
+
 class CaseCommentMentionRead(Schema):
     id: uuid.UUID
     target_type: MentionTargetType
     target_id: uuid.UUID
     label: str
     created_at: datetime
+    invocation: CaseCommentAgentInvocationRead | None = None
 
 
 class CaseCommentRead(Schema):
@@ -306,6 +329,7 @@ class CaseCommentRead(Schema):
     content: str
     parent_id: uuid.UUID | None = None
     workflow: CaseCommentWorkflowRead | None = None
+    agent: CaseCommentAgentAttributionRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None

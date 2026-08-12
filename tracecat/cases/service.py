@@ -50,6 +50,8 @@ from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseBatchItemResult,
     CaseBatchResponse,
+    CaseCommentAgentAttributionRead,
+    CaseCommentAgentInvocationRead,
     CaseCommentCreate,
     CaseCommentMentionRead,
     CaseCommentRead,
@@ -101,6 +103,7 @@ from tracecat.db.models import (
     AgentPreset,
     Case,
     CaseComment,
+    CaseCommentAgentInvocation,
     CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
@@ -2253,18 +2256,17 @@ class CaseCommentsService(BaseWorkspaceService):
         comment: CaseComment,
         *,
         user: User | None = None,
-        mentions: list[CaseCommentMention] | None = None,
+        mentions: Sequence[CaseCommentMentionRead] | None = None,
+        agent: CaseCommentAgentAttributionRead | None = None,
     ) -> CaseCommentRead:
         """Serialize a comment for API responses with tombstone semantics."""
         comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
         comment_data.workflow = self._comment_workflow_data(comment)
+        comment_data.agent = agent
         comment_data.user = (
             UserRead.model_validate(user, from_attributes=True) if user else None
         )
-        comment_data.mentions = [
-            CaseCommentMentionRead.model_validate(mention, from_attributes=True)
-            for mention in mentions or []
-        ]
+        comment_data.mentions = list(mentions or ())
         if comment.deleted_at is not None:
             comment_data.content = _COMMENT_TOMBSTONE_CONTENT
             comment_data.is_deleted = True
@@ -2273,13 +2275,20 @@ class CaseCommentsService(BaseWorkspaceService):
     async def _list_mentions_for_comments(
         self,
         comment_ids: Sequence[uuid.UUID],
-    ) -> dict[uuid.UUID, list[CaseCommentMention]]:
-        """Batch-load mention records grouped by comment ID."""
+    ) -> dict[uuid.UUID, list[CaseCommentMentionRead]]:
+        """Batch-load mentions and their agent invocations by comment ID."""
         if not comment_ids:
             return {}
 
         statement = (
-            select(CaseCommentMention)
+            select(CaseCommentMention, CaseCommentAgentInvocation)
+            .outerjoin(
+                CaseCommentAgentInvocation,
+                sa.and_(
+                    CaseCommentAgentInvocation.mention_id == CaseCommentMention.id,
+                    CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                ),
+            )
             .where(
                 CaseCommentMention.workspace_id == self.workspace_id,
                 CaseCommentMention.comment_id.in_(comment_ids),
@@ -2290,10 +2299,86 @@ class CaseCommentsService(BaseWorkspaceService):
             )
         )
         result = await self.session.execute(statement)
-        mentions_by_comment_id: dict[uuid.UUID, list[CaseCommentMention]] = {}
-        for mention in result.scalars().all():
-            mentions_by_comment_id.setdefault(mention.comment_id, []).append(mention)
+        mentions_by_comment_id: dict[uuid.UUID, list[CaseCommentMentionRead]] = {}
+        for mention, invocation in result.tuples().all():
+            invocation_data = (
+                CaseCommentAgentInvocationRead.model_validate(
+                    invocation,
+                    from_attributes=True,
+                )
+                if invocation is not None
+                else None
+            )
+            mention_data = CaseCommentMentionRead.model_validate(
+                mention,
+                from_attributes=True,
+            )
+            mention_data.invocation = invocation_data
+            mentions_by_comment_id.setdefault(mention.comment_id, []).append(
+                mention_data
+            )
         return mentions_by_comment_id
+
+    async def _list_reply_attributions_for_comments(
+        self,
+        comment_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, CaseCommentAgentAttributionRead]:
+        """Batch-load agent attribution by generated reply comment ID."""
+        if not comment_ids:
+            return {}
+
+        statement = select(
+            CaseCommentAgentInvocation.reply_comment_id,
+            CaseCommentAgentInvocation.id,
+            CaseCommentAgentInvocation.preset_name,
+            CaseCommentAgentInvocation.preset_slug,
+            CaseCommentAgentInvocation.session_id,
+        ).where(
+            CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+            CaseCommentAgentInvocation.reply_comment_id.in_(comment_ids),
+        )
+        result = await self.session.execute(statement)
+        attributions_by_comment_id: dict[
+            uuid.UUID, CaseCommentAgentAttributionRead
+        ] = {}
+        for (
+            reply_comment_id,
+            invocation_id,
+            preset_name,
+            preset_slug,
+            session_id,
+        ) in result.tuples().all():
+            if reply_comment_id is None:
+                continue
+            attributions_by_comment_id[reply_comment_id] = (
+                CaseCommentAgentAttributionRead(
+                    invocation_id=invocation_id,
+                    preset_name=preset_name,
+                    preset_slug=preset_slug,
+                    session_id=session_id,
+                )
+            )
+        return attributions_by_comment_id
+
+    async def _serialize_comment_rows(
+        self,
+        rows: Sequence[tuple[CaseComment, User | None]],
+    ) -> list[CaseCommentRead]:
+        """Serialize comment rows with batch-loaded response metadata."""
+        comment_ids = [comment.id for comment, _ in rows]
+        mentions_by_comment_id = await self._list_mentions_for_comments(comment_ids)
+        attributions_by_comment_id = await self._list_reply_attributions_for_comments(
+            comment_ids
+        )
+        return [
+            self.serialize_comment(
+                comment,
+                user=user,
+                mentions=mentions_by_comment_id.get(comment.id),
+                agent=attributions_by_comment_id.get(comment.id),
+            )
+            for comment, user in rows
+        ]
 
     async def serialize_comment_with_mentions(
         self,
@@ -2301,13 +2386,9 @@ class CaseCommentsService(BaseWorkspaceService):
         *,
         user: User | None = None,
     ) -> CaseCommentRead:
-        """Serialize one comment after loading its persisted mentions."""
-        mentions_by_comment_id = await self._list_mentions_for_comments([comment.id])
-        return self.serialize_comment(
-            comment,
-            user=user,
-            mentions=mentions_by_comment_id.get(comment.id),
-        )
+        """Serialize one comment with persisted mentions and agent attribution."""
+        serialized = await self._serialize_comment_rows([(comment, user)])
+        return serialized[0]
 
     async def _list_comment_rows(
         self,
@@ -2338,34 +2419,17 @@ class CaseCommentsService(BaseWorkspaceService):
     async def list_comments(self, case: Case) -> list[CaseCommentRead]:
         """List all comments for a case as a flat compatibility view."""
         rows = await self._list_comment_rows(case_id=case.id)
-        mentions_by_comment_id = await self._list_mentions_for_comments(
-            [comment.id for comment, _ in rows]
-        )
-        return [
-            self.serialize_comment(
-                comment,
-                user=user,
-                mentions=mentions_by_comment_id.get(comment.id),
-            )
-            for comment, user in rows
-        ]
+        return await self._serialize_comment_rows(rows)
 
     async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
         await self._require_replies_entitlement()
         rows = await self._list_comment_rows(case_id=case.id)
-        mentions_by_comment_id = await self._list_mentions_for_comments(
-            [comment.id for comment, _ in rows]
-        )
+        serialized_comments = await self._serialize_comment_rows(rows)
         threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
         ordered_threads: list[CaseCommentThreadRead] = []
 
-        for comment, user in rows:
-            serialized = self.serialize_comment(
-                comment,
-                user=user,
-                mentions=mentions_by_comment_id.get(comment.id),
-            )
+        for (comment, _), serialized in zip(rows, serialized_comments, strict=True):
             if comment.parent_id is None:
                 if (thread := threads_by_id.get(comment.id)) is not None:
                     if thread.comment.parent_id is not None:
@@ -2420,20 +2484,13 @@ class CaseCommentsService(BaseWorkspaceService):
         if not rows:
             return None
 
-        mentions_by_comment_id = await self._list_mentions_for_comments(
-            [row_comment.id for row_comment, _ in rows]
-        )
+        serialized_comments = await self._serialize_comment_rows(rows)
 
         thread_comment: CaseCommentRead | None = None
         replies: list[CaseCommentRead] = []
         last_activity_at: datetime | None = None
 
-        for row_comment, user in rows:
-            serialized = self.serialize_comment(
-                row_comment,
-                user=user,
-                mentions=mentions_by_comment_id.get(row_comment.id),
-            )
+        for (row_comment, _), serialized in zip(rows, serialized_comments, strict=True):
             if row_comment.id == thread_root_id:
                 thread_comment = serialized
             else:

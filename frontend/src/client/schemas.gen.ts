@@ -6464,6 +6464,118 @@ export const $CaseBatchUpdate = {
   description: "Request body for updating multiple cases.",
 } as const
 
+export const $CaseCommentAgentAttributionRead = {
+  properties: {
+    invocation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invocation Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["invocation_id", "preset_name", "preset_slug"],
+  title: "CaseCommentAgentAttributionRead",
+  description: "Read model for agent attribution on a generated comment reply.",
+} as const
+
+export const $CaseCommentAgentInvocationError = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationErrorKind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["kind", "message"],
+  title: "CaseCommentAgentInvocationError",
+  description:
+    "Structured terminal failure persisted for a comment agent invocation.",
+} as const
+
+export const $CaseCommentAgentInvocationErrorKind = {
+  type: "string",
+  enum: ["startup", "preparation", "agent_turn", "completion", "cancelled"],
+} as const
+
+export const $CaseCommentAgentInvocationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationStatus",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+    error: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationError",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "preset_name", "preset_slug", "status"],
+  title: "CaseCommentAgentInvocationRead",
+  description:
+    "Read model for an agent invocation triggered by a comment mention.",
+} as const
+
+export const $CaseCommentAgentInvocationStatus = {
+  type: "string",
+  enum: ["pending", "running", "succeeded", "failed"],
+  title: "CaseCommentAgentInvocationStatus",
+  description:
+    "Lifecycle state for an agent invoked from a case-comment mention.",
+} as const
+
 export const $CaseCommentCreate = {
   properties: {
     content: {
@@ -6535,6 +6647,16 @@ export const $CaseCommentMentionRead = {
       format: "date-time",
       title: "Created At",
     },
+    invocation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: ["id", "target_type", "target_id", "label", "created_at"],
@@ -6578,6 +6700,16 @@ export const $CaseCommentRead = {
       anyOf: [
         {
           $ref: "#/components/schemas/CaseCommentWorkflowRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    agent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentAttributionRead",
         },
         {
           type: "null",

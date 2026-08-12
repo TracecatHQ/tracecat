@@ -40,6 +40,10 @@ import {
   ModelSelectorList,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector"
+import {
+  CaseCommentAgentAttribution,
+  CaseCommentAgentInvocationList,
+} from "@/components/cases/case-comment-agent"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
   CaseEventTimestamp,
@@ -540,7 +544,9 @@ function CommentRow({
     <div className="group space-y-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {comment.is_deleted ? null : isWorkflowComment && comment.workflow ? (
+          {comment.is_deleted ? null : comment.agent ? (
+            <CaseCommentAgentAttribution attribution={comment.agent} />
+          ) : isWorkflowComment && comment.workflow ? (
             <div className="flex min-w-0 items-center gap-2">
               {getWorkflowStatusBadge(workflowStatus)}
               <span className="truncate text-sm font-medium text-foreground">
@@ -620,6 +626,9 @@ function CommentRow({
           </div>
         </ScrollArea>
       )}
+      {!comment.is_deleted ? (
+        <CaseCommentAgentInvocationList mentions={comment.mentions} />
+      ) : null}
     </div>
   )
 }
