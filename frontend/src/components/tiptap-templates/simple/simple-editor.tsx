@@ -821,9 +821,11 @@ export function SimpleEditor({
   const toolbarStyle = React.useMemo<
     React.CSSProperties & Record<string, string | number>
   >(() => {
+    // Leave the toolbar surface to CSS: `.simple-editor-toolbar` already
+    // defaults it to transparent, and an inline value would outrank any
+    // consumer override.
     const next: React.CSSProperties & Record<string, string | number> = {
       paddingBottom: 0,
-      "--tt-toolbar-bg-color": "transparent",
     }
 
     if (isMobile) {

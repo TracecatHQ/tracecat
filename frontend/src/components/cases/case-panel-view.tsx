@@ -572,10 +572,12 @@ export function CasePanelView({
                 "mx-auto w-full min-w-0 max-w-4xl",
                 embedded
                   ? "px-4 py-5 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
-                  : "px-6 py-8 pb-24"
+                  : "px-6 pt-20 pb-24"
               )}
             >
-              <div className="mb-2">
+              {/* The page toolbar carries its own top padding, so the gap
+                  below the tags lives inside the sticky bar instead. */}
+              <div className={embedded ? "mb-2" : undefined}>
                 <div className="flex flex-col">
                   <div className="py-1.5 first:pt-0 last:pb-0">
                     <CasePanelSummary
@@ -584,8 +586,8 @@ export function CasePanelView({
                       compact={embedded}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
                       {caseData.tags?.length ? (
                         caseData.tags.map((tag) => (
                           <TagBadge key={tag.id} tag={tag} />
@@ -602,7 +604,7 @@ export function CasePanelView({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 w-6 p-0"
+                            className="size-6 shrink-0 p-0"
                           >
                             <Plus className="h-4 w-4" />
                             <span className="sr-only">Manage tags</span>

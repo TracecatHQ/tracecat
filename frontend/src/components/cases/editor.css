@@ -51,8 +51,43 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  --simple-editor-toolbar-gap: 0.25rem;
-  background: transparent;
+  --simple-editor-toolbar-gap: 0.5rem;
+  /* The toolbar sticks over scrolling content, so it needs an opaque surface. */
+  --tt-toolbar-bg-color: hsl(var(--background));
+}
+
+/* Case panel content sits on `bg-muted/20` layered over the page background. */
+.case-description-editor--panel .case-description-editor
+  .simple-editor-toolbar {
+  --tt-toolbar-bg-color: color-mix(
+    in srgb,
+    hsl(var(--muted)) 20%,
+    hsl(var(--background))
+  );
+}
+
+/*
+ * Square the sticky bar off and bleed it past the text column, otherwise the
+ * rounded corners let scrolling content show through at its edges. The radius
+ * is `!important` upstream, so this needs both the extra classes and the flag.
+ */
+.case-description-editor--panel .case-description-editor
+  .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
+  margin-inline: -0.75rem;
+  padding-inline: 0.75rem;
+  border-radius: 0 !important;
+}
+
+/*
+ * Keep the pinned bar clear of the page header. The taller min-height absorbs
+ * the added padding, so the resting position of the buttons does not move.
+ */
+.case-description-editor--panel:not(
+    .case-description-editor--compact
+  ) .case-description-editor
+  .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
+  min-height: 3.75rem;
+  padding-top: 1rem;
 }
 
 .case-description-editor .simple-editor-content .simple-editor:focus-visible {
