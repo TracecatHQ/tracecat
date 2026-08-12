@@ -261,10 +261,10 @@ export function CaseDurationMetrics({
                       Started at
                     </p>
                     <p className="mt-1">
-                      Local: {formatLocalDateTime(metric.startedAt)}
+                      {formatLocalDateTime(metric.startedAt)}
                     </p>
                     <p className="text-muted-foreground">
-                      UTC: {formatUtcDateTime(metric.startedAt)}
+                      {formatUtcDateTime(metric.startedAt)}
                     </p>
                   </div>
                   <div>
@@ -274,10 +274,10 @@ export function CaseDurationMetrics({
                     {metric.endedAt ? (
                       <>
                         <p className="mt-1">
-                          Local: {formatLocalDateTime(metric.endedAt)}
+                          {formatLocalDateTime(metric.endedAt)}
                         </p>
                         <p className="text-muted-foreground">
-                          UTC: {formatUtcDateTime(metric.endedAt)}
+                          {formatUtcDateTime(metric.endedAt)}
                         </p>
                       </>
                     ) : (
