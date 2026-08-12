@@ -5,7 +5,6 @@ import {
   Braces,
   MessageSquare,
   Paperclip,
-  Plus,
   Table2,
   X,
 } from "lucide-react"
@@ -35,26 +34,13 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
+import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { CaseFeed } from "@/components/cases/cases-feed"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
-import { CheckIndicator } from "@/components/ui/check-indicator"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -66,18 +52,14 @@ import {
 } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
-  useAddCaseTag,
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
   useCaseFields,
-  useCaseTagCatalog,
   useGetCase,
-  useRemoveCaseTag,
   useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
@@ -147,16 +129,12 @@ export function CasePanelView({
     workspaceId,
     caseId,
   })
-  const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
-  const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
-  const { caseTags } = useCaseTagCatalog(workspaceId)
   const { dropdownDefinitions } = useCaseDropdownDefinitions(
     workspaceId,
     caseAddonsEnabled
   )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { caseFields: caseFieldDefinitions } = useCaseFields(workspaceId)
-  const { toast } = useToast()
   const [closureDialog, setClosureDialog] = useState<{
     open: boolean
     targetStatus: CaseStatus
@@ -303,25 +281,6 @@ export function CasePanelView({
       assignee_id: newAssignee?.id || null,
     }
     await updateCase(params)
-  }
-
-  const handleTagToggle = async (tagId: string, hasTag: boolean) => {
-    try {
-      if (hasTag) {
-        // Remove tag
-        await removeCaseTag(tagId)
-      } else {
-        // Add tag
-        await addCaseTag({ tag_id: tagId })
-      }
-    } catch (error) {
-      console.error("Failed to modify tag:", error)
-      toast({
-        title: "Error",
-        description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} case. Please try again.`,
-        variant: "destructive",
-      })
-    }
   }
 
   const panelFieldRowClassName = cn(
@@ -575,86 +534,33 @@ export function CasePanelView({
                   : "px-6 pt-20 pb-24"
               )}
             >
-              {/* The page toolbar carries its own top padding, so the gap
-                  below the tags lives inside the sticky bar instead. */}
-              <div className={embedded ? "mb-2" : undefined}>
-                <div className="flex flex-col">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <CasePanelSummary
-                      caseData={caseData}
-                      updateCase={updateCase}
-                      compact={embedded}
-                    />
-                  </div>
-                  <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
-                      {caseData.tags?.length ? (
-                        caseData.tags.map((tag) => (
-                          <TagBadge key={tag.id} tag={tag} />
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          No tags
-                        </span>
-                      )}
-                    </div>
-                    {caseTags && caseTags.length > 0 && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="size-6 shrink-0 p-0"
-                          >
-                            <Plus className="h-4 w-4" />
-                            <span className="sr-only">Manage tags</span>
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          align="end"
-                          className="w-56 p-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Command>
-                            <CommandInput
-                              placeholder="Search tags..."
-                              className="text-xs"
-                            />
-                            <CommandList>
-                              <CommandEmpty>No tags found.</CommandEmpty>
-                              <CommandGroup>
-                                {caseTags.map((tag) => {
-                                  const hasTag = caseData.tags?.some(
-                                    (t) => t.id === tag.id
-                                  )
-                                  return (
-                                    <CommandItem
-                                      key={tag.id}
-                                      value={tag.name}
-                                      className="group text-xs"
-                                      onSelect={async () => {
-                                        await handleTagToggle(tag.id, !!hasTag)
-                                      }}
-                                    >
-                                      <CheckIndicator checked={!!hasTag} />
-                                      <div
-                                        className="size-2 shrink-0 rounded-full"
-                                        style={{
-                                          backgroundColor:
-                                            tag.color || undefined,
-                                        }}
-                                      />
-                                      <span>{tag.name}</span>
-                                    </CommandItem>
-                                  )
-                                })}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
+              {/* Non-embedded, the gap below the tags comes from the description
+                  editor's sticky toolbar padding — see `cases/editor.css`. */}
+              <div className={cn("flex flex-col", embedded && "mb-2")}>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <CasePanelSummary
+                    caseData={caseData}
+                    updateCase={updateCase}
+                    compact={embedded}
+                  />
+                </div>
+                <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
+                    {caseData.tags?.length ? (
+                      caseData.tags.map((tag) => (
+                        <TagBadge key={tag.id} tag={tag} />
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No tags
+                      </span>
                     )}
                   </div>
+                  <CaseTagPicker
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                    appliedTags={caseData.tags}
+                  />
                 </div>
               </div>
 

@@ -165,7 +165,7 @@ export function CasePanelDescription({
                       "case-description-editor--panel",
                       compact
                         ? "case-description-editor--compact min-h-[160px]"
-                        : "min-h-[250px]"
+                        : "case-description-editor--page min-h-[250px]"
                     )}
                     initialContent={caseData.description}
                     onChange={(content) => {

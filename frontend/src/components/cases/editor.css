@@ -56,38 +56,46 @@
   --tt-toolbar-bg-color: hsl(var(--background));
 }
 
-/* Case panel content sits on `bg-muted/20` layered over the page background. */
-.case-description-editor--panel .case-description-editor
-  .simple-editor-toolbar {
-  --tt-toolbar-bg-color: color-mix(
-    in srgb,
-    hsl(var(--muted)) 20%,
-    hsl(var(--background))
-  );
+/*
+ * The case panel scrolls on `bg-muted/20` layered over the page background.
+ * This recomputes that composite; keep it in sync with the ScrollArea class in
+ * `case-panel-view.tsx`. Browsers without `color-mix()` keep the plain
+ * background above, which is visually near-identical at 20% muted.
+ */
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .case-description-editor--panel
+    .case-description-editor
+    .simple-editor-toolbar {
+    --tt-toolbar-bg-color: color-mix(
+      in srgb,
+      hsl(var(--muted)) 20%,
+      hsl(var(--background))
+    );
+  }
 }
 
 /*
- * Square the sticky bar off and bleed it past the text column, otherwise the
- * rounded corners let scrolling content show through at its edges. The radius
- * is `!important` upstream, so this needs both the extra classes and the flag.
+ * Square the sticky bar off and bleed it past the text column, otherwise its
+ * rounded corners let scrolling content show through at the edges.
  */
 .case-description-editor--panel .case-description-editor
   .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
   margin-inline: -0.75rem;
   padding-inline: 0.75rem;
-  border-radius: 0 !important;
+  border-radius: 0;
 }
 
 /*
- * Keep the pinned bar clear of the page header. The taller min-height absorbs
- * the added padding, so the resting position of the buttons does not move.
+ * Inset the pinned bar from the top of the scroll viewport. The taller
+ * min-height absorbs the padding, and the matching gap above the bar is
+ * dropped from the header block in `case-panel-view.tsx`, so the buttons do
+ * not move at rest.
  */
-.case-description-editor--panel:not(
-    .case-description-editor--compact
-  ) .case-description-editor
+.case-description-editor--page .case-description-editor
   .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
-  min-height: 3.75rem;
-  padding-top: 1rem;
+  --case-toolbar-pin-inset: 1rem;
+  min-height: calc(var(--tt-toolbar-height) + var(--case-toolbar-pin-inset));
+  padding-top: var(--case-toolbar-pin-inset);
 }
 
 .case-description-editor .simple-editor-content .simple-editor:focus-visible {
