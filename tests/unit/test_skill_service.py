@@ -1151,18 +1151,25 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(b"uploaded content", id="nonempty"),
+            pytest.param(b"", id="empty"),
+        ],
+    )
     async def test_attach_uploaded_blob_promotes_from_staged_key(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
+        content: bytes,
     ) -> None:
-        """Uppercase upload digests normalize before staged-key promotion."""
+        """Staged uploads support empty files and normalized uppercase digests."""
 
         created = await skill_service.create_skill(SkillCreate(name="staged-upload"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
-        content = b"uploaded content"
         sha256 = hashlib.sha256(content).hexdigest()
         upload_sha256 = sha256.upper()
         upload = await skill_service.create_draft_upload(

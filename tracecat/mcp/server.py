@@ -80,10 +80,18 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
+    SkillCreate,
+    SkillDraftAttachUploadedBlobOp,
+    SkillDraftDeleteFileOp,
+    SkillDraftOperation,
+    SkillDraftPatch,
+    SkillDraftRead,
+    SkillPath,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
     SkillUploadFile,
+    SkillUploadSessionCreate,
     SkillVersionRead,
 )
 from tracecat.agent.skill.service import SkillService
@@ -1228,6 +1236,46 @@ class TemplateUploadPreparedResponse(BaseModel):
     relative_path: str
 
 
+class SkillUploadFileMetadata(BaseModel):
+    """Local skill file metadata used to prepare a direct upload."""
+
+    path: SkillPath
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    size_bytes: int = Field(ge=0)
+    content_type: str = Field(min_length=1, max_length=255)
+
+
+class SkillUploadPreparedFile(BaseModel):
+    """Short-lived direct-upload instructions for one skill file."""
+
+    path: str
+    sha256: str
+    size_bytes: int
+    content_type: str
+    upload_id: uuid.UUID
+    upload_url: str
+    method: Literal["PUT"] = "PUT"
+    headers: dict[str, str] = Field(default_factory=dict)
+    expires_at: datetime
+
+
+class SkillUploadPreparedResponse(BaseModel):
+    """Prepared direct-upload plan for a local skill directory."""
+
+    workspace_id: uuid.UUID
+    skill_id: uuid.UUID
+    base_revision: int
+    created: bool
+    files: list[SkillUploadPreparedFile]
+
+
+class SkillUploadedFile(BaseModel):
+    """Uploaded skill file ready to attach to the draft."""
+
+    path: SkillPath
+    upload_id: uuid.UUID
+
+
 class AgentApprovalItemResponse(BaseModel):
     """Pending agent tool approval item."""
 
@@ -1268,6 +1316,10 @@ _TEMPLATE_FILE_WARNING = (
 _CSV_FILE_WARNING = (
     "CSV exports are delivered through staged blob downloads for remote MCP "
     "clients. Local filesystem export/import paths are not supported."
+)
+_SKILL_FILE_WARNING = (
+    "For local skill directories, prefer prepare_skill_upload plus direct HTTP "
+    "PUTs and complete_skill_upload. Do not inline file contents as base64."
 )
 _INLINE_WORKFLOW_YAML_MAX_BYTES = TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
 _workflow_artifact_redis: AsyncRedis | None = None
@@ -1421,6 +1473,37 @@ def _merge_uploaded_skill_markdown_metadata(
         else file
         for file in files
     ]
+
+
+def _validate_staged_skill_paths(paths: Sequence[str]) -> list[str]:
+    """Validate a complete local skill file set before staging uploads."""
+
+    if not paths:
+        raise ToolError("Skill upload must include at least one file")
+
+    normalized_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for path in paths:
+        try:
+            normalized_path = SkillService._normalize_path(path)
+        except TracecatValidationError as exc:
+            raise ToolError(str(exc)) from exc
+        if normalized_path in seen_paths:
+            raise ToolError(f"Skill upload contains duplicate path '{normalized_path}'")
+        seen_paths.add(normalized_path)
+        normalized_paths.append(normalized_path)
+
+    if "SKILL.md" not in seen_paths:
+        raise ToolError("Skill upload must include a root SKILL.md")
+    return normalized_paths
+
+
+def _skill_validation_tool_error(error: TracecatValidationError) -> ToolError:
+    """Preserve structured skill validation details for agent recovery."""
+
+    if error.detail is not None:
+        return ToolError(f"{error}: {error.detail}")
+    return ToolError(str(error))
 
 
 def _workflow_file_artifact_expires_at() -> datetime:
@@ -2188,6 +2271,13 @@ bulk replacement.
 - `prepare_template_file_upload` is required for remote `/mcp` template validation uploads.
 - {_CSV_FILE_WARNING}
 - `export_csv` returns a short-lived download URL for remote `/mcp` clients.
+
+## Skill file tools
+- {_SKILL_FILE_WARNING}
+- Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
+  returned URL, then call `complete_skill_upload` with the upload IDs.
+- `upload_skill` and `update_skill` are legacy compatibility tools for clients
+  that cannot run the direct-upload helper.
 
 ## Agent preset authoring
 1. `get_agent_preset_authoring_context` — inspect models, integrations, variables, and output_type options
@@ -8244,16 +8334,182 @@ async def list_skills(
 
 
 @mcp.tool()
+async def prepare_skill_upload(
+    workspace_id: uuid.UUID,
+    files: list[SkillUploadFileMetadata],
+    skill_id: uuid.UUID | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    ctx: Context | None = None,
+) -> SkillUploadPreparedResponse:
+    """Prepare direct HTTP uploads for a complete local skill directory.
+
+    This is the preferred local-directory upload path. Pass file paths, SHA-256
+    digests, sizes, and content types only; never inline file contents or
+    base64. Omit `skill_id` and provide `name` to create a skill, or provide
+    `skill_id` and omit `name`/`description` to replace an existing draft.
+
+    Upload every file to its short-lived URL with the returned method and
+    headers, then call `complete_skill_upload` with the returned `skill_id`,
+    `base_revision`, paths, and upload IDs.
+    """
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_skill_upload")
+        normalized_paths = _validate_staged_skill_paths([file.path for file in files])
+        creating = skill_id is None
+        if creating and name is None:
+            raise ToolError("name is required when creating a skill")
+        if not creating and (name is not None or description is not None):
+            raise ToolError(
+                "name and description must be omitted when updating an existing skill"
+            )
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        prepared_files: list[SkillUploadPreparedFile] = []
+        async with SkillService.with_session(role=role) as svc:
+            if skill_id is None:
+                if name is None:
+                    raise ToolError("name is required when creating a skill")
+                skill = await svc.create_skill(
+                    SkillCreate(name=name, description=description)
+                )
+                resolved_skill_id = skill.id
+                base_revision = skill.draft_revision
+            else:
+                draft = await svc.get_draft(skill_id)
+                if draft is None:
+                    raise ToolError(f"Skill '{skill_id}' not found")
+                resolved_skill_id = skill_id
+                base_revision = draft.draft_revision
+
+            for file, normalized_path in zip(files, normalized_paths, strict=True):
+                upload_params = SkillUploadSessionCreate(
+                    sha256=file.sha256,
+                    size_bytes=file.size_bytes,
+                    content_type=file.content_type,
+                )
+                upload = await svc.create_draft_upload(
+                    skill_id=resolved_skill_id,
+                    params=upload_params,
+                )
+                prepared_files.append(
+                    SkillUploadPreparedFile(
+                        path=normalized_path,
+                        sha256=upload_params.sha256,
+                        size_bytes=upload_params.size_bytes,
+                        content_type=upload.headers.get(
+                            "Content-Type", upload_params.content_type
+                        ),
+                        upload_id=upload.upload_id,
+                        upload_url=upload.upload_url,
+                        method=upload.method,
+                        headers=upload.headers,
+                        expires_at=upload.expires_at,
+                    )
+                )
+
+        return SkillUploadPreparedResponse(
+            workspace_id=workspace_id,
+            skill_id=resolved_skill_id,
+            base_revision=base_revision,
+            created=creating,
+            files=prepared_files,
+        )
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise _skill_validation_tool_error(e) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to prepare skill upload", error=str(e))
+        raise ToolError(f"Failed to prepare skill upload: {e}") from None
+
+
+@mcp.tool()
+async def complete_skill_upload(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+    base_revision: int,
+    files: list[SkillUploadedFile],
+    ctx: Context | None = None,
+) -> SkillDraftRead:
+    """Attach staged uploads and replace a skill draft with the local file set.
+
+    Call this only after every URL returned by `prepare_skill_upload` has
+    received its raw file bytes. Files absent from this complete set are
+    removed. `base_revision` prevents overwriting a concurrent draft edit.
+    This does not publish the draft.
+    """
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="complete_skill_upload")
+        normalized_paths = _validate_staged_skill_paths([file.path for file in files])
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            draft = await svc.get_draft(skill_id)
+            if draft is None:
+                raise ToolError(f"Skill '{skill_id}' not found")
+            if draft.draft_revision != base_revision:
+                raise TracecatValidationError(
+                    "Draft revision conflict",
+                    detail={
+                        "code": "draft_revision_conflict",
+                        "current_revision": draft.draft_revision,
+                    },
+                )
+
+            incoming_paths = set(normalized_paths)
+            operations: list[SkillDraftOperation] = [
+                SkillDraftDeleteFileOp(path=path)
+                for path in sorted(
+                    file.path for file in draft.files if file.path not in incoming_paths
+                )
+            ]
+            operations.extend(
+                SkillDraftAttachUploadedBlobOp(
+                    path=normalized_path,
+                    upload_id=file.upload_id,
+                )
+                for file, normalized_path in zip(files, normalized_paths, strict=True)
+            )
+            return await svc.patch_draft(
+                skill_id=skill_id,
+                params=SkillDraftPatch(
+                    base_revision=base_revision,
+                    operations=operations,
+                ),
+            )
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise _skill_validation_tool_error(e) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to complete skill upload", error=str(e))
+        raise ToolError(f"Failed to complete skill upload: {e}") from None
+
+
+@mcp.tool()
 async def upload_skill(
     workspace_id: uuid.UUID,
     name: str,
     files: list[SkillUploadFile],
     description: str | None = None,
 ) -> SkillRead:
-    """Upload a local skill directory into Tracecat as a workspace skill.
+    """Upload a local skill directory using legacy inline base64 contents.
 
     This creates a new logical skill. Use `update_skill` when replacing an
     existing skill draft to avoid duplicate skill rows with the same name.
+
+    Remote clients that can run local scripts should use `prepare_skill_upload`
+    and `complete_skill_upload` instead so the model never handles file bytes.
 
     Agents should read the local directory themselves, preserve relative paths,
     include the root `SKILL.md` file, and pass every file in `files` using
@@ -8297,10 +8553,13 @@ async def update_skill(
     files: list[SkillUploadFile],
     description: str | None = None,
 ) -> SkillRead:
-    """Replace an existing skill draft with a local skill directory.
+    """Replace a skill draft using legacy inline base64 contents.
 
     This does not publish the draft. Call `publish_skill` after the update if
     the skill should be attachable to agent presets.
+
+    Remote clients that can run local scripts should use `prepare_skill_upload`
+    and `complete_skill_upload` instead so the model never handles file bytes.
     """
 
     try:

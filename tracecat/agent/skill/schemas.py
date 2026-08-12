@@ -196,7 +196,7 @@ class SkillUploadSessionCreate(Schema):
             pattern=r"^[0-9a-fA-F]{64}$",
         ),
     ]
-    size_bytes: int = Field(gt=0)
+    size_bytes: int = Field(ge=0)
     content_type: str = Field(min_length=1, max_length=255)
 
     @field_validator("sha256", mode="before")

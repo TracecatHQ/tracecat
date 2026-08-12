@@ -136,6 +136,10 @@ Notes:
 - `prepare_template_file_upload` is required for remote template validation.
 - `export_csv` no longer returns inline CSV text. It returns a short-lived `download_url` for remote `/mcp` clients.
 
+### Skill file transfer notes
+
+- Local skill directories should use `prepare_skill_upload`, raw HTTP PUTs to the returned short-lived URLs, and `complete_skill_upload`. The base64 `upload_skill` and `update_skill` tools remain compatibility fallbacks.
+
 ## Variable and secret metadata tools
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
@@ -148,6 +152,8 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
+- `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`
+- `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
 - `upload_skill(workspace_id, name, files, description=None)`
 - `update_skill(workspace_id, skill_id, name, files, description=None)`
 - `publish_skill(workspace_id, skill_id)`

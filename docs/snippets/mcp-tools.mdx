@@ -437,18 +437,36 @@
   Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
+<ResponseField name="prepare_skill_upload" type="tool">
+  Prepare direct HTTP uploads for a complete local skill directory.
+
+  This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
+
+  Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+</ResponseField>
+
+<ResponseField name="complete_skill_upload" type="tool">
+  Attach staged uploads and replace a skill draft with the local file set.
+
+  Call this only after every URL returned by `prepare_skill_upload` has received its raw file bytes. Files absent from this complete set are removed. `base_revision` prevents overwriting a concurrent draft edit. This does not publish the draft.
+</ResponseField>
+
 <ResponseField name="upload_skill" type="tool">
-  Upload a local skill directory into Tracecat as a workspace skill.
+  Upload a local skill directory using legacy inline base64 contents.
 
   This creates a new logical skill. Use `update_skill` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
+
+  Remote clients that can run local scripts should use `prepare_skill_upload` and `complete_skill_upload` instead so the model never handles file bytes.
 
   Agents should read the local directory themselves, preserve relative paths, include the root `SKILL.md` file, and pass every file in `files` using `content_base64`.
 </ResponseField>
 
 <ResponseField name="update_skill" type="tool">
-  Replace an existing skill draft with a local skill directory.
+  Replace a skill draft using legacy inline base64 contents.
 
   This does not publish the draft. Call `publish_skill` after the update if the skill should be attachable to agent presets.
+
+  Remote clients that can run local scripts should use `prepare_skill_upload` and `complete_skill_upload` instead so the model never handles file bytes.
 </ResponseField>
 
 <ResponseField name="publish_skill" type="tool">

@@ -34,9 +34,14 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import (
+    SkillDraftAttachUploadedBlobOp,
+    SkillDraftDeleteFileOp,
+    SkillDraftRead,
+    SkillFileEntry,
     SkillRead,
     SkillReadMinimal,
     SkillUploadFile,
+    SkillUploadSessionRead,
     SkillVersionRead,
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
@@ -9669,6 +9674,307 @@ async def test_list_skills_uses_workspace_skill_service(
     assert payload["items"][0]["id"] == str(skill_id)
     assert payload["items"][0]["name"] == "botsv3-ir"
     assert payload["items"][0]["slug"] == "botsv3-ir"
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    now = datetime.now(UTC)
+    upload_ids = [uuid.uuid4(), uuid.uuid4()]
+    captured: dict[str, Any] = {"uploads": []}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def create_skill(self, params):
+            captured["create"] = params
+            return SkillRead(
+                id=skill_id,
+                workspace_id=workspace_id,
+                name=params.name,
+                slug=params.name,
+                description=params.description,
+                current_version_id=None,
+                draft_revision=4,
+                created_at=now,
+                updated_at=now,
+                deleted_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=1,
+            )
+
+        async def create_draft_upload(self, *, skill_id, params):
+            index = len(captured["uploads"])
+            captured["uploads"].append((skill_id, params))
+            return SkillUploadSessionRead(
+                upload_id=upload_ids[index],
+                upload_url=f"https://uploads.example/{index}?signature=secret",
+                headers={"Content-Type": params.content_type},
+                expires_at=now + timedelta(minutes=15),
+                bucket="skills",
+                key=f"staged/{index}",
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.prepare_skill_upload)(
+        workspace_id=str(workspace_id),
+        name="triage-skill",
+        description="Triage alerts",
+        files=[
+            mcp_server.SkillUploadFileMetadata(
+                path="SKILL.md",
+                sha256="A" * 64,
+                size_bytes=42,
+                content_type="text/markdown; charset=utf-8",
+            ),
+            mcp_server.SkillUploadFileMetadata(
+                path="scripts/__init__.py",
+                sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                size_bytes=0,
+                content_type="text/x-python; charset=utf-8",
+            ),
+        ],
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    assert captured["create"].name == "triage-skill"
+    assert [item[0] for item in captured["uploads"]] == [skill_id, skill_id]
+    assert captured["uploads"][1][1].size_bytes == 0
+    assert payload["workspace_id"] == str(workspace_id)
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["base_revision"] == 4
+    assert payload["created"] is True
+    assert payload["files"][0]["sha256"] == "a" * 64
+    assert payload["files"][0]["upload_id"] == str(upload_ids[0])
+    assert payload["files"][0]["upload_url"].startswith("https://uploads.example/")
+    assert "bucket" not in payload["files"][0]
+    assert "key" not in payload["files"][0]
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_upload_reuses_existing_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    upload_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    now = datetime.now(UTC)
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def create_skill(self, params):
+            del params
+            raise AssertionError("existing skill updates must not create a skill")
+
+        async def get_draft(self, requested_skill_id):
+            assert requested_skill_id == skill_id
+            return SkillDraftRead(
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=6,
+                name="triage-skill",
+                description="Triage alerts",
+                files=[],
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+        async def create_draft_upload(self, *, skill_id, params):
+            captured["skill_id"] = skill_id
+            captured["params"] = params
+            return SkillUploadSessionRead(
+                upload_id=upload_id,
+                upload_url="https://uploads.example/skill?signature=secret",
+                headers={"Content-Type": params.content_type},
+                expires_at=now + timedelta(minutes=15),
+                bucket="skills",
+                key="staged/skill",
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.prepare_skill_upload)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        files=[
+            mcp_server.SkillUploadFileMetadata(
+                path="SKILL.md",
+                sha256="a" * 64,
+                size_bytes=42,
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    assert captured["skill_id"] == skill_id
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["base_revision"] == 6
+    assert payload["created"] is False
+
+
+@pytest.mark.anyio
+async def test_complete_skill_upload_replaces_the_entire_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    skill_md_upload_id = uuid.uuid4()
+    helper_upload_id = uuid.uuid4()
+    existing_files = [
+        SkillFileEntry(
+            path="SKILL.md",
+            blob_id=uuid.uuid4(),
+            sha256="1" * 64,
+            size_bytes=10,
+            content_type="text/markdown; charset=utf-8",
+        ),
+        SkillFileEntry(
+            path="references/obsolete.md",
+            blob_id=uuid.uuid4(),
+            sha256="2" * 64,
+            size_bytes=20,
+            content_type="text/markdown; charset=utf-8",
+        ),
+    ]
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft(self, requested_skill_id):
+            assert requested_skill_id == skill_id
+            return SkillDraftRead(
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=7,
+                name="triage-skill",
+                description="Triage alerts",
+                files=existing_files,
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+        async def patch_draft(self, *, skill_id, params):
+            captured["skill_id"] = skill_id
+            captured["params"] = params
+            return SkillDraftRead(
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=8,
+                name="triage-skill",
+                description="Triage alerts",
+                files=[],
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.complete_skill_upload)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        base_revision=7,
+        files=[
+            mcp_server.SkillUploadedFile(path="SKILL.md", upload_id=skill_md_upload_id),
+            mcp_server.SkillUploadedFile(
+                path="scripts/helper.py", upload_id=helper_upload_id
+            ),
+        ],
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    params = captured["params"]
+    assert captured["skill_id"] == skill_id
+    assert params.base_revision == 7
+    assert isinstance(params.operations[0], SkillDraftDeleteFileOp)
+    assert params.operations[0].path == "references/obsolete.md"
+    assert isinstance(params.operations[1], SkillDraftAttachUploadedBlobOp)
+    assert params.operations[1].path == "SKILL.md"
+    assert params.operations[1].upload_id == skill_md_upload_id
+    assert isinstance(params.operations[2], SkillDraftAttachUploadedBlobOp)
+    assert params.operations[2].path == "scripts/helper.py"
+    assert params.operations[2].upload_id == helper_upload_id
+    assert payload["draft_revision"] == 8
+
+
+@pytest.mark.anyio
+async def test_complete_skill_upload_reports_current_revision_on_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def get_draft(self, requested_skill_id):
+            assert requested_skill_id == skill_id
+            return SkillDraftRead(
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=9,
+                name="triage-skill",
+                description=None,
+                files=[],
+                is_publishable=True,
+                validation_errors=[],
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(
+        ToolError,
+        match="draft_revision_conflict.*current_revision.*9",
+    ):
+        await _tool(mcp_server.complete_skill_upload)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            base_revision=8,
+            files=[
+                mcp_server.SkillUploadedFile(path="SKILL.md", upload_id=uuid.uuid4())
+            ],
+            ctx=_fake_ctx(),
+        )
 
 
 @pytest.mark.anyio

@@ -24440,7 +24440,7 @@ export const $SkillUploadSessionCreate = {
     },
     size_bytes: {
       type: "integer",
-      exclusiveMinimum: 0,
+      minimum: 0,
       title: "Size Bytes",
     },
     content_type: {
