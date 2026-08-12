@@ -17619,6 +17619,209 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $McpIntegrationMappingAffectedPreset = {
+  properties: {
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["preset_slug", "preset_name", "version", "path"],
+  title: "McpIntegrationMappingAffectedPreset",
+} as const
+
+export const $McpIntegrationMappingAffectedWorkflow = {
+  properties: {
+    workflow_source_id: {
+      type: "string",
+      title: "Workflow Source Id",
+    },
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_source_id",
+    "workflow_path",
+    "workflow_title",
+    "action_ref",
+  ],
+  title: "McpIntegrationMappingAffectedWorkflow",
+} as const
+
+export const $McpIntegrationMappingCandidate = {
+  properties: {
+    mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Mcp Integration Id",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    server_type: {
+      type: "string",
+      title: "Server Type",
+    },
+    auth_type: {
+      type: "string",
+      title: "Auth Type",
+    },
+  },
+  type: "object",
+  required: ["mcp_integration_id", "slug", "name", "server_type", "auth_type"],
+  title: "McpIntegrationMappingCandidate",
+} as const
+
+export const $McpIntegrationMappingRequirement = {
+  properties: {
+    source_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Mcp Integration Id",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    server_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Server Type",
+    },
+    auth_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Type",
+    },
+    reason: {
+      $ref: "#/components/schemas/McpIntegrationMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_presets: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingAffectedPreset",
+      },
+      type: "array",
+      title: "Affected Presets",
+    },
+    affected_workflows: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingAffectedWorkflow",
+      },
+      type: "array",
+      title: "Affected Workflows",
+    },
+  },
+  type: "object",
+  required: [
+    "source_mcp_integration_id",
+    "slug",
+    "name",
+    "server_type",
+    "auth_type",
+    "reason",
+    "message",
+    "candidates",
+    "affected_presets",
+    "affected_workflows",
+  ],
+  title: "McpIntegrationMappingRequirement",
+} as const
+
+export const $McpIntegrationMappingRequirementReason = {
+  type: "string",
+  enum: ["unresolved", "invalid_selection", "conflicting_metadata"],
+} as const
+
+export const $McpIntegrationMappingSelection = {
+  properties: {
+    source_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Mcp Integration Id",
+    },
+    target_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Mcp Integration Id",
+    },
+  },
+  type: "object",
+  required: ["source_mcp_integration_id", "target_mcp_integration_id"],
+  title: "McpIntegrationMappingSelection",
+  description:
+    "User-selected local MCP integration for one source integration reference.",
+} as const
+
 export const $MentionTargetType = {
   type: "string",
   enum: ["agent"],
@@ -20171,6 +20374,20 @@ export const $PullResult = {
         },
       ],
       title: "Catalog Mapping Requirements",
+    },
+    mcp_integration_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/McpIntegrationMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Mapping Requirements",
     },
   },
   type: "object",
@@ -25115,7 +25332,11 @@ export const $SyncResourceType = {
     "secret_metadata",
   ],
   title: "SyncResourceType",
-  description: "Kind of workspace resource that can be synced to and from Git.",
+  description: `Kind of workspace resource that can be synced to and from Git.
+
+Every member is adapter-backed: it can be projected to and imported from
+repository files. Reference-only correlation targets belong in
+:class:\`ReferenceKind\` instead.`,
 } as const
 
 export const $SyntaxToken = {
@@ -32483,6 +32704,15 @@ export const $WorkflowSyncPullRequest = {
       title: "Catalog Mappings",
       description:
         "Explicit source-to-target model choices from the pull preview.",
+    },
+    mcp_integration_mappings: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingSelection",
+      },
+      type: "array",
+      title: "Mcp Integration Mappings",
+      description:
+        "Explicit source-to-target MCP integration choices from the pull preview.",
     },
   },
   type: "object",

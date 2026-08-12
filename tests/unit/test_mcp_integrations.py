@@ -51,6 +51,7 @@ from tracecat.db.models import (
     OAuthStateDB,
     User,
     Workspace,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import EntitlementRequired
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
@@ -102,6 +103,7 @@ from tracecat.integrations.service import (
 )
 from tracecat.integrations.types import DCRResponse, OAuthServerMetadata
 from tracecat.tiers import defaults as tier_defaults
+from tracecat.workspace_sync.enums import ReferenceKind, VcsProvider
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -2873,8 +2875,24 @@ class TestMCPIntegrationCRUD:
             model_provider="openai",
             mcp_integrations=[str(created.id)],
         )
+        sync_mapping = WorkspaceSyncResourceMapping(
+            workspace_id=integration_service.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=ReferenceKind.MCP_INTEGRATION.value,
+            source_id=str(uuid.uuid4()),
+            local_id=created.id,
+        )
+        other_sync_mapping = WorkspaceSyncResourceMapping(
+            workspace_id=integration_service.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=ReferenceKind.MCP_INTEGRATION.value,
+            source_id=str(uuid.uuid4()),
+            local_id=other_mcp_id,
+        )
         integration_service.session.add(agent_session)
         integration_service.session.add(preset)
+        integration_service.session.add(sync_mapping)
+        integration_service.session.add(other_sync_mapping)
         await integration_service.session.flush()
         agent_session_id = agent_session.id
         preset_id = preset.id
@@ -2929,6 +2947,22 @@ class TestMCPIntegrationCRUD:
         assert current_version.version == 2
         assert current_version.mcp_integrations is not None
         assert str(created.id) not in current_version.mcp_integrations
+
+        remaining_mappings = (
+            (
+                await integration_service.session.execute(
+                    select(WorkspaceSyncResourceMapping.local_id).where(
+                        WorkspaceSyncResourceMapping.workspace_id
+                        == integration_service.workspace_id,
+                        WorkspaceSyncResourceMapping.resource_type
+                        == ReferenceKind.MCP_INTEGRATION.value,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert list(remaining_mappings) == [other_mcp_id]
 
     async def test_delete_mcp_integration_shared_oauth_keeps_tokens(
         self,

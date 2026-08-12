@@ -14,6 +14,8 @@ import type {
   CatalogMappingRequirement,
   CatalogMappingSelection,
   GitCommitInfo,
+  McpIntegrationMappingRequirement,
+  McpIntegrationMappingSelection,
   PullResult,
   VcsProvider,
 } from "@/client"
@@ -23,14 +25,12 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import {
+  type MappingRequirementItem,
+  MappingRequirementsCard,
+  mappingAffectsSummary,
+} from "@/components/workspace-sync/mapping-requirements-card"
 import { PullResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
 import { ResourceDiffSection } from "@/components/workspace-sync/resource-diff-review"
 import {
@@ -73,11 +73,16 @@ export function WorkspaceSyncPullTab({
   const [catalogMappingRequirements, setCatalogMappingRequirements] = useState<
     CatalogMappingRequirement[]
   >([])
+  const [mcpMappings, setMcpMappings] = useState<Record<string, string>>({})
+  const [mcpMappingRequirements, setMcpMappingRequirements] = useState<
+    McpIntegrationMappingRequirement[]
+  >([])
   const [pullPreview, setPullPreview] = useState<PullResult | null>(null)
   const [pullPreviewOptions, setPullPreviewOptions] = useState<{
     commitSha: string
     syncSchedules: boolean
     catalogMappingsKey: string | null
+    mcpMappingsKey: string | null
   } | null>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
   const [pullAction, setPullAction] = useState<"preview" | "apply" | null>(null)
@@ -91,14 +96,25 @@ export function WorkspaceSyncPullTab({
     () => JSON.stringify(selectedCatalogMappings),
     [selectedCatalogMappings]
   )
+  const selectedMcpMappings = useMemo(
+    () => mcpIntegrationMappingSelections(mcpMappings),
+    [mcpMappings]
+  )
+  const mcpMappingsKey = useMemo(
+    () => JSON.stringify(selectedMcpMappings),
+    [selectedMcpMappings]
+  )
   const pullPreviewMatchesSource =
     Boolean(effectivePullSha) &&
     pullPreviewOptions !== null &&
     pullPreviewOptions.commitSha === effectivePullSha &&
     pullPreviewOptions.syncSchedules === syncSchedules
+  // Both selection sets must match what the backend last validated. Changing
+  // either one invalidates the preview until it is re-run.
   const pullPreviewMatchesSelection =
     pullPreviewMatchesSource &&
-    pullPreviewOptions?.catalogMappingsKey === catalogMappingsKey
+    pullPreviewOptions?.catalogMappingsKey === catalogMappingsKey &&
+    pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey
   const canApplyPull =
     pullPreviewMatchesSelection && pullPreview?.success === true
 
@@ -119,6 +135,8 @@ export function WorkspaceSyncPullTab({
     resetPullPreview()
     setCatalogMappings({})
     setCatalogMappingRequirements([])
+    setMcpMappings({})
+    setMcpMappingRequirements([])
   }, [effectivePullSha, provider, resetPullPreview])
 
   useEffect(() => {
@@ -139,13 +157,18 @@ export function WorkspaceSyncPullTab({
         dry_run: true,
         sync_schedules: syncSchedules,
         catalog_mappings: selectedCatalogMappings,
+        mcp_integration_mappings: selectedMcpMappings,
       })
       setPullPreview(result)
       setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
+      setMcpMappingRequirements(
+        result.mcp_integration_mapping_requirements ?? []
+      )
       setPullPreviewOptions({
         commitSha: effectivePullSha,
         syncSchedules,
         catalogMappingsKey,
+        mcpMappingsKey,
       })
       toast({
         title: result.success ? "Pull preview ready" : "Pull preview failed",
@@ -175,6 +198,7 @@ export function WorkspaceSyncPullTab({
         commit_sha: effectivePullSha,
         sync_schedules: syncSchedules,
         catalog_mappings: selectedCatalogMappings,
+        mcp_integration_mappings: selectedMcpMappings,
       })
       if (result.success) {
         setPullResult(result)
@@ -182,15 +206,22 @@ export function WorkspaceSyncPullTab({
         setPullPreviewOptions(null)
         setCatalogMappings({})
         setCatalogMappingRequirements([])
+        setMcpMappings({})
+        setMcpMappingRequirements([])
       } else {
         setPullPreview(result)
         setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
+        setMcpMappingRequirements(
+          result.mcp_integration_mapping_requirements ?? []
+        )
         setPullPreviewOptions({
           commitSha: effectivePullSha,
           syncSchedules,
-          // Apply revalidates catalog access. A failure invalidates the prior
-          // preview even when the selected UUIDs themselves did not change.
+          // Apply revalidates catalog and MCP integration access. A failure
+          // invalidates the prior preview even when the selected UUIDs
+          // themselves did not change.
           catalogMappingsKey: null,
+          mcpMappingsKey: null,
         })
       }
       toast({
@@ -218,6 +249,17 @@ export function WorkspaceSyncPullTab({
     setCatalogMappings((current) => ({
       ...current,
       [sourceCatalogId]: targetCatalogId,
+    }))
+    setPullResult(null)
+  }
+
+  function handleMcpMappingChange(
+    sourceMcpIntegrationId: string,
+    targetMcpIntegrationId: string
+  ) {
+    setMcpMappings((current) => ({
+      ...current,
+      [sourceMcpIntegrationId]: targetMcpIntegrationId,
     }))
     setPullResult(null)
   }
@@ -263,6 +305,9 @@ export function WorkspaceSyncPullTab({
           catalogMappingRequirements={catalogMappingRequirements}
           catalogMappings={catalogMappings}
           onCatalogMappingChange={handleCatalogMappingChange}
+          mcpMappingRequirements={mcpMappingRequirements}
+          mcpMappings={mcpMappings}
+          onMcpMappingChange={handleMcpMappingChange}
           mappingsMatchPreview={pullPreviewMatchesSelection}
           disabled={pullWorkflowsIsPending}
         />
@@ -367,6 +412,9 @@ function PullPreviewSummary({
   catalogMappingRequirements,
   catalogMappings,
   onCatalogMappingChange,
+  mcpMappingRequirements,
+  mcpMappings,
+  onMcpMappingChange,
   mappingsMatchPreview,
   disabled,
 }: {
@@ -376,6 +424,12 @@ function PullPreviewSummary({
   onCatalogMappingChange: (
     sourceCatalogId: string,
     targetCatalogId: string
+  ) => void
+  mcpMappingRequirements: McpIntegrationMappingRequirement[]
+  mcpMappings: Record<string, string>
+  onMcpMappingChange: (
+    sourceMcpIntegrationId: string,
+    targetMcpIntegrationId: string
   ) => void
   mappingsMatchPreview: boolean
   disabled: boolean
@@ -436,6 +490,16 @@ function PullPreviewSummary({
         />
       )}
 
+      {mcpMappingRequirements.length > 0 && (
+        <McpIntegrationMappingRequirements
+          requirements={mcpMappingRequirements}
+          selections={mcpMappings}
+          onChange={onMcpMappingChange}
+          mappingsMatchPreview={mappingsMatchPreview}
+          disabled={disabled}
+        />
+      )}
+
       <PullResourceManifest result={result} />
 
       <ResourceDiffSection diffs={resourceDiffs} />
@@ -463,12 +527,9 @@ function CatalogMappingRequirements({
   mappingsMatchPreview: boolean
   disabled: boolean
 }) {
-  const allSelected = requirements.every(
-    (requirement) => selections[requirement.source_catalog_id]
-  )
-  const labelledRequirements = useMemo(
+  const items = useMemo(
     () =>
-      requirements.map((requirement) => {
+      requirements.map((requirement): MappingRequirementItem => {
         const baseLabels = requirement.candidates.map(
           catalogMappingCandidateBaseLabel
         )
@@ -485,89 +546,35 @@ function CatalogMappingRequirements({
           const baseLabel = baseLabels[index]
           const isDuplicate = (baseLabelCounts.get(baseLabel) ?? 0) > 1
           return {
-            candidate,
+            value: candidate.catalog_id,
             label: isDuplicate
               ? `${baseLabel} · ${candidate.catalog_id.slice(0, 8)}`
               : baseLabel,
           }
         })
-        return { requirement, candidates }
+        return {
+          key: requirement.source_catalog_id,
+          title: requirement.model_name,
+          subtitle: requirement.model_provider,
+          ariaLabel: `Target model for ${requirement.model_name}`,
+          candidates,
+          affects: mappingAffectsSummary(requirement),
+        }
       }),
     [requirements]
   )
 
   return (
-    <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/40 p-3">
-      <div className="space-y-1">
-        <h6 className="text-sm font-medium">Choose target models</h6>
-        <p className="text-xs text-muted-foreground">
-          These source models match multiple or changed target providers. Your
-          choices apply to every listed preset version and workflow action in
-          this pull.
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        {labelledRequirements.map(({ requirement, candidates }) => (
-          <div
-            key={requirement.source_catalog_id}
-            className="space-y-2 border-t border-amber-200 pt-3 first:border-0 first:pt-0"
-          >
-            <div className="space-y-0.5">
-              <div className="text-sm font-medium">
-                {requirement.model_name}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {requirement.model_provider}
-              </div>
-            </div>
-
-            <Select
-              value={selections[requirement.source_catalog_id] ?? ""}
-              onValueChange={(targetCatalogId) =>
-                onChange(requirement.source_catalog_id, targetCatalogId)
-              }
-              disabled={disabled}
-            >
-              <SelectTrigger
-                aria-label={`Target model for ${requirement.model_name}`}
-              >
-                <SelectValue placeholder="Choose target model" />
-              </SelectTrigger>
-              <SelectContent>
-                {candidates.map(({ candidate, label }) => (
-                  <SelectItem
-                    key={candidate.catalog_id}
-                    value={candidate.catalog_id}
-                  >
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <p className="text-[11px] text-muted-foreground">
-              Affects{" "}
-              {[
-                ...requirement.affected_presets.map(
-                  (preset) => `${preset.preset_name} version ${preset.version}`
-                ),
-                ...requirement.affected_workflows.map(
-                  (workflow) =>
-                    `${workflow.workflow_title} action ${workflow.action_ref}`
-                ),
-              ].join(", ")}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {allSelected && !mappingsMatchPreview && (
-        <p className="text-xs font-medium text-amber-700">
-          Preview changes again to validate these choices before applying.
-        </p>
-      )}
-    </div>
+    <MappingRequirementsCard
+      heading="Choose target models"
+      description="These source models match multiple or changed target providers. Your choices apply to every listed preset version and workflow action in this pull."
+      placeholder="Choose target model"
+      items={items}
+      selections={selections}
+      onChange={onChange}
+      mappingsMatchPreview={mappingsMatchPreview}
+      disabled={disabled}
+    />
   )
 }
 
@@ -587,6 +594,79 @@ function catalogMappingCandidateBaseLabel(
   return details.join(" · ")
 }
 
+/**
+ * Inline resolution UI for imported MCP integration references that could not
+ * be resolved against a workspace-local integration.
+ */
+function McpIntegrationMappingRequirements({
+  requirements,
+  selections,
+  onChange,
+  mappingsMatchPreview,
+  disabled,
+}: {
+  requirements: McpIntegrationMappingRequirement[]
+  selections: Record<string, string>
+  onChange: (
+    sourceMcpIntegrationId: string,
+    targetMcpIntegrationId: string
+  ) => void
+  mappingsMatchPreview: boolean
+  disabled: boolean
+}) {
+  const items = useMemo(
+    () =>
+      requirements.map((requirement): MappingRequirementItem => {
+        const nameCounts = new Map<string, number>()
+        for (const candidate of requirement.candidates) {
+          nameCounts.set(
+            candidate.name,
+            (nameCounts.get(candidate.name) ?? 0) + 1
+          )
+        }
+        // Slugs are workspace-unique, so only append one when two candidates
+        // would otherwise render the same name.
+        const candidates = requirement.candidates.map((candidate) => {
+          const isDuplicate = (nameCounts.get(candidate.name) ?? 0) > 1
+          const name = isDuplicate
+            ? `${candidate.name} (${candidate.slug})`
+            : candidate.name
+          return {
+            value: candidate.mcp_integration_id,
+            label: `${name} (${candidate.server_type} · ${candidate.auth_type})`,
+          }
+        })
+        return {
+          key: requirement.source_mcp_integration_id,
+          title:
+            requirement.name ??
+            requirement.slug ??
+            requirement.source_mcp_integration_id,
+          subtitle: requirement.message,
+          ariaLabel: `Target MCP integration for ${
+            requirement.slug ?? requirement.source_mcp_integration_id
+          }`,
+          candidates,
+          affects: mappingAffectsSummary(requirement),
+        }
+      }),
+    [requirements]
+  )
+
+  return (
+    <MappingRequirementsCard
+      heading="Choose target MCP integrations"
+      description="These source MCP integrations could not be matched automatically. Your choices apply to every listed preset version and workflow action in this pull."
+      placeholder="Choose target MCP integration"
+      items={items}
+      selections={selections}
+      onChange={onChange}
+      mappingsMatchPreview={mappingsMatchPreview}
+      disabled={disabled}
+    />
+  )
+}
+
 function catalogMappingSelections(
   mappings: Record<string, string>
 ): CatalogMappingSelection[] {
@@ -595,6 +675,17 @@ function catalogMappingSelections(
     .map(([sourceCatalogId, targetCatalogId]) => ({
       source_catalog_id: sourceCatalogId,
       target_catalog_id: targetCatalogId,
+    }))
+}
+
+function mcpIntegrationMappingSelections(
+  mappings: Record<string, string>
+): McpIntegrationMappingSelection[] {
+  return Object.entries(mappings)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([sourceMcpIntegrationId, targetMcpIntegrationId]) => ({
+      source_mcp_integration_id: sourceMcpIntegrationId,
+      target_mcp_integration_id: targetMcpIntegrationId,
     }))
 }
 

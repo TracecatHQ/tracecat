@@ -214,6 +214,21 @@ class AgentPresetSubagentRef(BaseModel):
     )
 
 
+class McpIntegrationRef(BaseModel):
+    """Structured MCP integration reference: local id plus natural-key hint."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: uuid.UUID = Field(description="Source MCP integration id.")
+    slug: str = Field(min_length=1, description="Source MCP integration slug.")
+    server_type: str = Field(description="Source MCP server type.")
+    auth_type: str = Field(description="Source MCP authentication type.")
+    name: str | None = Field(
+        default=None,
+        description="Source MCP integration display name.",
+    )
+
+
 class AgentPresetVersionResourceSpec(BaseModel):
     """Immutable agent preset snapshot stored under a preset's versions dir."""
 
@@ -271,9 +286,10 @@ class AgentPresetVersionResourceSpec(BaseModel):
         default_factory=list,
         description="Registry namespaces the agent's tools are drawn from.",
     )
-    mcp_integrations: list[str] = Field(
+    # Bare strings predate structured refs; projection writes structured entries.
+    mcp_integrations: list[McpIntegrationRef | str] = Field(
         default_factory=list,
-        description="MCP integration slugs available to the agent.",
+        description="MCP integrations available to the agent.",
     )
     retries: int = Field(
         default=3,

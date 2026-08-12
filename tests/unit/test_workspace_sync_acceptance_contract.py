@@ -45,6 +45,7 @@ from tracecat.db.models import (
     CaseFields,
     CaseTag,
     CaseTrigger,
+    MCPIntegration,
     Secret,
     Skill,
     SkillDraftFile,
@@ -60,6 +61,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WF_ID_SHORT_PATTERN, WorkflowUUID
+from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -69,11 +71,16 @@ from tracecat.tables.service import BaseTablesService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    RESOURCE_ADAPTERS_BY_TYPE,
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
 from tracecat.workspace_sync.adapters.base import VersionedSlug
-from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.enums import (
+    ReferenceKind,
+    SyncResourceType,
+    VcsProvider,
+)
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.resources import workflow_references
 from tracecat.workspace_sync.schemas import (
@@ -89,6 +96,7 @@ from tracecat.workspace_sync.schemas import (
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
     AgentPresetSubagentRef,
+    McpIntegrationRef,
     ResourceRef,
     SkillFileSpec,
     SkillResourceSpec,
@@ -178,6 +186,18 @@ def test_resource_adapters_cover_expanded_resource_contract() -> None:
 
     assert adapter_types >= EXPANDED_RESOURCE_TYPES
     assert len(adapter_types) == len(WORKSPACE_RESOURCE_ADAPTERS)
+
+
+def test_every_sync_resource_type_is_adapter_backed() -> None:
+    """Invariant: SyncResourceType is exactly the adapter registry's domain."""
+    assert set(RESOURCE_ADAPTERS_BY_TYPE) == set(SyncResourceType)
+
+
+def test_reference_kinds_never_collide_with_sync_resource_types() -> None:
+    """Invariant: both enums share the mapping table's resource_type column."""
+    assert {kind.value for kind in ReferenceKind}.isdisjoint(
+        {resource_type.value for resource_type in SyncResourceType}
+    )
 
 
 def test_manifest_declares_expanded_resource_roots() -> None:
@@ -5326,6 +5346,811 @@ async def test_workspace_sync_preserves_templated_workflow_catalog_id(
     assert yaml.safe_load(action.inputs)["model"] == model_args
 
 
+@pytest.mark.anyio
+async def test_mcp_integration_exact_match_auto_resolves_without_interaction(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An exact slug/server_type/auth_type hint resolves with no user choice."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-exact"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP exact"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [
+                _mcp_ref(source_mcp_id, slug="linear_mcp", name="Linear")
+            ],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="m" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.mcp_integration_mapping_requirements == []
+    [entry] = (
+        prepared.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    )
+    assert entry == McpIntegrationRef(
+        id=local.id,
+        slug="linear_mcp",
+        server_type="http",
+        auth_type="OAUTH2",
+        name="Linear",
+    )
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == source_id,
+        )
+    )
+    assert preset is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version is not None
+    assert version.mcp_integrations == [str(local.id)]
+
+    # Deterministic natural-key hits are intentionally not persisted.
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == ReferenceKind.MCP_INTEGRATION.value,
+        )
+    )
+    assert mapping is None
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A partial natural-key match must block the pull and offer candidates."""
+    other = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="zzz_other",
+        name="Other",
+    )
+    slug_match = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear stdio",
+        server_type="stdio",
+    )
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-mismatch"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP mismatch"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            # server_type http vs the local stdio row: not an exact match.
+            "mcp_integrations": [
+                _mcp_ref(source_mcp_id, slug="linear_mcp", name="Linear")
+            ],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    requirements = prepared.mcp_integration_mapping_requirements
+    assert len(requirements) == 1
+    requirement = requirements[0]
+    assert requirement.source_mcp_integration_id == source_mcp_id
+    assert requirement.reason == "unresolved"
+    assert requirement.slug == "linear_mcp"
+    # Slug-matched candidate leads the picker.
+    assert [candidate.mcp_integration_id for candidate in requirement.candidates] == [
+        slug_match.id,
+        other.id,
+    ]
+    assert [affected.version for affected in requirement.affected_presets] == [1]
+    assert [
+        diagnostic.details["code"]
+        for diagnostic in prepared.diagnostics
+        if diagnostic.details
+    ] == ["mcp_integration_mapping_required"]
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is False
+    assert (result.mcp_integration_mapping_requirements or [])[0] == requirement
+    assert (
+        await session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id,
+                AgentPreset.slug == source_id,
+            )
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_selection_resolves_persists_and_replays(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An explicit choice is applied, persisted, and reused by the next pull."""
+    chosen = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="chosen_mcp",
+        name="Chosen",
+    )
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-selection"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP selection"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="unmatched_mcp")],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="o" * 40)
+    assert diagnostics == []
+
+    unresolved = await service._prepare_snapshot_for_import(snapshot)
+    assert len(unresolved.mcp_integration_mapping_requirements) == 1
+
+    mappings = {source_mcp_id: chosen.id}
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings=mappings,
+    )
+    assert result.success is True, result.diagnostics
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == source_id,
+        )
+    )
+    assert preset is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version is not None
+    assert version.mcp_integrations == [str(chosen.id)]
+
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == ReferenceKind.MCP_INTEGRATION.value,
+            WorkspaceSyncResourceMapping.source_id == str(source_mcp_id),
+        )
+    )
+    assert mapping is not None
+    assert mapping.local_id == chosen.id
+
+    # A later pull resolves silently from the persisted mapping.
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.diagnostics == []
+    assert replayed.mcp_integration_mapping_requirements == []
+    assert _mcp_entry_ids(
+        replayed.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    ) == [str(chosen.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_legacy_manifest_requires_then_reuses_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Manifests without correlation hints resolve by mapping or requirement only."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="legacy_mcp",
+        name="Legacy",
+    )
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-legacy"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP legacy"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {"mcp_integrations": [str(source_mcp_id)]},
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="p" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    requirements = prepared.mcp_integration_mapping_requirements
+    assert len(requirements) == 1
+    assert requirements[0].slug is None
+    assert requirements[0].reason == "unresolved"
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={source_mcp_id: local.id},
+    )
+    assert result.success is True, result.diagnostics
+
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.mcp_integration_mapping_requirements == []
+    assert _mcp_entry_ids(
+        replayed.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    ) == [str(local.id)]
+
+
+@pytest.mark.anyio
+async def test_repeat_preview_after_applied_mcp_pull_shows_no_diffs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An applied pull must preview clean: no phantom diffs from MCP metadata."""
+    await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-repeat-preview"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP repeat preview"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "model_name": "gpt-5.5",
+            "model_provider": "openai",
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="linear_mcp")],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="x" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.mcp_integration_mapping_requirements == []
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [
+        (diff.source_path, diff.change_type, diff.diff) for diff in diffs
+    ]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_conflicting_meta_requires_choice_not_first_wins(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Conflicting identity hints for one source UUID must never pick a winner."""
+    local_a = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="github_mcp",
+        name="GitHub",
+    )
+    source_mcp_id = uuid.uuid4()
+    first_source_id = "qa-mcp-conflict-a"
+    second_source_id = "qa-mcp-conflict-b"
+    files = _combined_git_tree(
+        _agent_preset_git_tree(
+            source_id=first_source_id,
+            slug=first_source_id,
+            name="QA MCP conflict A",
+        ),
+        _agent_preset_git_tree(
+            source_id=second_source_id,
+            slug=second_source_id,
+            name="QA MCP conflict B",
+        ),
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{first_source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="linear_mcp")],
+        },
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{second_source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="github_mcp")],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    requirements = prepared.mcp_integration_mapping_requirements
+    assert len(requirements) == 1
+    assert requirements[0].reason == "conflicting_metadata"
+    for preset_source_id in (first_source_id, second_source_id):
+        assert _mcp_entry_ids(
+            prepared.snapshot.spec.agent_presets[preset_source_id]
+            .versions[1]
+            .mcp_integrations
+        ) == [str(source_mcp_id)]
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={source_mcp_id: local_a.id},
+    )
+    assert result.success is True, result.diagnostics
+
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.mcp_integration_mapping_requirements == []
+    for preset_source_id in (first_source_id, second_source_id):
+        assert _mcp_entry_ids(
+            replayed.snapshot.spec.agent_presets[preset_source_id]
+            .versions[1]
+            .mcp_integrations
+        ) == [str(local_a.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_stale_mapping_requires_new_choice(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A persisted mapping to a deleted integration must not resolve silently."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="fresh_mcp",
+        name="Fresh",
+    )
+    source_mcp_id = uuid.uuid4()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=ReferenceKind.MCP_INTEGRATION.value,
+            source_id=str(source_mcp_id),
+            local_id=uuid.uuid4(),
+        )
+    )
+    await session.flush()
+
+    source_id = "qa-mcp-stale"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP stale"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {"mcp_integrations": [str(source_mcp_id)]},
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="u" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    requirements = prepared.mcp_integration_mapping_requirements
+    assert len(requirements) == 1
+    assert requirements[0].reason == "unresolved"
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={source_mcp_id: local.id},
+    )
+    assert result.success is True, result.diagnostics
+
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.mcp_integration_mapping_requirements == []
+    assert _mcp_entry_ids(
+        replayed.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    ) == [str(local.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_stale_mapping_falls_back_to_natural_key(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A stale mapping falls through to the manifest's correlation hint."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_mcp_id = uuid.uuid4()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=ReferenceKind.MCP_INTEGRATION.value,
+            source_id=str(source_mcp_id),
+            local_id=uuid.uuid4(),
+        )
+    )
+    await session.flush()
+
+    source_id = "qa-mcp-stale-hint"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP stale hint"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="linear_mcp")],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="v" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.mcp_integration_mapping_requirements == []
+    assert _mcp_entry_ids(
+        prepared.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    ) == [str(local.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_zero_local_integrations_blocks_without_candidates(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """With nothing to choose from, only a blocking diagnostic is emitted."""
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-empty"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP empty"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [_mcp_ref(source_mcp_id, slug="linear_mcp")],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="q" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.mcp_integration_mapping_requirements == []
+    assert len(prepared.diagnostics) == 1
+    diagnostic = prepared.diagnostics[0]
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.details is not None
+    assert diagnostic.details["code"] == "mcp_integration_mapping_required"
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is False
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_mapping_conflict_is_reported_not_repointed(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A local integration already mapped to another source must not be re-pointed."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="shared_mcp",
+        name="Shared",
+    )
+    existing_source_id = uuid.uuid4()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=ReferenceKind.MCP_INTEGRATION.value,
+            source_id=str(existing_source_id),
+            local_id=local.id,
+        )
+    )
+    await session.flush()
+
+    source_mcp_id = uuid.uuid4()
+    source_id = "qa-mcp-conflict"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP conflict"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {"mcp_integrations": [str(source_mcp_id)]},
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="t" * 40)
+    assert diagnostics == []
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={source_mcp_id: local.id},
+    )
+    assert result.success is False
+    codes = [
+        diagnostic.details["code"]
+        for diagnostic in result.diagnostics
+        if diagnostic.details
+    ]
+    assert codes == ["mcp_integration_mapping_conflict"]
+
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == ReferenceKind.MCP_INTEGRATION.value,
+            WorkspaceSyncResourceMapping.local_id == local.id,
+        )
+    )
+    assert mapping is not None
+    assert mapping.source_id == str(existing_source_id)
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_refs_in_workflow_agent_args_are_correlated(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """``ai.agent`` raw args carry the same source UUIDs and must be rewritten."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_mcp_id = uuid.uuid4()
+    preset_source_id = "qa-mcp-shared-preset"
+    workflow_alias = "qa-mcp-shared-workflow"
+    files = _combined_git_tree(
+        _agent_preset_git_tree(
+            source_id=preset_source_id,
+            slug=preset_source_id,
+            name="QA MCP shared preset",
+        ),
+        _workflow_agent_git_tree(
+            source_id=workflow_alias,
+            alias=workflow_alias,
+            title="QA MCP shared workflow",
+            action_ref="run_mcp_agent",
+            action_args={
+                "user_prompt": "Investigate the event.",
+                "mcp_integrations": [str(source_mcp_id)],
+            },
+        ),
+    )
+    # The workflow ref reuses the preset's hint: source UUIDs are shared.
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{preset_source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [
+                _mcp_ref(source_mcp_id, slug="linear_mcp", name="Linear")
+            ],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="u" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.mcp_integration_mapping_requirements == []
+    prepared_args = (
+        prepared.snapshot.spec.workflows[workflow_alias].definition.actions[0].args
+    )
+    assert prepared_args["mcp_integrations"] == [str(local.id)]
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    imported_args = await _imported_workflow_action_args(
+        session,
+        workspace_id=svc_role.workspace_id,
+        workflow_alias=workflow_alias,
+        action_type="ai.agent",
+    )
+    assert imported_args["mcp_integrations"] == [str(local.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_correlation_preserves_reference_order(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Rewriting must preserve each version's reference order."""
+    first = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="zzz_last_slug",
+        name="Z",
+    )
+    second = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="aaa_first_slug",
+        name="A",
+    )
+    source_first = uuid.uuid4()
+    source_second = uuid.uuid4()
+    source_id = "qa-mcp-order"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP order"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [
+                _mcp_ref(source_first, slug="zzz_last_slug"),
+                _mcp_ref(source_second, slug="aaa_first_slug"),
+            ],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="v" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert _mcp_entry_ids(
+        prepared.snapshot.spec.agent_presets[source_id].versions[1].mcp_integrations
+    ) == [str(first.id), str(second.id)]
+
+
+@pytest.mark.anyio
+async def test_mcp_integration_unused_selection_reports_source_not_found(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A selection for a source absent from the snapshot must be reported."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_mcp_id = uuid.uuid4()
+    absent_source_id = uuid.uuid4()
+    source_id = "qa-mcp-unused"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP unused"
+    )
+    _patch_yaml_file(
+        files,
+        f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml",
+        {
+            "mcp_integrations": [
+                _mcp_ref(source_mcp_id, slug="linear_mcp", name="Linear")
+            ],
+        },
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+    assert diagnostics == []
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot,
+        requested_mcp_integration_mappings={absent_source_id: local.id},
+    )
+    assert [
+        diagnostic.details["code"]
+        for diagnostic in prepared.diagnostics
+        if diagnostic.details
+    ] == ["mcp_integration_mapping_source_not_found"]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_export_emits_structured_mcp_refs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Export must publish structured refs carrying the natural-key hint."""
+    local = await _create_mcp_integration(
+        session,
+        workspace_id=svc_role.workspace_id,
+        slug="linear_mcp",
+        name="Linear",
+    )
+    source_id = "qa-mcp-export"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP export"
+    )
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    _patch_yaml_file(files, version_path, {"mcp_integrations": [str(local.id)]})
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="y" * 40)
+    assert diagnostics == []
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_mcp_integration_mappings={local.id: local.id},
+    )
+    assert result.success is True, result.diagnostics
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    exported = yaml.safe_load(projection.files[version_path])
+    assert exported["mcp_integrations"] == [
+        {
+            "id": str(local.id),
+            "slug": "linear_mcp",
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "name": "Linear",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_export_without_mcp_refs_stays_unchanged(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Presets without MCP references keep manifests byte-identical to before."""
+    source_id = "qa-mcp-none"
+    files = _agent_preset_git_tree(
+        source_id=source_id, slug=source_id, name="QA MCP none"
+    )
+    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/versions/1.yml"
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
+    assert diagnostics == []
+    assert (await service._import_snapshot(snapshot, sync_schedules=False)).success
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    exported = yaml.safe_load(projection.files[version_path])
+    assert exported["mcp_integrations"] == []
+
+
 def _untyped_catalog_preset_git_tree(
     *, source_id: str, catalog_id: str
 ) -> dict[str, str]:
@@ -6819,6 +7644,55 @@ async def _imported_workflow_action_args(
     args = yaml.safe_load(action.inputs)
     assert isinstance(args, dict)
     return args
+
+
+async def _create_mcp_integration(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID | None,
+    slug: str,
+    name: str,
+    server_type: str = "http",
+    auth_type: MCPAuthType = MCPAuthType.OAUTH2,
+) -> MCPIntegration:
+    """Create one workspace-local MCP integration row."""
+    assert workspace_id is not None
+    integration = MCPIntegration(
+        workspace_id=workspace_id,
+        slug=slug,
+        name=name,
+        server_type=server_type,
+        auth_type=auth_type,
+    )
+    session.add(integration)
+    await session.flush()
+    return integration
+
+
+def _mcp_ref(
+    integration_id: uuid.UUID | str,
+    *,
+    slug: str,
+    server_type: str = "http",
+    auth_type: str = "OAUTH2",
+    name: str | None = None,
+) -> dict[str, Any]:
+    """Build one structured manifest MCP reference entry."""
+    return {
+        "id": str(integration_id),
+        "slug": slug,
+        "server_type": server_type,
+        "auth_type": auth_type,
+        "name": name,
+    }
+
+
+def _mcp_entry_ids(entries: list[Any]) -> list[str]:
+    """Extract the id from each spec entry, structured or bare."""
+    return [
+        str(entry.id) if isinstance(entry, McpIntegrationRef) else entry
+        for entry in entries
+    ]
 
 
 def _patch_yaml_file(

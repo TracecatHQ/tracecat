@@ -5385,6 +5385,54 @@ export type status5 =
   | "failed"
   | "superseded"
 
+export type McpIntegrationMappingAffectedPreset = {
+  preset_slug: string
+  preset_name: string
+  version: number
+  path: string
+}
+
+export type McpIntegrationMappingAffectedWorkflow = {
+  workflow_source_id: string
+  workflow_path: string
+  workflow_title: string
+  action_ref: string
+}
+
+export type McpIntegrationMappingCandidate = {
+  mcp_integration_id: string
+  slug: string
+  name: string
+  server_type: string
+  auth_type: string
+}
+
+export type McpIntegrationMappingRequirement = {
+  source_mcp_integration_id: string
+  slug: string | null
+  name: string | null
+  server_type: string | null
+  auth_type: string | null
+  reason: McpIntegrationMappingRequirementReason
+  message: string
+  candidates: Array<McpIntegrationMappingCandidate>
+  affected_presets: Array<McpIntegrationMappingAffectedPreset>
+  affected_workflows: Array<McpIntegrationMappingAffectedWorkflow>
+}
+
+export type McpIntegrationMappingRequirementReason =
+  | "unresolved"
+  | "invalid_selection"
+  | "conflicting_metadata"
+
+/**
+ * User-selected local MCP integration for one source integration reference.
+ */
+export type McpIntegrationMappingSelection = {
+  source_mcp_integration_id: string
+  target_mcp_integration_id: string
+}
+
 /**
  * Polymorphic target kind for a parsed case-comment mention.
  *
@@ -6097,6 +6145,7 @@ export type PullResult = {
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
+  mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
 }
 
 /**
@@ -7567,6 +7616,10 @@ export type SyncPreviewResource = {
 
 /**
  * Kind of workspace resource that can be synced to and from Git.
+ *
+ * Every member is adapter-backed: it can be projected to and imported from
+ * repository files. Reference-only correlation targets belong in
+ * :class:`ReferenceKind` instead.
  */
 export type SyncResourceType =
   | "workflow"
@@ -9736,6 +9789,10 @@ export type WorkflowSyncPullRequest = {
    * Explicit source-to-target model choices from the pull preview.
    */
   catalog_mappings?: Array<CatalogMappingSelection>
+  /**
+   * Explicit source-to-target MCP integration choices from the pull preview.
+   */
+  mcp_integration_mappings?: Array<McpIntegrationMappingSelection>
 }
 
 export type WorkflowTagCreate = {
