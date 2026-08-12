@@ -2838,6 +2838,8 @@ class AgentSessionService(BaseWorkspaceService):
         entity_id = agent_session.entity_id
 
         if entity_type == AgentSessionEntity.CASE:
+            # Query directly because CasesService imports the comment invocation
+            # queue, whose workflow dependency imports AgentSessionService.
             case = await self.session.scalar(
                 select(Case).where(
                     Case.id == entity_id,
