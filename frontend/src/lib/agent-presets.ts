@@ -59,7 +59,7 @@ export function buildDuplicateAgentPresetPayload(
   preset: AgentPresetRead,
   existingSlugs: Iterable<string>
 ): AgentPresetCreate {
-  const payload: AgentPresetCreate = {
+  return {
     name: getDuplicateItemName(preset.name, "agent"),
     slug: buildDuplicateAgentSlug(preset.slug || preset.name, existingSlugs),
     description: preset.description ?? null,
@@ -76,9 +76,7 @@ export function buildDuplicateAgentPresetPayload(
     retries: preset.retries,
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
-    timeout_seconds: preset.timeout_seconds ?? null,
   }
-  return payload
 }
 
 export function buildAgentPresetUpdatePayload(
@@ -90,29 +88,6 @@ export function buildAgentPresetUpdatePayload(
     delete updatePayload.skills
   }
   return updatePayload
-}
-
-/** Keep explicit timeouts visible while reserving blank for inheritance. */
-export function getAgentPresetFormTimeout(
-  timeoutSeconds: number | null | undefined
-): number | null {
-  return timeoutSeconds ?? null
-}
-
-/** Resolve timeout updates without conflating a blank display with a deliberate clear. */
-export function getAgentPresetUpdateTimeout({
-  currentTimeoutSeconds,
-  formTimeoutSeconds,
-  timeoutChanged,
-}: {
-  currentTimeoutSeconds: number | null | undefined
-  formTimeoutSeconds: number | null
-  timeoutChanged: boolean
-}): number | null {
-  if (timeoutChanged) {
-    return formTimeoutSeconds
-  }
-  return currentTimeoutSeconds ?? null
 }
 
 export function canSubmitAgentPresetForm({

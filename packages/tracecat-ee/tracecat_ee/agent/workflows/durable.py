@@ -1216,7 +1216,7 @@ class DurableAgentWorkflow:
 
         configurable_timeout = workflow.patched(CONFIGURABLE_AGENT_TIMEOUT_PATCH)
         timeout_seconds = (
-            resolve_agent_timeout_seconds(cfg.timeout_seconds)
+            resolve_agent_timeout_seconds(args.agent_args.timeout_seconds)
             if configurable_timeout
             else config.TRACECAT__AGENT_SANDBOX_TIMEOUT
         )
@@ -1372,7 +1372,7 @@ class DurableAgentWorkflow:
         if configurable_timeout:
             executor_input = _apply_configured_timeout(
                 executor_input,
-                cfg.timeout_seconds,
+                args.agent_args.timeout_seconds,
             )
 
         # Run the executor activity
@@ -1652,7 +1652,7 @@ class DurableAgentWorkflow:
                 if configurable_timeout:
                     executor_input = _apply_configured_timeout(
                         executor_input,
-                        cfg.timeout_seconds,
+                        args.agent_args.timeout_seconds,
                     )
                 self._turn += 1
                 continue

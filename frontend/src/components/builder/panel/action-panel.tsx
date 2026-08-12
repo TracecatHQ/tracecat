@@ -322,6 +322,10 @@ function ActionPanelContent({
 
   // Special-case: disable form mode for reshape actions
   const isReshapeAction = action?.type === "core.transform.reshape"
+  const isAgentBackedAction =
+    action?.type === "ai.agent" ||
+    action?.type === "ai.action" ||
+    action?.type === "ai.preset_agent"
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -339,7 +343,7 @@ function ActionPanelContent({
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
       max_attempts: actionControlFlow?.retry_policy?.max_attempts,
-      timeout: actionControlFlow?.retry_policy?.timeout,
+      timeout: actionControlFlow?.retry_policy?.timeout ?? undefined,
       retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
@@ -1562,7 +1566,11 @@ function ActionPanelContent({
                       {/* Timeout */}
                       <ControlFlowField
                         label="Timeout"
-                        description="Define the timeout in seconds for the action."
+                        description={
+                          isAgentBackedAction
+                            ? "Define the maximum active runtime in seconds for the agent (5–3600). Waiting for approvals does not count."
+                            : "Define the timeout in seconds for the action."
+                        }
                         tooltip={<TimeoutTooltip />}
                       >
                         <FormField
@@ -1582,7 +1590,11 @@ function ActionPanelContent({
                                         : undefined
                                     )
                                   }
-                                  placeholder="300"
+                                  min={isAgentBackedAction ? 5 : 1}
+                                  max={isAgentBackedAction ? 3600 : undefined}
+                                  placeholder={
+                                    isAgentBackedAction ? "1800" : "300"
+                                  }
                                   className="text-xs"
                                 />
                               </FormControl>

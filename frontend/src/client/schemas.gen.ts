@@ -460,7 +460,8 @@ export const $ActionRetryPolicy = {
     timeout: {
       type: "integer",
       title: "Timeout",
-      description: "Timeout for the action in seconds.",
+      description:
+        "Timeout for the action in seconds. Agent-backed AI actions default to 1800s instead (see ActionStatement).",
       default: 300,
     },
     retry_until: {
@@ -2148,19 +2149,6 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
-    timeout_seconds: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 3600,
-          minimum: 5,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout Seconds",
-    },
     enable_thinking: {
       type: "boolean",
       title: "Enable Thinking",
@@ -2450,19 +2438,6 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
-    },
-    timeout_seconds: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 3600,
-          minimum: 5,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout Seconds",
     },
     enable_thinking: {
       type: "boolean",
@@ -3013,19 +2988,6 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
-    timeout_seconds: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 3600,
-          minimum: 5,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout Seconds",
-    },
     enable_thinking: {
       anyOf: [
         {
@@ -3281,19 +3243,6 @@ export const $AgentPresetVersionRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
-    },
-    timeout_seconds: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 3600,
-          minimum: 5,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout Seconds",
     },
     enable_thinking: {
       type: "boolean",

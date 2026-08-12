@@ -1599,7 +1599,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 inputs=yaml.dump(act_stmt.args),
                 title=act_stmt.title,
                 description=act_stmt.description,
-                control_flow=control_flow.model_dump(),
+                control_flow=control_flow.model_dump(exclude_unset=True),
                 position_x=pos[0] if pos else 0.0,
                 position_y=pos[1] if pos else 0.0,
             )

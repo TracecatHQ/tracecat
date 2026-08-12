@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.agent import types as agent_types
 from tracecat.agent.channels.schemas import (
     AgentChannelTokenCreate,
     ChannelType,
@@ -319,7 +318,6 @@ class TestAgentPresetService:
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
         assert created_preset.enable_thinking is True
-        assert created_preset.timeout_seconds == 1800
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
         # Retrieve by ID
@@ -933,11 +931,7 @@ class TestAgentPresetService:
 
         updated_preset = await agent_preset_service.update_preset(
             created_preset,
-            AgentPresetUpdate(
-                instructions="Updated instructions",
-                retries=7,
-                timeout_seconds=3600,
-            ),
+            AgentPresetUpdate(instructions="Updated instructions", retries=7),
         )
         versions = await agent_preset_service.list_versions(
             created_preset.id,
@@ -948,11 +942,6 @@ class TestAgentPresetService:
         assert updated_preset.current_version_id != version_1.id
         assert [version.version for version in versions.items] == [2, 1]
         assert versions.items[0].id == updated_preset.current_version_id
-        assert updated_preset.timeout_seconds == 3600
-        current_version = await agent_preset_service.get_current_version_for_preset(
-            updated_preset
-        )
-        assert current_version.timeout_seconds == 3600
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,
@@ -3287,10 +3276,8 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test conversion of a preset version into executable config."""
-        monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
         # Create a preset with comprehensive configuration
         agent_preset_create_params.actions = ["tools.test.test_action"]
         agent_preset_create_params.namespaces = ["tools.test", "core"]
@@ -3299,7 +3286,6 @@ class TestAgentPresetService:
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version = await agent_preset_service.get_current_version_for_preset(preset)
-        version.timeout_seconds = None
 
         # Test conversion
         agent_config = await agent_preset_service._version_to_agent_config(version)
@@ -3314,7 +3300,6 @@ class TestAgentPresetService:
         assert agent_config.namespaces == preset.namespaces
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
-        assert agent_config.timeout_seconds is None
         assert agent_config.model_settings == {"parallel_tool_calls": False}
 
     async def test_create_preset_with_tool_approvals(

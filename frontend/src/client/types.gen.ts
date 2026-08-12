@@ -120,7 +120,7 @@ export type ActionRetryPolicy = {
    */
   max_attempts?: number
   /**
-   * Timeout for the action in seconds.
+   * Timeout for the action in seconds. Agent-backed AI actions default to 1800s instead (see ActionStatement).
    */
   timeout?: number
   /**
@@ -554,7 +554,6 @@ export type AgentPresetCreate = {
   mcp_integrations?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
   retries?: number
-  timeout_seconds?: number | null
   enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
@@ -605,7 +604,6 @@ export type AgentPresetRead = {
   mcp_integrations?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
-  timeout_seconds?: number | null
   enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
@@ -710,7 +708,6 @@ export type AgentPresetUpdate = {
   mcp_integrations?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
   retries?: number | null
-  timeout_seconds?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
   skills?: Array<AgentPresetSkillBindingBase> | null
@@ -752,7 +749,6 @@ export type AgentPresetVersionRead = {
   mcp_integrations?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
-  timeout_seconds?: number | null
   enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
