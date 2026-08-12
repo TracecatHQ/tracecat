@@ -99,16 +99,21 @@ function formatElapsedDuration(start: Date, end: Date): string {
   return formatDurationComponents(elapsed)
 }
 
+/** Shared so the local and UTC timestamps always read the same shape. */
+const DATE_TIME_PATTERN = "MMM d yyyy '·' p"
+
 function formatLocalDateTime(date: Date): string {
-  return format(date, "MMM d yyyy '·' p")
+  return format(date, DATE_TIME_PATTERN)
 }
 
+/**
+ * date-fns always formats in the runtime's zone, so shift the instant by that
+ * zone's offset and format the result: the wall clock then reads as UTC while
+ * reusing the local pattern.
+ */
 function formatUtcDateTime(date: Date): string {
-  return `${date.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  })} UTC`
+  const shifted = new Date(date.getTime() + date.getTimezoneOffset() * 60_000)
+  return `${format(shifted, DATE_TIME_PATTERN)} UTC`
 }
 
 interface CaseDurationMetric {
