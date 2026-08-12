@@ -26,6 +26,7 @@ from tracecat.cases.agent_invocations.schemas import (
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 
@@ -87,12 +88,15 @@ async def fail_comment_agent_invocation_activity(
 ) -> FailCommentAgentInvocationResult:
     """Idempotently persist a terminal parent-workflow failure."""
     ctx_role.set(input.role)
-    message = f"{input.kind}: {input.error}"[:_MAX_STORED_ERROR_LENGTH]
+    error: CaseCommentAgentInvocationError = {
+        "kind": input.kind,
+        "message": input.error[:_MAX_STORED_ERROR_LENGTH],
+    }
     async with CaseCommentAgentInvocationService.with_session(
         role=input.role
     ) as service:
         await service.claim_pending(input.invocation_id)
-        invocation = await service.mark_failed(input.invocation_id, message)
+        invocation = await service.mark_failed(input.invocation_id, error)
         await service.session.commit()
     return FailCommentAgentInvocationResult(transitioned=invocation is not None)
 

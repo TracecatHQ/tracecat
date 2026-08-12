@@ -9,6 +9,7 @@ Create Date: 2026-08-10 19:33:35.759528
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 from tracecat.db.tenant_rls import (
@@ -33,7 +34,7 @@ def upgrade() -> None:
         sa.Column("preset_name", sa.String(length=120), nullable=False),
         sa.Column("preset_slug", sa.String(length=160), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("error", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column(

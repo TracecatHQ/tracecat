@@ -5,6 +5,22 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal, TypedDict
+
+type CaseCommentAgentInvocationErrorKind = Literal[
+    "startup",
+    "preparation",
+    "agent_turn",
+    "completion",
+    "cancelled",
+]
+
+
+class CaseCommentAgentInvocationError(TypedDict):
+    """Structured terminal failure persisted for a comment agent invocation."""
+
+    kind: CaseCommentAgentInvocationErrorKind
+    message: str
 
 
 @dataclass(frozen=True, slots=True)

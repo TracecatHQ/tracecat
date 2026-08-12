@@ -41,7 +41,10 @@ async def _record_startup_failure(
         await service.claim_pending(invocation_id)
         await service.mark_failed(
             invocation_id,
-            error_message[:_MAX_STORED_ERROR_LENGTH],
+            {
+                "kind": "startup",
+                "message": error_message[:_MAX_STORED_ERROR_LENGTH],
+            },
         )
         await service.session.commit()
 

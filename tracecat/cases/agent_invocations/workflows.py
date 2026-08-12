@@ -27,6 +27,9 @@ with workflow.unsafe.imports_passed_through():
         PrepareCommentAgentInvocationInput,
         PrepareCommentAgentInvocationResult,
     )
+    from tracecat.cases.agent_invocations.types import (
+        CaseCommentAgentInvocationErrorKind,
+    )
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
 
@@ -90,7 +93,7 @@ class CaseCommentAgentInvocationWorkflow:
     async def _record_failure(
         self,
         input: CaseCommentAgentInvocationWorkflowInput,
-        kind: Literal["preparation", "agent_turn", "completion", "cancelled"],
+        kind: CaseCommentAgentInvocationErrorKind,
         error: str,
     ) -> None:
         """Persist failure without replacing the workflow's original exception."""

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.auth.types import Role
+from tracecat.cases.agent_invocations.types import (
+    CaseCommentAgentInvocationErrorKind,
+)
 
 PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY = "prepare_comment_agent_invocation_activity"
 COMPLETE_COMMENT_AGENT_INVOCATION_ACTIVITY = (
@@ -52,7 +55,7 @@ class CompleteCommentAgentInvocationResult(BaseModel):
 class FailCommentAgentInvocationInput(BaseModel):
     role: Role
     invocation_id: uuid.UUID
-    kind: Literal["preparation", "agent_turn", "completion", "cancelled"]
+    kind: CaseCommentAgentInvocationErrorKind
     error: str
 
 

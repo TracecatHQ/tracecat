@@ -366,6 +366,36 @@ class TestCaseCommentsService:
         assert thread is not None
         assert thread.comment.mentions[0].target_id == preset.id
 
+    async def test_invocation_failure_is_structured(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Failing agent",
+        )
+        comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token("Failing agent", preset.id)),
+        )
+        [invocation] = await _load_comment_invocations(session, comment.id)
+        invocation_service = CaseCommentAgentInvocationService(
+            session,
+            case_comments_service.role,
+        )
+        assert await invocation_service.claim_pending(invocation.id) is not None
+        failed = await invocation_service.mark_failed(
+            invocation.id,
+            {"kind": "agent_turn", "message": "model failed"},
+        )
+        await session.commit()
+
+        assert failed is not None
+        assert failed.error == {"kind": "agent_turn", "message": "model failed"}
+
     async def test_create_comment_agent_mention_requires_agent_execute_scope(
         self,
         session: AsyncSession,
@@ -644,7 +674,13 @@ class TestCaseCommentsService:
                 )
                 is None
             )
-            assert await invocation_service.mark_failed(invocation.id, "late") is None
+            assert (
+                await invocation_service.mark_failed(
+                    invocation.id,
+                    {"kind": "completion", "message": "late"},
+                )
+                is None
+            )
 
     async def test_agent_completion_rejects_deleted_thread_root(
         self,

@@ -52,6 +52,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseCommentAgentInvocationStatus,
@@ -2575,7 +2576,10 @@ class CaseCommentAgentInvocation(WorkspaceModel):
         nullable=False,
         index=True,
     )
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[CaseCommentAgentInvocationError | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
 
 class CaseEvent(WorkspaceModel):

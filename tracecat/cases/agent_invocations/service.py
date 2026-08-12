@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
 from tracecat.cases.agent_invocations.types import (
+    CaseCommentAgentInvocationError,
     CommentThreadContext,
     CommentThreadEntry,
 )
@@ -76,7 +77,7 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
     async def mark_failed(
         self,
         invocation_id: uuid.UUID,
-        error: str,
+        error: CaseCommentAgentInvocationError,
     ) -> CaseCommentAgentInvocation | None:
         """Atomically mark a running invocation as failed.
 
