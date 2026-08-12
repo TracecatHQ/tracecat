@@ -116,6 +116,29 @@ export function buildAgentPresetUpdatePayload(
   return updatePayload
 }
 
+/** Keep explicit timeouts visible while reserving blank for inheritance. */
+export function getAgentPresetFormTimeout(
+  timeoutSeconds: number | null | undefined
+): number | null {
+  return timeoutSeconds ?? null
+}
+
+/** Resolve timeout updates without conflating a blank display with a deliberate clear. */
+export function getAgentPresetUpdateTimeout({
+  currentTimeoutSeconds,
+  formTimeoutSeconds,
+  timeoutChanged,
+}: {
+  currentTimeoutSeconds: number | null | undefined
+  formTimeoutSeconds: number | null
+  timeoutChanged: boolean
+}): number | null {
+  if (timeoutChanged) {
+    return formTimeoutSeconds
+  }
+  return currentTimeoutSeconds ?? null
+}
+
 export function canSubmitAgentPresetForm({
   mode,
   isDirty,

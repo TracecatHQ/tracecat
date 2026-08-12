@@ -153,6 +153,8 @@ import {
   type AgentPresetFormMode,
   buildAgentPresetUpdatePayload,
   buildSkillCommandItemValue,
+  getAgentPresetFormTimeout,
+  getAgentPresetUpdateTimeout,
 } from "@/lib/agent-presets"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import type { ModelInfo } from "@/lib/chat"
@@ -1693,12 +1695,11 @@ function AgentPresetForm({
         const updatePayload = buildAgentPresetUpdatePayload(payload, {
           skillsChanged: Boolean(form.formState.dirtyFields.skills),
         })
-        if (
-          preset.timeout_seconds == null &&
-          !form.formState.dirtyFields.timeoutSeconds
-        ) {
-          updatePayload.timeout_seconds = null
-        }
+        updatePayload.timeout_seconds = getAgentPresetUpdateTimeout({
+          currentTimeoutSeconds: preset.timeout_seconds,
+          formTimeoutSeconds: values.timeoutSeconds,
+          timeoutChanged: Boolean(form.formState.dirtyFields.timeoutSeconds),
+        })
         const updated = await onUpdate(preset.id, updatePayload)
         form.reset(presetToFormValues(updated))
       } else {
@@ -3865,7 +3866,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       : preset.output_type
   const agents = preset.agents
   const agentsEnabled = agents?.enabled === true
-  const presetTimeoutSeconds = preset.timeout_seconds
   const subagents = agentsEnabled
     ? (agents.subagents ?? []).map((subagent) => ({
         preset: subagent.preset,
@@ -3926,11 +3926,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         })
       ) ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
-    timeoutSeconds:
-      presetTimeoutSeconds == null ||
-      presetTimeoutSeconds === DEFAULT_TIMEOUT_SECONDS
-        ? null
-        : presetTimeoutSeconds,
+    timeoutSeconds: getAgentPresetFormTimeout(preset.timeout_seconds),
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
   }

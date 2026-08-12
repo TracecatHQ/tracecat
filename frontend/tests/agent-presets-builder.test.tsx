@@ -5,6 +5,8 @@ import {
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
   canSubmitAgentPresetForm,
+  getAgentPresetFormTimeout,
+  getAgentPresetUpdateTimeout,
 } from "@/lib/agent-presets"
 
 const presetPayload = {
@@ -56,6 +58,48 @@ describe("buildAgentPresetUpdatePayload", () => {
     })
 
     expect(update.skills).toEqual(presetPayload.skills)
+  })
+})
+
+describe("getAgentPresetFormTimeout", () => {
+  it("keeps an explicit default timeout visible so it can be cleared", () => {
+    expect(getAgentPresetFormTimeout(1800)).toBe(1800)
+  })
+
+  it("displays an inherited timeout as blank", () => {
+    expect(getAgentPresetFormTimeout(null)).toBeNull()
+  })
+})
+
+describe("getAgentPresetUpdateTimeout", () => {
+  it("preserves an untouched explicit timeout", () => {
+    expect(
+      getAgentPresetUpdateTimeout({
+        currentTimeoutSeconds: 1800,
+        formTimeoutSeconds: 1800,
+        timeoutChanged: false,
+      })
+    ).toBe(1800)
+  })
+
+  it("returns null when the user deliberately clears an explicit timeout", () => {
+    expect(
+      getAgentPresetUpdateTimeout({
+        currentTimeoutSeconds: 900,
+        formTimeoutSeconds: null,
+        timeoutChanged: true,
+      })
+    ).toBeNull()
+  })
+
+  it("keeps an untouched inherited timeout inherited", () => {
+    expect(
+      getAgentPresetUpdateTimeout({
+        currentTimeoutSeconds: null,
+        formTimeoutSeconds: null,
+        timeoutChanged: false,
+      })
+    ).toBeNull()
   })
 })
 
