@@ -1,0 +1,20 @@
+frontend/src/components/cases/case-duration-metrics.tsx
+  s_8e1b4dea416037::t_6d6a0ba455ba8f 264,267
+  s_8e1b4dea416037::t_71bc38c43c4a2d 277,280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "dcc3612f9759c2b048eab9a12ca20aed3a26b9ce",
+  "prompts": {},
+  "sessions": {
+    "s_8e1b4dea416037": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e09cbd2f-f4be-4cad-bc92-e573dc9ed5cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
