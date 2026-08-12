@@ -4,8 +4,8 @@ import {
   Activity,
   Braces,
   MessageSquare,
-  MoreHorizontal,
   Paperclip,
+  Plus,
   Table2,
   X,
 } from "lucide-react"
@@ -604,7 +604,7 @@ export function CasePanelView({
                             size="sm"
                             className="h-6 w-6 p-0"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            <Plus className="h-4 w-4" />
                             <span className="sr-only">Manage tags</span>
                           </Button>
                         </PopoverTrigger>
