@@ -424,7 +424,15 @@ const SidebarContent = React.forwardRef<
       className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}
       {...props}
     >
-      <ScrollArea className="h-full">
+      {/*
+        Radix gives the scroll viewport's child `display: table`, which
+        shrink-wraps to its widest content and hands descendants a width larger
+        than the viewport. `min-w-0`/`truncate` then never engage, so a single
+        long value pushes the whole column out of view. Sidebars are
+        fixed-width and never scroll horizontally, so pin the child to the
+        viewport width instead.
+      */}
+      <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
         <div data-sidebar="content-scroll" className="flex flex-col gap-2">
           {children}
         </div>
