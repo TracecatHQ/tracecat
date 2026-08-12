@@ -43,6 +43,7 @@ from pydantic import (
     ValidationError,
     WithJsonSchema,
 )
+from pydantic_core import MISSING
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
@@ -7689,7 +7690,8 @@ async def create_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
-    timeout_seconds: int | None = None,
+    # Pydantic's sentinel preserves omitted versus explicit null for FastMCP.
+    timeout_seconds: int | None | MISSING = MISSING,  # pyright: ignore[reportInvalidTypeForm]
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
@@ -7727,7 +7729,6 @@ async def create_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
-            "timeout_seconds": timeout_seconds,
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
@@ -7739,6 +7740,8 @@ async def create_agent_preset(
                 if value is not None
             }
         )
+        if timeout_seconds is not MISSING:
+            create_data["timeout_seconds"] = timeout_seconds
         params = AgentPresetCreate.model_validate(create_data)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.create_preset(params)
@@ -7772,7 +7775,7 @@ async def update_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
-    timeout_seconds: int | None = None,
+    timeout_seconds: int | None | MISSING = MISSING,  # pyright: ignore[reportInvalidTypeForm]
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
@@ -7799,7 +7802,6 @@ async def update_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
-            "timeout_seconds": timeout_seconds,
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
@@ -7811,6 +7813,8 @@ async def update_agent_preset(
                 if value is not None
             }
         )
+        if timeout_seconds is not MISSING:
+            update_data["timeout_seconds"] = timeout_seconds
         if model_name is not None or model_provider is not None:
             (
                 resolved_model_name,
