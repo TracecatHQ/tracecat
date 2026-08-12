@@ -394,11 +394,9 @@ async def test_comment_mention_runs_agent_and_posts_reply(
         "get_workspace_runtime_provider_credentials",
         AsyncMock(return_value={"OPENAI_API_KEY": "test-key"}),
     )
+    monkeypatch.setattr("tracecat.cases.events.publish_case_event_payload", AsyncMock())
     monkeypatch.setattr(
-        "tracecat.cases.service.publish_case_event_payload", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+        "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
         Mock(),
     )
 

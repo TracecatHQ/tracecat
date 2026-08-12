@@ -591,7 +591,7 @@ async def test_hot_case_load_latency_during_async_duration_mutation_burst(
                 patch(
                     "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit"
                 ),
-                patch("tracecat.cases.service.enqueue_case_duration_sync_after_commit"),
+                patch("tracecat.cases.events.enqueue_case_duration_sync_after_commit"),
             ):
                 case_ids = await _seed_cases_definitions_and_history(
                     async_engine=async_engine,

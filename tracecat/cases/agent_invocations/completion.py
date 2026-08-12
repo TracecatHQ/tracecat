@@ -9,8 +9,8 @@ from sqlalchemy import select
 from tracecat.cases.agent_invocations.output import render_agent_output_as_comment
 from tracecat.cases.agent_invocations.service import CaseCommentAgentInvocationService
 from tracecat.cases.enums import CaseCommentAgentInvocationStatus, MentionTargetType
+from tracecat.cases.events import CaseEventsService
 from tracecat.cases.schemas import CommentReplyCreatedEvent
-from tracecat.cases.service import CaseEventsService
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -25,9 +25,9 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
     """Post agent replies and complete their originating invocations.
 
     This orchestration stays separate from ``CaseCommentAgentInvocationService``
-    because it also depends on ``CaseEventsService`` from ``tracecat.cases.service``.
-    That module already imports the invocation service, so moving this operation
-    there would create a circular import.
+    because it also coordinates comment and case-event persistence. Keeping the
+    event service independent lets Temporal workflows reference activity callables
+    without importing the main cases service back through the activity graph.
     """
 
     service_name = "case_comment_agent_invocation_completion"

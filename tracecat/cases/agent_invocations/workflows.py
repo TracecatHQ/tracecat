@@ -14,18 +14,18 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
+    from tracecat.cases.agent_invocations.activities import (
+        complete_comment_agent_invocation_activity,
+        fail_comment_agent_invocation_activity,
+        prepare_comment_agent_invocation_activity,
+    )
     from tracecat.cases.agent_invocations.schemas import (
         CASE_COMMENT_AGENT_INVOCATION_WORKFLOW,
-        COMPLETE_COMMENT_AGENT_INVOCATION_ACTIVITY,
-        FAIL_COMMENT_AGENT_INVOCATION_ACTIVITY,
-        PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY,
         CaseCommentAgentInvocationWorkflowInput,
         CompleteCommentAgentInvocationInput,
         CompleteCommentAgentInvocationResult,
         FailCommentAgentInvocationInput,
-        FailCommentAgentInvocationResult,
         PrepareCommentAgentInvocationInput,
-        PrepareCommentAgentInvocationResult,
     )
     from tracecat.cases.agent_invocations.types import (
         CaseCommentAgentInvocationErrorKind,
@@ -46,14 +46,13 @@ class CaseCommentAgentInvocationWorkflow:
         stage: Literal["preparation", "agent_turn", "completion"] = "preparation"
         try:
             prepared = await workflow.execute_activity(
-                PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY,
+                prepare_comment_agent_invocation_activity,
                 PrepareCommentAgentInvocationInput(
                     role=input.role,
                     invocation_id=input.invocation_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
-                result_type=PrepareCommentAgentInvocationResult,
             )
             if prepared.workflow_args is None:
                 return CompleteCommentAgentInvocationResult(handled=False)
@@ -74,7 +73,7 @@ class CaseCommentAgentInvocationWorkflow:
             )
             stage = "completion"
             return await workflow.execute_activity(
-                COMPLETE_COMMENT_AGENT_INVOCATION_ACTIVITY,
+                complete_comment_agent_invocation_activity,
                 CompleteCommentAgentInvocationInput(
                     role=input.role,
                     session_id=output.session_id,
@@ -83,7 +82,6 @@ class CaseCommentAgentInvocationWorkflow:
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
-                result_type=CompleteCommentAgentInvocationResult,
             )
         except BaseException as exc:
             kind = "cancelled" if is_cancelled_exception(exc) else stage
@@ -99,7 +97,7 @@ class CaseCommentAgentInvocationWorkflow:
         """Persist failure without replacing the workflow's original exception."""
         task = asyncio.create_task(
             workflow.execute_activity(
-                FAIL_COMMENT_AGENT_INVOCATION_ACTIVITY,
+                fail_comment_agent_invocation_activity,
                 FailCommentAgentInvocationInput(
                     role=input.role,
                     invocation_id=input.invocation_id,
@@ -108,7 +106,6 @@ class CaseCommentAgentInvocationWorkflow:
                 ),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
-                result_type=FailCommentAgentInvocationResult,
             )
         )
         try:
