@@ -34,7 +34,13 @@ from tracecat.registry.sync.schemas import (
 )
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import ResourceLimits, SandboxBindMount, SandboxConfig
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxBindMount,
+    SandboxConfig,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 from tracecat.ssh import add_ssh_key_to_agent, temporary_ssh_agent
 
@@ -383,7 +389,7 @@ class RegistrySyncSandbox:
             result = await NsjailExecutor().execute(
                 keyscan_dir,
                 SandboxConfig(
-                    network_enabled=True,
+                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
                     resources=ResourceLimits(
                         timeout_seconds=_KEYSCAN_TIMEOUT_SECONDS,
                         cpu_seconds=_KEYSCAN_TIMEOUT_SECONDS,
@@ -517,7 +523,7 @@ class RegistrySyncSandbox:
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
-                    network_enabled=True,
+                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
                     resources=ResourceLimits(
                         timeout_seconds=timeout_seconds,
                         cpu_seconds=timeout_seconds,
@@ -630,7 +636,6 @@ class RegistrySyncSandbox:
         result = await executor.execute(
             job_dir,
             SandboxConfig(
-                network_enabled=False,
                 resources=ResourceLimits(
                     timeout_seconds=timeout_seconds,
                     cpu_seconds=timeout_seconds,
@@ -727,7 +732,6 @@ class RegistrySyncSandbox:
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
-                    network_enabled=False,
                     resources=ResourceLimits(
                         timeout_seconds=timeout_seconds,
                         cpu_seconds=timeout_seconds,

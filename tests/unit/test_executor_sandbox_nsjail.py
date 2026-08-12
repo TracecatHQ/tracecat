@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -14,6 +15,7 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 from typing import NoReturn
 from unittest.mock import patch
@@ -46,10 +48,23 @@ from tracecat.executor.schemas import (
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
 
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
 _SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
+_RFC1918_NETWORKS = (
+    IPv4Network("10.0.0.0/8"),
+    IPv4Network("172.16.0.0/12"),
+    IPv4Network("192.168.0.0/16"),
+)
 
 
 class SmokeCase(StrEnum):
@@ -59,6 +74,8 @@ class SmokeCase(StrEnum):
     NSJAIL_GZ = "nsjail-gz"
     NSJAIL_SQUASHFS = "nsjail-squashfs"
     NSJAIL_GATEWAY = "nsjail-gateway"
+    NSJAIL_NETWORK_POLICY = "nsjail-network-policy"
+    NSJAIL_SOCKET_BUDGET = "nsjail-socket-budget"
     NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
@@ -105,7 +122,7 @@ def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
     if smoke_case.force_sandbox and not _executor_nsjail_available():
         return "executor nsjail unavailable"
     if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():
-        return "/dev/net/tun is unavailable for nsjail pasta networking"
+        return "/dev/net/tun is unavailable for nsjail NSTUN networking"
     if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
         if shutil.which("mksquashfs") is None:
             return "mksquashfs is unavailable"
@@ -242,12 +259,16 @@ def _make_role() -> Role:
     )
 
 
-def _make_action_input(action_name: str) -> RunActionInput:
+def _make_action_input(
+    action_name: str,
+    *,
+    value: object = "from-registry-artifact",
+) -> RunActionInput:
     wf_id = WorkflowUUID.new_uuid4()
     return RunActionInput(
         task=ActionStatement(
             action=action_name,
-            args={"value": "from-registry-artifact"},
+            args={"value": value},
             ref="registry_artifact_smoke",
         ),
         exec_context=create_default_execution_context(),
@@ -293,6 +314,7 @@ def _make_resolved_context(
     action_name: str,
     input: RunActionInput,
     role: Role,
+    value: object = "from-registry-artifact",
 ) -> ResolvedContext:
     return ResolvedContext(
         secrets={},
@@ -303,7 +325,7 @@ def _make_resolved_context(
             module="registry_artifact_smoke_action",
             name="run",
         ),
-        evaluated_args={"value": "from-registry-artifact"},
+        evaluated_args={"value": value},
         workspace_id=str(role.workspace_id),
         workflow_id=str(input.run_context.wf_id),
         run_id=str(input.run_context.wf_run_id),
@@ -407,6 +429,90 @@ def _write_gateway_artifact_source(source_dir: Path) -> None:
     )
 
 
+def _write_network_policy_artifact_source(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True)
+    (source_dir / "registry_artifact_smoke_action.py").write_text(
+        "\n".join(
+            [
+                "import socket",
+                "",
+                "",
+                "def _can_connect(host: str, port: int) -> bool:",
+                "    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)",
+                "    client.settimeout(2)",
+                "    try:",
+                "        client.connect((host, port))",
+                "    except OSError:",
+                "        return False",
+                "    finally:",
+                "        client.close()",
+                "    return True",
+                "",
+                "",
+                "def run(value: dict[str, object]) -> dict[str, object]:",
+                "    host = value['host']",
+                "    port = value['port']",
+                "    dns_host = value['dns_host']",
+                "    dns_port = value['dns_port']",
+                "    loopback_host = value['loopback_host']",
+                "    loopback_port = value['loopback_port']",
+                "    if not all(",
+                "        isinstance(item, str)",
+                "        for item in (host, dns_host, loopback_host)",
+                "    ):",
+                "        raise TypeError('hosts have invalid types')",
+                "    if not all(",
+                "        isinstance(item, int)",
+                "        for item in (port, dns_port, loopback_port)",
+                "    ):",
+                "        raise TypeError('ports have invalid types')",
+                "    return {",
+                "        'private_connected': _can_connect(host, port),",
+                "        'dns_redirect_connected': _can_connect(dns_host, dns_port),",
+                "        'loopback_non_dns_connected': _can_connect(",
+                "            loopback_host, loopback_port",
+                "        ),",
+                "    }",
+                "",
+            ]
+        )
+    )
+
+
+def _open_private_parent_listener() -> tuple[socket.socket, IPv4Address, int]:
+    """Open a listener on the executor container's RFC 1918 address."""
+    parent_address = ip_address(socket.gethostbyname(socket.gethostname()))
+    if not isinstance(parent_address, IPv4Address) or not any(
+        parent_address in network for network in _RFC1918_NETWORKS
+    ):
+        _skip_smoke(f"executor address {parent_address} is not a private IPv4 address")
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind((str(parent_address), 0))
+    listener.listen(4)
+    return listener, parent_address, listener.getsockname()[1]
+
+
+def _open_parent_loopback_dns_listener() -> socket.socket:
+    """Open the deterministic parent-side target for NSTUN DNS redirects."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        listener.bind(("127.0.0.1", 53))
+    except OSError as exc:
+        listener.close()
+        _skip_smoke(f"parent loopback TCP port 53 is unavailable: {exc}")
+    listener.listen(4)
+    return listener
+
+
+def _open_parent_loopback_listener() -> tuple[socket.socket, int]:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+    return listener, listener.getsockname()[1]
+
+
 def _add_source_dir_to_tar(tar: tarfile.TarFile, source_dir: Path) -> None:
     for path in sorted(source_dir.iterdir()):
         tar.add(path, arcname=path.name)
@@ -504,8 +610,28 @@ async def _run_executor_action_smoke_case(
     tar_gz_path = tmp_path / "site-packages.tar.gz"
     squashfs_path = tmp_path / "site-packages.squashfs"
     cache_dir = tmp_path / "registry-cache"
+    network_listener: socket.socket | None = None
+    dns_listener: socket.socket | None = None
+    loopback_listener: socket.socket | None = None
+    parent_resolv_path: Path | None = None
+    action_value: object = "from-registry-artifact"
     if smoke_case is SmokeCase.NSJAIL_GATEWAY:
         _write_gateway_artifact_source(source_dir)
+    elif smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+        network_listener, parent_address, parent_port = _open_private_parent_listener()
+        dns_listener = _open_parent_loopback_dns_listener()
+        loopback_listener, loopback_port = _open_parent_loopback_listener()
+        parent_resolv_path = tmp_path / "parent-resolv.conf"
+        parent_resolv_path.write_text("nameserver 127.0.0.1\n")
+        action_value = {
+            "host": str(parent_address),
+            "port": parent_port,
+            "dns_host": NSTUN_GATEWAY_IP4,
+            "dns_port": 53,
+            "loopback_host": NSTUN_GATEWAY_IP4,
+            "loopback_port": loopback_port,
+        }
+        _write_network_policy_artifact_source(source_dir)
     else:
         _write_registry_artifact_source(source_dir)
     _build_tar_gz(source_dir, tar_gz_path)
@@ -540,11 +666,12 @@ async def _run_executor_action_smoke_case(
 
     action_name = "test.registry_artifact_smoke"
     role = _make_role()
-    action_input = _make_action_input(action_name)
+    action_input = _make_action_input(action_name, value=action_value)
     resolved_context = _make_resolved_context(
         action_name=action_name,
         input=action_input,
         role=role,
+        value=action_value,
     )
     action_gateway = ActionGateway()
 
@@ -565,6 +692,20 @@ async def _run_executor_action_smoke_case(
                     return_value=None,
                 )
             )
+        if parent_resolv_path is not None:
+
+            def write_test_network_files(
+                target_dir: Path,
+                host_resolv_path: Path | None = None,
+            ):
+                return write_sandbox_network_files(target_dir, parent_resolv_path)
+
+            patches.append(
+                patch(
+                    "tracecat.sandbox.networking.write_sandbox_network_files",
+                    side_effect=write_test_network_files,
+                )
+            )
 
         with contextlib.ExitStack() as stack:
             for ctx_manager in patches:
@@ -578,10 +719,49 @@ async def _run_executor_action_smoke_case(
                 force_sandbox=smoke_case.force_sandbox,
             )
 
+            allowed_result: object | None = None
+            if smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+                assert network_listener is not None
+                listener_address = ip_address(network_listener.getsockname()[0])
+                assert isinstance(listener_address, IPv4Address)
+                monkeypatch.setattr(
+                    config,
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+                    (ip_network(f"{listener_address}/32"),),
+                )
+                monkeypatch.setattr(
+                    config,
+                    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+                    (network_listener.getsockname()[1],),
+                )
+                allowed_result = await runner.execute_action(
+                    input=action_input,
+                    role=role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[_SMOKE_URI],
+                    timeout=30,
+                    force_sandbox=True,
+                )
+
         if isinstance(result, ExecutorActionErrorInfo):
             raise AssertionError(f"Sandboxed action failed: {result}")
 
         assert isinstance(result, dict)
+        if smoke_case is SmokeCase.NSJAIL_NETWORK_POLICY:
+            assert result == {
+                "private_connected": False,
+                "dns_redirect_connected": True,
+                "loopback_non_dns_connected": False,
+            }
+            assert isinstance(allowed_result, dict)
+            assert allowed_result == {
+                "private_connected": True,
+                "dns_redirect_connected": True,
+                "loopback_non_dns_connected": False,
+            }
+            assert tarball_dir.exists()
+            return
+
         assert result["value"] == "from-registry-artifact"
         if smoke_case is SmokeCase.NSJAIL_GATEWAY:
             assert result["gateway"] == {
@@ -609,6 +789,12 @@ async def _run_executor_action_smoke_case(
                 assert tarball_dir.exists()
     finally:
         await action_gateway.stop()
+        if network_listener is not None:
+            network_listener.close()
+        if dns_listener is not None:
+            dns_listener.close()
+        if loopback_listener is not None:
+            loopback_listener.close()
         _unmount_if_needed(mount_dir)
 
 
@@ -665,10 +851,61 @@ async def _run_current_builtin_smoke_case(
     assert result.result == {"source": "current-builtin"}
 
 
+async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
+    """A low-FD guest cannot amplify one UDP socket into unbounded parent FDs."""
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    script_name = "udp_socket_budget.py"
+    (tmp_path / script_name).write_text(
+        "\n".join(
+            [
+                "import socket",
+                "import time",
+                "",
+                "udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)",
+                "for port in range(10_000, 10_256):",
+                '    udp_socket.sendto(b"x", ("1.1.1.1", port))',
+                "time.sleep(2)",
+                "",
+            ]
+        )
+    )
+
+    result = await NsjailExecutor().execute(
+        tmp_path,
+        SandboxConfig(
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT),
+            resources=ResourceLimits(
+                memory_mb=128,
+                cpu_seconds=10,
+                max_open_files=16,
+                max_processes=16,
+                timeout_seconds=10,
+            ),
+        ),
+        script_name=script_name,
+    )
+
+    assert result.success, result.error
+    assert "UDP/ICMP parent socket budget exhausted" in result.stderr
+    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+
+
 _CURRENT_BUILTIN_CASES = {
     SmokeCase.DIRECT_CURRENT_BUILTIN,
     SmokeCase.NSJAIL_CURRENT_BUILTIN,
 }
+
+
+@pytest.mark.anyio
+async def test_nstun_bounds_parent_udp_sockets(tmp_path: Path) -> None:
+    smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
+    if _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+    await _run_nstun_socket_budget_smoke_case(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -683,6 +920,10 @@ _CURRENT_BUILTIN_CASES = {
         pytest.param(SmokeCase.NSJAIL_GZ, id=SmokeCase.NSJAIL_GZ.value),
         pytest.param(SmokeCase.NSJAIL_SQUASHFS, id=SmokeCase.NSJAIL_SQUASHFS.value),
         pytest.param(SmokeCase.NSJAIL_GATEWAY, id=SmokeCase.NSJAIL_GATEWAY.value),
+        pytest.param(
+            SmokeCase.NSJAIL_NETWORK_POLICY,
+            id=SmokeCase.NSJAIL_NETWORK_POLICY.value,
+        ),
         pytest.param(
             SmokeCase.NSJAIL_CURRENT_BUILTIN,
             id=SmokeCase.NSJAIL_CURRENT_BUILTIN.value,
@@ -720,7 +961,9 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         monkeypatch = pytest.MonkeyPatch()
         tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-executor-nsjail-"))
         try:
-            if smoke_case in _CURRENT_BUILTIN_CASES:
+            if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET:
+                await _run_nstun_socket_budget_smoke_case(tmp_path)
+            elif smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
                     smoke_case=smoke_case, monkeypatch=monkeypatch
                 )

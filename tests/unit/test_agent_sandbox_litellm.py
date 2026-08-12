@@ -1142,7 +1142,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     if docker_info.returncode != 0:
         pytest.skip("Docker daemon unavailable for nsjail fallback")
     if requires_tun and not Path("/dev/net/tun").exists():
-        pytest.skip("Dockerized nsjail pasta smoke requires host /dev/net/tun")
+        pytest.skip("Dockerized nsjail NSTUN smoke requires host /dev/net/tun")
 
     repo_root = Path(__file__).resolve().parents[2]
     compose_env = os.environ.copy()
@@ -1247,10 +1247,10 @@ def _run_nsjail_harness_smoke_from_cli() -> None:
     asyncio.run(run())
 
 
-def _run_nsjail_pasta_smoke_from_cli() -> None:
+def _run_nsjail_nstun_smoke_from_cli() -> None:
     async def run() -> None:
         monkeypatch = pytest.MonkeyPatch()
-        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-pasta-"))
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-nstun-"))
         try:
             _set_disable_nsjail_mode(monkeypatch, False)
             await _run_full_claude_harness_runtime_case(
@@ -2175,19 +2175,19 @@ async def test_run_agent_activity_spawns_full_claude_harness_runtime_in_each_san
 
 
 @pytest.mark.anyio
-async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_pasta_in_nsjail(
+async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_nstun_in_nsjail(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     if not _agent_nsjail_available():
         _run_nsjail_harness_in_docker_or_skip(
-            cli_flag="--run-nsjail-pasta-smoke",
-            failure_label="Dockerized nsjail pasta smoke fallback failed.",
+            cli_flag="--run-nsjail-nstun-smoke",
+            failure_label="Dockerized nsjail NSTUN smoke fallback failed.",
             requires_tun=True,
         )
         return
     if not Path("/dev/net/tun").exists():
-        pytest.skip("agent nsjail pasta smoke requires /dev/net/tun")
+        pytest.skip("agent nsjail NSTUN smoke requires /dev/net/tun")
 
     _set_disable_nsjail_mode(monkeypatch, False)
     await _run_full_claude_harness_runtime_case(
@@ -2558,8 +2558,8 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 if __name__ == "__main__":
     if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
-    elif sys.argv[1:] == ["--run-nsjail-pasta-smoke"]:
-        _run_nsjail_pasta_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
+        _run_nsjail_nstun_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-skills-smoke"]:
         _run_nsjail_skills_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-mcp-compression-smoke"]:
@@ -2569,7 +2569,7 @@ if __name__ == "__main__":
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
-            "[--run-nsjail-harness-smoke|--run-nsjail-pasta-smoke|"
+            "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
             "--run-nsjail-duckdb-smoke]"
         )

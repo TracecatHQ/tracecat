@@ -60,6 +60,7 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.types import SandboxNetworkPurpose, SandboxNetworkRequest
 
 BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
 SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
@@ -461,7 +462,11 @@ async def _spawn_nsjail_runtime(
             else None,
             session_home_dir=session_home_dir,
             session_work_dir=session_work_dir,
-            enable_internet_access=enable_internet_access,
+            network=(
+                SandboxNetworkRequest(SandboxNetworkPurpose.AGENT)
+                if enable_internet_access
+                else None
+            ),
             skills_dir=skills_dir,
         )
 
