@@ -7700,8 +7700,7 @@ async def create_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
-    # Pydantic's sentinel preserves omitted versus explicit null for FastMCP.
-    timeout_seconds: int | None | MISSING = MISSING,  # pyright: ignore[reportInvalidTypeForm]
+    timeout_seconds: int | None = None,
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
@@ -7750,7 +7749,7 @@ async def create_agent_preset(
                 if value is not None
             }
         )
-        if timeout_seconds is not MISSING:
+        if timeout_seconds is not None:
             create_data["timeout_seconds"] = timeout_seconds
         params = AgentPresetCreate.model_validate(create_data)
         async with AgentPresetService.with_session(role=role) as svc:

@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_DEFAULT,
     AGENT_TIMEOUT_SECONDS_MAX,
     AGENT_TIMEOUT_SECONDS_MIN,
 )
@@ -119,9 +118,8 @@ class AgentPresetExecutionConfigWrite(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
-    # Explicit null inherits the deployment default; omitted stays the fixed default.
     timeout_seconds: int | None = Field(
-        default=AGENT_TIMEOUT_SECONDS_DEFAULT,
+        default=None,
         ge=AGENT_TIMEOUT_SECONDS_MIN,
         le=AGENT_TIMEOUT_SECONDS_MAX,
     )

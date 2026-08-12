@@ -185,7 +185,6 @@ const DATA_TYPE_OUTPUT_TYPES = [
 ] as const
 
 const DEFAULT_RETRIES = 3
-const DEFAULT_TIMEOUT_SECONDS = 1800
 const MAX_TIMEOUT_SECONDS = 3600
 const SUBAGENT_ALIAS_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/
@@ -3969,7 +3968,7 @@ function formValuesToPayload(
     })),
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
-    timeout_seconds: values.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: values.timeoutSeconds,
     enable_thinking: values.enableThinking,
     enable_internet_access:
       values.enableInternetAccess || options?.forceInternetAccess === true,
