@@ -52,8 +52,10 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
     CaseSeverity,
@@ -2522,6 +2524,61 @@ class CaseCommentMention(WorkspaceModel):
         String(255),
         nullable=False,
         doc="Display label snapshot captured at write time.",
+    )
+
+
+class CaseCommentAgentInvocation(WorkspaceModel):
+    """Lifecycle record for an agent invoked from a case-comment mention."""
+
+    __tablename__ = "case_comment_agent_invocation"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    mention_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_comment_mention.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        doc="Mention that triggered this invocation.",
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Agent session created for this invocation.",
+    )
+    reply_comment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("case_comment.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Case comment containing the agent's final reply.",
+    )
+    preset_name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        doc="Agent preset name captured when the invocation was created.",
+    )
+    preset_slug: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        doc="Agent preset slug captured when the invocation was created.",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default=CaseCommentAgentInvocationStatus.PENDING.value,
+        nullable=False,
+        index=True,
+    )
+    error: Mapped[CaseCommentAgentInvocationError | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
 

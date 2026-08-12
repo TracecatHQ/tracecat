@@ -90,6 +90,7 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
+    PreparedAgentTurn,
     TurnLifecycle,
     TurnLifecycleResult,
     is_session_readonly,
@@ -105,7 +106,6 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
-from tracecat.cases.service import CasesService
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -157,7 +157,7 @@ from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
 
-    from tracecat.agent.executor.activity import ToolExecutionResult
+    from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
@@ -1876,6 +1876,54 @@ class AgentSessionService(BaseWorkspaceService):
     # Chat / Message Turn Operations
     # =========================================================================
 
+    async def prepare_new_turn(
+        self,
+        session_id: uuid.UUID,
+        prompt: str,
+    ) -> PreparedAgentTurn:
+        """Prepare a new turn for a caller-owned Temporal workflow.
+
+        This is the non-dispatching counterpart to ``run_turn``. It builds the
+        same session configuration and persists the run pointers, but leaves
+        child-workflow execution to the caller. Reusing persisted pointers makes
+        an activity retry after commit return the same workflow identity.
+        """
+        agent_session = await self.validate_turn_request(
+            session_id,
+            BasicChatRequest(message=prompt),
+        )
+        async with self._build_agent_config(agent_session) as agent_config:
+            if agent_config.tool_approvals:
+                await check_entitlement(
+                    self.session,
+                    self.role,
+                    Entitlement.AGENT_ADDONS,
+                )
+
+            run_id = agent_session.curr_run_id or uuid.uuid4()
+            stream_id = agent_session.active_stream_id or uuid.uuid4()
+            prepared_turn = PreparedAgentTurn(
+                prompt=prompt,
+                session_id=session_id,
+                run_id=run_id,
+                active_stream_id=stream_id,
+                config=agent_config,
+                title=agent_session.title,
+                entity_type=AgentSessionEntity(agent_session.entity_type),
+                entity_id=agent_session.entity_id,
+                tools=agent_session.tools,
+                agent_preset_id=agent_session.agent_preset_id,
+                agent_preset_version_id=agent_session.agent_preset_version_id,
+            )
+
+            agent_session.curr_run_id = run_id
+            agent_session.active_stream_id = stream_id
+            agent_session.last_error = None
+            self.session.add(agent_session)
+            await self.session.commit()
+
+        return prepared_turn
+
     async def run_turn(
         self,
         session_id: uuid.UUID,
@@ -2790,8 +2838,14 @@ class AgentSessionService(BaseWorkspaceService):
         entity_id = agent_session.entity_id
 
         if entity_type == AgentSessionEntity.CASE:
-            cases_service = CasesService(self.session, self.role)
-            case = await cases_service.get_case(entity_id)
+            # Query directly because CasesService imports the comment invocation
+            # queue, whose workflow dependency imports AgentSessionService.
+            case = await self.session.scalar(
+                select(Case).where(
+                    Case.id == entity_id,
+                    Case.workspace_id == self.workspace_id,
+                )
+            )
             if not case:
                 raise TracecatNotFoundError(f"Case with ID {entity_id} not found")
             return CaseCopilotPrompts(case=case).instructions

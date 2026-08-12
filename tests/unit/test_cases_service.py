@@ -69,11 +69,11 @@ pytestmark = pytest.mark.usefixtures("db")
 def stub_case_duration_sync() -> Iterator[None]:
     with (
         patch(
-            "tracecat.cases.service.sync_case_duration",
+            "tracecat.cases.events.sync_case_duration",
             new=AsyncMock(return_value=True),
         ),
         patch(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
         ),
         patch(
@@ -947,7 +947,7 @@ class TestCasesService:
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(
@@ -1170,7 +1170,7 @@ class TestCasesService:
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(
@@ -1398,7 +1398,7 @@ class TestCasesService:
         with (
             patch.object(AuditService, "create_event", new_callable=AsyncMock),
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(

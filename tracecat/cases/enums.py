@@ -137,3 +137,12 @@ class MentionTargetType(StrEnum):
     """
 
     AGENT = "agent"
+
+
+class CaseCommentAgentInvocationStatus(StrEnum):
+    """Lifecycle state for an agent invoked from a case-comment mention."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
