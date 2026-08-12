@@ -12,12 +12,14 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.agent_invocations.schemas import (
-    CASE_COMMENT_AGENT_INVOCATION_WORKFLOW,
     CaseCommentAgentInvocationWorkflowInput,
     comment_agent_invocation_workflow_id,
 )
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
+)
+from tracecat.cases.agent_invocations.workflows import (
+    CaseCommentAgentInvocationWorkflow,
 )
 from tracecat.db.session_events import AfterCommitQueue
 from tracecat.dsl.client import get_temporal_client
@@ -60,7 +62,7 @@ def invoke_comment_agent_turns_after_commit(
             try:
                 client = await get_temporal_client()
                 await client.start_workflow(
-                    CASE_COMMENT_AGENT_INVOCATION_WORKFLOW,
+                    CaseCommentAgentInvocationWorkflow.run,
                     CaseCommentAgentInvocationWorkflowInput(
                         role=role,
                         invocation_id=invocation_id,
