@@ -3076,6 +3076,7 @@ def _build_tag_update_params(
 def _build_case_field_update_params(
     *,
     name: str | None = None,
+    display_name: str | None = None,
     type: SqlType | None = None,
     options: list[str] | None = None,
     options_provided: bool = False,
@@ -3084,6 +3085,8 @@ def _build_case_field_update_params(
     update_kwargs: dict[str, Any] = {}
     if name is not None:
         update_kwargs["name"] = name
+    if display_name is not None:
+        update_kwargs["display_name"] = display_name
     if type is not None:
         update_kwargs["type"] = type
     if options_provided:
@@ -6362,6 +6365,7 @@ async def create_case_field(
     workspace_id: uuid.UUID,
     name: str,
     type: str,
+    display_name: str | None = None,
     kind: str | None = None,
     options: list[str] | None = None,
 ) -> MCPMessageResponse:
@@ -6374,6 +6378,7 @@ async def create_case_field(
         workspace_id: The workspace ID.
         name: Field name / column id. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        display_name: Optional human-readable field name. Defaults to `name`.
         type: Uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE, BOOLEAN,
             TIMESTAMPTZ, JSONB, SELECT, or MULTI_SELECT.
         kind: Optional semantic kind. Valid values: LONG_TEXT and URL.
@@ -6392,6 +6397,7 @@ async def create_case_field(
             await svc.create_field(
                 CaseFieldCreate(
                     name=name,
+                    display_name=display_name,
                     type=parsed_type,
                     kind=parsed_kind,
                     options=options,
@@ -6412,6 +6418,7 @@ async def update_case_field(
     workspace_id: uuid.UUID,
     field_id: str,
     name: str | None = None,
+    display_name: str | None = None,
     type: str | None = None,
     options: list[str] | None = None,
 ) -> MCPMessageResponse:
@@ -6422,6 +6429,7 @@ async def update_case_field(
         field_id: Existing field id from `list_case_fields` (field name, not UUID).
         name: Optional new field name. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        display_name: Optional new human-readable field name.
         type: Optional uppercase SqlType value.
         options: Optional list of strings. Use `[]` to clear select options.
 
@@ -6437,6 +6445,7 @@ async def update_case_field(
                 field_id,
                 _build_case_field_update_params(
                     name=name,
+                    display_name=display_name,
                     type=parsed_type,
                     options=options,
                     options_provided=options_provided,

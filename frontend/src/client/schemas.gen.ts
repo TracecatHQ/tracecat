@@ -8196,6 +8196,19 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
     kind: {
       anyOf: [
         {
@@ -8487,6 +8500,19 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
     },
     required_on_closure: {
       anyOf: [
