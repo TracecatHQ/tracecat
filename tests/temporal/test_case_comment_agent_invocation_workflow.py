@@ -11,7 +11,6 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat import config
@@ -47,6 +46,7 @@ from tracecat.dsl._converter import get_data_converter
 pytestmark = pytest.mark.temporal
 _EVENTS: list[str] = []
 _CHILD_WAITING = asyncio.Event()
+_RELEASE_CHILD = asyncio.Event()
 _FAILURES: list[schemas.FailCommentAgentInvocationInput] = []
 
 
@@ -79,6 +79,13 @@ async def complete_turn(
     return schemas.CompleteCommentAgentInvocationResult(
         handled=True, reply_comment_id=input.run_id
     )
+
+
+@activity.defn(name="wait_for_comment_agent_child_release")
+async def wait_for_child_release() -> None:
+    _EVENTS.append("child_waiting")
+    _CHILD_WAITING.set()
+    await _RELEASE_CHILD.wait()
 
 
 @activity.defn(name="record_comment_agent_child_wait")
@@ -142,26 +149,30 @@ class SuccessfulAgentWorkflow:
 
 
 @workflow.defn(name="DurableAgentWorkflow")
-class ApprovalWaitingAgentWorkflow:
-    def __init__(self) -> None:
-        self.approved = False
-
-    @workflow.signal
-    def approve(self) -> None:
-        self.approved = True
-
+class WaitingAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         await workflow.execute_activity(
-            "record_comment_agent_child_wait",
+            wait_for_child_release,
             start_to_close_timeout=timedelta(seconds=5),
         )
-        await workflow.wait_condition(lambda: self.approved)
         return AgentOutput(
-            output="approved output",
+            output="released output",
             duration=0,
             session_id=args.agent_args.session_id,
         )
+
+
+@workflow.defn(name="DurableAgentWorkflow")
+class CancellationWaitingAgentWorkflow:
+    @workflow.run
+    async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
+        await workflow.execute_activity(
+            record_child_wait,
+            start_to_close_timeout=timedelta(seconds=5),
+        )
+        await workflow.wait_condition(lambda: False)
+        raise AssertionError("Unreachable")
 
 
 @workflow.defn(name="DurableAgentWorkflow")
@@ -214,14 +225,15 @@ async def test_parent_runs_child_then_completes(
 
 
 @pytest.mark.anyio
-async def test_parent_waits_while_child_awaits_approval(
+async def test_parent_waits_while_child_is_running(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    global _CHILD_WAITING
+    global _CHILD_WAITING, _RELEASE_CHILD
     _EVENTS.clear()
     _CHILD_WAITING = asyncio.Event()
+    _RELEASE_CHILD = asyncio.Event()
     invocation_id = uuid.uuid4()
-    queue = f"comment-agent-approval-{invocation_id}"
+    queue = f"comment-agent-waiting-{invocation_id}"
     monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
     role = Role(type="service", service_id="tracecat-api")
 
@@ -231,10 +243,10 @@ async def test_parent_waits_while_child_awaits_approval(
         async with Worker(
             env.client,
             task_queue=queue,
-            activities=[prepare_turn, record_child_wait, complete_turn],
+            activities=[prepare_turn, wait_for_child_release, complete_turn],
             workflows=[
                 invocation_workflows.CaseCommentAgentInvocationWorkflow,
-                ApprovalWaitingAgentWorkflow,
+                WaitingAgentWorkflow,
             ],
             workflow_runner=new_sandbox_runner(),
         ):
@@ -252,17 +264,14 @@ async def test_parent_waits_while_child_awaits_approval(
             assert _EVENTS == ["prepare", "child_waiting"]
             assert not result_task.done()
 
-            child_handle = env.client.get_workflow_handle(
-                AgentWorkflowID(invocation_id)
-            )
-            await child_handle.signal(ApprovalWaitingAgentWorkflow.approve)
+            _RELEASE_CHILD.set()
             result = await asyncio.wait_for(result_task, timeout=5)
 
     assert result.handled and result.reply_comment_id == invocation_id
     assert _EVENTS == [
         "prepare",
         "child_waiting",
-        "complete:approved output",
+        "complete:released output",
     ]
 
 
@@ -332,7 +341,9 @@ async def test_parent_preserves_failure_across_cleanup(
     monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
     role = Role(type="service", service_id="tracecat-api")
     child_workflow = (
-        FailingAgentWorkflow if origin == "agent_turn" else ApprovalWaitingAgentWorkflow
+        FailingAgentWorkflow
+        if origin == "agent_turn"
+        else CancellationWaitingAgentWorkflow
     )
     failure_activity = fail_record_failure if cleanup_fails else record_failure
     activities = [prepare_turn, complete_turn, failure_activity]
