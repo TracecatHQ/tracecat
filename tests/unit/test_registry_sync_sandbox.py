@@ -101,7 +101,7 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
             events.append("keyscan")
             assert job_dir == tmp_path / "sync" / "sandbox-keyscan"
             assert sandbox_config.network is not None
-            assert sandbox_config.network.purpose is SandboxNetworkPurpose.SCRIPT
+            assert sandbox_config.network.purpose is SandboxNetworkPurpose.REGISTRY
             assert sandbox_config.resources.timeout_seconds == 30
             assert sandbox_config.resources.cpu_seconds == 30
             assert sandbox_config.env_vars == {}
@@ -123,7 +123,7 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
         assert events == ["keyscan", "agent", "clone"]
         assert script_name == "wrapper.py"
         assert sandbox_config.network is not None
-        assert sandbox_config.network.purpose is SandboxNetworkPurpose.SCRIPT
+        assert sandbox_config.network.purpose is SandboxNetworkPurpose.REGISTRY
         assert sandbox_config.env_vars["SSH_AUTH_SOCK"] == (
             "/run/registry-agent/agent.sock"
         )

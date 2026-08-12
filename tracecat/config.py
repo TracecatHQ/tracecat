@@ -705,6 +705,17 @@ TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS = env_ports(
 )
 """TCP ports allowed to install-only private CIDRs."""
 
+TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable only while acquiring custom registry sources."""
+
+TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+    default=(22,),
+)
+"""TCP ports allowed to registry-only private CIDRs."""
+
 TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS = env_networks(
     "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS"
 )

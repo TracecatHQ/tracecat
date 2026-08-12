@@ -389,7 +389,7 @@ class RegistrySyncSandbox:
             result = await NsjailExecutor().execute(
                 keyscan_dir,
                 SandboxConfig(
-                    network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT),
+                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
                     resources=ResourceLimits(
                         timeout_seconds=_KEYSCAN_TIMEOUT_SECONDS,
                         cpu_seconds=_KEYSCAN_TIMEOUT_SECONDS,
@@ -523,7 +523,7 @@ class RegistrySyncSandbox:
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
-                    network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT),
+                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
                     resources=ResourceLimits(
                         timeout_seconds=timeout_seconds,
                         cpu_seconds=timeout_seconds,

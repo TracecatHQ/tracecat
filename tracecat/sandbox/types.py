@@ -29,6 +29,7 @@ class SandboxNetworkPurpose(StrEnum):
     """Trusted purpose selecting a deployment-owned egress policy."""
 
     INSTALL = "install"
+    REGISTRY = "registry"
     SCRIPT = "script"
     ACTION = "action"
     AGENT = "agent"

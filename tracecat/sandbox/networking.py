@@ -193,6 +193,11 @@ def configured_sandbox_network_policy(
                 tracecat_config.TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS,
                 tracecat_config.TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS,
             )
+        case SandboxNetworkPurpose.REGISTRY:
+            allowed_rules = _tcp_egress_rules(
+                tracecat_config.TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS,
+                tracecat_config.TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS,
+            )
         case SandboxNetworkPurpose.SCRIPT:
             allowed_rules = _tcp_egress_rules(
                 tracecat_config.TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS,

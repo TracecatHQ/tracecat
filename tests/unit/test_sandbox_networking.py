@@ -376,6 +376,12 @@ def test_configured_network_policies_are_scoped_by_purpose(
             IPv4Network("10.1.0.0/16"),
             8001,
         ),
+        SandboxNetworkPurpose.REGISTRY: (
+            "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+            "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+            IPv4Network("10.5.0.0/16"),
+            8005,
+        ),
         SandboxNetworkPurpose.SCRIPT: (
             "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
             "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",

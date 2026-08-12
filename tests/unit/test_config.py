@@ -27,6 +27,8 @@ DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
 SANDBOX_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
     "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
     "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
@@ -35,6 +37,10 @@ SANDBOX_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
     "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS",
+}
+REGISTRY_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
 }
 
 
@@ -184,6 +190,27 @@ def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
     }
 
     assert not missing_by_file
+
+
+def test_registry_policy_env_vars_are_regular_executor_only() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        executor_match = re.search(
+            r"(?ms)^  executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        agent_executor_match = re.search(
+            r"(?ms)^  agent-executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert executor_match is not None
+        assert agent_executor_match is not None
+
+        executor_source = executor_match.group("body")
+        agent_executor_source = agent_executor_match.group("body")
+        for name in REGISTRY_POLICY_ENV_VARS:
+            assert name in executor_source
+            assert name not in agent_executor_source
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:
