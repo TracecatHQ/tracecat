@@ -9676,7 +9676,7 @@ async def test_list_skills_uses_workspace_skill_service(
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_returns_mutable_manifest(
+async def test_get_skill_returns_mutable_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -9723,7 +9723,7 @@ async def test_get_skill_draft_returns_mutable_manifest(
         lambda role: _AsyncContext(_SkillService()),
     )
 
-    result = await _tool(mcp_server.get_skill_draft)(
+    result = await _tool(mcp_server.get_skill)(
         workspace_id=str(workspace_id),
         skill_id=skill_id,
     )
@@ -9742,7 +9742,7 @@ async def test_get_skill_draft_returns_mutable_manifest(
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_returns_not_found(
+async def test_get_skill_returns_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -9765,14 +9765,14 @@ async def test_get_skill_draft_returns_not_found(
     )
 
     with pytest.raises(ToolError, match=rf"Skill '{skill_id}' not found"):
-        await _tool(mcp_server.get_skill_draft)(
+        await _tool(mcp_server.get_skill)(
             workspace_id=str(workspace_id),
             skill_id=skill_id,
         )
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_file_returns_inline_text(
+async def test_get_skill_with_path_returns_inline_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -9804,7 +9804,7 @@ async def test_get_skill_draft_file_returns_inline_text(
         lambda role: _AsyncContext(_SkillService()),
     )
 
-    result = await _tool(mcp_server.get_skill_draft_file)(
+    result = await _tool(mcp_server.get_skill)(
         workspace_id=str(workspace_id),
         skill_id=skill_id,
         path="SKILL.md",
@@ -9820,7 +9820,7 @@ async def test_get_skill_draft_file_returns_inline_text(
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_file_returns_presigned_download(
+async def test_get_skill_with_path_returns_presigned_download(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -9852,7 +9852,7 @@ async def test_get_skill_draft_file_returns_presigned_download(
         lambda role: _AsyncContext(_SkillService()),
     )
 
-    result = await _tool(mcp_server.get_skill_draft_file)(
+    result = await _tool(mcp_server.get_skill)(
         workspace_id=str(workspace_id),
         skill_id=skill_id,
         path="scripts/helper.py",
@@ -9866,7 +9866,7 @@ async def test_get_skill_draft_file_returns_presigned_download(
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_file_returns_not_found(
+async def test_get_skill_with_path_returns_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -9893,7 +9893,7 @@ async def test_get_skill_draft_file_returns_not_found(
 
     message = f"Draft file '{path}' not found for skill '{skill_id}'"
     with pytest.raises(ToolError, match=re.escape(message)):
-        await _tool(mcp_server.get_skill_draft_file)(
+        await _tool(mcp_server.get_skill)(
             workspace_id=str(workspace_id),
             skill_id=skill_id,
             path=path,
@@ -9902,11 +9902,11 @@ async def test_get_skill_draft_file_returns_not_found(
 
 
 @pytest.mark.anyio
-async def test_get_skill_draft_file_rejects_stdio_transport() -> None:
+async def test_get_skill_with_path_rejects_stdio_transport() -> None:
     with pytest.raises(
         ToolError, match="only supported for remote streamable-http MCP clients"
     ):
-        await _tool(mcp_server.get_skill_draft_file)(
+        await _tool(mcp_server.get_skill)(
             workspace_id=str(uuid.uuid4()),
             skill_id=uuid.uuid4(),
             path="SKILL.md",
@@ -10216,11 +10216,14 @@ async def test_complete_skill_upload_reports_current_revision_on_conflict(
 
 
 @pytest.mark.anyio
-async def test_legacy_inline_base64_skill_tools_are_not_registered() -> None:
+async def test_superseded_skill_tools_are_not_registered() -> None:
     tool_names = {tool.name for tool in await mcp_server.mcp.list_tools()}
 
     assert "upload_skill" not in tool_names
     assert "update_skill" not in tool_names
+    assert "get_skill_draft" not in tool_names
+    assert "get_skill_draft_file" not in tool_names
+    assert "get_skill" in tool_names
 
 
 @pytest.mark.anyio

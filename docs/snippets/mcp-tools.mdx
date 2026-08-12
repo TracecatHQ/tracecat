@@ -437,16 +437,12 @@
   Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
-<ResponseField name="get_skill_draft" type="tool">
-  Return the mutable draft manifest for an existing skill.
+<ResponseField name="get_skill" type="tool">
+  Get skill details and the mutable draft manifest, or read one draft file.
 
-  The manifest includes paths, SHA-256 digests, sizes, `draft_revision`, `is_publishable`, and `validation_errors`; it never returns file contents. Call this before updating an existing skill to reconcile after a `draft_revision_conflict` and to see what a complete-tree replacement would delete.
-</ResponseField>
+  Without `path`, return the draft manifest: paths, SHA-256 digests, sizes, `draft_revision`, `is_publishable`, and `validation_errors`; it never returns file contents. Call this before updating an existing skill to reconcile after a `draft_revision_conflict` and to see what a complete-tree replacement would delete.
 
-<ResponseField name="get_skill_draft_file" type="tool">
-  Read one file from a mutable skill draft.
-
-  Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
+  With `path`, read that one file from the draft. Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
 </ResponseField>
 
 <ResponseField name="prepare_skill_upload" type="tool">

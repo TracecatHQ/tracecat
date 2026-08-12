@@ -1319,8 +1319,8 @@ _SKILL_FILE_WARNING = (
     "Inline base64 skill uploads are not supported. Local skill directories "
     "must use prepare_skill_upload plus direct HTTP PUTs and "
     "complete_skill_upload. "
-    "Read an existing skill with `get_skill_draft` / `get_skill_draft_file` "
-    "before editing or resolving a revision conflict."
+    "Read an existing skill with `get_skill` before editing or resolving a "
+    "revision conflict; pass `path` to fetch one file."
 )
 _INLINE_WORKFLOW_YAML_MAX_BYTES = TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
 _workflow_artifact_redis: AsyncRedis | None = None
@@ -8287,55 +8287,48 @@ async def list_skills(
 
 
 @mcp.tool()
-async def get_skill_draft(
+async def get_skill(
     workspace_id: uuid.UUID,
     skill_id: uuid.UUID,
-) -> SkillDraftRead:
-    """Return the mutable draft manifest for an existing skill.
-
-    The manifest includes paths, SHA-256 digests, sizes, `draft_revision`,
-    `is_publishable`, and `validation_errors`; it never returns file contents.
-    Call this before updating an existing skill to reconcile after a
-    `draft_revision_conflict` and to see what a complete-tree replacement would
-    delete.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with SkillService.with_session(role=role) as svc:
-            draft = await svc.get_draft(skill_id)
-            if draft is None:
-                raise ToolError(f"Skill '{skill_id}' not found")
-            return draft
-    except ToolError:
-        raise
-    except ValidationError as e:
-        raise ToolError(str(e)) from e
-    except TracecatValidationError as e:
-        raise ToolError(str(e)) from e
-    except TracecatNotFoundError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to get skill draft", error=str(e))
-        raise ToolError(f"Failed to get skill draft: {e}") from None
-
-
-@mcp.tool()
-async def get_skill_draft_file(
-    workspace_id: uuid.UUID,
-    skill_id: uuid.UUID,
-    path: str,
+    path: str | None = None,
     ctx: Context | None = None,
-) -> SkillDraftFileRead:
-    """Read one file from a mutable skill draft.
+) -> SkillDraftRead | SkillDraftFileRead:
+    """Get skill details and the mutable draft manifest, or read one draft file.
 
-    Small UTF-8 text files are returned inline. Other files return a short-lived
-    download URL whose bytes must be fetched to disk with a plain HTTP GET;
-    never inline downloaded bytes into context.
+    Without `path`, return the draft manifest: paths, SHA-256 digests, sizes,
+    `draft_revision`, `is_publishable`, and `validation_errors`; it never
+    returns file contents. Call this before updating an existing skill to
+    reconcile after a `draft_revision_conflict` and to see what a complete-tree
+    replacement would delete.
+
+    With `path`, read that one file from the draft. Small UTF-8 text files are
+    returned inline. Other files return a short-lived download URL whose bytes
+    must be fetched to disk with a plain HTTP GET; never inline downloaded bytes
+    into context.
     """
 
+    if path is None:
+        try:
+            _, role = await _resolve_workspace_role(workspace_id)
+            async with SkillService.with_session(role=role) as svc:
+                draft = await svc.get_draft(skill_id)
+                if draft is None:
+                    raise ToolError(f"Skill '{skill_id}' not found")
+                return draft
+        except ToolError:
+            raise
+        except ValidationError as e:
+            raise ToolError(str(e)) from e
+        except TracecatValidationError as e:
+            raise ToolError(str(e)) from e
+        except TracecatNotFoundError as e:
+            raise ToolError(str(e)) from e
+        except Exception as e:
+            logger.error("Failed to get skill draft", error=str(e))
+            raise ToolError(f"Failed to get skill draft: {e}") from None
+
     try:
-        _require_remote_mcp_context(ctx, tool_name="get_skill_draft_file")
+        _require_remote_mcp_context(ctx, tool_name="get_skill")
         _, role = await _resolve_workspace_role(workspace_id)
         async with SkillService.with_session(role=role) as svc:
             draft_file = await svc.get_draft_file(skill_id=skill_id, path=path)

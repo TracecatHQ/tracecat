@@ -139,7 +139,7 @@ Notes:
 ### Skill file transfer notes
 
 - The staged flow is the only skill upload path: call `prepare_skill_upload`, send raw HTTP PUTs to the returned short-lived URLs, then call `complete_skill_upload`. Inline base64 skill uploads are not supported.
-- Skill reads are draft-only. `get_skill_draft_file` returns small UTF-8 text inline and otherwise returns a short-lived presigned download URL.
+- Skill reads are draft-only. `get_skill` returns the draft manifest, and with a `path` it returns small UTF-8 text inline and otherwise a short-lived presigned download URL.
 
 ## Variable and secret metadata tools
 
@@ -153,8 +153,7 @@ Notes:
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
 - `list_skills(workspace_id, limit=20, cursor=None)`
-- `get_skill_draft(workspace_id, skill_id)`
-- `get_skill_draft_file(workspace_id, skill_id, path)`
+- `get_skill(workspace_id, skill_id, path=None)`
 - `prepare_skill_upload(workspace_id, files, skill_id=None, name=None, description=None)`
 - `complete_skill_upload(workspace_id, skill_id, base_revision, files)`
 - `publish_skill(workspace_id, skill_id)`
