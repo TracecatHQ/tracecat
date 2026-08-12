@@ -250,20 +250,15 @@ export function CaseDurationMetrics({
             </HoverCardTrigger>
             <HoverCardContent className="w-80">
               <div className="flex flex-col gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {metric.name}
+                {metric.description ? (
+                  <p className="text-xs text-muted-foreground">
+                    {metric.description}
                   </p>
-                  {metric.description ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {metric.description}
-                    </p>
-                  ) : null}
-                </div>
+                ) : null}
                 <div className="space-y-3 text-xs">
                   <div>
-                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                      Start Event
+                    <p className="font-medium text-muted-foreground">
+                      Started at
                     </p>
                     <p className="mt-1">
                       Local: {formatLocalDateTime(metric.startedAt)}
@@ -273,8 +268,8 @@ export function CaseDurationMetrics({
                     </p>
                   </div>
                   <div>
-                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                      End Event
+                    <p className="font-medium text-muted-foreground">
+                      Ended at
                     </p>
                     {metric.endedAt ? (
                       <>
