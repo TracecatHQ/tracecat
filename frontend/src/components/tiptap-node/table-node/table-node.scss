@@ -1,0 +1,37 @@
+/* =====================
+     TABLE
+     ===================== */
+.simple-editor-content .tiptap.ProseMirror.simple-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th,
+.simple-editor-content .tiptap.ProseMirror.simple-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor th {
+  font-weight: 600;
+  background-color: hsl(var(--muted) / 0.35);
+}
+
+.simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr:nth-of-type(odd) td {
+  background-color: hsl(var(--muted) / 0.18);
+}
+
+/* prosemirror-tables' `tableEditing` plugin marks every cell covered by a cell
+   selection with `.selectedCell` on the `td`/`th` element itself. These
+   selectors carry the same specificity as the odd-row striping rule above
+   (0,5,3) and are declared after it, so the selected fill wins the cascade
+   without `!important`. */
+.simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr td.selectedCell,
+.simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr th.selectedCell {
+  background-color: hsl(var(--muted));
+}

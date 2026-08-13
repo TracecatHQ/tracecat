@@ -14,12 +14,7 @@ import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
 import type { EditorView } from "@tiptap/pm/view"
-import {
-  type Editor,
-  EditorContent,
-  EditorContext,
-  useEditor,
-} from "@tiptap/react"
+import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
 // --- Tiptap Core Extensions ---
 import { StarterKit } from "@tiptap/starter-kit"
 import * as React from "react"
@@ -29,7 +24,7 @@ import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
 // --- UI Primitives ---
-import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
+import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
 import {
   Toolbar,
@@ -43,17 +38,8 @@ import "@/components/tiptap-node/list-node/list-node.scss"
 import "@/components/tiptap-node/image-node/image-node.scss"
 import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
+import "@/components/tiptap-node/table-node/table-node.scss"
 
-import {
-  BookmarkX,
-  Delete as DeleteIcon,
-  PanelBottomOpen,
-  PanelLeftOpen,
-  PanelRightOpen,
-  PanelTopOpen,
-  Table as TableIcon,
-  Trash2,
-} from "lucide-react"
 // --- Icons ---
 import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
 import { HighlighterIcon } from "@/components/tiptap-icons/highlighter-icon"
@@ -77,12 +63,16 @@ import {
 } from "@/components/tiptap-ui/link-popover"
 import { ListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu"
 import { MarkButton } from "@/components/tiptap-ui/mark-button"
+import {
+  TableControlsGroup,
+  TableInsertButton,
+  useTableControls,
+} from "@/components/tiptap-ui/table-controls"
 import { TextAlignButton } from "@/components/tiptap-ui/text-align-button"
 import { UndoRedoButton } from "@/components/tiptap-ui/undo-redo-button"
 import { useCursorVisibility } from "@/hooks/use-cursor-visibility"
 // --- Hooks ---
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 import { useWindowSize } from "@/hooks/use-window-size"
 
 // --- Lib ---
@@ -130,91 +120,6 @@ const SIMPLE_EDITOR_FEATURE_FLAGS = {
   darkMode: false,
 } as const
 
-type TableButton = {
-  key: string
-  tooltip: string
-  disabled: boolean
-  onClick: () => void
-  icon: React.ReactNode
-}
-
-interface TableButtonGroups {
-  insertButtons: TableButton[]
-  deleteButtons: TableButton[]
-}
-
-const getTableButtonGroups = (
-  editor: Editor,
-  isTableActive: boolean
-): TableButtonGroups => {
-  if (!editor.isEditable) {
-    return { insertButtons: [], deleteButtons: [] }
-  }
-
-  const insertButtons: TableButton[] = []
-
-  if (isTableActive) {
-    insertButtons.push(
-      {
-        key: "add-column-before",
-        tooltip: "Insert column to the left",
-        disabled: !editor.can().addColumnBefore(),
-        onClick: () => editor.chain().focus().addColumnBefore().run(),
-        icon: <PanelLeftOpen className="tiptap-button-icon" />,
-      },
-      {
-        key: "add-column-after",
-        tooltip: "Insert column to the right",
-        disabled: !editor.can().addColumnAfter(),
-        onClick: () => editor.chain().focus().addColumnAfter().run(),
-        icon: <PanelRightOpen className="tiptap-button-icon" />,
-      },
-      {
-        key: "add-row-before",
-        tooltip: "Insert row above",
-        disabled: !editor.can().addRowBefore(),
-        onClick: () => editor.chain().focus().addRowBefore().run(),
-        icon: <PanelTopOpen className="tiptap-button-icon" />,
-      },
-      {
-        key: "add-row-after",
-        tooltip: "Insert row below",
-        disabled: !editor.can().addRowAfter(),
-        onClick: () => editor.chain().focus().addRowAfter().run(),
-        icon: <PanelBottomOpen className="tiptap-button-icon" />,
-      }
-    )
-  }
-
-  const deleteButtons: TableButton[] = isTableActive
-    ? [
-        {
-          key: "delete-column",
-          tooltip: "Delete column",
-          disabled: !editor.can().deleteColumn(),
-          onClick: () => editor.chain().focus().deleteColumn().run(),
-          icon: <BookmarkX className="tiptap-button-icon" />,
-        },
-        {
-          key: "delete-row",
-          tooltip: "Delete row",
-          disabled: !editor.can().deleteRow(),
-          onClick: () => editor.chain().focus().deleteRow().run(),
-          icon: <DeleteIcon className="tiptap-button-icon" />,
-        },
-        {
-          key: "delete-table",
-          tooltip: "Delete table",
-          disabled: !editor.can().deleteTable(),
-          onClick: () => editor.chain().focus().deleteTable().run(),
-          icon: <Trash2 className="tiptap-button-icon" />,
-        },
-      ]
-    : []
-
-  return { insertButtons, deleteButtons }
-}
-
 const MainToolbarContent = ({
   onHighlighterClick,
   onLinkClick,
@@ -229,60 +134,11 @@ const MainToolbarContent = ({
   statusIndicator?: React.ReactNode
 }) => {
   const { highlight, superSub, textAlign, images, darkMode } = features
-  const { editor } = useTiptapEditor()
-  const hasEditableEditor = !!editor && editor.isEditable
-  const isTableActive = !!editor && editor.isActive("table")
-  const handleInsertTable = React.useCallback(() => {
-    if (!editor || !editor.isEditable) {
-      return
-    }
-
-    editor
-      .chain()
-      .focus()
-      .insertTable({ rows: 3, cols: 2, withHeaderRow: true })
-      .run()
-  }, [editor])
-  const canInsertTable = React.useMemo(() => {
-    if (!editor || !editor.isEditable) {
-      return false
-    }
-
-    const can = editor.can()
-    if (typeof can.insertTable !== "function") {
-      return editor.isEditable
-    }
-
-    return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
-  }, [editor])
-  const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
-    if (!editor || !hasEditableEditor) {
-      return { insertButtons: [], deleteButtons: [] }
-    }
-    return getTableButtonGroups(editor, isTableActive)
-  }, [editor, hasEditableEditor, isTableActive])
-  const hasInsertButtons = tableButtonGroups.insertButtons.length > 0
-  const hasDeleteButtons = tableButtonGroups.deleteButtons.length > 0
+  const { insertButtons, deleteButtons } = useTableControls()
+  const hasInsertButtons = insertButtons.length > 0
+  const hasDeleteButtons = deleteButtons.length > 0
   const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
 
-  const renderButtonGroup = (buttons: TableButton[]) => (
-    <ButtonGroup orientation="horizontal">
-      {buttons.map((button) => (
-        <Button
-          key={button.key}
-          type="button"
-          data-style="ghost"
-          data-disabled={button.disabled}
-          disabled={button.disabled}
-          tooltip={button.tooltip}
-          aria-label={button.tooltip}
-          onClick={button.onClick}
-        >
-          {button.icon}
-        </Button>
-      ))}
-    </ButtonGroup>
-  )
   return (
     <>
       <Spacer />
@@ -311,17 +167,7 @@ const MainToolbarContent = ({
         />
         <BlockquoteButton />
         <CodeBlockButton />
-        <Button
-          type="button"
-          data-style="ghost"
-          data-disabled={!canInsertTable}
-          disabled={!canInsertTable}
-          tooltip="Insert table"
-          aria-label="Insert table"
-          onClick={handleInsertTable}
-        >
-          <TableIcon className="tiptap-button-icon" />
-        </Button>
+        <TableInsertButton />
       </ToolbarGroup>
 
       <ToolbarSeparator />
@@ -369,9 +215,7 @@ const MainToolbarContent = ({
         <>
           <ToolbarSeparator />
 
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.insertButtons)}
-          </ToolbarGroup>
+          <TableControlsGroup buttons={insertButtons} />
         </>
       )}
 
@@ -391,9 +235,7 @@ const MainToolbarContent = ({
         <>
           <ToolbarSeparator />
 
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.deleteButtons)}
-          </ToolbarGroup>
+          <TableControlsGroup buttons={deleteButtons} />
         </>
       )}
 
