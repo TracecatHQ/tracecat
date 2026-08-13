@@ -43,6 +43,7 @@ from tracecat.agent.skill.schemas import (
     SkillReadMinimal,
     SkillUpload,
     SkillUploadFile,
+    SkillUploadSessionBatchRead,
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
     SkillValidationErrorDetail,
@@ -110,6 +111,39 @@ class SkillFileBlobRef:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillFileSizeMetadata:
+    """Path and declared byte size used for skill-wide limit checks."""
+
+    path: str | None
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class SkillFileLimitViolation:
+    """One deterministic skill-tree limit violation."""
+
+    code: str
+    message: str
+    path: str | None
+    actual_field: str
+    actual_value: int
+    limit_field: str
+    limit_value: int
+
+    def exception_detail(self) -> dict[str, str | int]:
+        """Return structured API error details for this violation."""
+
+        detail: dict[str, str | int] = {
+            "code": self.code,
+            self.actual_field: self.actual_value,
+            self.limit_field: self.limit_value,
+        }
+        if self.path is not None:
+            detail["path"] = self.path
+        return detail
+
+
+@dataclass(frozen=True, slots=True)
 class SkillBlobPublicationClaim:
     """Result of claiming one workspace-scoped blob identity for publication."""
 
@@ -173,6 +207,7 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftMoveFileOp
 )
 type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillBeforeCreateCommit = Callable[[Skill], Awaitable[None]]
 
 
 def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
@@ -267,6 +302,99 @@ class SkillService(BaseWorkspaceService):
             )
         return normalized
 
+    @staticmethod
+    def _validate_skill_file_limits(
+        files: Sequence[SkillFileSizeMetadata],
+    ) -> None:
+        """Enforce file-count and byte-size limits for a complete skill tree."""
+
+        if violation := SkillService._skill_file_limit_violation(files):
+            raise TracecatValidationError(
+                violation.message,
+                detail=violation.exception_detail(),
+            )
+
+    @staticmethod
+    def _skill_file_limit_violation(
+        files: Sequence[SkillFileSizeMetadata],
+    ) -> SkillFileLimitViolation | None:
+        """Return the first deterministic skill-tree limit violation."""
+
+        if len(files) > config.TRACECAT__MAX_SKILL_FILES_COUNT:
+            return SkillFileLimitViolation(
+                code="skill_file_count_limit_exceeded",
+                message="Skill draft contains too many files",
+                path=None,
+                actual_field="file_count",
+                actual_value=len(files),
+                limit_field="max_file_count",
+                limit_value=config.TRACECAT__MAX_SKILL_FILES_COUNT,
+            )
+
+        manifest = next((file for file in files if file.path == "SKILL.md"), None)
+        if (
+            manifest is not None
+            and manifest.size_bytes > config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES
+        ):
+            return SkillFileLimitViolation(
+                code="skill_manifest_size_limit_exceeded",
+                message="Root SKILL.md exceeds the size limit",
+                path="SKILL.md",
+                actual_field="size_bytes",
+                actual_value=manifest.size_bytes,
+                limit_field="max_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES,
+            )
+
+        oversized_file = max(
+            (
+                file
+                for file in files
+                if file.size_bytes > config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES
+            ),
+            key=lambda file: (file.size_bytes, file.path or ""),
+            default=None,
+        )
+        if oversized_file is not None:
+            return SkillFileLimitViolation(
+                code="skill_file_size_limit_exceeded",
+                message="Skill file exceeds the size limit",
+                path=oversized_file.path,
+                actual_field="size_bytes",
+                actual_value=oversized_file.size_bytes,
+                limit_field="max_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
+            )
+
+        total_size_bytes = sum(file.size_bytes for file in files)
+
+        if total_size_bytes > config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES:
+            return SkillFileLimitViolation(
+                code="skill_total_size_limit_exceeded",
+                message="Skill draft exceeds the aggregate size limit",
+                path=None,
+                actual_field="total_size_bytes",
+                actual_value=total_size_bytes,
+                limit_field="max_total_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES,
+            )
+        return None
+
+    def _validate_skill_blob_map_limits(
+        self, path_to_blob: dict[str, SkillFileBlobRef]
+    ) -> None:
+        """Enforce skill limits against the materialized draft file map."""
+
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=path,
+                    size_bytes=file_ref.blob.size_bytes,
+                )
+                for path, file_ref in path_to_blob.items()
+            ]
+        )
+
     def _storage_key_for(self, sha256: str) -> str:
         """Return the canonical storage key for a skill blob."""
 
@@ -277,10 +405,15 @@ class SkillService(BaseWorkspaceService):
         """Return the temporary storage key for a staged skill upload."""
 
         normalized_sha256 = self._normalize_sha256(sha256)
-        return f"skills/{self.workspace_id}/uploads/{upload_id}/{normalized_sha256}"
+        return f"skill-uploads/{self.workspace_id}/{upload_id}/{normalized_sha256}"
 
     def _staged_upload_prefix(self) -> str:
         """Return the storage-prefix used for staged upload objects."""
+
+        return f"skill-uploads/{self.workspace_id}/"
+
+    def _legacy_staged_upload_prefix(self) -> str:
+        """Return the pre-lifecycle staged prefix for cleanup compatibility."""
 
         return f"skills/{self.workspace_id}/uploads/"
 
@@ -290,7 +423,9 @@ class SkillService(BaseWorkspaceService):
         return (
             upload.completed_at is None
             and upload.blob_id is None
-            and upload.key.startswith(self._staged_upload_prefix())
+            and upload.key.startswith(
+                (self._staged_upload_prefix(), self._legacy_staged_upload_prefix())
+            )
         )
 
     @staticmethod
@@ -408,6 +543,25 @@ class SkillService(BaseWorkspaceService):
                 "Describe when this skill should be used and what it does.",
             ]
         )
+
+    async def _build_default_draft_blob_map(
+        self, *, name: str, description: str | None
+    ) -> dict[str, SkillFileBlobRef]:
+        """Materialize the seeded root manifest for a new skill."""
+
+        root_markdown = self._build_default_skill_markdown(
+            name=name,
+            description=description,
+        )
+        root_blob = await self._get_or_create_blob(
+            content=root_markdown.encode("utf-8")
+        )
+        return {
+            "SKILL.md": SkillFileBlobRef(
+                blob=root_blob,
+                content_type="text/markdown; charset=utf-8",
+            )
+        }
 
     @staticmethod
     def _merge_skill_markdown_metadata(
@@ -812,6 +966,7 @@ class SkillService(BaseWorkspaceService):
         result = ManifestValidationResult()
         seen_paths: set[str] = set()
         skill_md_blob: SkillBlob | None = None
+        file_sizes: list[SkillFileSizeMetadata] = []
 
         for path, blob_row in rows:
             try:
@@ -834,8 +989,25 @@ class SkillService(BaseWorkspaceService):
                     )
                 )
             seen_paths.add(normalized)
+            file_sizes.append(
+                SkillFileSizeMetadata(path=normalized, size_bytes=blob_row.size_bytes)
+            )
             if normalized == "SKILL.md":
                 skill_md_blob = blob_row
+
+        if violation := self._skill_file_limit_violation(file_sizes):
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code=violation.code,
+                    message=violation.message,
+                    path=violation.path,
+                )
+            )
+            if skill_md_blob is not None and skill_md_blob.size_bytes > min(
+                config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES,
+                config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
+            ):
+                return result
 
         for normalized in sorted(seen_paths):
             parts = normalized.split("/")
@@ -1038,6 +1210,12 @@ class SkillService(BaseWorkspaceService):
                     content_type=content_type,
                 )
             )
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=file.path, size_bytes=len(file.content))
+                for file in prepared_files
+            ]
+        )
         return prepared_files
 
     async def _prepare_validated_upload_draft(
@@ -1087,16 +1265,27 @@ class SkillService(BaseWorkspaceService):
     ) -> PreparedSkillUploadDraft:
         """Materialize validated upload files into draft blob refs."""
 
-        path_to_blob: dict[str, SkillFileBlobRef] = {}
-        for file in prepared_files:
-            path_to_blob[file.path] = SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=file.content),
-                content_type=file.content_type,
-            )
+        path_to_blob = await self._materialize_prepared_files(prepared_files)
         return PreparedSkillUploadDraft(
             validation=validation,
             path_to_blob=path_to_blob,
         )
+
+    async def _materialize_prepared_files(
+        self, prepared_files: Sequence[PreparedSkillUploadFile]
+    ) -> dict[str, SkillFileBlobRef]:
+        """Materialize file blobs in stable digest order to avoid lock cycles."""
+
+        path_to_blob: dict[str, SkillFileBlobRef] = {}
+        for file in sorted(
+            prepared_files,
+            key=lambda item: (self._compute_sha256(item.content), item.path),
+        ):
+            path_to_blob[file.path] = SkillFileBlobRef(
+                blob=await self._get_or_create_blob(content=file.content),
+                content_type=file.content_type,
+            )
+        return path_to_blob
 
     async def _create_version_from_blob_refs(
         self,
@@ -1323,8 +1512,9 @@ class SkillService(BaseWorkspaceService):
         name: str,
         description: str | None,
         path_to_blob_factory: SkillDraftBlobMapFactory,
+        before_commit: SkillBeforeCreateCommit | None = None,
     ) -> Skill:
-        """Create a skill row and draft, retrying slug races with reallocation."""
+        """Create a skill and draft, then atomically run optional preparation."""
 
         for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
             slug = await self._allocate_skill_slug(name)
@@ -1342,6 +1532,8 @@ class SkillService(BaseWorkspaceService):
                     skill=skill,
                     path_to_blob=await path_to_blob_factory(),
                 )
+                if before_commit is not None:
+                    await before_commit(skill)
                 await self.session.commit()
             except IntegrityError as exc:
                 await self.session.rollback()
@@ -1581,19 +1773,10 @@ class SkillService(BaseWorkspaceService):
         """
 
         async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
-            root_markdown = self._build_default_skill_markdown(
+            return await self._build_default_draft_blob_map(
                 name=params.name,
                 description=params.description,
             )
-            root_blob = await self._get_or_create_blob(
-                content=root_markdown.encode("utf-8")
-            )
-            return {
-                "SKILL.md": SkillFileBlobRef(
-                    blob=root_blob,
-                    content_type="text/markdown; charset=utf-8",
-                )
-            }
 
         skill = await self._create_skill_with_slug_retry(
             name=params.name,
@@ -1741,14 +1924,27 @@ class SkillService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_download(
-        self, *, skill_id: uuid.UUID
+        self,
+        *,
+        skill_id: uuid.UUID,
+        url_expiry_seconds: int = DEFAULT_DOWNLOAD_TTL_SECONDS,
     ) -> SkillDownloadPreparedResponse | None:
         """Prepare presigned downloads for every file in a skill draft."""
 
         if (skill := await self.get_skill(skill_id)) is None:
             return None
 
-        expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_DOWNLOAD_TTL_SECONDS)
+        rows = await self._list_draft_rows(skill_id)
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+                for draft_file, blob_row in rows
+            ]
+        )
+        expires_at = datetime.now(UTC) + timedelta(seconds=url_expiry_seconds)
         files = [
             SkillDownloadPreparedFile(
                 path=draft_file.path,
@@ -1759,11 +1955,11 @@ class SkillService(BaseWorkspaceService):
                     key=blob_row.key,
                     bucket=blob_row.bucket,
                     override_content_type=draft_file.content_type,
-                    expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
+                    expiry=url_expiry_seconds,
                 ),
                 expires_at=expires_at,
             )
-            for draft_file, blob_row in await self._list_draft_rows(skill_id)
+            for draft_file, blob_row in rows
         ]
         return SkillDownloadPreparedResponse(
             workspace_id=self.workspace_id,
@@ -1775,7 +1971,11 @@ class SkillService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_file(
-        self, *, skill_id: uuid.UUID, path: str
+        self,
+        *,
+        skill_id: uuid.UUID,
+        path: str,
+        url_expiry_seconds: int = DEFAULT_DOWNLOAD_TTL_SECONDS,
     ) -> SkillDraftFileRead | None:
         """Return one draft file either inline or as a presigned download."""
 
@@ -1793,6 +1993,14 @@ class SkillService(BaseWorkspaceService):
         if row is None:
             return None
         draft_file, blob_row = row
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+            ]
+        )
         if self._is_inline_text(
             draft_file.content_type, size_bytes=blob_row.size_bytes
         ):
@@ -1822,7 +2030,7 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=draft_file.content_type,
-                expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
+                expiry=url_expiry_seconds,
             ),
         )
 
@@ -1928,6 +2136,21 @@ class SkillService(BaseWorkspaceService):
     ) -> list[PreparedDraftPatchOperation]:
         """Validate draft operations before any blob writes begin."""
 
+        upload_ids = {
+            operation.upload_id
+            for operation in operations
+            if isinstance(operation, SkillDraftAttachUploadedBlobOp)
+        }
+        uploads_by_id: dict[uuid.UUID, SkillUploadModel] = {}
+        if upload_ids:
+            upload_stmt = select(SkillUploadModel).where(
+                SkillUploadModel.workspace_id == self.workspace_id,
+                SkillUploadModel.skill_id == skill.id,
+                SkillUploadModel.id.in_(upload_ids),
+            )
+            uploads = (await self.session.execute(upload_stmt)).scalars().all()
+            uploads_by_id = {upload.id: upload for upload in uploads}
+
         prepared_operations: list[PreparedDraftPatchOperation] = []
         for operation in operations:
             match operation:
@@ -1943,14 +2166,7 @@ class SkillService(BaseWorkspaceService):
                     )
                 case SkillDraftAttachUploadedBlobOp():
                     normalized_path = self._normalize_path(operation.path)
-                    upload_stmt = select(SkillUploadModel).where(
-                        SkillUploadModel.workspace_id == self.workspace_id,
-                        SkillUploadModel.skill_id == skill.id,
-                        SkillUploadModel.id == operation.upload_id,
-                    )
-                    upload = (
-                        await self.session.execute(upload_stmt)
-                    ).scalar_one_or_none()
+                    upload = uploads_by_id.get(operation.upload_id)
                     if upload is None:
                         raise TracecatValidationError(
                             f"Skill upload '{operation.upload_id}' not found",
@@ -2004,6 +2220,92 @@ class SkillService(BaseWorkspaceService):
                     )
         return prepared_operations
 
+    async def _materialize_patch_operation_blobs(
+        self, operations: Sequence[PreparedDraftPatchOperation]
+    ) -> dict[int, SkillBlob]:
+        """Materialize every new blob in deterministic digest order."""
+
+        pending: list[tuple[str, int, PreparedDraftPatchOperation]] = []
+        for index, operation in enumerate(operations):
+            match operation:
+                case PreparedDraftTextFileOp():
+                    pending.append(
+                        (self._compute_sha256(operation.content), index, operation)
+                    )
+                case PreparedDraftAttachUploadedBlobOp():
+                    pending.append(
+                        (
+                            self._normalize_sha256(operation.upload.sha256),
+                            index,
+                            operation,
+                        )
+                    )
+                case PreparedDraftDeleteFileOp() | PreparedDraftMoveFileOp():
+                    continue
+
+        materialized: dict[int, SkillBlob] = {}
+        for _, index, operation in sorted(pending, key=lambda item: (item[0], item[1])):
+            match operation:
+                case PreparedDraftTextFileOp():
+                    materialized[index] = await self._get_or_create_blob(
+                        content=operation.content
+                    )
+                case PreparedDraftAttachUploadedBlobOp():
+                    materialized[index] = await self._materialize_uploaded_blob(
+                        operation.upload
+                    )
+                case PreparedDraftDeleteFileOp() | PreparedDraftMoveFileOp():
+                    raise AssertionError("non-materialized operation was queued")
+        return materialized
+
+    def _validate_patch_tree_before_materialization(
+        self,
+        *,
+        current_rows: Sequence[tuple[SkillDraftFile, SkillBlob]],
+        operations: Sequence[PreparedDraftPatchOperation],
+    ) -> None:
+        """Validate final paths and declared sizes before touching object storage."""
+
+        path_to_size = {
+            draft_file.path: blob_row.size_bytes
+            for draft_file, blob_row in current_rows
+        }
+        for operation in operations:
+            match operation:
+                case PreparedDraftTextFileOp():
+                    path_to_size[operation.path] = len(operation.content)
+                case PreparedDraftAttachUploadedBlobOp():
+                    path_to_size[operation.path] = operation.upload.size_bytes
+                case PreparedDraftDeleteFileOp():
+                    path_to_size.pop(operation.path, None)
+                case PreparedDraftMoveFileOp():
+                    source_size = path_to_size.get(operation.from_path)
+                    if source_size is None:
+                        raise TracecatValidationError(
+                            f"Cannot move missing draft file '{operation.from_path}'",
+                            detail={
+                                "code": "move_source_not_found",
+                                "from_path": operation.from_path,
+                            },
+                        )
+                    if operation.to_path in path_to_size:
+                        raise TracecatValidationError(
+                            f"Move target '{operation.to_path}' already exists",
+                            detail={
+                                "code": "move_target_exists",
+                                "to_path": operation.to_path,
+                            },
+                        )
+                    path_to_size[operation.to_path] = source_size
+                    path_to_size.pop(operation.from_path)
+
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=path, size_bytes=size_bytes)
+                for path, size_bytes in path_to_size.items()
+            ]
+        )
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
@@ -2028,6 +2330,10 @@ class SkillService(BaseWorkspaceService):
             operations=params.operations,
         )
         current_rows = await self._list_draft_rows(skill.id)
+        self._validate_patch_tree_before_materialization(
+            current_rows=current_rows,
+            operations=prepared_operations,
+        )
         path_to_blob = {
             draft_file.path: SkillFileBlobRef(
                 blob=blob_row,
@@ -2035,56 +2341,35 @@ class SkillService(BaseWorkspaceService):
             )
             for draft_file, blob_row in current_rows
         }
-        staged_upload_objects_to_delete: set[tuple[str, str]] = set()
-        for operation in prepared_operations:
+        staged_upload_objects_to_delete = {
+            (operation.upload.key, operation.upload.bucket)
+            for operation in prepared_operations
+            if isinstance(operation, PreparedDraftAttachUploadedBlobOp)
+            and operation.upload.completed_at is None
+            and operation.upload.key != self._storage_key_for(operation.upload.sha256)
+        }
+        materialized_blobs = await self._materialize_patch_operation_blobs(
+            prepared_operations
+        )
+        for index, operation in enumerate(prepared_operations):
             match operation:
                 case PreparedDraftTextFileOp():
-                    blob_row = await self._get_or_create_blob(
-                        content=operation.content,
-                    )
                     path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=blob_row,
+                        blob=materialized_blobs[index],
                         content_type=operation.content_type,
                     )
                 case PreparedDraftAttachUploadedBlobOp():
-                    should_delete_staged_object = (
-                        operation.upload.completed_at is None
-                        and (
-                            operation.upload.key
-                            != self._storage_key_for(operation.upload.sha256)
-                        )
-                    )
                     path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=await self._materialize_uploaded_blob(operation.upload),
+                        blob=materialized_blobs[index],
                         content_type=operation.upload.content_type,
                     )
-                    if should_delete_staged_object:
-                        staged_upload_objects_to_delete.add(
-                            (operation.upload.key, operation.upload.bucket)
-                        )
                 case PreparedDraftDeleteFileOp():
                     path_to_blob.pop(operation.path, None)
                 case PreparedDraftMoveFileOp():
-                    source = path_to_blob.get(operation.from_path)
-                    if source is None:
-                        raise TracecatValidationError(
-                            f"Cannot move missing draft file '{operation.from_path}'",
-                            detail={
-                                "code": "move_source_not_found",
-                                "from_path": operation.from_path,
-                            },
-                        )
-                    if operation.to_path in path_to_blob:
-                        raise TracecatValidationError(
-                            f"Move target '{operation.to_path}' already exists",
-                            detail={
-                                "code": "move_target_exists",
-                                "to_path": operation.to_path,
-                            },
-                        )
+                    source = path_to_blob.pop(operation.from_path)
                     path_to_blob[operation.to_path] = source
-                    path_to_blob.pop(operation.from_path, None)
 
+        self._validate_skill_blob_map_limits(path_to_blob)
         validation = await self._validate_manifest_rows(
             [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
         )
@@ -2110,6 +2395,183 @@ class SkillService(BaseWorkspaceService):
                 )
         return await self._build_draft_read(skill)
 
+    def _validate_upload_session_batch(
+        self, params: Sequence[SkillUploadSessionCreate]
+    ) -> None:
+        """Validate a complete upload-session batch before database writes."""
+
+        if not params:
+            raise TracecatValidationError(
+                "Skill upload must include at least one file",
+                detail={"code": "skill_upload_empty"},
+            )
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=None, size_bytes=upload.size_bytes)
+                for upload in params
+            ]
+        )
+
+    async def _prepare_draft_upload_rows(
+        self,
+        *,
+        skill: Skill,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int,
+    ) -> list[SkillUploadSessionRead]:
+        """Create and sign upload rows without committing their transaction."""
+
+        if url_expiry_seconds <= 0:
+            raise TracecatValidationError(
+                "Skill upload URL expiry must be positive",
+                detail={"code": "invalid_upload_url_expiry"},
+            )
+        self._validate_upload_session_batch(params)
+
+        expires_at = datetime.now(UTC) + timedelta(seconds=url_expiry_seconds)
+        prepared_rows: list[tuple[SkillUploadModel, str]] = []
+        for upload_params in params:
+            upload_id = uuid.uuid4()
+            normalized_sha256 = self._normalize_sha256(upload_params.sha256)
+            storage_key = self._staged_upload_key_for(
+                upload_id=upload_id,
+                sha256=normalized_sha256,
+            )
+            normalized_content_type = self._normalize_content_type(
+                upload_params.content_type
+            )
+            upload_row = SkillUploadModel(
+                workspace_id=self.workspace_id,
+                skill_id=skill.id,
+                sha256=normalized_sha256,
+                size_bytes=upload_params.size_bytes,
+                content_type=normalized_content_type,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                key=storage_key,
+                expires_at=expires_at,
+                created_by=self.role.user_id if self.role.type == "user" else None,
+            )
+            upload_row.id = upload_id
+            self.session.add(upload_row)
+            prepared_rows.append((upload_row, normalized_content_type))
+        await self.session.flush()
+
+        uploads: list[SkillUploadSessionRead] = []
+        for upload_row, content_type in prepared_rows:
+            checksum_sha256 = base64.b64encode(bytes.fromhex(upload_row.sha256)).decode(
+                "ascii"
+            )
+            uploads.append(
+                SkillUploadSessionRead(
+                    upload_id=upload_row.id,
+                    upload_url=await blob.generate_presigned_upload_url(
+                        key=upload_row.key,
+                        bucket=upload_row.bucket,
+                        content_type=content_type,
+                        checksum_sha256=checksum_sha256,
+                        expiry=url_expiry_seconds,
+                    ),
+                    headers={
+                        "Content-Type": content_type,
+                        "Content-Length": str(upload_row.size_bytes),
+                        "x-amz-checksum-sha256": checksum_sha256,
+                    },
+                    expires_at=expires_at,
+                    bucket=upload_row.bucket,
+                    key=upload_row.key,
+                )
+            )
+        return uploads
+
+    async def _delete_reaped_upload_objects(
+        self, expired_uploads: Sequence[SkillUploadModel]
+    ) -> None:
+        """Delete reaped staged objects after their database transaction commits."""
+
+        for expired_upload in expired_uploads:
+            await self._delete_staged_upload_object_best_effort(
+                expired_upload,
+                reason="reap_expired_upload",
+            )
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def prepare_draft_uploads(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int = DEFAULT_UPLOAD_TTL_SECONDS,
+    ) -> SkillUploadSessionBatchRead:
+        """Atomically prepare a complete upload batch for an existing skill."""
+
+        self._validate_upload_session_batch(params)
+        skill = await self.get_skill(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        expired_uploads = await self._reap_expired_incomplete_uploads()
+        try:
+            uploads = await self._prepare_draft_upload_rows(
+                skill=skill,
+                params=params,
+                url_expiry_seconds=url_expiry_seconds,
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+        await self._delete_reaped_upload_objects(expired_uploads)
+        return SkillUploadSessionBatchRead(
+            skill_id=skill.id,
+            draft_revision=skill.draft_revision,
+            created=False,
+            uploads=uploads,
+        )
+
+    @require_scope("agent:create", "agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def prepare_new_skill_draft_uploads(
+        self,
+        *,
+        skill_params: SkillCreate,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int = DEFAULT_UPLOAD_TTL_SECONDS,
+    ) -> SkillUploadSessionBatchRead:
+        """Atomically create a skill and prepare its complete upload batch."""
+
+        self._validate_upload_session_batch(params)
+        prepared_uploads: list[SkillUploadSessionRead] = []
+        expired_uploads: list[SkillUploadModel] = []
+
+        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+            return await self._build_default_draft_blob_map(
+                name=skill_params.name,
+                description=skill_params.description,
+            )
+
+        async def prepare_before_commit(skill: Skill) -> None:
+            nonlocal expired_uploads, prepared_uploads
+            expired_uploads = await self._reap_expired_incomplete_uploads()
+            prepared_uploads = await self._prepare_draft_upload_rows(
+                skill=skill,
+                params=params,
+                url_expiry_seconds=url_expiry_seconds,
+            )
+
+        skill = await self._create_skill_with_slug_retry(
+            name=skill_params.name,
+            description=skill_params.description,
+            path_to_blob_factory=default_draft_blob_map,
+            before_commit=prepare_before_commit,
+        )
+        await self._delete_reaped_upload_objects(expired_uploads)
+        return SkillUploadSessionBatchRead(
+            skill_id=skill.id,
+            draft_revision=skill.draft_revision,
+            created=True,
+            uploads=prepared_uploads,
+        )
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_draft_upload(
@@ -2118,52 +2580,13 @@ class SkillService(BaseWorkspaceService):
         skill_id: uuid.UUID,
         params: SkillUploadSessionCreate,
     ) -> SkillUploadSessionRead:
-        """Create a staged upload session for a draft blob."""
+        """Create one staged upload session for the draft-upload REST API."""
 
-        skill = await self.get_skill(skill_id)
-        if skill is None:
-            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        expired_uploads = await self._reap_expired_incomplete_uploads()
-
-        upload_id = uuid.uuid4()
-        expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_UPLOAD_TTL_SECONDS)
-        normalized_sha256 = self._normalize_sha256(params.sha256)
-        storage_key = self._staged_upload_key_for(
-            upload_id=upload_id, sha256=normalized_sha256
+        prepared = await self.prepare_draft_uploads(
+            skill_id=skill_id,
+            params=[params],
         )
-        normalized_content_type = self._normalize_content_type(params.content_type)
-        upload_row = SkillUploadModel(
-            workspace_id=self.workspace_id,
-            skill_id=skill.id,
-            sha256=normalized_sha256,
-            size_bytes=params.size_bytes,
-            content_type=normalized_content_type,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
-            expires_at=expires_at,
-            created_by=self.role.user_id if self.role.type == "user" else None,
-        )
-        upload_row.id = upload_id
-        self.session.add(upload_row)
-        await self.session.commit()
-        for expired_upload in expired_uploads:
-            await self._delete_staged_upload_object_best_effort(
-                expired_upload,
-                reason="reap_expired_upload",
-            )
-        return SkillUploadSessionRead(
-            upload_id=upload_id,
-            upload_url=await blob.generate_presigned_upload_url(
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                content_type=normalized_content_type,
-                expiry=DEFAULT_UPLOAD_TTL_SECONDS,
-            ),
-            headers={"Content-Type": normalized_content_type},
-            expires_at=expires_at,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
-        )
+        return prepared.uploads[0]
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> SkillVersion | None:
@@ -2184,6 +2607,15 @@ class SkillService(BaseWorkspaceService):
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         rows = await self._list_draft_rows(skill.id)
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+                for draft_file, blob_row in rows
+            ]
+        )
         validation = await self._validate_manifest_rows(
             [(draft_file.path, blob_row) for draft_file, blob_row in rows]
         )
@@ -2247,16 +2679,9 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
-        file_refs = [
-            (
-                file.path,
-                SkillFileBlobRef(
-                    blob=await self._get_or_create_blob(content=file.content),
-                    content_type=file.content_type,
-                ),
-            )
-            for file in prepared_files
-        ]
+        file_refs = list(
+            (await self._materialize_prepared_files(prepared_files)).items()
+        )
         return await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=file_refs,

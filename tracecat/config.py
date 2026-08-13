@@ -991,6 +991,26 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
 
+TRACECAT__MAX_SKILL_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILE_SIZE_BYTES") or 20 * 1024 * 1024
+)
+"""Maximum size of one skill file in bytes. Defaults to 20 MiB."""
+
+TRACECAT__MAX_SKILL_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_FILES_COUNT") or 1_000
+)
+"""Maximum number of files in one skill draft. Defaults to 1,000."""
+
+TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES") or 100 * 1024 * 1024
+)
+"""Maximum aggregate size of one skill draft in bytes. Defaults to 100 MiB."""
+
+TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES") or 256 * 1024
+)
+"""Maximum size of a root skill SKILL.md manifest. Defaults to 256 KiB."""
+
 # === System PATH config === #
 TRACECAT__SYSTEM_PATH = os.environ.get(
     "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"

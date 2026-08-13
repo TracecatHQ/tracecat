@@ -240,6 +240,15 @@ class SkillUploadSessionRead(Schema):
     key: str
 
 
+class SkillUploadSessionBatchRead(Schema):
+    """Atomic preparation result for a complete set of staged uploads."""
+
+    skill_id: uuid.UUID
+    draft_revision: int
+    created: bool
+    uploads: list[SkillUploadSessionRead]
+
+
 class SkillDraftUpsertTextFileOp(BaseModel):
     """Replace or create a text file in the skill draft."""
 

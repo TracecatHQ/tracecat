@@ -40,8 +40,8 @@ from tracecat.agent.skill.schemas import (
     SkillDraftFileRead,
     SkillDraftRead,
     SkillFileEntry,
-    SkillRead,
     SkillReadMinimal,
+    SkillUploadSessionBatchRead,
     SkillUploadSessionRead,
     SkillVersionRead,
 )
@@ -9796,9 +9796,13 @@ async def test_get_skill_with_path_returns_inline_text(
         return workspace_id, role
 
     class _SkillService:
-        async def get_draft_file(self, *, skill_id, path):
+        async def get_draft_file(self, *, skill_id, path, url_expiry_seconds):
             assert skill_id == expected_skill_id
             assert path == "SKILL.md"
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
             return SkillDraftFileRead(
                 kind="inline",
                 path=path,
@@ -9847,9 +9851,13 @@ async def test_get_skill_with_path_returns_presigned_download(
         return workspace_id, role
 
     class _SkillService:
-        async def get_draft_file(self, *, skill_id, path):
+        async def get_draft_file(self, *, skill_id, path, url_expiry_seconds):
             assert skill_id == expected_skill_id
             assert path == "scripts/helper.py"
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
             return SkillDraftFileRead(
                 kind="download",
                 path=path,
@@ -9896,9 +9904,13 @@ async def test_get_skill_with_path_returns_not_found(
         return workspace_id, role
 
     class _SkillService:
-        async def get_draft_file(self, *, skill_id, path):
+        async def get_draft_file(self, *, skill_id, path, url_expiry_seconds):
             assert skill_id == expected_skill_id
             assert path == "scripts/missing.py"
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
             return None
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -9997,8 +10009,12 @@ async def test_prepare_skill_download_returns_complete_presigned_plan(
         return workspace_id, role
 
     class _SkillService:
-        async def prepare_draft_download(self, *, skill_id):
+        async def prepare_draft_download(self, *, skill_id, url_expiry_seconds):
             assert skill_id == expected_skill_id
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
             return SkillDownloadPreparedResponse(
                 workspace_id=workspace_id,
                 skill_id=skill_id,
@@ -10046,7 +10062,11 @@ async def test_prepare_skill_download_returns_not_found(
         return workspace_id, role
 
     class _SkillService:
-        async def prepare_draft_download(self, *, skill_id):
+        async def prepare_draft_download(self, *, skill_id, url_expiry_seconds):
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
             return None
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -10122,35 +10142,39 @@ async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
         return workspace_id, role
 
     class _SkillService:
-        async def create_skill(self, params):
-            captured["create"] = params
-            return SkillRead(
-                id=skill_id,
-                workspace_id=workspace_id,
-                name=params.name,
-                slug=params.name,
-                description=params.description,
-                current_version_id=None,
-                draft_revision=4,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=1,
+        async def prepare_new_skill_draft_uploads(
+            self,
+            *,
+            skill_params,
+            params,
+            url_expiry_seconds,
+        ):
+            captured["create"] = skill_params
+            captured["uploads"] = list(params)
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
             )
-
-        async def create_draft_upload(self, *, skill_id, params):
-            index = len(captured["uploads"])
-            captured["uploads"].append((skill_id, params))
-            return SkillUploadSessionRead(
-                upload_id=upload_ids[index],
-                upload_url=f"https://uploads.example/{index}?signature=secret",
-                headers={"Content-Type": params.content_type},
-                expires_at=now + timedelta(minutes=15),
-                bucket="skills",
-                key=f"staged/{index}",
+            return SkillUploadSessionBatchRead(
+                skill_id=skill_id,
+                draft_revision=4,
+                created=True,
+                uploads=[
+                    SkillUploadSessionRead(
+                        upload_id=upload_ids[index],
+                        upload_url=(
+                            f"https://uploads.example/{index}?signature=secret"
+                        ),
+                        headers={
+                            "Content-Type": upload.content_type,
+                            "Content-Length": str(upload.size_bytes),
+                        },
+                        expires_at=now + timedelta(minutes=5),
+                        bucket="skills",
+                        key=f"staged/{index}",
+                    )
+                    for index, upload in enumerate(params)
+                ],
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -10183,8 +10207,7 @@ async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
 
     payload = _payload(result)
     assert captured["create"].name == "triage-skill"
-    assert [item[0] for item in captured["uploads"]] == [skill_id, skill_id]
-    assert captured["uploads"][1][1].size_bytes == 0
+    assert captured["uploads"][1].size_bytes == 0
     assert payload["workspace_id"] == str(workspace_id)
     assert payload["skill_id"] == str(skill_id)
     assert payload["base_revision"] == 4
@@ -10214,33 +10237,36 @@ async def test_prepare_skill_upload_reuses_existing_draft(
         return workspace_id, role
 
     class _SkillService:
-        async def create_skill(self, params):
-            del params
-            raise AssertionError("existing skill updates must not create a skill")
-
-        async def get_draft(self, requested_skill_id):
-            assert requested_skill_id == skill_id
-            return SkillDraftRead(
-                skill_id=skill_id,
-                skill_name="triage-skill",
-                draft_revision=6,
-                name="triage-skill",
-                description="Triage alerts",
-                files=[],
-                is_publishable=True,
-                validation_errors=[],
-            )
-
-        async def create_draft_upload(self, *, skill_id, params):
+        async def prepare_draft_uploads(
+            self,
+            *,
+            skill_id,
+            params,
+            url_expiry_seconds,
+        ):
             captured["skill_id"] = skill_id
-            captured["params"] = params
-            return SkillUploadSessionRead(
-                upload_id=upload_id,
-                upload_url="https://uploads.example/skill?signature=secret",
-                headers={"Content-Type": params.content_type},
-                expires_at=now + timedelta(minutes=15),
-                bucket="skills",
-                key="staged/skill",
+            captured["params"] = list(params)
+            assert (
+                url_expiry_seconds
+                == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+            )
+            return SkillUploadSessionBatchRead(
+                skill_id=skill_id,
+                draft_revision=6,
+                created=False,
+                uploads=[
+                    SkillUploadSessionRead(
+                        upload_id=upload_id,
+                        upload_url=("https://uploads.example/skill?signature=secret"),
+                        headers={
+                            "Content-Type": params[0].content_type,
+                            "Content-Length": str(params[0].size_bytes),
+                        },
+                        expires_at=now + timedelta(minutes=5),
+                        bucket="skills",
+                        key="staged/skill",
+                    )
+                ],
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -10303,6 +10329,41 @@ async def test_prepare_skill_upload_checks_update_scope_before_creating_skill(
                     path="SKILL.md",
                     sha256="a" * 64,
                     size_bytes=42,
+                    content_type="text/markdown; charset=utf-8",
+                )
+            ],
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_upload_rejects_oversized_manifest_before_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_server.config,
+        "TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES",
+        1,
+    )
+
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not open for an oversized manifest")
+
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    with pytest.raises(ToolError, match="Root SKILL.md exceeds the size limit"):
+        await _tool(mcp_server.prepare_skill_upload)(
+            workspace_id=str(uuid.uuid4()),
+            name="triage-skill",
+            files=[
+                mcp_server.SkillUploadFileMetadata(
+                    path="SKILL.md",
+                    sha256="a" * 64,
+                    size_bytes=2,
                     content_type="text/markdown; charset=utf-8",
                 )
             ],

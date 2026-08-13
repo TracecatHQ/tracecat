@@ -414,6 +414,7 @@ async def generate_presigned_upload_url(
     bucket: str,
     expiry: int | None = None,
     content_type: str | None = None,
+    checksum_sha256: str | None = None,
 ) -> str:
     """Generate a presigned URL for uploading a file.
 
@@ -422,6 +423,7 @@ async def generate_presigned_upload_url(
         bucket: Bucket name (required)
         expiry: URL expiry time in seconds (defaults to config)
         content_type: Optional content type constraint
+        checksum_sha256: Optional base64-encoded SHA-256 checksum constraint
 
     Returns:
         Presigned URL for uploading the file
@@ -434,6 +436,8 @@ async def generate_presigned_upload_url(
     params = {"Bucket": bucket, "Key": key}
     if content_type:
         params["ContentType"] = content_type
+    if checksum_sha256 is not None:
+        params["ChecksumSHA256"] = checksum_sha256
 
     async with get_storage_client() as s3_client:
         try:
@@ -456,6 +460,7 @@ async def generate_presigned_upload_url(
                 bucket=bucket,
                 expiry=expiry,
                 content_type=content_type,
+                checksum_sha256=checksum_sha256,
             )
             return url
         except ClientError as e:

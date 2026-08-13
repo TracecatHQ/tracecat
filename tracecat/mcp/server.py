@@ -1240,7 +1240,10 @@ class SkillUploadFileMetadata(BaseModel):
 
     path: SkillPath
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(
+        ge=0,
+        le=config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
+    )
     content_type: str = Field(min_length=1, max_length=255)
 
 
@@ -1434,10 +1437,15 @@ def _normalize_workflow_file_relative_path(relative_path: str) -> str:
 
 
 def _validate_staged_skill_paths(paths: Sequence[str]) -> list[str]:
-    """Validate a complete local skill file set before staging uploads."""
+    """Normalize a complete skill path set and reject ambiguous trees."""
 
     if not paths:
         raise ToolError("Skill upload must include at least one file")
+    if len(paths) > config.TRACECAT__MAX_SKILL_FILES_COUNT:
+        raise ToolError(
+            "Skill upload contains too many files "
+            f"({len(paths)} > {config.TRACECAT__MAX_SKILL_FILES_COUNT})"
+        )
 
     normalized_paths: list[str] = []
     seen_paths: set[str] = set()
@@ -1453,6 +1461,39 @@ def _validate_staged_skill_paths(paths: Sequence[str]) -> list[str]:
 
     if "SKILL.md" not in seen_paths:
         raise ToolError("Skill upload must include a root SKILL.md")
+    return normalized_paths
+
+
+def _validate_staged_skill_files(
+    files: Sequence[SkillUploadFileMetadata],
+) -> list[str]:
+    """Validate paths and declared sizes for a complete staged skill tree."""
+
+    normalized_paths = _validate_staged_skill_paths([file.path for file in files])
+    total_size_bytes = sum(file.size_bytes for file in files)
+    manifest_size_bytes = next(
+        (
+            file.size_bytes
+            for file, path in zip(files, normalized_paths, strict=True)
+            if path == "SKILL.md"
+        ),
+        None,
+    )
+    if (
+        manifest_size_bytes is not None
+        and manifest_size_bytes > config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES
+    ):
+        raise ToolError(
+            "Root SKILL.md exceeds the size limit "
+            f"({manifest_size_bytes} > "
+            f"{config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES} bytes)"
+        )
+    if total_size_bytes > config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES:
+        raise ToolError(
+            "Skill upload exceeds the aggregate size limit "
+            f"({total_size_bytes} > "
+            f"{config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES} bytes)"
+        )
     return normalized_paths
 
 
@@ -8339,7 +8380,11 @@ async def get_skill(
         _, role = await _resolve_workspace_role(workspace_id)
         check_scopes(role, "agent:read")
         async with SkillService.with_session(role=role) as svc:
-            draft_file = await svc.get_draft_file(skill_id=skill_id, path=path)
+            draft_file = await svc.get_draft_file(
+                skill_id=skill_id,
+                path=path,
+                url_expiry_seconds=_mcp_file_transfer_ttl_seconds(),
+            )
             if draft_file is None:
                 raise ToolError(f"Draft file '{path}' not found for skill '{skill_id}'")
             return draft_file
@@ -8378,7 +8423,10 @@ async def prepare_skill_download(
         _, role = await _resolve_workspace_role(workspace_id)
         check_scopes(role, "agent:read")
         async with SkillService.with_session(role=role) as svc:
-            prepared = await svc.prepare_draft_download(skill_id=skill_id)
+            prepared = await svc.prepare_draft_download(
+                skill_id=skill_id,
+                url_expiry_seconds=_mcp_file_transfer_ttl_seconds(),
+            )
             if prepared is None:
                 raise ToolError(f"Skill '{skill_id}' not found")
             return prepared
@@ -8421,7 +8469,7 @@ async def prepare_skill_upload(
 
     try:
         _require_remote_mcp_context(ctx, tool_name="prepare_skill_upload")
-        normalized_paths = _validate_staged_skill_paths([file.path for file in files])
+        normalized_paths = _validate_staged_skill_files(files)
         creating = skill_id is None
         if creating and name is None:
             raise ToolError("name is required when creating a skill")
@@ -8434,54 +8482,60 @@ async def prepare_skill_upload(
         if creating:
             check_scopes(role, "agent:create")
         check_scopes(role, "agent:update")
-        prepared_files: list[SkillUploadPreparedFile] = []
+        upload_params = [
+            SkillUploadSessionCreate(
+                sha256=file.sha256,
+                size_bytes=file.size_bytes,
+                content_type=file.content_type,
+            )
+            for file in files
+        ]
         async with SkillService.with_session(role=role) as svc:
             if skill_id is None:
                 if name is None:
                     raise ToolError("name is required when creating a skill")
-                skill = await svc.create_skill(
-                    SkillCreate(name=name, description=description or None)
-                )
-                resolved_skill_id = skill.id
-                base_revision = skill.draft_revision
-            else:
-                draft = await svc.get_draft(skill_id)
-                if draft is None:
-                    raise ToolError(f"Skill '{skill_id}' not found")
-                resolved_skill_id = skill_id
-                base_revision = draft.draft_revision
-
-            for file, normalized_path in zip(files, normalized_paths, strict=True):
-                upload_params = SkillUploadSessionCreate(
-                    sha256=file.sha256,
-                    size_bytes=file.size_bytes,
-                    content_type=file.content_type,
-                )
-                upload = await svc.create_draft_upload(
-                    skill_id=resolved_skill_id,
+                prepared = await svc.prepare_new_skill_draft_uploads(
+                    skill_params=SkillCreate(
+                        name=name,
+                        description=description or None,
+                    ),
                     params=upload_params,
+                    url_expiry_seconds=_mcp_file_transfer_ttl_seconds(),
                 )
-                prepared_files.append(
-                    SkillUploadPreparedFile(
-                        path=normalized_path,
-                        sha256=upload_params.sha256,
-                        size_bytes=upload_params.size_bytes,
-                        content_type=upload.headers.get(
-                            "Content-Type", upload_params.content_type
-                        ),
-                        upload_id=upload.upload_id,
-                        upload_url=upload.upload_url,
-                        method=upload.method,
-                        headers=upload.headers,
-                        expires_at=upload.expires_at,
-                    )
+            else:
+                prepared = await svc.prepare_draft_uploads(
+                    skill_id=skill_id,
+                    params=upload_params,
+                    url_expiry_seconds=_mcp_file_transfer_ttl_seconds(),
                 )
+
+        prepared_files = [
+            SkillUploadPreparedFile(
+                path=normalized_path,
+                sha256=upload_param.sha256,
+                size_bytes=upload_param.size_bytes,
+                content_type=upload.headers.get(
+                    "Content-Type", upload_param.content_type
+                ),
+                upload_id=upload.upload_id,
+                upload_url=upload.upload_url,
+                method=upload.method,
+                headers=upload.headers,
+                expires_at=upload.expires_at,
+            )
+            for normalized_path, upload_param, upload in zip(
+                normalized_paths,
+                upload_params,
+                prepared.uploads,
+                strict=True,
+            )
+        ]
 
         return SkillUploadPreparedResponse(
             workspace_id=workspace_id,
-            skill_id=resolved_skill_id,
-            base_revision=base_revision,
-            created=creating,
+            skill_id=prepared.skill_id,
+            base_revision=prepared.draft_revision,
+            created=prepared.created,
             files=prepared_files,
         )
     except ScopeDeniedError as e:
