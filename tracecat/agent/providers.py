@@ -14,9 +14,10 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.mistral import MistralProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from tracecat.agent.config import ORCAROUTER_DEFAULT_BASE_URL
 from tracecat_registry import secrets
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
+
+from tracecat.agent.config import ORCAROUTER_DEFAULT_BASE_URL
 
 
 def get_model(
