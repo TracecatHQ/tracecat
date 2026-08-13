@@ -1,0 +1,40 @@
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_bc5352235b23a6::t_3c0c293a33db6a 11-12
+  s_bc5352235b23a6::t_e5d5cdf267868e 152,162-167
+  s_bc5352235b23a6::t_53a64f8536a9ba 102-104,110
+frontend/tests/table-column-widths.test.ts
+  s_bc5352235b23a6::t_202053cb84187b 220-227,233,236,247,253-333,337,339,348,358,362,365-367,377-379
+  s_bc5352235b23a6::t_1d5bae43471932 343-345,349-351,353-355,359-361,368-373
+  s_bc5352235b23a6::t_14aef971879442 34-38
+  s_bc5352235b23a6::t_d08fcc6a6bfff6 8-9
+  s_bc5352235b23a6::t_6c1de3efc493a4 85-94
+  s_bc5352235b23a6::t_fb4bed4c91f0f6 456-460,463
+  s_bc5352235b23a6::t_83aa5088df0528 749-796
+  s_bc5352235b23a6::t_df7833bd633f86 736-737
+frontend/tests/table-move-column.test.ts
+  s_bc5352235b23a6::t_ca3024b687431e 49-61
+  s_bc5352235b23a6::t_dd1b553cbe04a9 319-341
+frontend/src/components/tiptap-node/table-node/table-column-widths.ts
+  s_bc5352235b23a6::t_a9c1360716ce7a 109-110,112,115-136,142-143,147-157,159-163,166-209,213
+  s_bc5352235b23a6::t_1ce0b261c2bdeb 350-356,358-359,361-375,377-378,380-382
+  s_bc5352235b23a6::t_79c0b76bfea370 210-212
+  s_bc5352235b23a6::t_8dc631dec21be4 226-227,232,236,240-241,243-257,259-261,263,266,269-271
+frontend/src/components/cases/case-panel-description.tsx
+  s_bc5352235b23a6::t_5bcbb5a2f58bc2 175-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b164d79a846c2456fc83d2bb54dcb5b42d231ecb",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
