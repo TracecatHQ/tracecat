@@ -1,0 +1,33 @@
+frontend/src/lib/case-field-display.ts
+  s_b0d733c807806a::t_fe44d84c80746e 84-119
+frontend/src/components/cases/case-panel-view.tsx
+  s_b0d733c807806a::t_1c836e7d1728a2 141
+  s_b0d733c807806a::t_eb2fbae38339bc 55-57
+  s_b0d733c807806a::t_9f019a98a9fd2f 54
+frontend/src/components/cases/case-url-field-popover.tsx
+  s_b0d733c807806a::t_065633964f1162 118-121
+frontend/tests/case-field-display.test.ts
+  s_b0d733c807806a::t_27891db584aca1 46-113
+  s_b0d733c807806a::t_e6987db18fd3e3 5-6
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  s_b0d733c807806a::t_9482bd4bab12df 75
+frontend/src/components/cases/editor.css
+  s_b0d733c807806a::t_5b28ba56723b9e 136-143,145-152
+  s_b0d733c807806a::t_7e56d94bfdb055 144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "beb0492073694733a5e381ee895edf406e665f94",
+  "prompts": {},
+  "sessions": {
+    "s_b0d733c807806a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0839f2fa-586d-4a2c-9dad-e9034a3f74f4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
