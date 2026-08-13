@@ -636,6 +636,12 @@ class CaseFieldResourceSpec(BaseModel):
         description="Stable source id; the field's single-segment file path key.",
     )
     name: str = Field(min_length=1, description="Case field name.")
+    display_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Optional human-readable case field name.",
+    )
     field_type: str | None = Field(
         default=None, description="Underlying field data type, if specified."
     )
