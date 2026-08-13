@@ -48,7 +48,7 @@ class WorkflowActionService(BaseWorkspaceService):
             title=params.title,
             description=params.description,
             inputs=params.inputs,
-            control_flow=params.control_flow.model_dump()
+            control_flow=params.control_flow.model_dump(exclude_unset=True)
             if params.control_flow
             else {},
             is_interactive=params.is_interactive,
