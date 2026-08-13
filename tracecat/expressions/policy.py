@@ -492,11 +492,14 @@ def _select_input(
     if binding is None:
         return None
 
-    dependencies = (
-        binding.dependencies.select(ref.path)
-        if ref.path is not None
-        else binding.dependencies.collapsed()
-    )
+    if ref.path is None:
+        dependencies = binding.dependencies.collapsed()
+    elif (
+        dependency_path := _normalize_negative_indices(ref.path, binding.source)
+    ) is None:
+        dependencies = binding.dependencies.collapsed()
+    else:
+        dependencies = binding.dependencies.select(dependency_path)
 
     if not ref.suffix:
         return _InputSelection(True, binding.source, dependencies)
@@ -509,6 +512,33 @@ def _select_input(
     except TracecatExpressionError:
         return _InputSelection(False, None, dependencies)
     return _InputSelection(True, source, dependencies)
+
+
+def _normalize_negative_indices(path: DataPath, source: Any) -> DataPath | None:
+    """Normalize negative list indices using the authored source shape.
+
+    Return ``None`` when a negative index cannot be normalized so callers can
+    conservatively collapse the dependency lookup instead of treating it as
+    untainted.
+    """
+    if not any(isinstance(segment, int) and segment < 0 for segment in path):
+        return path
+
+    normalized: list[PathSegment] = []
+    current = source
+    for segment in path:
+        if isinstance(current, list) and isinstance(segment, int):
+            index = segment if segment >= 0 else len(current) + segment
+            if not 0 <= index < len(current):
+                return None
+            normalized.append(index)
+            current = current[index]
+        elif isinstance(current, Mapping) and segment in current:
+            normalized.append(segment)
+            current = current[segment]
+        else:
+            return None
+    return tuple(normalized)
 
 
 def _tree_dependencies(

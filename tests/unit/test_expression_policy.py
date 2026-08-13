@@ -225,6 +225,40 @@ def test_template_input_dependencies_preserve_structured_paths() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        (-1, MASK_VALUE),
+        (-2, "plain value"),
+    ],
+)
+def test_template_input_dependencies_normalize_negative_list_indices(
+    index: int,
+    expected: str,
+) -> None:
+    state = _state(
+        source_args={
+            "items": [
+                "plain value",
+                "${{ SECRETS.api.TOKEN }}",
+            ]
+        },
+        runtime_inputs={
+            "items": [
+                "plain value",
+                "runtime-secret",
+            ]
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs.items[{index}] }}}}"},
+    )
+
+    assert prepared == {"content": expected}
+
+
 def test_whole_tainted_input_is_conservatively_masked_without_re_evaluation() -> None:
     state = _state(
         source_args={
