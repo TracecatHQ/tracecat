@@ -20,6 +20,16 @@ interface CaseDescriptionEditorProps {
     caseId: string
     workspaceId: string
   }
+  /**
+   * Keep the column widths a user drags a table to, at the cost of writing that
+   * table out as raw HTML instead of Markdown.
+   *
+   * Only the case description itself sets this. The same component also backs
+   * long-text custom fields, whose values are bounded and read by agents, so it
+   * stays off there. See `SimpleEditor`'s `persistTableColumnWidths`.
+   * @default false
+   */
+  persistTableColumnWidths?: boolean
 }
 
 export function CaseDescriptionEditor({
@@ -30,6 +40,7 @@ export function CaseDescriptionEditor({
   toolbarStatus,
   autoFocus = false,
   imageTarget,
+  persistTableColumnWidths = false,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
   const [isEditorActive, setIsEditorActive] = React.useState(false)
@@ -97,6 +108,7 @@ export function CaseDescriptionEditor({
         enableImages={imagesEnabled}
         imageWorkspaceId={imageTarget?.workspaceId ?? null}
         onImageUpload={imagesEnabled ? handleImageUpload : undefined}
+        persistTableColumnWidths={persistTableColumnWidths}
       />
     </div>
   )

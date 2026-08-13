@@ -27,9 +27,27 @@ import {
  *   widths falls back to the derived proportional widths in
  *   `table-column-widths.ts`, which is where it started.
  *
+ * Emitting HTML is opt-in per editor, and off unless the surface asks for it —
+ * see {@link TableMarkdownOptions.persistColumnWidths}. HTML inflates a table
+ * several times over and stops being Markdown, which breaks any consumer that
+ * measures or reads the field. Only the case description opts in.
+ *
  * Content always outranks widths. Every failure path in this module falls back
  * to the pipe renderer rather than risking a mangled table.
  */
+
+/** How one editor wants its resized tables written out. */
+export interface TableMarkdownOptions {
+  /**
+   * Write a resized table as a raw HTML block so `colwidth` survives the round
+   * trip, instead of dropping the widths into a GFM pipe table.
+   *
+   * Only safe where the field has no length limit and is never fed to an LLM
+   * verbatim: HTML roughly quadruples a table's character count, and prompt
+   * builders that HTML-escape their input turn the block into entity soup.
+   */
+  persistColumnWidths: boolean
+}
 
 /** Marks that can be expressed as a plain inline HTML tag. */
 const MARK_TAGS: Readonly<Record<string, string>> = {
@@ -49,15 +67,19 @@ const BLANK_LINE = /\n[ \t]*\n/
 /**
  * Render a table node to Markdown, preserving column widths when it has them.
  *
- * Falls back to upstream's GFM pipe renderer whenever the table carries no
- * explicit widths, or whenever its content cannot be expressed as a single
- * blank-line-free HTML block.
+ * Falls back to upstream's GFM pipe renderer whenever the editor did not ask
+ * for widths to be persisted, whenever the table carries no explicit widths, or
+ * whenever its content cannot be expressed as a single blank-line-free HTML
+ * block.
  */
 export function renderTableMarkdown(
   node: JSONContent,
-  helpers: MarkdownRendererHelpers
+  helpers: MarkdownRendererHelpers,
+  options: TableMarkdownOptions
 ): string {
-  if (!tableJsonHasExplicitWidths(node)) {
+  // The one decision that turns a Markdown table into an HTML one, so the
+  // opt-in is checked here rather than anywhere upstream of it.
+  if (!options.persistColumnWidths || !tableJsonHasExplicitWidths(node)) {
     return renderTableToMarkdown(node, helpers)
   }
 

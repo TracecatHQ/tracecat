@@ -22,7 +22,7 @@ import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
-import { TracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
+import { createTracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
 // --- UI Primitives ---
 import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -364,6 +364,21 @@ export interface SimpleEditorProps {
    * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
    */
   onImageUpload?: (file: File) => Promise<string>
+  /**
+   * Keep the column widths a user drags a table to when the content is saved.
+   *
+   * A GFM pipe table cannot carry column widths, so persisting them means
+   * writing the table out as a raw HTML block instead of Markdown. That is only
+   * appropriate where the field is unbounded and is never handed to an LLM
+   * verbatim: HTML inflates a table several times over, so a field with a
+   * length limit can start silently failing to save, and a prompt builder that
+   * HTML-escapes its input turns the block into entity soup.
+   *
+   * Column resizing itself is always on. This only decides whether a drag
+   * outlives the session.
+   * @default false
+   */
+  persistTableColumnWidths?: boolean
 }
 
 export function SimpleEditor({
@@ -385,6 +400,7 @@ export function SimpleEditor({
   enableImages = false,
   imageWorkspaceId = null,
   onImageUpload,
+  persistTableColumnWidths = false,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -414,7 +430,9 @@ export function SimpleEditor({
       MermaidCodeBlock.configure({
         renderWhenBlurred: renderMermaidWhenBlurred,
       }),
-      TracecatTable.configure({
+      createTracecatTable({
+        persistColumnWidths: persistTableColumnWidths,
+      }).configure({
         resizable: true,
         // Upstream's default of 25px lets a column be crushed to unreadability.
         cellMinWidth: 48,
@@ -455,7 +473,12 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
+    [
+      renderMermaidWhenBlurred,
+      enableImages,
+      imageWorkspaceId,
+      persistTableColumnWidths,
+    ]
   )
 
   const editor = useEditor({

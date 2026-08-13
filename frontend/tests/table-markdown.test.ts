@@ -6,11 +6,38 @@ import { MarkdownManager } from "@tiptap/markdown"
 import type { JSONContent, MarkdownRendererHelpers } from "@tiptap/react"
 import { generateJSON } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
-import { renderTableMarkdown } from "@/components/tiptap-node/table-node/table-markdown"
-import { TracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
+import {
+  renderTableMarkdown,
+  tableJsonHasExplicitWidths,
+} from "@/components/tiptap-node/table-node/table-markdown"
+import {
+  createTracecatTable,
+  TracecatTable,
+} from "@/components/tiptap-node/table-node/table-node-extension"
+
+/** Width persistence as the case description enables it. */
+const PERSIST = { persistColumnWidths: true } as const
+
+/** Width persistence as every other surface leaves it. */
+const NO_PERSIST = { persistColumnWidths: false } as const
 
 /** The extension set a case description round-trips through. */
-const extensions = [StarterKit, TracecatTable, TableRow, TableHeader, TableCell]
+const extensions = [
+  StarterKit,
+  createTracecatTable(PERSIST),
+  TableRow,
+  TableHeader,
+  TableCell,
+]
+
+/** The same set for a surface that never persists widths. */
+const pipeOnlyExtensions = [
+  StarterKit,
+  TracecatTable,
+  TableRow,
+  TableHeader,
+  TableCell,
+]
 
 /**
  * Minimal stand-in for the renderer helpers `@tiptap/markdown` passes in.
@@ -106,6 +133,18 @@ function makeList(
   }
 }
 
+/** Parse `markdown` back through `manager` and return the one table in it. */
+function parseOnlyTable(
+  manager: MarkdownManager,
+  markdown: string
+): JSONContent {
+  const parsed = manager.parse(markdown)
+  const table = parsed.content?.[0]
+  expect(parsed.content).toHaveLength(1)
+  expect(table?.type).toBe("table")
+  return table as JSONContent
+}
+
 /**
  * Take rendered Markdown through the same lexer and parser a case description
  * does, and return the first block of the first cell that comes back.
@@ -128,7 +167,7 @@ function roundTripFirstCellBlock(markdown: string): JSONContent | undefined {
   return parsed.content?.[0]?.content?.[0]?.content?.[0]?.content?.[0]
 }
 
-describe("renderTableMarkdown without explicit widths", () => {
+describe("renderTableMarkdown without explicit widths, persistence enabled", () => {
   it("emits a pipe table byte-identical to the upstream renderer", () => {
     const table = makeTable(
       [
@@ -138,7 +177,7 @@ describe("renderTableMarkdown without explicit widths", () => {
       null
     )
 
-    const rendered = renderTableMarkdown(table, helpers)
+    const rendered = renderTableMarkdown(table, helpers, PERSIST)
     expect(rendered).toBe(renderTableToMarkdown(table, helpers))
     expect(rendered).toContain("| Indicator | Verdict   |")
     expect(rendered).not.toContain("<table>")
@@ -159,13 +198,13 @@ describe("renderTableMarkdown without explicit widths", () => {
       firstCell.attrs.colwidth = [0, 0]
     }
 
-    expect(renderTableMarkdown(table, helpers)).toBe(
+    expect(renderTableMarkdown(table, helpers, PERSIST)).toBe(
       renderTableToMarkdown(table, helpers)
     )
   })
 })
 
-describe("renderTableMarkdown with explicit widths", () => {
+describe("renderTableMarkdown with explicit widths, persistence enabled", () => {
   it("emits an HTML block carrying colwidth on every cell", () => {
     const rendered = renderTableMarkdown(
       makeTable(
@@ -175,7 +214,8 @@ describe("renderTableMarkdown with explicit widths", () => {
         ],
         [120, 240]
       ),
-      helpers
+      helpers,
+      PERSIST
     )
 
     expect(rendered.startsWith("<table>")).toBe(true)
@@ -196,7 +236,7 @@ describe("renderTableMarkdown with explicit widths", () => {
 
   it("omits colspan and rowspan unless they are greater than one", () => {
     const table = makeTable([["Alpha", "Beta"]], [120, 240])
-    const rendered = renderTableMarkdown(table, helpers)
+    const rendered = renderTableMarkdown(table, helpers, PERSIST)
     expect(rendered).not.toContain("colspan")
     expect(rendered).not.toContain("rowspan")
 
@@ -207,7 +247,7 @@ describe("renderTableMarkdown with explicit widths", () => {
       cell.attrs.rowspan = 3
       cell.attrs.colwidth = [120, 240]
     }
-    const renderedSpanned = renderTableMarkdown(spanned, helpers)
+    const renderedSpanned = renderTableMarkdown(spanned, helpers, PERSIST)
     expect(renderedSpanned).toContain('colspan="2"')
     expect(renderedSpanned).toContain('rowspan="3"')
     expect(renderedSpanned).toContain('colwidth="120,240"')
@@ -241,7 +281,7 @@ describe("renderTableMarkdown with explicit widths", () => {
       ]
     }
 
-    const rendered = renderTableMarkdown(table, helpers)
+    const rendered = renderTableMarkdown(table, helpers, PERSIST)
     expect(rendered).toContain("5 &lt; 6 &amp; &quot;ok&quot;")
     expect(rendered).toContain("<strong>bold</strong>")
     expect(rendered).toContain("<br>")
@@ -268,7 +308,7 @@ describe("renderTableMarkdown with explicit widths", () => {
       ]
     }
 
-    const rendered = renderTableMarkdown(table, helpers)
+    const rendered = renderTableMarkdown(table, helpers, PERSIST)
     expect(rendered).toBe(renderTableToMarkdown(table, helpers))
     expect(rendered).not.toContain("<table>")
   })
@@ -287,9 +327,110 @@ describe("renderTableMarkdown with explicit widths", () => {
       ]
     }
 
-    expect(renderTableMarkdown(table, helpers)).toBe(
+    expect(renderTableMarkdown(table, helpers, PERSIST)).toBe(
       renderTableToMarkdown(table, helpers)
     )
+  })
+})
+
+describe("renderTableMarkdown with explicit widths, persistence disabled", () => {
+  it("emits a pipe table and simply loses the widths", () => {
+    const table = makeTable(
+      [
+        ["Indicator", "Verdict"],
+        ["1.2.3.4", "malicious"],
+      ],
+      [120, 240]
+    )
+
+    const rendered = renderTableMarkdown(table, helpers, NO_PERSIST)
+
+    // No HTML anywhere: a workflow README or a case comment has to stay
+    // Markdown whatever the user dragged, so the widths are what gives.
+    expect(rendered).not.toContain("<table>")
+    expect(rendered).not.toContain("colwidth")
+    expect(rendered).toBe(renderTableToMarkdown(table, helpers))
+    expect(rendered).toContain("| Indicator | Verdict   |")
+  })
+
+  it("is what an editor gets by default", () => {
+    // `createTracecatTable()` is `SimpleEditor`'s extension with the prop left
+    // off, and `TracecatTable` is the ready-made export every other surface
+    // reaches for. Neither takes a flag, so a consumer that never heard of
+    // width persistence cannot opt into HTML tables by accident.
+    for (const table of [createTracecatTable(), TracecatTable]) {
+      const manager = new MarkdownManager({
+        extensions: [StarterKit, table, TableRow, TableHeader, TableCell],
+        markedOptions: { gfm: true },
+      })
+
+      const resized = makeTable(
+        [
+          ["Indicator", "Verdict"],
+          ["1.2.3.4", "malicious"],
+        ],
+        [140, 96]
+      )
+      // The table really is one a user has dragged; without this the test would
+      // pass against a gate that was wide open.
+      expect(tableJsonHasExplicitWidths(resized)).toBe(true)
+
+      const markdown = manager.serialize({ type: "doc", content: [resized] })
+
+      expect(markdown).not.toContain("<table>")
+      expect(markdown).not.toContain("colwidth")
+      expect(markdown).toContain("| Indicator | Verdict   |")
+
+      // And the widths are gone for good, not merely unrendered. A pipe table
+      // is parsed straight from Markdown tokens rather than through the schema,
+      // so its cells come back with no `attrs` at all — hence testing for a
+      // width that is absent rather than for an explicit null.
+      const parsedTable = parseOnlyTable(manager, markdown)
+      const widths = (parsedTable.content ?? []).flatMap((row: JSONContent) =>
+        (row.content ?? []).map((cell: JSONContent) => cell.attrs?.colwidth)
+      )
+      expect(widths).toHaveLength(4)
+      expect(widths.filter((width) => Array.isArray(width))).toEqual([])
+      // The very question the serializer asks: nothing survives that could turn
+      // the next save of this document into an HTML block.
+      expect(tableJsonHasExplicitWidths(parsedTable)).toBe(false)
+    }
+  })
+
+  it("keeps everything else about a table intact", () => {
+    const manager = new MarkdownManager({
+      extensions: pipeOnlyExtensions,
+      markedOptions: { gfm: true },
+    })
+
+    const markdown = manager.serialize({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Before." }] },
+        makeTable(
+          [
+            ["Indicator", "Verdict"],
+            ["1.2.3.4", "malicious"],
+          ],
+          [140, 96]
+        ),
+        { type: "paragraph", content: [{ type: "text", text: "After." }] },
+      ],
+    })
+
+    const parsed = manager.parse(markdown)
+    expect(parsed.content?.map((node: JSONContent) => node.type)).toEqual([
+      "paragraph",
+      "table",
+      "paragraph",
+    ])
+    const texts = (parsed.content?.[1]?.content ?? []).map((row: JSONContent) =>
+      (row.content ?? []).map((cell: JSONContent) => renderPlainText(cell))
+    )
+    expect(texts).toEqual([
+      ["Indicator", "Verdict"],
+      ["1.2.3.4", "malicious"],
+    ])
   })
 })
 
@@ -297,7 +438,8 @@ describe("renderTableMarkdown list numbering", () => {
   it("writes the numbering a list does not start at 1 with", () => {
     const rendered = renderTableMarkdown(
       makeTableHolding([makeList("orderedList", { start: 3, type: null })]),
-      helpers
+      helpers,
+      PERSIST
     )
     expect(rendered).toContain('<ol start="3"><li><p>one</p></li></ol>')
   })
@@ -305,7 +447,8 @@ describe("renderTableMarkdown list numbering", () => {
   it("writes the marker style an ordered list was given", () => {
     const rendered = renderTableMarkdown(
       makeTableHolding([makeList("orderedList", { start: 1, type: "a" })]),
-      helpers
+      helpers,
+      PERSIST
     )
     expect(rendered).toContain('<ol type="a">')
   })
@@ -313,14 +456,16 @@ describe("renderTableMarkdown list numbering", () => {
   it("leaves an ordinary list bare, so existing content does not churn", () => {
     const rendered = renderTableMarkdown(
       makeTableHolding([makeList("orderedList", { start: 1, type: null })]),
-      helpers
+      helpers,
+      PERSIST
     )
     expect(rendered).toContain("<ol><li><p>one</p></li></ol>")
 
     // `BulletList` defines no attributes to carry in the first place.
     const bullets = renderTableMarkdown(
       makeTableHolding([makeList("bulletList", {})]),
-      helpers
+      helpers,
+      PERSIST
     )
     expect(bullets).toContain("<ul><li><p>one</p></li></ul>")
   })
@@ -328,7 +473,8 @@ describe("renderTableMarkdown list numbering", () => {
   it("rehydrates the numbering after a full round trip", () => {
     const markdown = renderTableMarkdown(
       makeTableHolding([makeList("orderedList", { start: 3, type: "a" })]),
-      helpers
+      helpers,
+      PERSIST
     )
 
     const list = roundTripFirstCellBlock(markdown)
@@ -351,7 +497,7 @@ describe("renderTableMarkdown round trip", () => {
       [120, 240]
     )
 
-    const markdown = renderTableMarkdown(table, helpers)
+    const markdown = renderTableMarkdown(table, helpers, PERSIST)
 
     // The whole table has to survive as a single raw HTML block; anything else
     // means the block was terminated early and the rest lexed as Markdown.
@@ -416,7 +562,8 @@ describe("renderTableMarkdown round trip", () => {
         ],
         [120, 240]
       ),
-      helpers
+      helpers,
+      PERSIST
     )
     // The document joins top-level children with a blank line, which is what
     // opens and closes the HTML block.

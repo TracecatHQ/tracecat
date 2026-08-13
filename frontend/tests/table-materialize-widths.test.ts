@@ -6,12 +6,16 @@ import { columnResizingPluginKey } from "@tiptap/pm/tables"
 import type { JSONContent } from "@tiptap/react"
 import { Editor } from "@tiptap/react"
 import { StarterKit } from "@tiptap/starter-kit"
-import { TracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
+import { createTracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
 
-/** The extension set a case description round-trips through. */
+/**
+ * The extension set a case description round-trips through — the one surface
+ * that persists dragged column widths, so the one where materialisation is
+ * visible in the saved Markdown.
+ */
 const extensions = [
   StarterKit,
-  TracecatTable.configure({
+  createTracecatTable({ persistColumnWidths: true }).configure({
     resizable: true,
     cellMinWidth: 48,
     handleWidth: 6,

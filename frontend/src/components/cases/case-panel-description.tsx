@@ -172,6 +172,9 @@ export function CasePanelDescription({
                     onBlur={handleBlur}
                     toolbarStatus={toolbarStatus}
                     imageTarget={{ caseId: caseData.id, workspaceId }}
+                    // The one field with no length cap and no agent-side
+                    // escaping, so the only one that can afford an HTML table.
+                    persistTableColumnWidths
                   />
                 </FormControl>
               </FormItem>

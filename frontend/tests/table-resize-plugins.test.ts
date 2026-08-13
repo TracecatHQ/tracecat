@@ -29,6 +29,24 @@ function createEditor(): { editor: Editor; element: HTMLElement } {
 }
 
 describe("table resize wiring", () => {
+  it("installs the materialize plugin exactly once", () => {
+    // `Extension.extend()` copies the parent's whole config onto the child and
+    // also chains `parent`, so `this.parent?.()` re-enters the same
+    // `addProseMirrorPlugins` body. Layering a second extend over the table
+    // therefore mints a second plugin against the same key, and ProseMirror
+    // rejects the editor outright. Everything must stay in one `Table.extend`.
+    // Constructing the editor is itself the assertion: ProseMirror rejects a
+    // second instance of a keyed plugin, so a duplicate throws here rather
+    // than reaching the count below.
+    const { editor, element } = createEditor()
+    try {
+      expect(materializeColumnWidthsPluginKey.get(editor.state)).toBeDefined()
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
   it("installs the materialize plugin ahead of columnResizing", () => {
     const { editor, element } = createEditor()
     try {

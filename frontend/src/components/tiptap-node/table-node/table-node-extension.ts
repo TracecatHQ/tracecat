@@ -177,7 +177,33 @@ export class TracecatTableView extends TableView {
 }
 
 /**
- * Table node with stable, sensibly proportioned columns and persisted widths.
+ * Build the table extension for one editor: stable proportional columns, the
+ * move-column commands, and one choice about Markdown.
+ *
+ * Resizing, the derived widths and the toolbar are the same everywhere; the
+ * only thing this varies is how a resized table is written back to Markdown.
+ * Widths can only be persisted by emitting a raw HTML block, so persistence is
+ * opt-in and off by default — see `table-markdown.ts` for the full contract and
+ * for what emitting HTML costs a surface that cannot afford it.
+ *
+ * This is a factory rather than a `configure()` option because `@tiptap/markdown`
+ * resolves `renderMarkdown` through `getExtensionField` with no options context:
+ * `this.options` is `undefined` inside it, so the serializer cannot read a
+ * configured value. Closing over the flag is what makes it reachable.
+ *
+ * Everything is built in this one `Table.extend` call, and splitting the shared
+ * half back out into a base extension that this one extends would be a bug, not
+ * a tidy-up. `Extendable.extend` copies the parent's entire config into the
+ * child (`new this.constructor({ ...this.config, ...extendedConfig })`) *and*
+ * sets `child.parent`, so every link in the chain owns a copy of
+ * `addProseMirrorPlugins`. `getExtensionField` binds the child's copy with
+ * `this.parent` resolved to the identical implementation on the parent, so
+ * `this.parent?.()` re-enters this method once per extra link and returns one
+ * more `createMaterializeColumnWidthsPlugin()` each time. Two links below
+ * `Table` produced two plugins sharing `materializeColumnWidthsPluginKey`, and
+ * ProseMirror rejects the state with "Adding different instances of a keyed
+ * plugin". `configure()` is safe by contrast — it re-parents the result to
+ * `this.parent`, so it replaces a link rather than adding one.
  *
  * The node view is registered through `addNodeView` rather than the extension's
  * `View` option because that option is only forwarded to `columnResizing`,
@@ -189,69 +215,83 @@ export class TracecatTableView extends TableView {
  *
  * The type arguments are load-bearing, not decoration. `extend` infers its
  * config type from the object literal as soon as the literal contains a
- * property with a concrete function type (`renderMarkdown` here), which drops
- * the contextual typing that `NodeConfig` provides — `addNodeView`'s parameter
+ * property with a concrete function type — `renderMarkdown` here — which drops
+ * the contextual typing that `NodeConfig` provides: `addNodeView`'s parameter
  * becomes implicitly `any` and `this.parent` disappears. Naming the type
  * arguments turns inference off for the call and restores both.
+ *
+ * @param options.persistColumnWidths Serialize a resized table as raw HTML so
+ *   its `colwidth` survives the round trip. Defaults to false.
  */
-export const TracecatTable = Table.extend<TableOptions, unknown>({
-  /**
-   * Widths are only written out when the user has set them; see
-   * `table-markdown.ts` for the full Markdown-versus-HTML contract.
-   */
-  renderMarkdown: renderTableMarkdown,
+export function createTracecatTable({
+  persistColumnWidths = false,
+}: {
+  persistColumnWidths?: boolean
+} = {}) {
+  return Table.extend<TableOptions, unknown>({
+    addNodeView() {
+      return ({ node }) =>
+        new TracecatTableView(node, this.options.cellMinWidth)
+    },
 
-  addNodeView() {
-    return ({ node }) => new TracecatTableView(node, this.options.cellMinWidth)
-  },
+    addCommands() {
+      return {
+        // The whole upstream table command set — `insertTable`,
+        // `addColumnBefore`, `deleteRow` and the rest — lives here and the
+        // toolbar depends on it, so it has to be carried over rather than
+        // replaced.
+        ...this.parent?.(),
 
-  addCommands() {
-    return {
-      // The whole upstream table command set — `insertTable`, `addColumnBefore`,
-      // `deleteRow` and the rest — lives here and the toolbar depends on it, so
-      // it has to be carried over rather than replaced.
-      ...this.parent?.(),
+        // `moveTableColumn` moves the cells' attributes and content but
+        // rebuilds each cell with the node type already in the destination
+        // slot, so `colwidth` travels with the column while the header row
+        // stays headers. Both commands return false rather than throwing when
+        // the column is already against the edge, which is what makes
+        // `editor.can()` usable for the buttons' disabled state.
+        moveTableColumnLeft:
+          () =>
+          ({ state, dispatch }) => {
+            const rect = selectedTableRect(state)
+            if (!rectHasColumnLeft(rect)) {
+              return false
+            }
+            return moveTableColumn({ from: rect.left, to: rect.left - 1 })(
+              state,
+              dispatch
+            )
+          },
 
-      // `moveTableColumn` moves the cells' attributes and content but rebuilds
-      // each cell with the node type already in the destination slot, so
-      // `colwidth` travels with the column while the header row stays headers.
-      // Both commands return false rather than throwing when the column is
-      // already against the edge, which is what makes `editor.can()` usable for
-      // the buttons' disabled state.
-      moveTableColumnLeft:
-        () =>
-        ({ state, dispatch }) => {
-          const rect = selectedTableRect(state)
-          if (!rectHasColumnLeft(rect)) {
-            return false
-          }
-          return moveTableColumn({ from: rect.left, to: rect.left - 1 })(
-            state,
-            dispatch
-          )
-        },
+        moveTableColumnRight:
+          () =>
+          ({ state, dispatch }) => {
+            const rect = selectedTableRect(state)
+            if (!rectHasColumnRight(rect)) {
+              return false
+            }
+            return moveTableColumn({ from: rect.right - 1, to: rect.right })(
+              state,
+              dispatch
+            )
+          },
+      }
+    },
 
-      moveTableColumnRight:
-        () =>
-        ({ state, dispatch }) => {
-          const rect = selectedTableRect(state)
-          if (!rectHasColumnRight(rect)) {
-            return false
-          }
-          return moveTableColumn({ from: rect.right - 1, to: rect.right })(
-            state,
-            dispatch
-          )
-        },
-    }
-  },
+    addProseMirrorPlugins() {
+      // Ordering is load-bearing: the parent returns `[columnResizing?,
+      // tableEditing]`, and materialisation has to run before `columnResizing`
+      // sees the same mousedown. ProseMirror walks `handleDOMEvents` in plugin
+      // order and stops at the first handler that returns true; ours returns
+      // false.
+      return [createMaterializeColumnWidthsPlugin(), ...(this.parent?.() ?? [])]
+    },
 
-  addProseMirrorPlugins() {
-    // Ordering is load-bearing: the parent returns `[columnResizing?,
-    // tableEditing]`, and materialisation has to run before `columnResizing`
-    // sees the same mousedown. ProseMirror walks `handleDOMEvents` in plugin
-    // order and stops at the first handler that returns true; ours returns
-    // false.
-    return [createMaterializeColumnWidthsPlugin(), ...(this.parent?.() ?? [])]
-  },
-})
+    renderMarkdown: (node, helpers) =>
+      renderTableMarkdown(node, helpers, { persistColumnWidths }),
+  })
+}
+
+/**
+ * The table extension with width persistence off, which is what every surface
+ * but the case description uses.
+ */
+export const TracecatTable = createTracecatTable()
