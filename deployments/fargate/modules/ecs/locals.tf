@@ -240,6 +240,7 @@ locals {
     for k, v in merge(
       local.tracecat_common_env,
       local.tracecat_temporal_payload_encryption_env,
+      local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname

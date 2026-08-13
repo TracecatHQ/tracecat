@@ -503,6 +503,43 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
   })
 }
 
+resource "aws_iam_role_policy" "mcp_task_blob_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "${var.iam_name_prefix}MCPBlobAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowMCPBlobObjectOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "${aws_s3_bucket.skills.arn}/*",
+          "${aws_s3_bucket.workflow.arn}/*",
+        ]
+      },
+      {
+        Sid    = "AllowMCPBlobBucketOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.skills.arn,
+          aws_s3_bucket.workflow.arn,
+        ]
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_keyring" {
   count      = var.enable_mcp && var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
   policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
