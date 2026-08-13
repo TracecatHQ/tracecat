@@ -69,11 +69,7 @@ from tracecat.workspace_sync.adapters.base import (
     SyncMappingService,
     VersionedSlug,
 )
-from tracecat.workspace_sync.enums import (
-    ReferenceKind,
-    SyncResourceType,
-    VcsProvider,
-)
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
     WorkspaceResourceImportService,
@@ -925,7 +921,6 @@ class WorkspaceSyncService(SyncMappingService):
             diagnostics=[*correlated.diagnostics, *correlated_mcp.diagnostics],
             catalog_mapping_requirements=correlated.requirements,
             mcp_integration_mapping_requirements=correlated_mcp.requirements,
-            mcp_integration_mappings_to_persist=correlated_mcp.persist,
         )
 
     async def _import_snapshot(
@@ -959,16 +954,6 @@ class WorkspaceSyncService(SyncMappingService):
                 mcp_integration_mapping_requirements=(
                     prepared.mcp_integration_mapping_requirements
                 ),
-            )
-
-        mcp_mapping_diagnostics = await self._persist_mcp_integration_mappings(
-            prepared.mcp_integration_mappings_to_persist
-        )
-        if mcp_mapping_diagnostics:
-            return self._failed_pull_result(
-                snapshot,
-                mcp_mapping_diagnostics,
-                resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
@@ -2090,76 +2075,6 @@ class WorkspaceSyncService(SyncMappingService):
             catalog_mapping_requirements=catalog_mapping_requirements,
             mcp_integration_mapping_requirements=(mcp_integration_mapping_requirements),
         )
-
-    async def _persist_mcp_integration_mappings(
-        self,
-        mappings: Mapping[uuid.UUID, uuid.UUID],
-    ) -> list[PullDiagnostic]:
-        """Persist explicit MCP integration selections without adopting by local_id.
-
-        Deliberately bypasses ``_upsert_mappings``: its adopt-by-``local_id`` branch
-        would silently re-point an existing mapping to a different source.
-        """
-        if not mappings:
-            return []
-        resource_type = ReferenceKind.MCP_INTEGRATION.value
-        existing_by_source = await self._mappings_by_source_ids(
-            source_ids_by_resource_type={
-                resource_type: {str(source_id) for source_id in mappings}
-            }
-        )
-        existing_by_local = await self._mappings_by_local_ids(
-            local_ids_by_resource_type={resource_type: set(mappings.values())}
-        )
-        # Validate every selection before touching the session: adding rows as we
-        # iterate would leave pending writes behind a failed PullResult, which the
-        # request session still commits.
-        diagnostics: list[PullDiagnostic] = []
-        claimed_sources_by_local: dict[uuid.UUID, str] = {
-            mapping.local_id: mapping.source_id
-            for mapping in existing_by_local.values()
-        }
-        planned: list[tuple[uuid.UUID, uuid.UUID]] = []
-        for source_id, local_id in sorted(mappings.items()):
-            existing_source = claimed_sources_by_local.get(local_id)
-            if existing_source is not None and existing_source != str(source_id):
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path="",
-                        workflow_title=None,
-                        error_type="validation",
-                        message=(
-                            f"MCP integration {local_id} is already mapped to source "
-                            f"{existing_source}. Mapping source {source_id} to "
-                            "the same integration is not supported."
-                        ),
-                        details={
-                            "code": "mcp_integration_mapping_conflict",
-                            "mcp_integration_id": str(local_id),
-                            "source_id": str(source_id),
-                            "existing_source_id": existing_source,
-                        },
-                    )
-                )
-                continue
-            claimed_sources_by_local[local_id] = str(source_id)
-            planned.append((source_id, local_id))
-        if diagnostics:
-            return diagnostics
-        for source_id, local_id in planned:
-            mapping = existing_by_source.get((resource_type, str(source_id)))
-            if mapping is None:
-                mapping = WorkspaceSyncResourceMapping(
-                    workspace_id=self.workspace_id,
-                    provider=self._mapping_provider_value,
-                    resource_type=resource_type,
-                    source_id=str(source_id),
-                    local_id=local_id,
-                )
-            mapping.local_id = local_id
-            self.session.add(mapping)
-        await self.session.flush()
-        return []
 
     def _resource_counts_from_imported(
         self,

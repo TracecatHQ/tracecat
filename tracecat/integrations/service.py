@@ -51,7 +51,6 @@ from tracecat.db.models import (
     OAuthIntegration,
     OAuthStateDB,
     WorkspaceOAuthProvider,
-    WorkspaceSyncResourceMapping,
 )
 from tracecat.dsl.client import get_temporal_client
 from tracecat.identifiers import UserID
@@ -130,7 +129,6 @@ from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspace_sync.enums import ReferenceKind
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
 """Maximum seconds an MCP connection verification may take."""
@@ -4590,15 +4588,6 @@ class IntegrationService(BaseWorkspaceService):
                 )
                 .values(mcp_integrations=AgentSession.mcp_integrations.op("-")(id_str))
                 .execution_options(synchronize_session="fetch")
-            )
-
-            await self.session.execute(
-                delete(WorkspaceSyncResourceMapping).where(
-                    WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
-                    WorkspaceSyncResourceMapping.resource_type
-                    == ReferenceKind.MCP_INTEGRATION.value,
-                    WorkspaceSyncResourceMapping.local_id == mcp_integration_id,
-                )
             )
 
             # If backed by an OAuth integration, lock it to serialize deletes for shared refs.

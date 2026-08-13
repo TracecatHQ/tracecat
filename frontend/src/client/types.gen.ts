@@ -7618,8 +7618,7 @@ export type SyncPreviewResource = {
  * Kind of workspace resource that can be synced to and from Git.
  *
  * Every member is adapter-backed: it can be projected to and imported from
- * repository files. Reference-only correlation targets belong in
- * :class:`ReferenceKind` instead.
+ * repository files.
  */
 export type SyncResourceType =
   | "workflow"

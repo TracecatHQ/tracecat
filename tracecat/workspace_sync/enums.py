@@ -17,8 +17,7 @@ class SyncResourceType(StrEnum):
     """Kind of workspace resource that can be synced to and from Git.
 
     Every member is adapter-backed: it can be projected to and imported from
-    repository files. Reference-only correlation targets belong in
-    :class:`ReferenceKind` instead.
+    repository files.
     """
 
     WORKFLOW = "workflow"
@@ -31,13 +30,3 @@ class SyncResourceType(StrEnum):
     CASE_DURATION = "case_duration"
     VARIABLE = "variable"
     SECRET_METADATA = "secret_metadata"
-
-
-class ReferenceKind(StrEnum):
-    """Workspace-local target referenced by synced documents but never synced itself.
-
-    Values share the mapping table's ``resource_type`` string column with
-    :class:`SyncResourceType` and must not collide with it.
-    """
-
-    MCP_INTEGRATION = "mcp_integration"

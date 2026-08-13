@@ -32,6 +32,7 @@ from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
     VARIABLE_RESOURCE_ADAPTER,
 )
@@ -55,7 +56,10 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
-from tracecat.workspace_sync.service import WorkspaceSyncService, _table_names
+from tracecat.workspace_sync.service import (
+    WorkspaceSyncService,
+    _table_names,
+)
 from tracecat.workspace_sync.transport import (
     _GITHUB_TREE_CHUNK_SIZE,
     GitHubWorkspaceSyncTransport,
@@ -711,6 +715,31 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
         await service.preview_export_workspace(WorkspaceSyncExportPreviewRequest())
 
     assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
+
+
+@pytest.mark.anyio
+async def test_mcp_metadata_queries_require_integration_read_before_sql() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workspace_sync:sync", "agent:read"}),
+    )
+    session = AsyncMock()
+    service = WorkspaceSyncService(session=session, role=role)
+
+    with pytest.raises(ScopeDeniedError) as export_error:
+        await AGENT_PRESET_RESOURCE_ADAPTER._mcp_integration_hints(
+            service,
+            {str(uuid.uuid4())},
+        )
+    with pytest.raises(ScopeDeniedError) as pull_error:
+        await AGENT_PRESET_RESOURCE_ADAPTER._local_mcp_integrations(service)
+
+    assert export_error.value.missing_scopes == ["integration:read"]
+    assert pull_error.value.missing_scopes == ["integration:read"]
+    session.execute.assert_not_awaited()
 
 
 def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:

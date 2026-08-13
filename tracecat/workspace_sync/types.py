@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
-    import uuid
-
     from tracecat.agent.catalog.types import ModelKey
     from tracecat.sync import (
         CatalogMappingRequirement,
@@ -16,7 +14,7 @@ if TYPE_CHECKING:
     )
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
-        McpIntegrationRef,
+        McpIntegrationHint,
         WorkflowResourceSpec,
         WorkspaceRemoteSnapshot,
     )
@@ -54,6 +52,15 @@ class WorkflowCatalogReference(NamedTuple):
 type CatalogReference = AgentPresetCatalogReference | WorkflowCatalogReference
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class McpIntegrationCorrelationKey:
+    """Portable field subset used to correlate MCP integrations."""
+
+    slug: str
+    server_type: str
+    auth_type: str
+
+
 @dataclass(frozen=True, slots=True)
 class AgentPresetMcpIntegrationReference:
     """One preset version referencing a workspace-local source MCP integration."""
@@ -62,7 +69,7 @@ class AgentPresetMcpIntegrationReference:
     preset_slug: str
     preset_name: str
     version_number: int
-    meta: McpIntegrationRef | None
+    meta: McpIntegrationHint | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +95,6 @@ class CorrelatedMcpIntegrationRefs:
     workflows: dict[str, WorkflowResourceSpec]
     diagnostics: list[PullDiagnostic]
     requirements: list[McpIntegrationMappingRequirement]
-    resolved: dict[uuid.UUID, uuid.UUID]
-    persist: dict[uuid.UUID, uuid.UUID]
 
 
 class PreparedSnapshot(NamedTuple):
@@ -99,4 +104,3 @@ class PreparedSnapshot(NamedTuple):
     diagnostics: list[PullDiagnostic]
     catalog_mapping_requirements: list[CatalogMappingRequirement]
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
-    mcp_integration_mappings_to_persist: dict[uuid.UUID, uuid.UUID]
