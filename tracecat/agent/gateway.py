@@ -17,6 +17,7 @@ from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAut
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat import config as app_config
+from tracecat.agent.config import ORCAROUTER_DEFAULT_BASE_URL
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -429,6 +430,7 @@ class TracecatCallbackHandler(CustomLogger):
             "openai",
             "anthropic",
             "custom-model-provider",
+            "orcarouter",
         }:
             data["api_base"] = base_url
 
@@ -558,6 +560,24 @@ def _inject_provider_credentials(
                 data["model"] = f"openai/{data['model']}"
             if base_url := creds.get("OPENAI_BASE_URL"):
                 data["api_base"] = base_url
+
+        case "orcarouter":
+            api_key = creds.get("ORCAROUTER_API_KEY")
+            if not api_key:
+                raise ProxyException(
+                    message="Provider credentials incomplete",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["api_key"] = api_key
+            if not data.get("model", "").startswith("openai/"):
+                data["model"] = f"openai/{data['model']}"
+            # OrcaRouter is an OpenAI-compatible gateway, so route it through
+            # the LiteLLM `openai/*` route with OrcaRouter's API base.
+            data["api_base"] = creds.get("ORCAROUTER_BASE_URL") or (
+                ORCAROUTER_DEFAULT_BASE_URL
+            )
 
         case "anthropic":
             api_key = creds.get("ANTHROPIC_API_KEY")

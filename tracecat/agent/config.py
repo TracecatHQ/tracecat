@@ -143,7 +143,19 @@ MODEL_CONFIGS = {
             "required": ["custom-model-provider"],
         },
     ),
+    "orcarouter/auto": ModelConfig(
+        name="orcarouter/auto",
+        provider="orcarouter",
+        org_secret_name="agent-orcarouter-credentials",
+        secrets={
+            "required": ["orcarouter"],
+        },
+    ),
 }
+
+# Default API base for the OrcaRouter provider. Workspaces can override this
+# with an ORCAROUTER_BASE_URL credential field.
+ORCAROUTER_DEFAULT_BASE_URL = "https://api.orcarouter.ai/v1"
 
 PROVIDER_CREDENTIAL_CONFIGS = {
     "openai": ProviderCredentialConfig(
@@ -422,6 +434,28 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Version",
                 type="text",
                 description="Optional Azure AI API version appended as the api-version query parameter.",
+                required=False,
+            ),
+        ],
+    ),
+    "orcarouter": ProviderCredentialConfig(
+        provider="orcarouter",
+        label="OrcaRouter",
+        fields=[
+            ProviderCredentialField(
+                key="ORCAROUTER_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your OrcaRouter API key from the OrcaRouter dashboard.",
+            ),
+            ProviderCredentialField(
+                key="ORCAROUTER_BASE_URL",
+                label="Base URL",
+                type="text",
+                description=(
+                    "Optional custom base URL for the OrcaRouter API. "
+                    "Defaults to https://api.orcarouter.ai/v1."
+                ),
                 required=False,
             ),
         ],

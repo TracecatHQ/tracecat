@@ -14,6 +14,7 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.mistral import MistralProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from tracecat.agent.config import ORCAROUTER_DEFAULT_BASE_URL
 from tracecat_registry import secrets
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
@@ -56,6 +57,16 @@ def get_model(
                 model_name=model_name,
                 provider=OpenAIProvider(
                     base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
+                ),
+            )
+        case "orcarouter":
+            # OrcaRouter is an OpenAI-compatible gateway; route through the
+            # OpenAI chat schema with OrcaRouter's API base and key.
+            model = OpenAIChatModel(
+                model_name=model_name,
+                provider=OpenAIProvider(
+                    base_url=base_url or ORCAROUTER_DEFAULT_BASE_URL,
+                    api_key=secrets.get("ORCAROUTER_API_KEY"),
                 ),
             )
         case "ollama":

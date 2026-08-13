@@ -97,6 +97,8 @@ function getProviderDisplayLabel(provider: string): string {
       return "Mistral AI"
     case "openai":
       return "OpenAI"
+    case "orcarouter":
+      return "OrcaRouter"
     case "vertex_ai":
       return "Google Vertex AI"
     case "custom-model-provider":

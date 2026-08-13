@@ -86,6 +86,48 @@ def test_openai_injects_optional_base_url() -> None:
     assert data["api_base"] == "https://api.openai.example/v1"
 
 
+def test_orcarouter_injects_api_key_and_defaults_base_url() -> None:
+    data = {"model": "orcarouter/auto"}
+    creds = {"ORCAROUTER_API_KEY": "test-orcarouter-key"}
+
+    _inject_provider_credentials(data, "orcarouter", creds)
+
+    assert data["api_key"] == "test-orcarouter-key"
+    assert data["model"] == "openai/orcarouter/auto"
+    assert data["api_base"] == "https://api.orcarouter.ai/v1"
+
+
+def test_orcarouter_preserves_openai_prefixed_model() -> None:
+    data = {"model": "openai/gpt-5"}
+    creds = {"ORCAROUTER_API_KEY": "test-orcarouter-key"}
+
+    _inject_provider_credentials(data, "orcarouter", creds)
+
+    assert data["api_key"] == "test-orcarouter-key"
+    assert data["model"] == "openai/gpt-5"
+    assert data["api_base"] == "https://api.orcarouter.ai/v1"
+
+
+def test_orcarouter_injects_optional_base_url() -> None:
+    data = {"model": "orcarouter/fusion"}
+    creds = {
+        "ORCAROUTER_API_KEY": "test-orcarouter-key",
+        "ORCAROUTER_BASE_URL": "https://orcarouter.example/v1",
+    }
+
+    _inject_provider_credentials(data, "orcarouter", creds)
+
+    assert data["api_key"] == "test-orcarouter-key"
+    assert data["api_base"] == "https://orcarouter.example/v1"
+
+
+def test_orcarouter_missing_api_key_raises() -> None:
+    data = {"model": "orcarouter/auto"}
+
+    with pytest.raises(ProxyException, match="Provider credentials incomplete"):
+        _inject_provider_credentials(data, "orcarouter", {})
+
+
 def test_azure_ai_does_not_require_api_version() -> None:
     data = {"model": "azure_ai"}
     creds = {

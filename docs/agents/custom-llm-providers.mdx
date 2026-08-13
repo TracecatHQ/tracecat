@@ -7,6 +7,17 @@ Use a custom LLM provider when an agent should call your own OpenAI-compatible g
 
 Custom providers are managed as custom sources in organization agent settings.
 
+## OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is available as a built-in named provider. It is an OpenAI-compatible gateway that also runs gateway-level, zero-trust security for AI agents on the same endpoint — screening every prompt/response and governing every tool call on a default-deny basis, with no application code changes.
+
+To use it:
+
+1. In organization or workspace agent settings, add an `ORCAROUTER_API_KEY` credential (optionally `ORCAROUTER_BASE_URL` to override `https://api.orcarouter.ai/v1`).
+2. Select any `orcarouter/*` model from the agent model catalog, such as `orcarouter/auto`.
+
+Requests for `orcarouter/*` models route through the managed LiteLLM gateway directly to OrcaRouter.
+
 ## Routing model
 
 Each agent uses its own model configuration to decide where its LLM requests go.
