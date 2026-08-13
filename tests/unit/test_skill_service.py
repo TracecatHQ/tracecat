@@ -1598,6 +1598,7 @@ class TestSkillService:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         created = await skill_service.create_skill(SkillCreate(name="prepare-batch"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
         captured: list[tuple[str, str, str, str, int]] = []
 
         async def generate_presigned_upload_url(
@@ -1743,6 +1744,50 @@ class TestSkillService:
             await skill_service.session.execute(
                 select(SkillUploadModel).where(
                     SkillUploadModel.workspace_id == skill_service.workspace_id
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
+
+    async def test_prepare_draft_uploads_rejects_transfer_file_limit_before_writes(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-transfer"))
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        async def unexpected_generate_presigned_upload_url(**_kwargs: Any) -> str:
+            raise AssertionError("Presigning must not start")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
+            unexpected_generate_presigned_upload_url,
+        )
+        params = [
+            SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="application/octet-stream",
+            )
+            for content in (b"a", b"b")
+        ]
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_uploads(
+                skill_id=created.id,
+                params=params,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.skill_id == created.id,
                 )
             )
         ).scalars()
@@ -2246,6 +2291,40 @@ class TestSkillService:
 
         assert exc_info.value.detail is not None
         assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
+
+    async def test_patch_rejects_transfer_file_limit_before_upload_lookup(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="bounded-complete"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/first.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/second.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
 
     async def test_publish_requires_root_skill_md(
         self,

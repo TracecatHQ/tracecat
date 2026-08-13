@@ -1001,6 +1001,11 @@ TRACECAT__MAX_SKILL_FILES_COUNT = int(
 )
 """Maximum number of files in one skill draft. Defaults to 1,000."""
 
+TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT") or 64
+)
+"""Maximum number of files in one staged skill transfer. Defaults to 64."""
+
 TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES") or 100 * 1024 * 1024
 )

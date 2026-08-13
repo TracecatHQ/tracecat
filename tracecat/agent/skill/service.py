@@ -315,6 +315,26 @@ class SkillService(BaseWorkspaceService):
             )
 
     @staticmethod
+    def _validate_skill_transfer_file_count(file_count: int) -> None:
+        """Bound synchronous staged transfers before object-store work begins."""
+
+        if file_count <= config.TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT:
+            return
+        violation = SkillFileLimitViolation(
+            code="skill_transfer_file_count_limit_exceeded",
+            message="Skill staged transfer contains too many files",
+            path=None,
+            actual_field="file_count",
+            actual_value=file_count,
+            limit_field="max_file_count",
+            limit_value=config.TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT,
+        )
+        raise TracecatValidationError(
+            violation.message,
+            detail=violation.exception_detail(),
+        )
+
+    @staticmethod
     def _skill_file_limit_violation(
         files: Sequence[SkillFileSizeMetadata],
     ) -> SkillFileLimitViolation | None:
@@ -2136,6 +2156,11 @@ class SkillService(BaseWorkspaceService):
     ) -> list[PreparedDraftPatchOperation]:
         """Validate draft operations before any blob writes begin."""
 
+        transfer_file_count = sum(
+            isinstance(operation, SkillDraftAttachUploadedBlobOp)
+            for operation in operations
+        )
+        self._validate_skill_transfer_file_count(transfer_file_count)
         upload_ids = {
             operation.upload_id
             for operation in operations
@@ -2405,6 +2430,7 @@ class SkillService(BaseWorkspaceService):
                 "Skill upload must include at least one file",
                 detail={"code": "skill_upload_empty"},
             )
+        self._validate_skill_transfer_file_count(len(params))
         self._validate_skill_file_limits(
             [
                 SkillFileSizeMetadata(path=None, size_bytes=upload.size_bytes)
