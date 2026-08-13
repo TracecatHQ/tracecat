@@ -1,0 +1,31 @@
+frontend/src/components/builder/events/events-workflow.tsx
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 60,74-80,83
+frontend/src/components/cases/case-item.tsx
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 73,257-259
+frontend/src/components/workflow-runs/workflow-runs-layout.tsx
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 863-870
+frontend/src/lib/time.ts
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 1,125-205,207-216,218-231,233-315,318-327
+frontend/src/components/nav/controls-header.tsx
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 1818,1820
+frontend/tests/time.test.ts
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 1-10,29-216
+frontend/src/components/cases/case-duration-metrics.tsx
+  s_2f5bb0e361a2fb::t_bd11766eb2fa28 3,15-32,47-56,58-62,65-77,86,88-89,130-136,144-146,152-170,187-190,201-208,210-217,223-226,228-240,281,284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "dd040b5320b9324b5ca3210796b4f518382dec78",
+  "prompts": {},
+  "sessions": {
+    "s_2f5bb0e361a2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9aa2d16-cea5-47d9-b5bc-dc72ba4b4fa2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
