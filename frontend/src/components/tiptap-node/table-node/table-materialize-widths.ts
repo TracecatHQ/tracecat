@@ -321,9 +321,37 @@ function materializeColumnWidths(view: EditorView): void {
   )
 }
 
+/** Where one column's rendered width is read from. */
+type ColumnWidthSource = {
+  /** Position of the cell to measure, relative to the start of the table. */
+  cellPos: number
+  /** How many columns that cell covers, so its width can be divided by them. */
+  colspan: number
+}
+
 /**
- * Measure what the user can currently see: the rendered width of each column,
- * read off the first row's cells.
+ * Measure what the user can currently see: the rendered width of each column.
+ *
+ * Each column is measured from a cell that covers it and nothing else, found
+ * anywhere in the table, because only such a cell's rendered width *is* the
+ * column's. Reading the first row alone and splitting a merged cell evenly
+ * across the columns it spans would invent widths instead of measuring them:
+ * the derived-width layer weights every column independently from its own
+ * content, so the columns under a merged cell are on screen at different sizes.
+ * Materialising equal ones would make the columns the user is not dragging snap
+ * on mousedown and keep the wrong proportions afterwards — the exact failure
+ * this plugin exists to prevent, reappearing for merged tables.
+ *
+ * Merged cells cannot be made through this editor's table toolbar, which has no
+ * merge or split buttons; today they arrive only with pasted HTML. So the path
+ * is rare, but reachable.
+ *
+ * Splitting a merged cell evenly survives as the last resort for a column that
+ * is covered by a spanning cell in every row, and so has no cell of its own to
+ * measure anywhere.
+ *
+ * Returns `null` when anything needed cannot be measured, so the caller skips
+ * materialisation rather than persisting a width nobody was looking at.
  */
 function measureColumnWidths(
   view: EditorView,
@@ -331,29 +359,79 @@ function measureColumnWidths(
   map: TableMap,
   tableStart: number
 ): number[] | null {
-  const widths = new Array<number>(map.width).fill(0)
+  const sources = findColumnWidthSources(table, map)
+  if (!sources) {
+    return null
+  }
 
-  let col = 0
-  while (col < map.width) {
-    const cellPos = map.map[col]
-    const cell = table.nodeAt(cellPos)
-    if (!cell) {
+  const widths = new Array<number>(map.width).fill(0)
+  for (let col = 0; col < map.width; col += 1) {
+    const source = sources[col]
+    if (!source) {
       return null
     }
-    const dom = view.nodeDOM(tableStart + cellPos)
+    const dom = view.nodeDOM(tableStart + source.cellPos)
     if (!(dom instanceof HTMLElement)) {
       return null
     }
-    const colspan = Math.min(readSpan(cell.attrs.colspan), map.width - col)
-    const share = Math.round(dom.offsetWidth / colspan)
-    if (share <= 0) {
+    const width = Math.round(dom.offsetWidth / source.colspan)
+    if (width <= 0) {
       return null
     }
-    for (let offset = 0; offset < colspan; offset += 1) {
-      widths[col + offset] = share
-    }
-    col += colspan
+    widths[col] = width
   }
 
   return widths
+}
+
+/**
+ * Choose the cell each column's width is to be read from.
+ *
+ * A cell that spans exactly one column wins outright, and the first one found
+ * is kept: `table-layout: fixed` renders every cell in a column at the same
+ * width, so later rows have nothing to add. A spanning cell is recorded only
+ * for the columns that have nothing better yet, and only until something better
+ * turns up in a row further down.
+ *
+ * Returns `null` when the map points at a cell the table does not have, and
+ * leaves a column's entry `null` when no cell covers it at all.
+ */
+function findColumnWidthSources(
+  table: ProseMirrorNode,
+  map: TableMap
+): (ColumnWidthSource | null)[] | null {
+  const sources = new Array<ColumnWidthSource | null>(map.width).fill(null)
+
+  for (let row = 0; row < map.height; row += 1) {
+    for (let col = 0; col < map.width; col += 1) {
+      const index = row * map.width + col
+      const cellPos = map.map[index]
+      // `map.map` repeats a cell's position across every slot it covers; visit
+      // each cell once, at its top-left corner.
+      if (col > 0 && map.map[index - 1] === cellPos) {
+        continue
+      }
+      if (row > 0 && map.map[index - map.width] === cellPos) {
+        continue
+      }
+      const cell = table.nodeAt(cellPos)
+      if (!cell) {
+        return null
+      }
+      const colspan = Math.min(readSpan(cell.attrs.colspan), map.width - col)
+      if (colspan === 1) {
+        // Nothing beats a cell of the column's own, so this only ever replaces
+        // a spanning cell recorded for want of anything better.
+        if (sources[col]?.colspan !== 1) {
+          sources[col] = { cellPos, colspan }
+        }
+        continue
+      }
+      for (let offset = 0; offset < colspan; offset += 1) {
+        sources[col + offset] ??= { cellPos, colspan }
+      }
+    }
+  }
+
+  return sources
 }

@@ -76,6 +76,58 @@ function openingCellTags(html: string): string[] {
   return html.match(/<(?:th|td)\b[^>]*>/g) ?? []
 }
 
+/** A table with explicit widths whose first cell holds `blocks`. */
+function makeTableHolding(blocks: JSONContent[]): JSONContent {
+  const table = makeTable([["Alpha", "Beta"]], [120, 240])
+  const cell = table.content?.[0]?.content?.[0]
+  if (!cell) {
+    throw new Error("no cell to fill")
+  }
+  cell.content = blocks
+  return table
+}
+
+/** A one-item list of the given type, carrying `attrs` verbatim. */
+function makeList(
+  type: "orderedList" | "bulletList",
+  attrs: JSONContent["attrs"]
+): JSONContent {
+  return {
+    type,
+    attrs,
+    content: [
+      {
+        type: "listItem",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "one" }] },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * Take rendered Markdown through the same lexer and parser a case description
+ * does, and return the first block of the first cell that comes back.
+ */
+function roundTripFirstCellBlock(markdown: string): JSONContent | undefined {
+  const manager = new MarkdownManager({
+    extensions,
+    markedOptions: { gfm: true },
+  })
+  const tokens = manager.instance
+    .lexer(markdown)
+    .filter((token) => token.type !== "space")
+  expect(tokens).toHaveLength(1)
+  expect(tokens[0].type).toBe("html")
+
+  const parsed: JSONContent = generateJSON(
+    (tokens[0] as { text: string }).text,
+    extensions
+  )
+  return parsed.content?.[0]?.content?.[0]?.content?.[0]?.content?.[0]
+}
+
 describe("renderTableMarkdown without explicit widths", () => {
   it("emits a pipe table byte-identical to the upstream renderer", () => {
     const table = makeTable(
@@ -238,6 +290,53 @@ describe("renderTableMarkdown with explicit widths", () => {
     expect(renderTableMarkdown(table, helpers)).toBe(
       renderTableToMarkdown(table, helpers)
     )
+  })
+})
+
+describe("renderTableMarkdown list numbering", () => {
+  it("writes the numbering a list does not start at 1 with", () => {
+    const rendered = renderTableMarkdown(
+      makeTableHolding([makeList("orderedList", { start: 3, type: null })]),
+      helpers
+    )
+    expect(rendered).toContain('<ol start="3"><li><p>one</p></li></ol>')
+  })
+
+  it("writes the marker style an ordered list was given", () => {
+    const rendered = renderTableMarkdown(
+      makeTableHolding([makeList("orderedList", { start: 1, type: "a" })]),
+      helpers
+    )
+    expect(rendered).toContain('<ol type="a">')
+  })
+
+  it("leaves an ordinary list bare, so existing content does not churn", () => {
+    const rendered = renderTableMarkdown(
+      makeTableHolding([makeList("orderedList", { start: 1, type: null })]),
+      helpers
+    )
+    expect(rendered).toContain("<ol><li><p>one</p></li></ol>")
+
+    // `BulletList` defines no attributes to carry in the first place.
+    const bullets = renderTableMarkdown(
+      makeTableHolding([makeList("bulletList", {})]),
+      helpers
+    )
+    expect(bullets).toContain("<ul><li><p>one</p></li></ul>")
+  })
+
+  it("rehydrates the numbering after a full round trip", () => {
+    const markdown = renderTableMarkdown(
+      makeTableHolding([makeList("orderedList", { start: 3, type: "a" })]),
+      helpers
+    )
+
+    const list = roundTripFirstCellBlock(markdown)
+    expect(list?.type).toBe("orderedList")
+    // Without the attributes on the tag, upstream's `parseHTML` defaults these
+    // back to 1 and null, and a list that read `3. 4. 5.` comes back `1. 2. 3.`
+    expect(list?.attrs?.start).toBe(3)
+    expect(list?.attrs?.type).toBe("a")
   })
 })
 

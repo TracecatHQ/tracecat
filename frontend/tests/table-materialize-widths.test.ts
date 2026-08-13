@@ -44,8 +44,37 @@ const SIZED_TABLE = `
 </table>
 `
 
+/**
+ * A three-column table whose header merges the first two columns, so the only
+ * cells measuring those two on their own are in the body row.
+ *
+ * Merged cells cannot be made from the table toolbar, which has no merge or
+ * split buttons; this is what a table pasted as HTML looks like.
+ */
+const SPANNED_TABLE = `
+<table>
+  <tbody>
+    <tr><th colspan="2">Host and note</th><th>Owner</th></tr>
+    <tr><td>web-1</td><td>${"note ".repeat(20)}</td><td>ops</td></tr>
+  </tbody>
+</table>
+`
+
+/** The same, but with no row that measures the first two columns separately. */
+const FULLY_SPANNED_TABLE = `
+<table>
+  <tbody>
+    <tr><th colspan="2">Host and note</th><th>Owner</th></tr>
+    <tr><td colspan="2">web-1</td><td>ops</td></tr>
+  </tbody>
+</table>
+`
+
 /** Rendered widths of the columns, as a browser would lay them out. */
 const COLUMN_PIXEL_WIDTHS = [60, 240]
+
+/** The same, for the three-column merged fixtures. */
+const SPANNED_PIXEL_WIDTHS = [60, 240, 100]
 
 /** Where the pointer goes down; only its distance to later events matters. */
 const PRESS_X = 300
@@ -82,17 +111,32 @@ function withEditor(
  *
  * jsdom lays nothing out and reports `offsetWidth` as 0 for every element,
  * which the plugin reads as "nothing to materialise". Every row is stubbed so
- * the assertions do not depend on which one is measured.
+ * the assertions do not depend on which one is measured, and a merged cell is
+ * given the width of the columns it covers put together, which is what a
+ * browser would lay it out at. No fixture uses `rowspan`, so a row's cells are
+ * exactly its columns in order.
  */
-function stubColumnWidths(element: HTMLElement, tableIndex = 0): void {
+function stubColumnWidths(
+  element: HTMLElement,
+  tableIndex = 0,
+  widths: readonly number[] = COLUMN_PIXEL_WIDTHS
+): void {
   const table = element.querySelectorAll("table")[tableIndex]
   for (const row of Array.from(table.querySelectorAll("tr"))) {
-    row.querySelectorAll("th, td").forEach((cell, column) => {
+    let column = 0
+    for (const cell of Array.from(
+      row.querySelectorAll<HTMLTableCellElement>("th, td")
+    )) {
+      const colspan = Math.max(cell.colSpan, 1)
+      const width = widths
+        .slice(column, column + colspan)
+        .reduce((total, value) => total + value, 0)
       Object.defineProperty(cell, "offsetWidth", {
         configurable: true,
-        get: () => COLUMN_PIXEL_WIDTHS[column] ?? 0,
+        get: () => width,
       })
-    })
+      column += colspan
+    }
   }
 }
 
@@ -226,6 +270,38 @@ describe("materialising column widths on mousedown", () => {
         [[60], [240]],
       ])
       expect(renderedColumnWidths(element)).toEqual(["60px", "240px"])
+    })
+  })
+
+  it("measures a merged column from a row that does not merge it", () => {
+    withEditor(SPANNED_TABLE, (editor, element) => {
+      stubColumnWidths(element, 0, SPANNED_PIXEL_WIDTHS)
+
+      pressHandle(editor, element, cellPositions(editor)[0][0])
+
+      // The header cell is 300px wide over two columns rendered at 60 and 240,
+      // and halving it would fabricate 150/150 — snapping both columns on
+      // mousedown and persisting the wrong proportions after the drag.
+      expect(columnWidths(editor)).toEqual([
+        [[60, 240], [100]],
+        [[60], [240], [100]],
+      ])
+      expect(renderedColumnWidths(element)).toEqual(["60px", "240px", "100px"])
+    })
+  })
+
+  it("splits a merged cell only when no row measures the column alone", () => {
+    withEditor(FULLY_SPANNED_TABLE, (editor, element) => {
+      stubColumnWidths(element, 0, SPANNED_PIXEL_WIDTHS)
+
+      pressHandle(editor, element, cellPositions(editor)[0][0])
+
+      // Both columns are merged in every row, so there is nothing better to
+      // measure and an even split of the 300px cell is the last resort.
+      expect(columnWidths(editor)).toEqual([
+        [[150, 150], [100]],
+        [[150, 150], [100]],
+      ])
     })
   })
 

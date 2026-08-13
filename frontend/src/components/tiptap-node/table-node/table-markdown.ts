@@ -267,7 +267,49 @@ function renderList(list: JSONContent, tag: "ul" | "ol"): string | null {
     }
     items.push(`<li>${content}</li>`)
   }
-  return `<${tag}>${items.join("")}</${tag}>`
+  // `BulletList` defines no attributes at all, so a `<ul>` is always bare.
+  const prefix = tag === "ol" ? renderOrderedListAttributes(list.attrs) : ""
+  return `<${tag}${prefix}>${items.join("")}</${tag}>`
+}
+
+/**
+ * The attributes an ordered list has to carry into HTML, ready to append to its
+ * opening tag.
+ *
+ * `OrderedList` defines exactly two, `start` and `type`, and reads both back
+ * through a `parseHTML`. Dropping them is not cosmetic: a list a user typed as
+ * `3. item`, or pasted as `<ol type="a">`, would come back renumbered from 1 in
+ * decimal the first time its table was resized.
+ */
+function renderOrderedListAttributes(attrs: JSONContent["attrs"]): string {
+  const parts: string[] = []
+  const start = readListStart(attrs?.start)
+  if (start !== null) {
+    parts.push(`start="${start}"`)
+  }
+  // `type` is whatever `getAttribute` returned, so it is a string or nothing,
+  // and it comes straight from pasted HTML — quote it escaped like any other
+  // attacker-influenceable value.
+  const type = attrs?.type
+  if (typeof type === "string") {
+    parts.push(`type="${escapeHtml(type)}"`)
+  }
+  return parts.length > 0 ? ` ${parts.join(" ")}` : ""
+}
+
+/**
+ * A list's `start` as an integer, or `null` when it need not be written.
+ *
+ * 1 is the default on the way back in, so emitting it would only churn the
+ * Markdown of every ordinary list. Anything that is not a finite number could
+ * only re-parse as `NaN`, so it is dropped rather than written out.
+ */
+function readListStart(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null
+  }
+  const start = Math.round(value)
+  return start === 1 ? null : start
 }
 
 function renderInline(nodes: JSONContent[] | undefined): string | null {
