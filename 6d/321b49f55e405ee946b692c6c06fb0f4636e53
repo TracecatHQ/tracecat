@@ -1,0 +1,19 @@
+frontend/src/components/ui/sidebar.tsx
+  s_8e1b4dea416037::t_8dfb468a828caa 427-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6d321b49f55e405ee946b692c6c06fb0f4636e53",
+  "prompts": {},
+  "sessions": {
+    "s_8e1b4dea416037": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e09cbd2f-f4be-4cad-bc92-e573dc9ed5cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

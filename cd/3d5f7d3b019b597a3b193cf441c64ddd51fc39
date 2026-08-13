@@ -1,0 +1,94 @@
+frontend/src/components/cases/editor.css
+  s_8e1b4dea416037::t_7d11319a0dc399 33-42
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_8e1b4dea416037::t_d5c4b931e14c95 635-646
+  s_8e1b4dea416037::t_49173799e2c34d 93-97
+frontend/src/components/ui/checkbox.tsx
+  s_8e1b4dea416037::t_3de67b7588f9f6 16
+  s_8e1b4dea416037::t_e88a18c78c31b6 25
+frontend/src/components/tiptap-ui-primitive/popover/popover.tsx
+  s_8e1b4dea416037::t_014b255c6afe75 20-25
+  s_8e1b4dea416037::t_ffdafa0b0e15aa 44
+frontend/src/components/filters/filter-multi-select.tsx
+  s_8e1b4dea416037::t_6dd799abb506e2 225,227
+  s_8e1b4dea416037::t_4ac1988b5ad591 18
+frontend/src/components/tables/cell-editors.tsx
+  s_8e1b4dea416037::t_8a011997e66043 3
+  s_8e1b4dea416037::t_f94e3fa6d63f7f 8
+  s_8e1b4dea416037::t_8fdb8b15922b82 390,399
+frontend/src/components/tiptap-ui/link-popover/link-popover.scss
+  s_8e1b4dea416037::t_90f69a4a9af3fe 1-16
+frontend/src/components/dashboard/workflows-header.tsx
+  s_8e1b4dea416037::t_a54effbe6eef36 28,283,285,375,377
+frontend/src/components/tables/table-link-rows-to-case-command.tsx
+  s_8e1b4dea416037::t_7bca76af41d28a 155
+  s_8e1b4dea416037::t_21fe337585690f 10
+  s_8e1b4dea416037::t_4a8fc167a42a04 169-171
+  s_8e1b4dea416037::t_3061de2a21f784 4
+frontend/src/components/ui/dropdown-menu.tsx
+  s_8e1b4dea416037::t_24aa2e2d38aa7d 104,110-111
+  s_8e1b4dea416037::t_2eee916d25de5b 4,7
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  s_8e1b4dea416037::t_1d97c84ed01753 66
+frontend/src/components/cases/multiselect-case-filters.tsx
+  s_8e1b4dea416037::t_b2c91da9b92999 112
+  s_8e1b4dea416037::t_3215485293de5d 103
+  s_8e1b4dea416037::t_1cde78e9d09e7a 3,7
+frontend/src/components/cases/case-closure-dialog.tsx
+  s_8e1b4dea416037::t_dc671706e488e4 10
+  s_8e1b4dea416037::t_a5c426b8afad54 22
+  s_8e1b4dea416037::t_9fc9390d3f09cc 450
+  s_8e1b4dea416037::t_51f97059a60e42 572-577
+frontend/src/components/ui/check-indicator.tsx
+  s_8e1b4dea416037::t_73c088ff8ffdbf 1-36,38-46
+  s_8e1b4dea416037::t_d28254787d4194 37
+frontend/src/components/ui/command.tsx
+  s_8e1b4dea416037::t_a5db0d232e7c05 62-65
+frontend/src/components/cases/case-panel-custom-fields.tsx
+  s_8e1b4dea416037::t_1028a29cfc0abc 779,782-783
+  s_8e1b4dea416037::t_13aae7c657d798 15
+frontend/src/components/chat/action-multiselect.tsx
+  s_8e1b4dea416037::t_ca0cbce5471810 170
+frontend/src/components/cases/case-panel-view.tsx
+  s_8e1b4dea416037::t_b2d4265ffccbf0 46-57
+  s_8e1b4dea416037::t_b9e2762cc107f1 632,637,639
+  s_8e1b4dea416037::t_f36f939e5cab92 600-601,610-631,633-636,638,640-653
+  s_8e1b4dea416037::t_9bf9727fd8de9a 492
+  s_8e1b4dea416037::t_93754eedecd677 44
+  s_8e1b4dea416037::t_7558d9c64e0579 84
+frontend/src/components/cases/case-column-picker.tsx
+  s_8e1b4dea416037::t_bec8341154f651 17
+  s_8e1b4dea416037::t_8671b877011ce9 58,60
+frontend/src/components/data-table/faceted-filter.tsx
+  s_8e1b4dea416037::t_5068080943aa6b 1,6
+  s_8e1b4dea416037::t_c8e6d96d432b47 93
+  s_8e1b4dea416037::t_50ce76358a1fce 106
+frontend/src/components/tiptap-ui/link-popover/link-popover.tsx
+  s_8e1b4dea416037::t_87f9c2d83e060e 341-368
+  s_8e1b4dea416037::t_ac0f247a25aeff 391
+  s_8e1b4dea416037::t_94649a22a30005 295
+  s_8e1b4dea416037::t_62c89a93c40a73 375-390
+  s_8e1b4dea416037::t_05dc13648a7417 26,34-35,53-94
+  s_8e1b4dea416037::t_939ec93333a14d 407-411
+  s_8e1b4dea416037::t_eb0715e48977e3 292-294
+  s_8e1b4dea416037::t_33b605a865472a 6
+  s_8e1b4dea416037::t_cf23d968bfc517 36-52
+  s_8e1b4dea416037::t_45d2a1d5e3de1f 3
+  s_8e1b4dea416037::t_47e97da05caa3d 200-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "cd3d5f7d3b019b597a3b193cf441c64ddd51fc39",
+  "prompts": {},
+  "sessions": {
+    "s_8e1b4dea416037": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e09cbd2f-f4be-4cad-bc92-e573dc9ed5cd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}

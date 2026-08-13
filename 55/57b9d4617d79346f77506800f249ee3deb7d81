@@ -1,0 +1,19 @@
+frontend/src/components/tiptap-ui/link-popover/link-popover.tsx
+  s_2f5bb0e361a2fb::t_ada4fc0344643a 363-368,372-373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5557b9d4617d79346f77506800f249ee3deb7d81",
+  "prompts": {},
+  "sessions": {
+    "s_2f5bb0e361a2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9aa2d16-cea5-47d9-b5bc-dc72ba4b4fa2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
