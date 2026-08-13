@@ -78,7 +78,12 @@ PRESERVE_PARAMETERS = frozenset(
 # Explicit credential-bearing fields at the outbound request boundary.
 RESOLVE_PARAMETERS = frozenset(
     {
+        ("core.http_paginate", "auth"),
+        ("core.http_paginate", "headers"),
+        ("core.http_paginate", "params"),
+        ("core.http_poll", "auth"),
         ("core.http_poll", "headers"),
+        ("core.http_poll", "params"),
         ("core.http_request", "auth"),
         ("core.http_request", "headers"),
         ("core.http_request", "params"),

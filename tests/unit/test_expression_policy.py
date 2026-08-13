@@ -83,11 +83,55 @@ def test_action_parameter_policy_scope_is_explicit() -> None:
         ("core.workflow.create_workflow", "definition_yaml"),
     }
     assert RESOLVE_PARAMETERS == {
+        ("core.http_paginate", "auth"),
+        ("core.http_paginate", "headers"),
+        ("core.http_paginate", "params"),
+        ("core.http_poll", "auth"),
         ("core.http_poll", "headers"),
+        ("core.http_poll", "params"),
         ("core.http_request", "auth"),
         ("core.http_request", "headers"),
         ("core.http_request", "params"),
     }
+
+
+@pytest.mark.parametrize(
+    ("action", "parameter"),
+    [
+        ("core.http_paginate", "auth"),
+        ("core.http_paginate", "headers"),
+        ("core.http_paginate", "params"),
+        ("core.http_poll", "auth"),
+        ("core.http_poll", "headers"),
+        ("core.http_poll", "params"),
+        ("core.http_request", "auth"),
+        ("core.http_request", "headers"),
+        ("core.http_request", "params"),
+    ],
+)
+def test_http_transport_credential_fields_resolve_secrets(
+    action: str,
+    parameter: str,
+) -> None:
+    secret_expression = "${{ SECRETS.api.TOKEN }}"
+    values = {
+        "auth": {"username": "bot", "password": secret_expression},
+        "headers": {"Authorization": f"Bearer {secret_expression}"},
+        "params": {"token": secret_expression},
+    }
+    expected = {
+        "auth": {"username": "bot", "password": "runtime-secret"},
+        "headers": {"Authorization": "Bearer runtime-secret"},
+        "params": {"token": "runtime-secret"},
+    }
+
+    prepared = _resolve_root(
+        action,
+        {parameter: values[parameter]},
+        {"SECRETS": {"api": {"TOKEN": "runtime-secret"}}},
+    )
+
+    assert prepared == {parameter: expected[parameter]}
 
 
 def test_expression_policy_requires_exact_action_parameter_pair() -> None:
