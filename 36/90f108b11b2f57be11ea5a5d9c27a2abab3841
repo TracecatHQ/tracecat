@@ -1,0 +1,54 @@
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_bc5352235b23a6::t_c8ad099f7d2b7b 7,11-12
+  s_bc5352235b23a6::t_f6b70774ec2c68 62-64,68-70,78,82,96,106-107,113-118,121-128,133-139
+  s_bc5352235b23a6::t_3e3e9eaa8c2e2c 129,172-213
+  s_bc5352235b23a6::t_5f00ca2ed7c051 4-6,17-51
+  s_bc5352235b23a6::t_98d966fac5ca8f 130
+  s_bc5352235b23a6::t_48b0db144f1944 52
+frontend/tests/table-column-widths.test.ts
+  s_bc5352235b23a6::t_ad45d7b1246178 76-80
+  s_bc5352235b23a6::t_1389df52450c12 126
+  s_bc5352235b23a6::t_7c27c9ef2d6765 235-237
+  s_bc5352235b23a6::t_aaab4aa9762175 361-364
+  s_bc5352235b23a6::t_c187bb59675b1b 203-234,238-275
+  s_bc5352235b23a6::t_0b96f92c4dd947 8-10
+  s_bc5352235b23a6::t_693ac1c750f45a 572-647
+  s_bc5352235b23a6::t_836193276505c6 726-754
+frontend/src/components/tiptap-node/table-node/table-column-widths.ts
+  s_bc5352235b23a6::t_459aa3f645d6f2 74-90,94-110,113,115,120-126,130-131,133-137,139-147,149-151,156,166,171,176
+  s_bc5352235b23a6::t_b7399355a24bf3 172
+  s_bc5352235b23a6::t_6ef6f0f9d1c70e 304-307
+  s_bc5352235b23a6::t_29f196cba95383 239
+frontend/src/components/tiptap-ui/table-controls/use-table-controls.tsx
+  s_bc5352235b23a6::t_fbdee9e05aedd0 10-11
+  s_bc5352235b23a6::t_69237963ed8120 55,138,215
+  s_bc5352235b23a6::t_f745dff2aa8cd9 93-110
+  s_bc5352235b23a6::t_35c338eaaa16da 40
+  s_bc5352235b23a6::t_a3ecbd4e65854f 111
+frontend/tests/table-move-column.test.ts
+  s_bc5352235b23a6::t_c928979988fc53 140-150,153
+  s_bc5352235b23a6::t_06986406808e01 1-35,49-139,151-152,154-281,308-353
+  s_bc5352235b23a6::t_49e976cf4b87cb 282-307
+  s_bc5352235b23a6::t_7f8a5af272ee4b 36-48
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_bc5352235b23a6::t_f521d6b98a7e98 140
+  s_bc5352235b23a6::t_0b50fd1fcd8412 166-174
+  s_bc5352235b23a6::t_787a14e6208aa4 138
+  s_bc5352235b23a6::t_8359093bbe0e3f 162-165,175-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3690f108b11b2f57be11ea5a5d9c27a2abab3841",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
