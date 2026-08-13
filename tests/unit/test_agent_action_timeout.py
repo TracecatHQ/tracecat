@@ -1,12 +1,21 @@
 """Generic action-timeout wiring for agent-backed actions."""
 
+import uuid
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from tracecat.agent.constants import (
     AGENT_TIMEOUT_SECONDS_DEFAULT,
     AGENT_TIMEOUT_SECONDS_MAX,
     AGENT_TIMEOUT_SECONDS_MIN,
 )
+from tracecat.auth.types import Role
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
+from tracecat.identifiers import WorkflowUUID
+from tracecat.workflow.actions.schemas import ActionControlFlow, ActionCreate
+from tracecat.workflow.actions.service import WorkflowActionService
 
 
 def _task(
@@ -93,8 +102,39 @@ def test_action_read_response_returns_control_flow_as_stored() -> None:
     assert all(route.response_model_exclude_unset for route in flagged)
 
 
+@pytest.mark.anyio
+async def test_action_create_preserves_omitted_timeout() -> None:
+    """Creating from a sparse read must not persist the generic 300s default."""
+    session = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+    workspace_id = uuid.uuid4()
+    service = WorkflowActionService(
+        session,
+        role=Role(
+            type="user",
+            service_id="tracecat-api",
+            organization_id=uuid.uuid4(),
+            workspace_id=workspace_id,
+            scopes=frozenset({"workflow:create"}),
+        ),
+    )
+
+    action = await service.create_action(
+        ActionCreate(
+            workflow_id=WorkflowUUID.new(uuid.uuid4()),
+            type="ai.agent",
+            title="Agent",
+            control_flow=ActionControlFlow.model_validate(
+                {"retry_policy": {"max_attempts": 2}}
+            ),
+        )
+    )
+
+    assert action.control_flow == {"retry_policy": {"max_attempts": 2}}
+
+
 def test_action_write_api_rejects_out_of_bounds_agent_timeout() -> None:
-    import pytest
     from fastapi import HTTPException
 
     from tracecat.workflow.actions.router import _validate_agent_timeout_bounds
