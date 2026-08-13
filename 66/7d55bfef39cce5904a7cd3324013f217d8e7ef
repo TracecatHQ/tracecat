@@ -1,0 +1,62 @@
+frontend/src/components/cases/case-closure-dialog.tsx
+  s_b0d733c807806a::t_63af22e5b5a7d3 184
+  s_b0d733c807806a::t_f4459aef0d21c6 38
+frontend/tests/case-panel-fields-group.test.tsx
+  s_b0d733c807806a::t_8caa30887977d2 142-160
+  s_b0d733c807806a::t_c6b0d776798419 1-110,112-114,116-133,135-141,161-176,178-182
+  s_b0d733c807806a::t_5fdc0680814ec0 111,115
+  s_b0d733c807806a::t_e33e937ef87108 134,177
+frontend/src/components/cases/case-panel-fields-group.tsx
+  s_b0d733c807806a::t_4cfd9ad6892138 1-48,50-86
+  s_b0d733c807806a::t_2999872b868cf2 49
+frontend/src/components/ui/dialog.tsx
+  s_b0d733c807806a::t_9dd00781d72105 11-20
+frontend/src/components/cases/editor.css
+  s_b0d733c807806a::t_b90750457de8e5 101-120,124-135
+  s_b0d733c807806a::t_2999872b868cf2 121-123
+frontend/tests/case-url-field-popover.test.tsx
+  s_b0d733c807806a::t_d3d699cc92540a 1-302
+frontend/src/components/cases/case-url-field-popover.tsx
+  s_b0d733c807806a::t_4ce6eaae5c365e 1-6,8,10-80,82-116,121-198
+  s_b0d733c807806a::t_5b78b319b3d57b 117-120
+  s_b0d733c807806a::t_2999872b868cf2 7,81
+  s_b0d733c807806a::t_ac1113851eebd7 9
+frontend/tests/case-panel-custom-fields.test.tsx
+  s_b0d733c807806a::t_0db24d9913a33e 1-9,20-199
+  s_b0d733c807806a::t_1163ee59b90fea 10-19
+frontend/src/components/cases/case-panel-view.tsx
+  s_b0d733c807806a::t_b3345027af9ca3 427-442
+  s_b0d733c807806a::t_189028b57c413d 24
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  s_b0d733c807806a::t_b7b2aee4574f57 17,21,23-26,63-67,69-71,73,75,81,175,185-189,191-193,195-223
+frontend/tests/case-closure-dialog.test.tsx
+  s_b0d733c807806a::t_f8c113cc98a430 142-143
+  s_b0d733c807806a::t_2744bf4da3c983 1-141,144-147
+frontend/tests/case-field-kind-dialogs.test.tsx
+  s_b0d733c807806a::t_fc465db97d1c1d 1-165,169-225
+  s_b0d733c807806a::t_1b8d0cf0f294e9 166-168
+frontend/src/components/cases/case-panel-custom-fields.tsx
+  s_b0d733c807806a::t_125c045a7d2814 505-523,525-564
+  s_b0d733c807806a::t_e7bb22fb76d405 664,668-698
+  s_b0d733c807806a::t_ee3e0807622bb5 770-771,776-778,785-820
+  s_b0d733c807806a::t_c1a857b5a377d8 287-333
+  s_b0d733c807806a::t_d365564aea22a8 1,11-14
+  s_b0d733c807806a::t_6199cbd52339c1 212,218,221,231-235
+  s_b0d733c807806a::t_0e4884afc5d4b7 286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "667d55bfef39cce5904a7cd3324013f217d8e7ef",
+  "prompts": {},
+  "sessions": {
+    "s_b0d733c807806a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0839f2fa-586d-4a2c-9dad-e9034a3f74f4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
