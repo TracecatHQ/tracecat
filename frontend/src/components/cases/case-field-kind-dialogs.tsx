@@ -72,7 +72,7 @@ export function LongTextFieldDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden">
           <CaseDescriptionEditor
-            className="case-description-editor--boxed case-description-editor--dialog"
+            className="case-description-editor--dialog"
             initialContent={draft}
             onChange={setDraft}
             autoFocus

@@ -52,6 +52,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
+  isCustomFieldValueEmpty,
+  orderCustomFieldsForDisplay,
+} from "@/lib/case-field-display"
+import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
@@ -79,17 +83,6 @@ function parseCasePanelTab(
     return null
   }
   return value as CasePanelTab
-}
-
-function isCustomFieldValueEmpty(value: unknown): boolean {
-  if (value === null || value === undefined) return true
-  if (typeof value === "string") return value.trim().length === 0
-  if (typeof value === "number") return Number.isNaN(value)
-  if (typeof value === "boolean") return false
-  if (Array.isArray(value)) return value.length === 0
-  if (typeof value === "object")
-    return Object.keys(value as object).length === 0
-  return false
 }
 
 interface CasePanelContentProps {
@@ -145,10 +138,7 @@ export function CasePanelView({
     () => parseCasePanelTab(initialTab) ?? "comments"
   )
   const visibleCustomFields = useMemo(
-    () =>
-      showAllCustomFields
-        ? customFields
-        : customFields.filter((field) => !isCustomFieldValueEmpty(field.value)),
+    () => orderCustomFieldsForDisplay(customFields, showAllCustomFields),
     [customFields, showAllCustomFields]
   )
   // Get active tab from URL query params, default to "comments"

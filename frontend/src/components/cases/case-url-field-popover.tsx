@@ -115,8 +115,10 @@ export function UrlFieldPopover({
           <button
             type="button"
             className={cn(
-              "min-w-0 truncate text-right text-sm hover:underline",
-              !value && "text-muted-foreground"
+              "min-w-0 truncate text-right text-sm",
+              value
+                ? "text-primary underline underline-offset-4"
+                : "text-muted-foreground hover:underline"
             )}
             title={value?.url}
             onClick={() => setOpen(true)}
