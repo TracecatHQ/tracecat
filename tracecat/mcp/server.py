@@ -8431,6 +8431,9 @@ async def prepare_skill_upload(
             )
 
         _, role = await _resolve_workspace_role(workspace_id)
+        if creating:
+            check_scopes(role, "agent:create")
+        check_scopes(role, "agent:update")
         prepared_files: list[SkillUploadPreparedFile] = []
         async with SkillService.with_session(role=role) as svc:
             if skill_id is None:
@@ -8481,6 +8484,9 @@ async def prepare_skill_upload(
             created=creating,
             files=prepared_files,
         )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValidationError as e:

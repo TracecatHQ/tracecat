@@ -10110,7 +10110,10 @@ async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:create", "agent:update"}),
+    )
     now = datetime.now(UTC)
     upload_ids = [uuid.uuid4(), uuid.uuid4()]
     captured: dict[str, Any] = {"uploads": []}
@@ -10200,7 +10203,10 @@ async def test_prepare_skill_upload_reuses_existing_draft(
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
     upload_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:update"}),
+    )
     now = datetime.now(UTC)
     captured: dict[str, Any] = {}
 
@@ -10263,6 +10269,45 @@ async def test_prepare_skill_upload_reuses_existing_draft(
     assert payload["skill_id"] == str(skill_id)
     assert payload["base_revision"] == 6
     assert payload["created"] is False
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_upload_checks_update_scope_before_creating_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:create"}),
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not be opened before all scopes are checked")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: agent:update"):
+        await _tool(mcp_server.prepare_skill_upload)(
+            workspace_id=str(workspace_id),
+            name="triage-skill",
+            files=[
+                mcp_server.SkillUploadFileMetadata(
+                    path="SKILL.md",
+                    sha256="a" * 64,
+                    size_bytes=42,
+                    content_type="text/markdown; charset=utf-8",
+                )
+            ],
+            ctx=_fake_ctx(),
+        )
 
 
 @pytest.mark.anyio
