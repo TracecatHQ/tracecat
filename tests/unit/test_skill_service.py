@@ -1321,6 +1321,112 @@ class TestSkillService:
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
 
+    async def test_attach_rejects_canonical_copy_poisoned_after_verification(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A staged re-PUT racing the canonical copy must not become a blob.
+
+        The staged PUT URL can still be valid while completion runs, so the
+        canonical copy is re-verified; bytes that differ from the verified
+        staged read are rejected and the canonical object is deleted.
+        """
+
+        content = b"verified staged bytes\n"
+        poisoned = b"poisoned canonical bytes\n"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        created = await skill_service.create_skill(SkillCreate(name="poison-race"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        canonical_key = skill_service._storage_key_for(sha256)
+        deleted: list[str] = []
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+
+            async def read(self) -> bytes:
+                return self._payload
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield self._payload
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del bucket
+            payload = poisoned if key == canonical_key else content
+            yield FakeStream(payload), len(payload)
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            del bucket
+            deleted.append(key)
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        with pytest.raises(TracecatValidationError) as excinfo:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert excinfo.value.detail is not None
+        assert excinfo.value.detail["code"] == "upload_integrity_error"
+        assert deleted == [canonical_key]
+        blob_row = (
+            await skill_service.session.execute(
+                select(SkillBlob).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id,
+                    SkillBlob.sha256 == sha256,
+                )
+            )
+        ).scalar_one_or_none()
+        assert blob_row is None
+
     @pytest.mark.parametrize(
         ("content_type", "reason"),
         [
