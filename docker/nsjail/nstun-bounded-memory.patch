@@ -10,7 +10,7 @@ index 0e033ff..3be3bdf 100644
  
  #include "net_defs.h"
  #include "nstun.h"
-@@ -25,11 +26,23 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
+@@ -25,11 +26,24 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
  constexpr size_t UDP_QUEUE_MAX_PACKETS = 50;
  constexpr int VLEN = 64;
  
@@ -31,9 +31,10 @@ index 0e033ff..3be3bdf 100644
 +constexpr size_t TCP_FLOW_BUDGET = TCP_BUFFER_BUDGET / TCP_FLOW_BUFFER_BYTES;
 +static_assert(TCP_FLOW_BUDGET > 0);
 +/* UDP and ICMP sockets are owned by the parent NSTUN process and are not
-+ * constrained by the jailed child's RLIMIT_NOFILE. Use NSTUN's intrinsic
-+ * descriptor-table ceiling instead of a lower workload-specific heuristic. */
-+constexpr size_t UDP_ICMP_SOCKET_BUDGET = NSTUN_MAX_FDS;
++ * constrained by the jailed child's RLIMIT_NOFILE. Bound their aggregate
++ * kernel socket memory separately while leaving headroom for DNS bursts. */
++constexpr size_t UDP_ICMP_SOCKET_BUDGET = 256;
++static_assert(UDP_ICMP_SOCKET_BUDGET < NSTUN_MAX_FDS);
  
  
  /* Removed MemcmpLess in favor of C++20 operator<=> */
