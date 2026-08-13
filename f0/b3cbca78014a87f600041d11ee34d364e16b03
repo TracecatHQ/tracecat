@@ -1,0 +1,30 @@
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_bc5352235b23a6::t_73b5caf7d98e80 172-178
+  s_bc5352235b23a6::t_37d9e3fdde43f8 69
+  s_bc5352235b23a6::t_bbc16d0f767adf 139-141
+frontend/src/components/tiptap-ui/table-controls/use-table-controls.tsx
+  s_bc5352235b23a6::t_ec301b78f2b594 4-8
+  s_bc5352235b23a6::t_2a3b115815979a 119-132,156-161,166-177
+  s_bc5352235b23a6::t_9e6804c64c4dd3 189
+  s_bc5352235b23a6::t_2de4c98127ef4d 78
+  s_bc5352235b23a6::t_002d3bca2ae71c 71
+  s_bc5352235b23a6::t_585a3d2068c999 64
+  s_bc5352235b23a6::t_e054ff87d9198b 85
+  s_bc5352235b23a6::t_3434e661ed294e 178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f0b3cbca78014a87f600041d11ee34d364e16b03",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
