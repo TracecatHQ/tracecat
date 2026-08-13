@@ -8313,11 +8313,15 @@ async def get_skill(
     if path is None:
         try:
             _, role = await _resolve_workspace_role(workspace_id)
+            check_scopes(role, "agent:read")
             async with SkillService.with_session(role=role) as svc:
                 draft = await svc.get_draft(skill_id)
                 if draft is None:
                     raise ToolError(f"Skill '{skill_id}' not found")
                 return draft
+        except ScopeDeniedError as e:
+            required = ", ".join(e.required_scopes)
+            raise ToolError(f"Missing required scope: {required}") from e
         except ToolError:
             raise
         except ValidationError as e:
@@ -8333,11 +8337,15 @@ async def get_skill(
     try:
         _require_remote_mcp_context(ctx, tool_name="get_skill")
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
         async with SkillService.with_session(role=role) as svc:
             draft_file = await svc.get_draft_file(skill_id=skill_id, path=path)
             if draft_file is None:
                 raise ToolError(f"Draft file '{path}' not found for skill '{skill_id}'")
             return draft_file
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValidationError as e:
@@ -8368,11 +8376,15 @@ async def prepare_skill_download(
     try:
         _require_remote_mcp_context(ctx, tool_name="prepare_skill_download")
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
         async with SkillService.with_session(role=role) as svc:
             prepared = await svc.prepare_draft_download(skill_id=skill_id)
             if prepared is None:
                 raise ToolError(f"Skill '{skill_id}' not found")
             return prepared
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ToolError:
         raise
     except ValidationError as e:

@@ -9683,7 +9683,10 @@ async def test_get_skill_returns_mutable_manifest(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
     files = [
         SkillFileEntry(
             path="SKILL.md",
@@ -9749,7 +9752,10 @@ async def test_get_skill_returns_not_found(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -9780,7 +9786,10 @@ async def test_get_skill_with_path_returns_inline_text(
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
     expected_skill_id = skill_id
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
     text_content = "---\nname: triage-skill\n---\n"
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
@@ -9828,7 +9837,10 @@ async def test_get_skill_with_path_returns_presigned_download(
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
     expected_skill_id = skill_id
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
     download_url = "https://downloads.example/helper.py?signature=secret"
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
@@ -9873,7 +9885,10 @@ async def test_get_skill_with_path_returns_not_found(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
     path = "scripts/missing.py"
     expected_skill_id = skill_id
 
@@ -9917,12 +9932,46 @@ async def test_get_skill_with_path_rejects_stdio_transport() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("path", [None, "SKILL.md"])
+async def test_get_skill_requires_agent_read_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str | None,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=frozenset())
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not be opened without agent:read")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: agent:read"):
+        await _tool(mcp_server.get_skill)(
+            workspace_id=str(workspace_id),
+            skill_id=uuid.uuid4(),
+            path=path,
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
 async def test_prepare_skill_download_returns_complete_presigned_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
     expires_at = datetime.now(UTC) + timedelta(minutes=5)
     expected_skill_id = skill_id
     files = [
@@ -9988,7 +10037,10 @@ async def test_prepare_skill_download_returns_not_found(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"agent:read"}),
+    )
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -10021,6 +10073,34 @@ async def test_prepare_skill_download_rejects_stdio_transport() -> None:
             workspace_id=str(uuid.uuid4()),
             skill_id=uuid.uuid4(),
             ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_download_requires_agent_read_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=frozenset())
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    def _unexpected_with_session(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("SkillService must not be opened without agent:read")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        _unexpected_with_session,
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: agent:read"):
+        await _tool(mcp_server.prepare_skill_download)(
+            workspace_id=str(workspace_id),
+            skill_id=uuid.uuid4(),
+            ctx=_fake_ctx(),
         )
 
 
