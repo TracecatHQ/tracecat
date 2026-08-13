@@ -1,0 +1,29 @@
+frontend/src/components/tiptap-node/table-node/table-materialize-widths.ts
+  s_bc5352235b23a6::t_c53828d77243d2 324-331,333-354,362-365,367-370,373,377-378,381,386-437
+frontend/tests/table-materialize-widths.test.ts
+  s_bc5352235b23a6::t_88f0dcf9830520 114-117,119-123,126-133,136,138-139
+  s_bc5352235b23a6::t_44c07db5c4d3e9 47-72,76-77
+  s_bc5352235b23a6::t_1ea632bf0327d1 276-307
+  s_bc5352235b23a6::t_f8424a0a3426a4 78
+frontend/src/components/tiptap-node/table-node/table-markdown.ts
+  s_bc5352235b23a6::t_add07952207a1d 270-312
+frontend/tests/table-markdown.test.ts
+  s_bc5352235b23a6::t_687818a4390eaa 296-342
+  s_bc5352235b23a6::t_cbb7dc7ea99ef5 79-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d496296d4e5c78f7ff1202353603090dfb8be4f7",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
