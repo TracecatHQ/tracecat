@@ -14,3 +14,11 @@ class ResolvedSkillRef:
     skill_name: str
     skill_version_id: uuid.UUID
     manifest_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class SkillUploadManifestConstraint:
+    """Manifest metadata that a prepared create upload must preserve."""
+
+    name: str
+    description: str | None

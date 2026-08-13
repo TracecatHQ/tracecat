@@ -4071,6 +4071,16 @@ class SkillUpload(WorkspaceModel):
         nullable=False,
         doc="Expected upload MIME type",
     )
+    expected_skill_name: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Create-time skill name that the uploaded manifest must preserve",
+    )
+    expected_skill_description: Mapped[str | None] = mapped_column(
+        String(4000),
+        nullable=True,
+        doc="Create-time description that the uploaded manifest must preserve",
+    )
     bucket: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

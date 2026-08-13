@@ -45,6 +45,7 @@ from tracecat.agent.skill.schemas import (
     SkillUploadSessionRead,
     SkillVersionRead,
 )
+from tracecat.agent.skill.types import SkillUploadManifestConstraint
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
 from tracecat.db.models import Schedule, Workflow
@@ -10141,9 +10142,11 @@ async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
                 draft_file_count=1,
             )
 
-        async def create_draft_upload(self, *, skill_id, params):
+        async def create_draft_upload(
+            self, *, skill_id, params, manifest_constraint=None
+        ):
             index = len(captured["uploads"])
-            captured["uploads"].append((skill_id, params))
+            captured["uploads"].append((skill_id, params, manifest_constraint))
             return SkillUploadSessionRead(
                 upload_id=upload_ids[index],
                 upload_url=f"https://uploads.example/{index}?signature=secret",
@@ -10185,6 +10188,11 @@ async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
     assert captured["create"].name == "triage-skill"
     assert [item[0] for item in captured["uploads"]] == [skill_id, skill_id]
     assert captured["uploads"][1][1].size_bytes == 0
+    assert captured["uploads"][0][2] == SkillUploadManifestConstraint(
+        name="triage-skill",
+        description="Triage alerts",
+    )
+    assert captured["uploads"][1][2] == captured["uploads"][0][2]
     assert payload["workspace_id"] == str(workspace_id)
     assert payload["skill_id"] == str(skill_id)
     assert payload["base_revision"] == 4
@@ -10231,9 +10239,12 @@ async def test_prepare_skill_upload_reuses_existing_draft(
                 validation_errors=[],
             )
 
-        async def create_draft_upload(self, *, skill_id, params):
+        async def create_draft_upload(
+            self, *, skill_id, params, manifest_constraint=None
+        ):
             captured["skill_id"] = skill_id
             captured["params"] = params
+            captured["manifest_constraint"] = manifest_constraint
             return SkillUploadSessionRead(
                 upload_id=upload_id,
                 upload_url="https://uploads.example/skill?signature=secret",
@@ -10266,6 +10277,7 @@ async def test_prepare_skill_upload_reuses_existing_draft(
 
     payload = _payload(result)
     assert captured["skill_id"] == skill_id
+    assert captured["manifest_constraint"] is None
     assert payload["skill_id"] == str(skill_id)
     assert payload["base_revision"] == 6
     assert payload["created"] is False

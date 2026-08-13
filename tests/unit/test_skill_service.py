@@ -41,6 +41,7 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
+from tracecat.agent.skill.types import SkillUploadManifestConstraint
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Skill,
@@ -1426,6 +1427,152 @@ class TestSkillService:
             )
         ).scalar_one_or_none()
         assert blob_row is None
+
+    @pytest.mark.parametrize(
+        ("manifest", "error_code"),
+        [
+            pytest.param(
+                (
+                    "---\n"
+                    "name: prepared-skill\n"
+                    "description: Prepared description\n"
+                    "---\n\n"
+                    "# Prepared skill\n"
+                ),
+                None,
+                id="matching",
+            ),
+            pytest.param(
+                (
+                    "---\n"
+                    "name: different-skill\n"
+                    "description: Prepared description\n"
+                    "---\n\n"
+                    "# Different skill\n"
+                ),
+                "skill_name_mismatch",
+                id="name-mismatch",
+            ),
+            pytest.param(
+                (
+                    "---\n"
+                    "name: prepared-skill\n"
+                    "description: Different description\n"
+                    "---\n\n"
+                    "# Prepared skill\n"
+                ),
+                "skill_description_mismatch",
+                id="description-mismatch",
+            ),
+        ],
+    )
+    async def test_create_upload_preserves_prepared_manifest_metadata(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+        manifest: str,
+        error_code: str | None,
+    ) -> None:
+        """Create uploads must not replace the metadata supplied at prepare time."""
+
+        expected_description = "Prepared description"
+        created = await skill_service.create_skill(
+            SkillCreate(
+                name="prepared-skill",
+                description=expected_description,
+            )
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = manifest.encode()
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                content_type="text/markdown; charset=utf-8",
+            ),
+            manifest_constraint=SkillUploadManifestConstraint(
+                name="prepared-skill",
+                description=expected_description,
+            ),
+        )
+        upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(SkillUploadModel.id == upload.upload_id)
+        )
+        assert upload_row is not None
+        assert upload_row.expected_skill_name == "prepared-skill"
+        assert upload_row.expected_skill_description == expected_description
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del key, bucket
+            yield FakeStream(), len(content)
+
+        async def fake_copy_file(**kwargs: Any) -> None:
+            del kwargs
+
+        async def fake_download_file(**kwargs: Any) -> bytes:
+            del kwargs
+            return content
+
+        async def fake_delete_file(**kwargs: Any) -> None:
+            del kwargs
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.download_file", fake_download_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+        )
+
+        patch_params = SkillDraftPatch(
+            base_revision=draft.draft_revision,
+            operations=[
+                SkillDraftAttachUploadedBlobOp(
+                    path="SKILL.md",
+                    upload_id=upload.upload_id,
+                )
+            ],
+        )
+        if error_code is None:
+            updated = await skill_service.patch_draft(
+                skill_id=created.id,
+                params=patch_params,
+            )
+            assert updated.name == "prepared-skill"
+            assert updated.description == expected_description
+        else:
+            with pytest.raises(TracecatValidationError) as exc_info:
+                await skill_service.patch_draft(
+                    skill_id=created.id,
+                    params=patch_params,
+                )
+            assert exc_info.value.detail is not None
+            assert exc_info.value.detail["code"] == error_code
+            unchanged = await skill_service.get_draft(created.id)
+            assert unchanged is not None
+            assert unchanged.draft_revision == draft.draft_revision
 
     @pytest.mark.parametrize(
         ("content_type", "reason"),
