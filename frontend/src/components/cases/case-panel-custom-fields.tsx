@@ -1,4 +1,4 @@
-import { Check } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { type CSSProperties, useCallback, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
@@ -7,9 +7,11 @@ import {
   ExpandFieldCell,
   JsonFieldDialog,
   LongTextFieldDialog,
-  UrlFieldCell,
-  UrlFieldDialog,
 } from "@/components/cases/case-field-kind-dialogs"
+import {
+  UrlFieldPopover,
+  type UrlFieldValue,
+} from "@/components/cases/case-url-field-popover"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CheckIndicator } from "@/components/ui/check-indicator"
@@ -201,26 +203,22 @@ function UrlCustomField({
   customField: CaseFieldRead
   updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
 }) {
-  const [dialogOpen, setDialogOpen] = useState(false)
-
   const parsed =
     customField.value &&
     typeof customField.value === "object" &&
     !Array.isArray(customField.value)
       ? (customField.value as { url?: string; label?: string })
       : null
-  const urlValue = {
+  const urlValue: UrlFieldValue = {
     url: parsed?.url ?? "",
     label: parsed?.label ?? "",
   }
 
   const handleSave = useCallback(
-    async (value: { url: string; label: string }) => {
+    async (value: UrlFieldValue | null) => {
       try {
         await updateCase({
-          fields: {
-            [customField.id]: value.url && value.label ? value : null,
-          },
+          fields: { [customField.id]: value },
         })
       } catch (error) {
         console.error(error)
@@ -230,19 +228,11 @@ function UrlCustomField({
   )
 
   return (
-    <>
-      <UrlFieldCell
-        value={urlValue.url ? urlValue : null}
-        onEdit={() => setDialogOpen(true)}
-      />
-      <UrlFieldDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
-        initialValue={urlValue}
-        onSave={handleSave}
-      />
-    </>
+    <UrlFieldPopover
+      fieldId={customField.id}
+      value={urlValue.url ? urlValue : null}
+      onSave={handleSave}
+    />
   )
 }
 
@@ -291,6 +281,54 @@ interface CustomFieldProps {
   onBlur?: (id: string, value: unknown) => void
   inputClassName?: string
   inputStyle?: CSSProperties
+}
+
+/**
+ * Small in-control X that clears a dropdown-backed field back to null.
+ * Rendered as a sibling of the dropdown trigger (never nested inside it);
+ * preventDefault on pointerdown stops Radix from opening the dropdown.
+ */
+function ClearFieldButton({
+  fieldId,
+  onClear,
+}: {
+  fieldId: string
+  onClear: () => void
+}) {
+  const label = `Clear ${fieldId} field`
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="absolute right-1.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      onPointerDown={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onClear()
+      }}
+    >
+      <X className="size-3" />
+    </button>
+  )
+}
+
+/** Map a boolean field value to its controlled Select value ("" when unset). */
+function booleanSelectValue(value: unknown): "true" | "false" | "" {
+  if (value === true) return "true"
+  if (value === false) return "false"
+  return ""
+}
+
+/** Display label for a boolean field value; empty string when unset. */
+function booleanDisplayLabel(value: unknown): string {
+  if (value === true) return "True"
+  if (value === false) return "False"
+  return ""
 }
 
 /**
@@ -464,55 +502,66 @@ export function CustomFieldInner({
         <FormField
           control={form.control}
           name="value"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Select
-                  value={
-                    field.value === true
-                      ? "true"
-                      : field.value === false
-                        ? "false"
-                        : undefined
-                  }
-                  onValueChange={(value) => {
-                    const next = value === "true"
-                    field.onChange(next)
-                    onBlur?.(customField.id, next)
-                  }}
-                >
-                  <SelectTrigger
-                    className={cn(
-                      linearStyles.trigger.base,
-                      "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden"
-                    )}
-                    style={inputStyle}
-                  >
-                    <SelectValue>
-                      <div className="flex w-full items-center justify-end text-right text-sm">
-                        {field.value === true ? (
-                          <span>True</span>
-                        ) : field.value === false ? (
-                          <span>False</span>
-                        ) : (
-                          <span className="text-muted-foreground">Empty</span>
+          render={({ field }) => {
+            const hasValue = field.value === true || field.value === false
+            return (
+              <FormItem>
+                <div className="relative w-full min-w-0">
+                  <FormControl>
+                    <Select
+                      value={booleanSelectValue(field.value)}
+                      onValueChange={(value) => {
+                        const next = value === "true"
+                        field.onChange(next)
+                        onBlur?.(customField.id, next)
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          linearStyles.trigger.base,
+                          "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden",
+                          hasValue && "pr-7"
                         )}
-                      </div>
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    <SelectItem value="true">
-                      <span className="text-sm">True</span>
-                    </SelectItem>
-                    <SelectItem value="false">
-                      <span className="text-sm">False</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
+                        style={inputStyle}
+                      >
+                        <SelectValue
+                          placeholder={
+                            <div className="flex w-full items-center justify-end text-right text-sm">
+                              <span className="text-muted-foreground">
+                                Empty
+                              </span>
+                            </div>
+                          }
+                        >
+                          <div className="flex w-full items-center justify-end text-right text-sm">
+                            <span>{booleanDisplayLabel(field.value)}</span>
+                          </div>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectItem value="true">
+                          <span className="text-sm">True</span>
+                        </SelectItem>
+                        <SelectItem value="false">
+                          <span className="text-sm">False</span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  {hasValue && (
+                    <ClearFieldButton
+                      fieldId={customField.id}
+                      onClear={() => {
+                        field.onChange(null)
+                        onBlur?.(customField.id, null)
+                      }}
+                    />
+                  )}
+                </div>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
       )
     // JSONB fields are handled by JsonCustomField before reaching this switch
@@ -612,28 +661,41 @@ export function CustomFieldInner({
           render={({ field }) => {
             const currentValue =
               typeof field.value === "string" ? field.value : ""
+            const hasValue = currentValue.length > 0
             return (
               <FormItem>
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant="ghost"
-                        role="combobox"
-                        className={cn(
-                          linearStyles.input.full,
-                          "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                          !currentValue && "text-muted-foreground",
-                          inputClassName
-                        )}
-                        style={inputStyle}
-                      >
-                        <span className="truncate">
-                          {currentValue || "Select..."}
-                        </span>
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
+                  <div className="relative w-full min-w-0">
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="ghost"
+                          role="combobox"
+                          className={cn(
+                            linearStyles.input.full,
+                            "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                            !currentValue && "text-muted-foreground",
+                            inputClassName,
+                            hasValue && "pr-7"
+                          )}
+                          style={inputStyle}
+                        >
+                          <span className="truncate">
+                            {currentValue || "Select..."}
+                          </span>
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    {hasValue && (
+                      <ClearFieldButton
+                        fieldId={customField.id}
+                        onClear={() => {
+                          field.onChange(null)
+                          onBlur?.(customField.id, null)
+                        }}
+                      />
+                    )}
+                  </div>
                   <PopoverContent className="w-56 p-0" align="end">
                     <Command>
                       <CommandInput
@@ -705,42 +767,57 @@ export function CustomFieldInner({
               }
             }
 
+            const hasValue = currentValues.length > 0
+
             const toggleOption = (option: string) => {
               const newValues = currentValues.includes(option)
                 ? currentValues.filter((v) => v !== option)
                 : [...currentValues, option]
-              field.onChange(newValues)
-              onBlur?.(customField.id, newValues)
+              const next = newValues.length === 0 ? null : newValues
+              field.onChange(next)
+              onBlur?.(customField.id, next)
             }
 
             return (
               <FormItem>
                 <Popover>
                   <HoverCard openDelay={300}>
-                    <HoverCardTrigger asChild>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="ghost"
-                            role="combobox"
-                            className={cn(
-                              linearStyles.input.full,
-                              "inline-flex h-7 w-full min-w-0 justify-end gap-1 overflow-hidden whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                              currentValues.length === 0 &&
-                                "text-muted-foreground",
-                              inputClassName
-                            )}
-                            style={inputStyle}
-                          >
-                            {currentValues.length === 0 ? (
-                              <span className="truncate">Select...</span>
-                            ) : (
-                              <MultiSelectBadges values={currentValues} />
-                            )}
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                    </HoverCardTrigger>
+                    <div className="relative w-full min-w-0">
+                      <HoverCardTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="ghost"
+                              role="combobox"
+                              className={cn(
+                                linearStyles.input.full,
+                                "inline-flex h-7 w-full min-w-0 justify-end gap-1 overflow-hidden whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                                currentValues.length === 0 &&
+                                  "text-muted-foreground",
+                                inputClassName,
+                                hasValue && "pr-7"
+                              )}
+                              style={inputStyle}
+                            >
+                              {currentValues.length === 0 ? (
+                                <span className="truncate">Select...</span>
+                              ) : (
+                                <MultiSelectBadges values={currentValues} />
+                              )}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                      </HoverCardTrigger>
+                      {hasValue && (
+                        <ClearFieldButton
+                          fieldId={customField.id}
+                          onClear={() => {
+                            field.onChange(null)
+                            onBlur?.(customField.id, null)
+                          }}
+                        />
+                      )}
+                    </div>
                     {currentValues.length > 0 && (
                       <HoverCardContent
                         className="w-auto max-w-xs p-2"

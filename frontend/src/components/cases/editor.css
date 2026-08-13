@@ -98,6 +98,41 @@
   padding-top: var(--case-toolbar-pin-inset);
 }
 
+/*
+ * Dialog variant: the editor fills the dialog body, the toolbar stays a
+ * fixed header, and the content area scrolls internally. `SimpleEditor`
+ * sets `height: auto` inline on `.case-description-editor` (its wrapper),
+ * so the wrapper fills through `flex: 1` rather than `height: 100%`.
+ */
+.case-description-editor--dialog {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.case-description-editor--dialog .case-description-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.case-description-editor--dialog
+  .case-description-editor
+  .simple-editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.case-description-editor--dialog
+  .case-description-editor
+  .simple-editor-content
+  .simple-editor {
+  min-height: 100%;
+}
+
 .case-description-editor .simple-editor-content .simple-editor:focus-visible {
   outline: none;
   box-shadow: none;

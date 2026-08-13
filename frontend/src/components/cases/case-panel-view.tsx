@@ -6,13 +6,11 @@ import {
   MessageSquare,
   Paperclip,
   Table2,
-  X,
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
-  CaseFieldRead,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -22,8 +20,8 @@ import { CaseAttachmentsSection } from "@/components/cases/case-attachments-sect
 import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
-import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
+import { CasePanelFieldsGroup } from "@/components/cases/case-panel-fields-group"
 import {
   type AssigneeInfo,
   AssigneeSelect,
@@ -40,7 +38,6 @@ import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { CaseFeed } from "@/components/cases/cases-feed"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
-import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -154,21 +151,6 @@ export function CasePanelView({
         : customFields.filter((field) => !isCustomFieldValueEmpty(field.value)),
     [customFields, showAllCustomFields]
   )
-  const handleCustomFieldClear = useCallback(
-    async (field: CaseFieldRead) => {
-      try {
-        await updateCase({
-          fields: {
-            [field.id]: null,
-          },
-        })
-      } catch (error) {
-        console.error("Failed to clear custom field:", error)
-      }
-    },
-    [updateCase]
-  )
-
   // Get active tab from URL query params, default to "comments"
   const routeTab = parseCasePanelTab(searchParams?.get("tab")) ?? "comments"
   const activeTab = embedded ? embeddedTab : routeTab
@@ -442,70 +424,22 @@ export function CasePanelView({
           </div>
         </SidebarGroupContent>
       </SidebarGroup>
-      <SidebarGroup>
-        <SidebarGroupLabel>Fields</SidebarGroupLabel>
-        <SidebarGroupContent className="px-2">
-          <div className="flex flex-col gap-2">
-            {visibleCustomFields.length > 0 ? (
-              visibleCustomFields.map((field) => {
-                const label = field.id
-                return (
-                  <div
-                    key={field.id}
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    {showAllCustomFields && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                        onClick={() => handleCustomFieldClear(field)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        <span className="sr-only">Clear {label} field</span>
-                      </Button>
-                    )}
-                    <span className={panelLabelClassName} title={label}>
-                      {label}
-                    </span>
-                    <div className={panelControlClassName}>
-                      <div className="flex h-7 w-full items-center gap-2">
-                        <div className="min-w-0 flex-1">
-                          <CustomField
-                            customField={field}
-                            updateCase={updateCase}
-                            formClassName="w-full min-w-0 max-w-full"
-                            inputClassName={cn(
-                              "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
-                              embedded &&
-                                "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
-                            )}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            ) : customFields.length === 0 ? (
-              <span className="text-sm text-muted-foreground">
-                No custom fields configured
-              </span>
-            ) : null}
-            {customFields.length > 0 && (
-              <button
-                type="button"
-                className="h-7 text-left text-sm text-muted-foreground underline-offset-4 hover:underline"
-                onClick={() => setShowAllCustomFields((prev) => !prev)}
-              >
-                {showAllCustomFields ? "Hide empty fields" : "View all fields"}
-              </button>
-            )}
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <CasePanelFieldsGroup
+        customFields={customFields}
+        visibleCustomFields={visibleCustomFields}
+        showAll={showAllCustomFields}
+        onToggleShowAll={() => setShowAllCustomFields((prev) => !prev)}
+        updateCase={updateCase}
+        rowClassName={panelFieldRowClassName}
+        labelClassName={panelLabelClassName}
+        controlClassName={panelControlClassName}
+        inputClassName={cn(
+          "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+          embedded &&
+            "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+        )}
+        onRowClick={handlePanelFieldRowClick}
+      />
     </>
   )
 

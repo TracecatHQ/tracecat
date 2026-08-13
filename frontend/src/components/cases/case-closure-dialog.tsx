@@ -35,6 +35,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  nonDismissableDialogProps,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -180,7 +181,7 @@ export function CaseClosureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" {...nonDismissableDialogProps}>
         <DialogHeader>
           <DialogTitle>{statusLabel} case</DialogTitle>
           <DialogDescription>
@@ -254,9 +255,6 @@ export function CaseClosureDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
           <Button
             variant="outline"
             disabled={!isValid || isSubmitting}
