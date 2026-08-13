@@ -1,0 +1,56 @@
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_bc5352235b23a6::t_a927b39b031641 367-381
+  s_bc5352235b23a6::t_18f2d555cdfed7 403
+  s_bc5352235b23a6::t_206f53664dff5a 433-435
+  s_bc5352235b23a6::t_72a0543026f823 25
+  s_bc5352235b23a6::t_bef7c0b38160eb 476-481
+frontend/tests/table-resize-plugins.test.ts
+  s_bc5352235b23a6::t_82d878cca6041a 32-37,41-42,44-49
+  s_bc5352235b23a6::t_eced2109fa722f 38-40
+  s_bc5352235b23a6::t_94fa4568075306 43
+frontend/src/components/cases/case-panel-description.tsx
+  s_bc5352235b23a6::t_4e109773c3c20b 175-177
+frontend/tests/table-markdown.test.ts
+  s_bc5352235b23a6::t_55c70ed0f12c77 170
+  s_bc5352235b23a6::t_731eb545f5b653 13-22,25-40
+  s_bc5352235b23a6::t_889f5661c49378 9-12
+  s_bc5352235b23a6::t_f31d44c9455ae5 207
+  s_bc5352235b23a6::t_a162b380b8c637 217-218,441-442,450-451,459-460,467-468,476-477,565-566
+  s_bc5352235b23a6::t_86d48d913d5e66 336-357,361-366,371,379-380,382-383,391,397-436
+  s_bc5352235b23a6::t_df54185750dcf0 388
+  s_bc5352235b23a6::t_54e3cee2f88373 136-147
+  s_bc5352235b23a6::t_c0cc8aa34a5def 180,201,239,250,284,311,330,500
+  s_bc5352235b23a6::t_24e6966c297d65 358-360,367-370,372-378,381,384-387,389-390,392-396
+frontend/src/components/cases/case-description-editor.tsx
+  s_bc5352235b23a6::t_a4cc8c730fe328 43
+  s_bc5352235b23a6::t_e66c8048e08ce1 111
+  s_bc5352235b23a6::t_cccea039f78144 23-32
+frontend/src/components/tiptap-node/table-node/table-markdown.ts
+  s_bc5352235b23a6::t_a21831c86851dd 70-73,77-78,80-81
+  s_bc5352235b23a6::t_009a12c6ab93e7 82
+  s_bc5352235b23a6::t_165944a9c818e3 30-34,39-50
+  s_bc5352235b23a6::t_17635bcc924439 51
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_bc5352235b23a6::t_99286088cb4813 182
+  s_bc5352235b23a6::t_079dcc94fd7d3d 222-224,226-230,288-291,293-297
+  s_bc5352235b23a6::t_eb385bf1844c68 180-181,183-206,218-219,231-232,235,237-243,245-262,264-277,279-287
+  s_bc5352235b23a6::t_7980f917ec569c 233-234
+frontend/tests/table-materialize-widths.test.ts
+  s_bc5352235b23a6::t_a6bd3c88461f31 9,11-15,18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a1fa6c860439627593864b4c1ad5db2fcd8c01b2",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
