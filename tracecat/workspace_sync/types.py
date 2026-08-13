@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
@@ -53,7 +54,8 @@ class WorkflowCatalogReference(NamedTuple):
 type CatalogReference = AgentPresetCatalogReference | WorkflowCatalogReference
 
 
-class AgentPresetMcpIntegrationReference(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class AgentPresetMcpIntegrationReference:
     """One preset version referencing a workspace-local source MCP integration."""
 
     path: str
@@ -63,7 +65,8 @@ class AgentPresetMcpIntegrationReference(NamedTuple):
     meta: McpIntegrationRef | None
 
 
-class WorkflowMcpIntegrationReference(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class WorkflowMcpIntegrationReference:
     """One workflow action referencing a workspace-local source MCP integration."""
 
     path: str
@@ -77,7 +80,8 @@ type McpIntegrationReference = (
 )
 
 
-class CorrelatedMcpIntegrationRefs(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class CorrelatedMcpIntegrationRefs:
     """MCP-correlated sync specs plus any blocking diagnostics."""
 
     presets: dict[str, AgentPresetResourceSpec]
