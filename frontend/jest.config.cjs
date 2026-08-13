@@ -11,9 +11,19 @@ module.exports = {
         },
       },
     ],
+    "[\\\\/]marked[\\\\/].+\\.js$": [
+      "ts-jest",
+      {
+        tsconfig: {
+          allowJs: true,
+        },
+      },
+    ],
   },
   testPathIgnorePatterns: ["/node_modules/", "/.next/", "/tests/smoke/"],
-  transformIgnorePatterns: ["node_modules/(?!(yaml)/)"],
+  transformIgnorePatterns: [
+    "^(?!.*/\\.pnpm/marked@).*node_modules/(?!(yaml)/)",
+  ],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^lucide-react/dynamicIconImports$":

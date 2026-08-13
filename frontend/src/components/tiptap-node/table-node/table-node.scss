@@ -23,6 +23,9 @@
   padding: 0.375rem 0.5rem;
   text-align: left;
   vertical-align: top;
+  /* `columnResizing` renders its handle as a widget decoration inside the cell,
+     so the cell has to be the positioning context. */
+  position: relative;
   /* Under `table-layout: fixed` an unbroken token wider than its column
      overflows the cell instead of widening it, and these tables routinely hold
      URLs, SHA-256 hashes and base64 blobs. */
@@ -46,4 +49,20 @@
 .simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr td.selectedCell,
 .simple-editor-content .tiptap.ProseMirror.simple-editor tbody tr th.selectedCell {
   background-color: hsl(var(--muted));
+}
+
+/* The column resize affordance. `columnResizing` only renders it while the
+   pointer is within `handleWidth` of a column edge, and the editor root carries
+   `.resize-cursor` for the same window (see `paragraph-node.scss`). The offsets
+   sit it on the collapsed 1px border rather than inside the cell. */
+.simple-editor-content .tiptap.ProseMirror.simple-editor .column-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  right: -1px;
+  width: 2px;
+  background-color: hsl(var(--primary) / 0.6);
+  /* The handle is a decoration sitting under the pointer; letting it take
+     pointer events would hide the very column edge it marks. */
+  pointer-events: none;
 }

@@ -424,7 +424,10 @@ export function SimpleEditor({
         renderWhenBlurred: renderMermaidWhenBlurred,
       }),
       TracecatTable.configure({
-        resizable: false,
+        resizable: true,
+        // Upstream's default of 25px lets a column be crushed to unreadability.
+        cellMinWidth: 48,
+        handleWidth: 6,
       }),
       TableRow,
       TableHeader,

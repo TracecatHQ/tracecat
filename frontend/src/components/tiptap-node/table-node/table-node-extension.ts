@@ -1,3 +1,4 @@
+import type { TableOptions } from "@tiptap/extension-table"
 import { Table, TableView } from "@tiptap/extension-table"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import {
@@ -5,6 +6,8 @@ import {
   applyDerivedColumnWidths,
   tableColumnCount,
 } from "@/components/tiptap-node/table-node/table-column-widths"
+import { renderTableMarkdown } from "@/components/tiptap-node/table-node/table-markdown"
+import { createMaterializeColumnWidthsPlugin } from "@/components/tiptap-node/table-node/table-materialize-widths"
 
 /**
  * Upstream table node view that also applies derived proportional widths.
@@ -74,15 +77,40 @@ export class TracecatTableView extends TableView {
 }
 
 /**
- * Table node with stable, sensibly proportioned columns.
+ * Table node with stable, sensibly proportioned columns and persisted widths.
  *
  * The node view is registered through `addNodeView` rather than the extension's
  * `View` option because that option is only forwarded to `columnResizing`,
  * which is not installed while resizing is disabled or the editor is read-only.
- * `addNodeView` covers editable and read-only surfaces alike.
+ * `addNodeView` covers editable and read-only surfaces alike, and it wins over
+ * the plain `TableView` that `columnResizing` registers through its own plugin
+ * props: ProseMirror resolves `nodeViews` from the view's direct props before
+ * any plugin's, and Tiptap sets `addNodeView` results as direct props.
+ *
+ * The type arguments are load-bearing, not decoration. `extend` infers its
+ * config type from the object literal as soon as the literal contains a
+ * property with a concrete function type (`renderMarkdown` here), which drops
+ * the contextual typing that `NodeConfig` provides — `addNodeView`'s parameter
+ * becomes implicitly `any` and `this.parent` disappears. Naming the type
+ * arguments turns inference off for the call and restores both.
  */
-export const TracecatTable = Table.extend({
+export const TracecatTable = Table.extend<TableOptions, unknown>({
+  /**
+   * Widths are only written out when the user has set them; see
+   * `table-markdown.ts` for the full Markdown-versus-HTML contract.
+   */
+  renderMarkdown: renderTableMarkdown,
+
   addNodeView() {
     return ({ node }) => new TracecatTableView(node, this.options.cellMinWidth)
+  },
+
+  addProseMirrorPlugins() {
+    // Ordering is load-bearing: the parent returns `[columnResizing?,
+    // tableEditing]`, and materialisation has to run before `columnResizing`
+    // sees the same mousedown. ProseMirror walks `handleDOMEvents` in plugin
+    // order and stops at the first handler that returns true; ours returns
+    // false.
+    return [createMaterializeColumnWidthsPlugin(), ...(this.parent?.() ?? [])]
   },
 })
