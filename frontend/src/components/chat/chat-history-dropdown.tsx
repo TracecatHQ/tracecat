@@ -27,6 +27,28 @@ import { getDisplayName } from "@/lib/auth"
 
 export type ChatHistoryScope = "team" | "mine"
 
+const COMMENT_AGENT_SESSION_SUFFIX = " case comment"
+const COMMENT_AGENT_SESSION_BADGE = "From comment"
+
+function isCommentAgentSession(
+  chat: AgentSessionsListSessionsResponse[number]
+): boolean {
+  return (
+    "created_by" in chat &&
+    chat.entity_type === "case" &&
+    chat.agent_preset_id !== null &&
+    chat.title.endsWith(COMMENT_AGENT_SESSION_SUFFIX)
+  )
+}
+
+function chatHistoryTitle(
+  chat: AgentSessionsListSessionsResponse[number]
+): string {
+  return isCommentAgentSession(chat)
+    ? chat.title.slice(0, -COMMENT_AGENT_SESSION_SUFFIX.length)
+    : chat.title
+}
+
 interface ChatHistoryDropdownProps {
   chats: AgentSessionsListSessionsResponse | undefined
   isLoading: boolean
@@ -123,7 +145,10 @@ export function ChatHistoryDropdown({
 
               const createdBy =
                 "created_by" in chat ? chat.created_by : chat.user_id
-              return `${chat.title} ${chat.id} ${creatorLabel(createdBy)}`
+              const origin = isCommentAgentSession(chat)
+                ? COMMENT_AGENT_SESSION_BADGE
+                : ""
+              return `${chat.title} ${chat.id} ${creatorLabel(createdBy)} ${origin}`
                 .toLowerCase()
                 .includes(normalizedSearch)
                 ? 1
@@ -149,9 +174,17 @@ export function ChatHistoryDropdown({
                     <div className="flex min-w-0 flex-col">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium">
-                          {chat.title}
+                          {chatHistoryTitle(chat)}
                         </span>
                         <ChatLastErrorIndicator session={chat} />
+                        {isCommentAgentSession(chat) ? (
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal"
+                          >
+                            {COMMENT_AGENT_SESSION_BADGE}
+                          </Badge>
+                        ) : null}
                         {chat.is_readonly ? (
                           <Badge
                             variant="outline"

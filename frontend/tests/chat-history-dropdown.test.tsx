@@ -67,4 +67,89 @@ describe("ChatHistoryDropdown", () => {
 
     expect(onSelectChat).toHaveBeenCalledWith("chat-1")
   })
+
+  it("badges comment invocation sessions and makes their origin searchable", () => {
+    const onSelectChat = jest.fn()
+    const chats = [
+      {
+        id: "comment-session",
+        workspace_id: "workspace-1",
+        title: "Triage agent case comment",
+        created_by: "user-1",
+        entity_type: "case",
+        entity_id: "case-1",
+        channel_context: null,
+        tools: null,
+        mcp_integrations: null,
+        agent_preset_id: "preset-1",
+        agent_preset_version_id: "preset-version-1",
+        harness_type: null,
+        created_at: "2026-06-26T19:20:44Z",
+        updated_at: "2026-06-26T19:20:44Z",
+      },
+      {
+        id: "regular-session",
+        workspace_id: "workspace-1",
+        title: "Manual investigation",
+        created_by: "user-1",
+        entity_type: "case",
+        entity_id: "case-1",
+        channel_context: null,
+        tools: null,
+        mcp_integrations: null,
+        agent_preset_id: "preset-1",
+        agent_preset_version_id: "preset-version-1",
+        harness_type: null,
+        created_at: "2026-06-26T19:19:44Z",
+        updated_at: "2026-06-26T19:19:44Z",
+      },
+      {
+        id: "similar-session",
+        workspace_id: "workspace-1",
+        title: "case comment follow-up",
+        created_by: "user-1",
+        entity_type: "case",
+        entity_id: "case-1",
+        channel_context: null,
+        tools: null,
+        mcp_integrations: null,
+        agent_preset_id: "preset-1",
+        agent_preset_version_id: "preset-version-1",
+        harness_type: null,
+        created_at: "2026-06-26T19:18:44Z",
+        updated_at: "2026-06-26T19:18:44Z",
+      },
+    ] satisfies AgentSessionsListSessionsResponse
+
+    render(
+      <ChatHistoryDropdown
+        chats={chats}
+        isLoading={false}
+        error={null}
+        selectedChatId={undefined}
+        onSelectChat={onSelectChat}
+        workspaceId="workspace-1"
+        scope="team"
+        onScopeChange={jest.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByText("Chats"))
+
+    expect(screen.getByText("Triage agent")).toBeInTheDocument()
+    expect(screen.getAllByText("From comment")).toHaveLength(1)
+    expect(screen.getByText("Manual investigation")).toBeInTheDocument()
+    expect(screen.getByText("case comment follow-up")).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText("Search chats..."), {
+      target: { value: "from comment" },
+    })
+
+    expect(screen.getByText("Triage agent")).toBeInTheDocument()
+    expect(screen.queryByText("Manual investigation")).not.toBeInTheDocument()
+    expect(screen.queryByText("case comment follow-up")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Triage agent"))
+    expect(onSelectChat).toHaveBeenCalledWith("comment-session")
+  })
 })
