@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from enum import StrEnum
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
 from tracecat.auth.enums import AuthType
@@ -661,6 +662,119 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 ]
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
+
+def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """Parse a comma-separated environment variable into validated IP networks.
+
+    Args:
+        name: Environment variable name.
+
+    Returns:
+        Parsed IPv4 and IPv6 networks in configured order.
+
+    Raises:
+        ValueError: If any configured value is not a valid CIDR or IP address.
+    """
+    raw_value = os.environ.get(name, "")
+    networks: list[IPv4Network | IPv6Network] = []
+    for value in raw_value.split(","):
+        stripped = value.strip()
+        if not stripped:
+            continue
+        try:
+            networks.append(ip_network(stripped))
+        except ValueError as exc:
+            raise ValueError(f"{name} contains an invalid CIDR: {stripped!r}") from exc
+    return tuple(networks)
+
+
+def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
+    """Parse unique TCP/UDP ports from a comma-separated environment variable."""
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    ports: list[int] = []
+    for value in raw_value.split(","):
+        stripped = value.strip()
+        if not stripped:
+            continue
+        try:
+            port = int(stripped)
+        except ValueError as exc:
+            raise ValueError(f"{name} contains an invalid port: {stripped!r}") from exc
+        if not 1 <= port <= 65535:
+            raise ValueError(f"{name} contains an invalid port: {stripped!r}")
+        if port not in ports:
+            ports.append(port)
+    return tuple(ports)
+
+
+TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable only while installing sandbox dependencies."""
+
+TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    default=(80, 443),
+)
+"""TCP ports allowed to install-only private CIDRs."""
+
+TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable only while acquiring custom registry sources."""
+
+TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+    default=(22,),
+)
+"""TCP ports allowed to registry-only private CIDRs."""
+
+TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by network-enabled Python script sandboxes."""
+
+TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to script-only private CIDRs."""
+
+TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by action sandboxes."""
+
+TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to action-only private CIDRs."""
+
+TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS"
+)
+"""Private CIDRs reachable by internet-enabled agent sandboxes."""
+
+TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS = env_ports(
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+    default=(443,),
+)
+"""TCP ports allowed to agent-only private CIDRs."""
+
+TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS"
+)
+"""Deployment-specific CIDRs blocked in addition to the filtered baseline."""
+
+TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
+    "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
+)
+"""Allow filtered sandboxes to reach public IPv6 destinations."""
+
 TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead.
 
@@ -1209,16 +1323,19 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
 TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
     "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", default=True
 )
-"""Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
+"""Enable executor-hosted registry sync via Temporal.
 
-When True (default), registry sync operations run on the ExecutorWorker with:
-- Git clone in subprocess with SSH credentials
-- Package installation with network access
-- Action discovery (currently subprocess, future: nsjail without network)
-- Tarball build and upload to S3
+When True (default), registry sync operations run on the ExecutorWorker.
+NsJail isolation on that worker is controlled separately by
+TRACECAT__DISABLE_NSJAIL.
 
 When False, uses the existing subprocess approach from the API service.
 """
+
+TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT = int(
+    os.environ.get("TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT") or 120
+)
+"""Timeout for Git clone/fetch/checkout during registry sync in seconds."""
 
 TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT") or 600

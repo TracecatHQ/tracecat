@@ -1,0 +1,118 @@
+type: action
+definition:
+  title: Search event index
+  description: Browse and filter lightweight MISP event metadata without loading full attributes or objects.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Events/operation/searchEvents
+  namespace: tools.misp
+  name: search_event_index
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    eventinfo:
+      type: str | None
+      description: Text to match in the event information field.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Event tags to include or exclude.
+      default: null
+    org:
+      type: str | None
+      description: Creator organisation name or ID.
+      default: null
+    date_from:
+      type: str | None
+      description: Earliest event date in YYYY-MM-DD format.
+      default: null
+    date_to:
+      type: str | None
+      description: Latest event date in YYYY-MM-DD format.
+      default: null
+    eventid:
+      type: str | None
+      description: Event ID filter.
+      default: null
+    threatlevel:
+      type: int | None
+      description: Threat level where 1 is high, 2 medium, 3 low, and 4 undefined.
+      default: null
+    published:
+      type: bool | None
+      description: Filter by event publication state.
+      default: null
+    analysis:
+      type: int | None
+      description: Analysis level where 0 is initial, 1 ongoing, and 2 complete.
+      default: null
+    timestamp:
+      type: str | None
+      description: Filter by last-modified timestamp or relative time.
+      default: null
+    publish_timestamp:
+      type: str | None
+      description: Filter by publication timestamp or relative time.
+      default: null
+    attribute:
+      type: str | None
+      description: Match events containing this attribute value.
+      default: null
+    minimal:
+      type: bool
+      description: Return the minimal event metadata shape.
+      default: false
+    sort:
+      type: str | None
+      description: Sort field such as id, date, or attribute_count.
+      default: null
+    desc:
+      type: bool | None
+      description: Sort descending when true or ascending when false.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of events to return.
+      default: 25
+    page:
+      type: int
+      description: Result page number.
+      default: 1
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/events/index
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          eventinfo: ${{ inputs.eventinfo }}
+          tags: ${{ inputs.tags }}
+          org: ${{ inputs.org }}
+          datefrom: ${{ inputs.date_from }}
+          dateuntil: ${{ inputs.date_to }}
+          eventid: ${{ inputs.eventid }}
+          threatlevel: ${{ inputs.threatlevel }}
+          published: ${{ inputs.published }}
+          analysis: ${{ inputs.analysis }}
+          timestamp: ${{ inputs.timestamp }}
+          publish_timestamp: ${{ inputs.publish_timestamp }}
+          attribute: ${{ inputs.attribute }}
+          minimal: ${{ inputs.minimal }}
+          sort: ${{ inputs.sort }}
+          direction: ${{ ("desc" if inputs.desc else "asc") if inputs.sort && inputs.desc != None else None }}
+          limit: ${{ inputs.limit }}
+          page: ${{ inputs.page }}
+  returns: ${{ steps.request.result.data }}

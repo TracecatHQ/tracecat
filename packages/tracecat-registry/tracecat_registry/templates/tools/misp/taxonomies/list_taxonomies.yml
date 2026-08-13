@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: List taxonomies
+  description: List MISP taxonomy vocabularies used to classify threat intelligence.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Taxonomies/operation/getTaxonomies
+  namespace: tools.misp
+  name: list_taxonomies
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/taxonomies/index
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result.data }}

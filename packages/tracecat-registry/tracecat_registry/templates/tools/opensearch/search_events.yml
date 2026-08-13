@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: Search events
+  description: Search OpenSearch events with an API-native query DSL request body.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/api-reference/search-apis/search/
+  namespace: tools.opensearch
+  name: search_events
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native OpenSearch search request body.
+    index:
+      type: str | None
+      description: Optional index name or pattern. If omitted, searches all indexes.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: Optional native search query parameters.
+      default: null
+    limit:
+      type: int
+      description: Default result size when the payload does not specify size.
+      default: 100
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index):
+              if index:
+                  return f"/{quote(index, safe='*,-_')}/_search"
+              return "/_search"
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          payload: ${{ inputs.payload }}
+          limit: ${{ inputs.limit }}
+        script: |
+          def main(payload, limit):
+              if "size" in payload:
+                  return payload
+              return {**payload, "size": limit}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}${{ steps.build_path.result }}
+        method: POST
+        params: ${{ inputs.params }}
+        payload: ${{ steps.build_payload.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

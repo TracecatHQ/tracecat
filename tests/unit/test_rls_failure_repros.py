@@ -28,7 +28,7 @@ from tracecat.db import rls as rls_module
 from tracecat.db.engine import get_async_session
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.dsl.worker import get_activities as get_worker_activities
-from tracecat.executor.registry_resolver import _get_manifest_entry
+from tracecat.executor.registry_resolver import _load_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.integrations.router import oauth_callback
 from tracecat.integrations.service import IntegrationService
@@ -630,5 +630,5 @@ def test_registry_artifact_lookup_uses_bypass_session_manager() -> None:
 
 
 def test_registry_manifest_lookup_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(_get_manifest_entry)
+    source = inspect.getsource(_load_manifest_entry)
     assert "get_async_session_bypass_rls_context_manager" in source

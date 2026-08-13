@@ -498,6 +498,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.length([1, 2, 3])", 3),
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
+        ("FN.url_encode('dir/file name', '/')", "dir/file%20name"),
         ("FN.contains('A', ['A', 'B', 'C'])", True),
         ("FN.format('Formatted: {} !', 'yay')", "Formatted: yay !"),
         (

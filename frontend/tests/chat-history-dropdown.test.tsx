@@ -2,6 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import type { AgentSessionsListSessionsResponse } from "@/client"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 
+jest.mock("@/hooks/use-workspace", () => ({
+  useWorkspaceMembers: () => ({ members: [] }),
+}))
+
 describe("ChatHistoryDropdown", () => {
   beforeAll(() => {
     global.ResizeObserver = class ResizeObserver {
@@ -41,6 +45,9 @@ describe("ChatHistoryDropdown", () => {
         error={null}
         selectedChatId="chat-1"
         onSelectChat={onSelectChat}
+        workspaceId="workspace-1"
+        scope="team"
+        onScopeChange={jest.fn()}
       />
     )
 

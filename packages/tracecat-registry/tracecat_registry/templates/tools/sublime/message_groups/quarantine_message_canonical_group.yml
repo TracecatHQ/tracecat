@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Quarantine message group
+  description: Quarantine a Sublime message group and its future messages.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/quarantinemessagecanonicalgroup-1
+  namespace: tools.sublime
+  name: quarantine_message_canonical_group
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Message group canonical ID.
+    payload:
+      type: dict[str, Any]
+      description: API-native JSON request body.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/${{ FN.url_encode(inputs.id) }}/quarantine
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

@@ -26,10 +26,12 @@ from tracecat.agent.session.router import (
     remove_session_artifact,
     send_message,
     stream_session_events,
+    update_session,
 )
 from tracecat.agent.session.schemas import (
     AgentSessionCancelRequest,
     AgentSessionForkRequest,
+    AgentSessionUpdate,
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.artifacts.schemas import CaseArtifact
@@ -125,7 +127,7 @@ async def _deny_workspace_chat_entitlement(**kwargs: Any) -> None:
 
 
 @pytest.mark.anyio
-async def test_list_sessions_service_account_filters_null_created_by() -> None:
+async def test_list_sessions_service_account_defaults_to_workspace_sessions() -> None:
     workspace_id = uuid.uuid4()
     role = _service_account_role(workspace_id)
     fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
@@ -139,6 +141,7 @@ async def test_list_sessions_service_account_filters_null_created_by() -> None:
             session=AsyncMock(),
             entity_type=None,
             entity_id=None,
+            created_by=None,
             exclude_entity_types=None,
             parent_session_id=None,
             limit=100,
@@ -147,7 +150,6 @@ async def test_list_sessions_service_account_filters_null_created_by() -> None:
     assert response == []
     fake_svc.list_sessions.assert_awaited_once_with(
         created_by=None,
-        filter_created_by_none=True,
         entity_type=None,
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
@@ -157,7 +159,7 @@ async def test_list_sessions_service_account_filters_null_created_by() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_sessions_user_filters_by_user_id() -> None:
+async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
     role = Role(
@@ -179,6 +181,7 @@ async def test_list_sessions_user_filters_by_user_id() -> None:
             session=AsyncMock(),
             entity_type=None,
             entity_id=None,
+            created_by=user_id,
             exclude_entity_types=None,
             parent_session_id=None,
             limit=100,
@@ -187,13 +190,92 @@ async def test_list_sessions_user_filters_by_user_id() -> None:
     assert response == []
     fake_svc.list_sessions.assert_awaited_once_with(
         created_by=user_id,
-        filter_created_by_none=False,
         entity_type=None,
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
         parent_session_id=None,
         limit=100,
     )
+
+
+@pytest.mark.anyio
+async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_list_sessions = cast(Any, list_sessions).__wrapped__
+        response = await raw_list_sessions(
+            role=role,
+            session=AsyncMock(),
+            entity_type=None,
+            entity_id=None,
+            created_by=None,
+            exclude_entity_types=None,
+            parent_session_id=None,
+            limit=100,
+        )
+
+    assert response == []
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=None,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
+        parent_session_id=None,
+        limit=100,
+    )
+
+
+@pytest.mark.anyio
+async def test_update_session_rejects_teammate_session() -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    session_stub = _agent_session_stub(
+        workspace_id=workspace_id,
+        created_by=uuid.uuid4(),
+    )
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        get_session=AsyncMock(return_value=session_stub),
+        update_session=AsyncMock(),
+    )
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_update_session = cast(Any, update_session).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_update_session(
+                session_id=session_stub.id,
+                params=AgentSessionUpdate(title="Nope"),
+                role=role,
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc_info.value.detail == {
+        "code": "session_read_only",
+        "message": "Teammate sessions are read-only.",
+    }
+    fake_svc.update_session.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1005,7 +1087,9 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
     fake_svc = SimpleNamespace(
         session=Mock(),
         is_legacy_session=AsyncMock(return_value=False),
-        validate_turn_request=AsyncMock(return_value=SimpleNamespace(curr_run_id=None)),
+        validate_turn_request=AsyncMock(
+            return_value=SimpleNamespace(curr_run_id=None, created_by=None)
+        ),
         run_turn=AsyncMock(
             side_effect=TracecatConflictError(
                 "Approval decision conflicts with a decision already recorded"
@@ -1038,6 +1122,57 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
 
     assert exc_info.value.status_code == 409
     assert "already recorded" in str(exc_info.value.detail)
+
+
+@pytest.mark.anyio
+async def test_send_message_rejects_teammate_session() -> None:
+    session_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = ContinueRunRequest(
+        decisions=[ApprovalDecision(tool_call_id="tool_call_123", action="deny")],
+        source="inbox",
+    )
+    fake_svc = SimpleNamespace(
+        session=Mock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(
+            return_value=SimpleNamespace(
+                curr_run_id=None,
+                created_by=uuid.uuid4(),
+            )
+        ),
+        run_turn=AsyncMock(),
+    )
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService.with_session",
+        return_value=_AsyncContext(fake_svc),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_send_message(
+                session_id=session_id,
+                request=request,
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc_info.value.detail == {
+        "code": "session_read_only",
+        "message": "Teammate sessions are read-only.",
+    }
+    fake_svc.run_turn.assert_not_awaited()
 
 
 @pytest.mark.anyio

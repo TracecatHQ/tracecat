@@ -3613,6 +3613,12 @@ export const $AgentSessionRead = {
       ],
       title: "Created By",
     },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -3806,6 +3812,12 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -4008,6 +4020,12 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -5483,7 +5501,7 @@ export const $AuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [
@@ -5509,6 +5527,42 @@ export const $AuditSettingsUpdate = {
   type: "object",
   title: "AuditSettingsUpdate",
   description: "Settings for audit logging.",
+} as const
+
+export const $AuditWebhookTestResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    receiver_status_code: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Receiver Status Code",
+    },
+    error_category: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["receiver_error", "timeout", "request_error"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Category",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "AuditWebhookTestResult",
+  description: "Result of a synchronous audit webhook test-fire request.",
 } as const
 
 export const $AuthDiscoverRequest = {
@@ -6410,6 +6464,118 @@ export const $CaseBatchUpdate = {
   description: "Request body for updating multiple cases.",
 } as const
 
+export const $CaseCommentAgentAttributionRead = {
+  properties: {
+    invocation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invocation Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["invocation_id", "preset_name", "preset_slug"],
+  title: "CaseCommentAgentAttributionRead",
+  description: "Read model for agent attribution on a generated comment reply.",
+} as const
+
+export const $CaseCommentAgentInvocationError = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationErrorKind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["kind", "message"],
+  title: "CaseCommentAgentInvocationError",
+  description:
+    "Structured terminal failure persisted for a comment agent invocation.",
+} as const
+
+export const $CaseCommentAgentInvocationErrorKind = {
+  type: "string",
+  enum: ["startup", "preparation", "agent_turn", "completion", "cancelled"],
+} as const
+
+export const $CaseCommentAgentInvocationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationStatus",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+    error: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationError",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "preset_name", "preset_slug", "status"],
+  title: "CaseCommentAgentInvocationRead",
+  description:
+    "Read model for an agent invocation triggered by a comment mention.",
+} as const
+
+export const $CaseCommentAgentInvocationStatus = {
+  type: "string",
+  enum: ["pending", "running", "succeeded", "failed"],
+  title: "CaseCommentAgentInvocationStatus",
+  description:
+    "Lifecycle state for an agent invoked from a case-comment mention.",
+} as const
+
 export const $CaseCommentCreate = {
   properties: {
     content: {
@@ -6457,6 +6623,46 @@ export const $CaseCommentDeleteMode = {
   enum: ["soft", "hard"],
 } as const
 
+export const $CaseCommentMentionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_type: {
+      $ref: "#/components/schemas/MentionTargetType",
+    },
+    target_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Id",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    invocation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "target_type", "target_id", "label", "created_at"],
+  title: "CaseCommentMentionRead",
+} as const
+
 export const $CaseCommentRead = {
   properties: {
     id: {
@@ -6494,6 +6700,16 @@ export const $CaseCommentRead = {
       anyOf: [
         {
           $ref: "#/components/schemas/CaseCommentWorkflowRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    agent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentAttributionRead",
         },
         {
           type: "null",
@@ -6538,6 +6754,13 @@ export const $CaseCommentRead = {
       type: "boolean",
       title: "Is Deleted",
       default: false,
+    },
+    mentions: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentMentionRead",
+      },
+      type: "array",
+      title: "Mentions",
     },
   },
   type: "object",
@@ -7973,6 +8196,19 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
     kind: {
       anyOf: [
         {
@@ -8010,6 +8246,10 @@ export const $CaseFieldRead = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8073,6 +8313,7 @@ export const $CaseFieldRead = {
   type: "object",
   required: [
     "id",
+    "display_name",
     "type",
     "description",
     "nullable",
@@ -8089,6 +8330,10 @@ export const $CaseFieldReadMinimal = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8147,7 +8392,15 @@ export const $CaseFieldReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "type", "description", "nullable", "default", "reserved"],
+  required: [
+    "id",
+    "display_name",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+  ],
   title: "CaseFieldReadMinimal",
   description: "Minimal read model for a case field.",
 } as const
@@ -8247,6 +8500,19 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
     },
     required_on_closure: {
       anyOf: [
@@ -17353,6 +17619,18 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $MentionTargetType = {
+  type: "string",
+  enum: ["agent"],
+  title: "MentionTargetType",
+  description: `Polymorphic target kind for a parsed case-comment mention.
+
+Only \`\`AGENT\`\` is supported today. The finite set lives here (rather than
+as a bare \`\`str\`\` checked at runtime) so every mention-aware call site —
+the parser, persistence, and API read schema — shares one exhaustive,
+type-checked domain of valid target kinds.`,
+} as const
+
 export const $MessageKind = {
   type: "string",
   enum: [
@@ -18953,7 +19231,7 @@ export const $PlatformAuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [

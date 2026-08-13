@@ -256,12 +256,9 @@ async def create_workspace_membership(
     )
     service = MembershipService(session, role=role)
     try:
+        # TracecatAuthorizationError intentionally propagates: the API-wide
+        # handler maps it to 403, which is correct for a scope-ceiling denial.
         await service.create_membership(workspace_id, params=params)
-    except TracecatAuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the required scope",
-        ) from e
     except IntegrityError as e:
         logger.error("INTEGRITY ERROR", error=str(e))
         raise HTTPException(

@@ -156,6 +156,13 @@
       "icon": "https://cdn.simpleicons.org/virustotal"
     },
     {
+      "slug": "misp-mcp",
+      "name": "MISP",
+      "description": "Search events, indicators, objects, tags, galaxies, and feeds in MISP",
+      "category": "Threat Intelligence",
+      "icon": "https://raw.githubusercontent.com/MISP/MISP/2.5/INSTALL/logos/misp-logo.svg"
+    },
+    {
       "slug": "microsoft-entra-id-mcp",
       "name": "Microsoft Entra ID",
       "description": "Query users, groups, and access policies through Microsoft Graph",

@@ -214,6 +214,12 @@ just gen-functions
   hardcoded literal so `.env` overrides still work. In `.env.example`, use an
   explicit `true` or `false`, never a blank value. Update
   `tests/unit/test_config.py` when adding deployment env files.
+- Keep `.env.example` focused on settings that ordinary open-source and
+  self-hosted users are reasonably expected to configure. Do not list advanced
+  tuning knobs or operator-only overrides when safe defaults work for nearly
+  all users; keep those settings overrideable through explicit deployment
+  configuration instead. A variable being supported by config or Compose is
+  not, by itself, a reason to advertise it in `.env.example`.
 - Use `pnpm` instead of `npm`, prefer `rg` over slower text-search tools, and
   prefer `fd` over `find` when `fd` is available.
 - Ask clarifying questions when the task lacks enough context to make a safe

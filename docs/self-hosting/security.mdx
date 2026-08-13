@@ -24,7 +24,7 @@ MINIO_ROOT_PASSWORD=<strong random password>
 REDIS_URL=redis://:<strong random password>@redis:6379
 ```
 
-For Redis, you also need to pass the password to the container. Add a `command` override in your `docker-compose.yml`:
+For Redis, also pass the password to the container. Add a `command` override in your `docker-compose.yml`:
 
 ```yaml
 services:
@@ -32,7 +32,7 @@ services:
     command: ["redis-server", "--requirepass", "<same password as above>"]
 ```
 
-In production, consider replacing self-hosted PostgreSQL and Redis with managed services (e.g., Amazon RDS, ElastiCache) that handle encryption at rest, automated backups, and credential rotation.
+In production, prefer managed services (e.g., Amazon RDS, ElastiCache) over self-hosted PostgreSQL and Redis: they handle encryption at rest, automated backups, and credential rotation.
 
 ## Platform secrets
 
@@ -44,9 +44,25 @@ Tracecat requires four cryptographic secrets, plus an optional keyring if you en
 | `TRACECAT__SERVICE_KEY` | Service-to-service JWT signing. |
 | `TRACECAT__SIGNING_SECRET` | Webhook URL signing and HMAC operations. |
 | `USER_AUTH_SECRET` | Password reset tokens, email verification, OAuth state, the MCP OIDC issuer keypair, and the internal OIDC client secret. |
-| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional, and only read when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
+| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Versioned keyring for Temporal payload encryption. Optional. Tracecat reads it only when `TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED` is true. |
 
 <Snippet file="generate-secrets.mdx" />
+
+### Temporal payload keyring
+
+`TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` holds a JSON keyring rather than a single key. Each entry maps a key ID to a root secret, and `current_key_id` selects the key that encrypts new payloads:
+
+```json
+{"current_key_id": "v1", "keys": {"v1": "<root secret>"}}
+```
+
+Generate each root secret the same way as the other secrets:
+
+```bash
+openssl rand -hex 32
+```
+
+Tracecat derives a separate AES-256-GCM key per workspace from the root secret, and stamps the key ID into every payload it encrypts. That stamp is what lets you rotate the keyring while older histories stay readable. On AWS, supply `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN` instead, and Tracecat fetches the keyring from Secrets Manager at runtime.
 
 ### Where to store them
 
@@ -54,15 +70,15 @@ Keep these out of your application configuration and out of version control. Use
 
 | Deployment | Recommended storage |
 | --- | --- |
-| [AWS ECS Fargate](/self-hosting/aws-fargate) | AWS Secrets Manager. Pass secret ARNs to Terraform; values are resolved at task launch and never appear in your `.tfvars`. |
+| [AWS ECS Fargate](/self-hosting/aws-fargate) | AWS Secrets Manager. Pass secret ARNs to Terraform; ECS resolves the values at task launch, so they never appear in your `.tfvars`. |
 | [Kubernetes](/self-hosting/kubernetes#secrets-management) | External Secrets Operator syncing from your secret manager, or an existing Kubernetes Secret you create out of band. |
 | [Docker Compose](/self-hosting/docker-compose) | A `.env` file on the host. Restrict it to the service account that runs Tracecat and exclude it from version control. |
 
-On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your secret manager stays the source of truth, values are re-synced rather than copied, and no plaintext passes through a shell history or a manifest. Reserve chart-managed secret templates for pipelines that encrypt values at rest with Sealed Secrets or SOPS.
+On Kubernetes, prefer External Secrets Operator over a hand-created Secret. Your secret manager stays the source of truth, the operator re-syncs values rather than copying them, and no plaintext passes through a shell history or a manifest. Reserve chart-managed secret templates for pipelines that encrypt values at rest with Sealed Secrets or SOPS.
 
 ### Rotation
 
-Rotation support differs by secret, and the differences matter before you plan a rotation window.
+Rotation support differs by secret. Check the differences before you plan a rotation window.
 
 <Warning>
   **`TRACECAT__DB_ENCRYPTION_KEY` cannot be rotated**
@@ -76,10 +92,10 @@ Rotation support differs by secret, and the differences matter before you plan a
 
 | Secret | Overlap window | Rotation procedure | Blast radius |
 | --- | --- | --- | --- |
-| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add a key and point `current_key_id` at it. Keep retired keys as long as their histories are retained. | None. Existing histories stay readable under the key they were written with. |
+| `TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING` | Yes | Add the new key to `keys` and let every service pick it up, then point `current_key_id` at it. Keep retired keys as long as you retain their histories. | None for existing histories, which stay readable under the key they were written with. Between the two steps, a service still on the old keyring cannot decrypt payloads written under the new key. In ARN mode that gap lasts up to `TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS`. |
 | `TRACECAT__SIGNING_SECRET` | No | Rotate, then reissue every affected URL. | Every webhook URL and agent channel endpoint URL. Breaks in-flight Slack OAuth installs, and pending Slack approval buttons for up to 24 hours. |
 | `TRACECAT__SERVICE_KEY` | No | Restart every service that holds it in one window, including `ui`, which uses it for the SAML ACS proxy. | While services disagree, in-flight agent turns fail their next tool or LLM call, executor calls fail, and service-to-service requests return `401`. Miss `ui` and SSO login breaks. |
-| `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users are not logged out. MCP refresh tokens are hashed and survive. |
+| `USER_AUTH_SECRET` | No | Restart `api` and `mcp` together. | Active MCP access tokens (1-hour lifetime), and in-flight password reset and verification links. Sessions are database-backed, so users stay logged in. MCP refresh tokens are hashed and survive. |
 
 ## Isolation
 
@@ -97,10 +113,10 @@ Defaults differ by deployment target.
 
 For production, enable [nsjail](https://github.com/google/nsjail) — a process isolation tool from Google that enforces:
 
-- **Filesystem isolation** — scripts can only access their job directory and explicitly mounted paths. The host filesystem is not visible.
-- **Resource limits** — CPU time, memory, file size, and process count are capped per execution. A runaway script cannot starve the host.
+- **Filesystem isolation** — scripts reach only their job directory and explicitly mounted paths. The host filesystem stays invisible.
+- **Resource limits** — nsjail caps CPU time, memory, file size, and process count per execution, so a runaway script cannot starve the host.
 - **User namespace separation** — scripts run as unprivileged users even when the container runs as root.
-- **Network access** — network is allowed (scripts need to reach databases, APIs, and S3) but constrained to the container's network namespace.
+- **Network access** — scripts keep network access, since they need to reach databases, APIs, and S3, but nsjail confines it to the container's network namespace.
 
 To enable nsjail, set the following in your `.env`:
 

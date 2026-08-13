@@ -1,10 +1,13 @@
 # Optional local sandbox privileges for nsjail and SquashFS registry mounts.
 # Usage:
-#   docker compose -f docker-compose.dev.yml -f docker-compose.sandbox.yml up
+#   TRACECAT__DISABLE_NSJAIL=false docker compose \
+#     -f docker-compose.dev.yml -f docker-compose.sandbox.yml up
 #   just cluster --sandbox up -d
 
 services:
   executor:
+    environment:
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
     # Required for nsjail sandbox execution.
     cap_add:
       - SYS_ADMIN

@@ -69,7 +69,10 @@ import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-versi
 import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
-import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
+import {
+  ChatHistoryDropdown,
+  type ChatHistoryScope,
+} from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
@@ -149,6 +152,7 @@ import {
   useDeleteAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
+import { useAuth } from "@/hooks/use-auth"
 import {
   useCreateChat,
   useGetChatVercel,
@@ -792,13 +796,16 @@ function AgentPresetChatPane({
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
 }) {
+  const { user } = useAuth()
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
       entityType: "agent_preset",
       entityId: preset?.id,
+      createdBy: historyScope === "mine" ? user?.id : undefined,
     },
     { enabled: Boolean(preset && workspaceId) }
   )
@@ -807,8 +814,14 @@ function AgentPresetChatPane({
     setSelectedChatId(null)
   }, [preset?.id])
 
-  const latestChatId = chats?.[0]?.id
+  const latestChatId =
+    chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   const activeChatId = selectedChatId ?? latestChatId
+
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    setSelectedChatId(null)
+  }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
@@ -893,7 +906,7 @@ function AgentPresetChatPane({
   }
 
   const handlePresetVersionChange = async (nextVersionId: string | null) => {
-    if (!activeChatId) {
+    if (!activeChatId || chat?.is_readonly) {
       return
     }
 
@@ -944,7 +957,12 @@ function AgentPresetChatPane({
       )
     }
 
-    if (enabledModelsLoaded && !selectedModel && !hasLegacyModelConfig) {
+    if (
+      enabledModelsLoaded &&
+      !selectedModel &&
+      !hasLegacyModelConfig &&
+      !chat?.is_readonly
+    ) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
@@ -973,7 +991,13 @@ function AgentPresetChatPane({
       )
     }
 
-    if (!activeChatId || chatLoading || chatsLoading || !chat || !modelInfo) {
+    if (
+      !activeChatId ||
+      chatLoading ||
+      chatsLoading ||
+      !chat ||
+      (!modelInfo && !chat.is_readonly)
+    ) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -1004,7 +1028,7 @@ function AgentPresetChatPane({
         entityId={preset.id}
         className="flex-1 min-h-0"
         placeholder={`Talk to ${preset.name}...`}
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
       />
     )
@@ -1021,7 +1045,7 @@ function AgentPresetChatPane({
             selectedVersionId={chat?.agent_preset_version_id ?? null}
             currentVersionId={preset.current_version_id ?? null}
             onSelect={handlePresetVersionChange}
-            disabled={!activeChatId || !chat || isUpdating}
+            disabled={!activeChatId || !chat || chat.is_readonly || isUpdating}
             triggerClassName="h-8 w-[10.5rem] text-xs"
           />
           <div className="flex items-center gap-1">
@@ -1031,6 +1055,9 @@ function AgentPresetChatPane({
               error={chatsError}
               selectedChatId={activeChatId ?? undefined}
               onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
               align="end"
             />
             <Button
@@ -3534,8 +3561,10 @@ function AgentPresetBuilderChatPane({
   workspaceId: string
   builderPrompt?: string
 }) {
+  const { user } = useAuth()
   const presetId = preset?.id
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
   const [pendingBuilderPrompt, setPendingBuilderPrompt] = useState<
     string | undefined
   >(builderPrompt?.trim() ? builderPrompt.trim() : undefined)
@@ -3552,6 +3581,7 @@ function AgentPresetBuilderChatPane({
       workspaceId,
       entityType: "agent_preset_builder",
       entityId: presetId ?? undefined,
+      createdBy: historyScope === "mine" ? user?.id : undefined,
     },
     { enabled: Boolean(presetId && workspaceId) }
   )
@@ -3566,8 +3596,14 @@ function AgentPresetBuilderChatPane({
     )
   }, [builderPrompt, presetId])
 
-  const latestChatId = chats?.[0]?.id
+  const latestChatId =
+    chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   const activeChatId = selectedChatId ?? latestChatId
+
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    setSelectedChatId(null)
+  }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
@@ -3632,7 +3668,7 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (!chatReady || !modelInfo) {
+    if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
           <AlertCircle className="size-5 text-amber-500" />
@@ -3687,7 +3723,12 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (chatLoading || chatsLoading || !chat || !modelInfo) {
+    if (
+      chatLoading ||
+      chatsLoading ||
+      !chat ||
+      (!modelInfo && !chat.is_readonly)
+    ) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -3718,7 +3759,7 @@ function AgentPresetBuilderChatPane({
         entityId={presetId}
         className="flex-1 min-h-0"
         placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
         pendingMessage={pendingBuilderPrompt}
         onPendingMessageSent={() => setPendingBuilderPrompt(undefined)}
@@ -3737,6 +3778,9 @@ function AgentPresetBuilderChatPane({
               error={chatsError}
               selectedChatId={activeChatId ?? undefined}
               onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
               align="end"
             />
             <Button

@@ -32,6 +32,7 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
@@ -494,7 +495,15 @@ class SandboxedAgentExecutor:
                 error=str(e),
             )
             self._agent_fs_hydration_failed = True
-            shutil.rmtree(work_dir, ignore_errors=True)
+            # Best effort: a work dir we cannot reset must not fail the turn.
+            try:
+                force_rmtree(work_dir)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to reset agent work dir after hydration failure",
+                    work_dir=str(work_dir),
+                    error=str(cleanup_error),
+                )
             work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
 
@@ -822,7 +831,14 @@ class SandboxedAgentExecutor:
             )
             return job_dir
         except BaseException:
-            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            try:
+                await asyncio.to_thread(force_rmtree, job_dir)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to clean up job directory after setup failure",
+                    job_dir=str(job_dir),
+                    error=str(cleanup_error),
+                )
             raise
 
     async def _load_artifact_working_set(self) -> ArtifactWorkingSetInput | None:
@@ -1012,7 +1028,7 @@ class SandboxedAgentExecutor:
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                await asyncio.to_thread(shutil.rmtree, self._job_dir)
+                await asyncio.to_thread(force_rmtree, self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(

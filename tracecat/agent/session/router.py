@@ -27,7 +27,11 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    TurnLifecycle,
+    is_session_readonly,
+)
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
@@ -44,6 +48,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
@@ -82,6 +87,22 @@ def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | No
     bubble.
     """
     return f"{session_id}:{curr_run_id}" if curr_run_id else None
+
+
+def _require_session_write_access(
+    role: WorkspaceActorRouteRole,
+    agent_session: AgentSession,
+) -> None:
+    """Reject writes to sessions owned by another workspace actor."""
+    if not is_session_readonly(role, agent_session.created_by):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "session_read_only",
+            "message": "Teammate sessions are read-only.",
+        },
+    )
 
 
 async def _require_workspace_chat_entitlement_for_session_tree(
@@ -138,6 +159,10 @@ async def list_sessions(
         None, description="Filter by entity type"
     ),
     entity_id: uuid.UUID | None = Query(None, description="Filter by entity ID"),
+    created_by: uuid.UUID | None = Query(
+        None,
+        description="Filter by session creator. Omit to list the entire workspace.",
+    ),
     exclude_entity_types: list[AgentSessionEntity] | None = Query(
         None, description="Entity types to exclude from results"
     ),
@@ -169,8 +194,7 @@ async def list_sessions(
         ]
     svc = AgentSessionService(session, role)
     return await svc.list_sessions(
-        created_by=role.user_id,
-        filter_created_by_none=role.type == "service_account",
+        created_by=created_by,
         entity_type=entity_type,
         entity_id=entity_id,
         exclude_entity_types=exclude_entity_types,
@@ -208,6 +232,7 @@ async def get_session(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
+            is_readonly=is_session_readonly(role, agent_session.created_by),
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -291,6 +316,7 @@ async def get_session_vercel(
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
             created_by=agent_session.created_by,
+            is_readonly=is_session_readonly(role, agent_session.created_by),
             entity_type=AgentSessionEntity(agent_session.entity_type),
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
@@ -368,6 +394,8 @@ async def update_session(
             detail="Session not found",
         )
 
+    _require_session_write_access(role, agent_session)
+
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
@@ -400,6 +428,7 @@ async def remove_session_artifact(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session {session_id} not found")
+        _require_session_write_access(role, agent_session)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
             role=role,
@@ -442,6 +471,8 @@ async def delete_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
+
+    _require_session_write_access(role, agent_session)
 
     await require_workspace_chat_entitlement_for_entity(
         session=session,
@@ -489,6 +520,7 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
+            _require_session_write_access(role, agent_session)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
                 session=svc.session,
@@ -621,6 +653,8 @@ async def send_message(
             detail=str(e),
         ) from e
     except EntitlementRequired:
+        raise
+    except HTTPException:
         raise
     except Exception as e:
         logger.error(
@@ -772,6 +806,7 @@ async def fork_session(
             raise TracecatNotFoundError(
                 f"Parent session with ID {session_id} not found"
             )
+        _require_session_write_access(role, parent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -810,6 +845,7 @@ async def cancel_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,

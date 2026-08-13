@@ -609,6 +609,15 @@ class Repository:
             raise
         return pkg_or_mod
 
+    async def load_installed(self, package_name: str) -> None:
+        """Load a registry package that is already available on ``sys.path``.
+
+        Registry sync uses this after installing an untrusted package in a
+        separate sandbox phase. Keeping installation out of this method lets
+        discovery run without network or service credentials.
+        """
+        await self._load_repository(self._origin, package_name)
+
     def _register_udf_from_function(
         self,
         fn: F,

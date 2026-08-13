@@ -286,9 +286,15 @@ def _render_page(
         f'title: "{title}"',
         "---",
         "",
-        AUTO_GENERATED_COMMENT,
-        "",
     ]
+
+    if imports_block := page.get("imports"):
+        lines.extend([str(imports_block).strip(), ""])
+
+    lines.extend([AUTO_GENERATED_COMMENT, ""])
+
+    if info_block := page.get("info"):
+        lines.extend([str(info_block).strip(), ""])
 
     for action_entry in action_entries:
         action_id = action_entry["id"]

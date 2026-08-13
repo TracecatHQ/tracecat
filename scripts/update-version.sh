@@ -52,6 +52,13 @@ escape_sed_replacement() {
     printf '%s\n' "$1" | sed 's/[&/]/\\&/g'
 }
 
+# Version discovery is scoped to this checkout's tracked files, so a git work
+# tree is required.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: $0 must be run inside the tracecat git checkout"
+    exit 1
+fi
+
 # Extract current version from __init__.py
 INIT_FILE="tracecat/__init__.py"
 REGISTRY_INIT_FILE="packages/tracecat-registry/tracecat_registry/__init__.py"
@@ -190,24 +197,40 @@ append_matching_files() {
     done
 }
 
+# Candidate files come from the git index rather than a filesystem walk. A walk
+# also descends into untracked paths under the repo root - nested clones of other
+# repositories and extra git worktrees - and rewrites version strings that do not
+# belong to this checkout.
+#
+# Only regular files (mode 100644/100755) qualify. Tracked symlinks such as
+# docs/CLAUDE.md would otherwise match through their target, and sed -i then
+# replaces the link itself with a regular file.
+tracked_candidate_files() {
+    local entry mode path
+
+    git ls-files -s -z -- \
+        ':(glob)**/docker-compose*.yml' \
+        'docs' \
+        'deployments' |
+        while IFS= read -r -d '' entry; do
+            mode="${entry%% *}"
+            path="${entry#*$'\t'}"
+            case "$mode" in
+            100644 | 100755) printf '%s\0' "$path" ;;
+            esac
+        done
+}
+
 # Capture Tracecat-specific version contexts, including files that only carry the
 # current version string rather than an image tag or raw GitHub URL.
 append_matching_files < <(
-    rg -l \
-        -g 'docker-compose*.yml' \
-        -g 'docs/**/*' \
-        -g 'deployments/**/*' \
-        "\\$\\{TRACECAT__IMAGE_TAG:-${VERSION_SEARCH_PATTERN}\\}|variable \"tracecat_image_tag\"|raw\\.githubusercontent\\.com/TracecatHQ/tracecat/${VERSION_SEARCH_PATTERN}/|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}" \
-        .
+    tracked_candidate_files | xargs -0 rg -l \
+        "\\$\\{TRACECAT__IMAGE_TAG:-${VERSION_SEARCH_PATTERN}\\}|variable \"tracecat_image_tag\"|raw\\.githubusercontent\\.com/TracecatHQ/tracecat/${VERSION_SEARCH_PATTERN}/|TF_VAR_tracecat_image_tag=${VERSION_SEARCH_PATTERN}"
 )
 
 append_matching_files < <(
-    rg -l --fixed-strings \
-        -g 'docker-compose*.yml' \
-        -g 'docs/**/*' \
-        -g 'deployments/**/*' \
-        "$CURRENT_VERSION" \
-        .
+    tracked_candidate_files | xargs -0 rg -l --fixed-strings \
+        "$CURRENT_VERSION"
 )
 
 run_sed_in_place() {
