@@ -80,6 +80,9 @@ function CaseTagPickerList({
                   }}
                 />
                 <span>{tag.name}</span>
+                {/* cmdk owns `aria-selected` for highlight, so applied state
+                    rides on the accessible name instead. */}
+                {hasTag && <span className="sr-only">{", applied"}</span>}
               </CommandItem>
             )
           })}
