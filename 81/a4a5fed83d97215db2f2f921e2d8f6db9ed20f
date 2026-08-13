@@ -1,0 +1,24 @@
+frontend/src/hooks/use-local-storage.ts
+  s_5a2d5eb9af8919::t_a24383bcccbc6d 74-78,82,94,111-116
+  s_5a2d5eb9af8919::t_ef5cfefef624df 33-43,45-48,59-64,67
+  s_5a2d5eb9af8919::t_fa29d2b6beb094 1,5-10
+frontend/tests/use-local-storage.test.tsx
+  s_5a2d5eb9af8919::t_17d4cb4a5c8c76 1-5,7-8,20-25,32-44,49-52,55-58,74-76,80-91,95-104
+  s_5a2d5eb9af8919::t_1fcf7c600ed5e8 6,9-19,26-31,45-48,53-54,59-73,77-79,92-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "81a4a5fed83d97215db2f2f921e2d8f6db9ed20f",
+  "prompts": {},
+  "sessions": {
+    "s_5a2d5eb9af8919": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "505769e1-67b4-464f-af64-c8ea56156ac4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
