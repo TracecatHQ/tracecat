@@ -43,6 +43,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
 from tracecat.agent.skill.types import SkillUploadManifestConstraint
 from tracecat.auth.types import Role
+from tracecat.db.locks import pg_advisory_xact_lock
 from tracecat.db.models import (
     Skill,
     SkillBlob,
@@ -54,6 +55,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
+from tracecat.storage import blob as blob_storage
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1573,6 +1575,224 @@ class TestSkillService:
             unchanged = await skill_service.get_draft(created.id)
             assert unchanged is not None
             assert unchanged.draft_revision == draft.draft_revision
+
+    async def test_concurrent_uploads_serialize_canonical_blob_publication(
+        self,
+        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A second writer must reuse the winner's canonical object after commit."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            content = b"shared staged upload\n"
+            sha256 = hashlib.sha256(content).hexdigest()
+            async with session_factory() as seed_session:
+                workspace = await seed_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    seed_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await seed_session.commit()
+
+                seed_service = SkillService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                winner_skill = await seed_service.create_skill(
+                    SkillCreate(name="blob-winner")
+                )
+                loser_skill = await seed_service.create_skill(
+                    SkillCreate(name="blob-loser")
+                )
+                winner_draft = await seed_service.get_draft(winner_skill.id)
+                loser_draft = await seed_service.get_draft(loser_skill.id)
+                assert winner_draft is not None
+                assert loser_draft is not None
+
+                upload_params = SkillUploadSessionCreate(
+                    sha256=sha256,
+                    size_bytes=len(content),
+                    content_type="text/plain; charset=utf-8",
+                )
+                winner_upload = await seed_service.create_draft_upload(
+                    skill_id=winner_skill.id,
+                    params=upload_params,
+                )
+                loser_upload = await seed_service.create_draft_upload(
+                    skill_id=loser_skill.id,
+                    params=upload_params,
+                )
+                canonical_key = seed_service._storage_key_for(sha256)
+
+            canonical_verification_started = asyncio.Event()
+            release_canonical_verification = asyncio.Event()
+            second_lock_attempted = asyncio.Event()
+            lock_attempts = 0
+            canonical_reads = 0
+            copied_from: list[str] = []
+            canonical_deletes: list[str] = []
+            staged_keys = {winner_upload.key, loser_upload.key}
+            original_open_download_stream = blob_storage.open_download_stream
+
+            async def observed_pg_advisory_xact_lock(
+                session: AsyncSession, key: int
+            ) -> None:
+                nonlocal lock_attempts
+                lock_attempts += 1
+                if lock_attempts == 2:
+                    second_lock_attempted.set()
+                await pg_advisory_xact_lock(session, key)
+
+            async def fake_file_exists(*, key: str, bucket: str) -> bool:
+                del key, bucket
+                return True
+
+            class FakeStream:
+                async def iter_chunks(self, *, chunk_size: int):
+                    del chunk_size
+                    yield content
+
+            @asynccontextmanager
+            async def fake_open_download_stream(*, key: str, bucket: str):
+                nonlocal canonical_reads
+                if key not in staged_keys and key != canonical_key:
+                    async with original_open_download_stream(
+                        key=key,
+                        bucket=bucket,
+                    ) as stream_response:
+                        yield stream_response
+                    return
+                if key == canonical_key:
+                    canonical_reads += 1
+                    canonical_verification_started.set()
+                    await release_canonical_verification.wait()
+                yield FakeStream(), len(content)
+
+            async def fake_copy_file(
+                *,
+                source_key: str,
+                destination_key: str,
+                bucket: str,
+                content_type: str | None = None,
+            ) -> None:
+                del bucket, content_type
+                assert destination_key == canonical_key
+                copied_from.append(source_key)
+
+            async def fake_delete_file(*, key: str, bucket: str) -> None:
+                del bucket
+                if key == canonical_key:
+                    canonical_deletes.append(key)
+
+            monkeypatch.setattr(
+                "tracecat.agent.skill.service.pg_advisory_xact_lock",
+                observed_pg_advisory_xact_lock,
+            )
+            monkeypatch.setattr(
+                "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+            )
+            monkeypatch.setattr(
+                "tracecat.agent.skill.service.blob.open_download_stream",
+                fake_open_download_stream,
+            )
+            monkeypatch.setattr(
+                "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
+            )
+            monkeypatch.setattr(
+                "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
+            )
+
+            async def attach_upload(
+                *, skill_id: uuid.UUID, draft_revision: int, upload_id: uuid.UUID
+            ) -> SkillDraftRead:
+                async with session_factory() as session:
+                    service = SkillService(
+                        session=session,
+                        role=role.model_copy(deep=True),
+                    )
+                    return await service.patch_draft(
+                        skill_id=skill_id,
+                        params=SkillDraftPatch(
+                            base_revision=draft_revision,
+                            operations=[
+                                SkillDraftAttachUploadedBlobOp(
+                                    path="references/shared.txt",
+                                    upload_id=upload_id,
+                                )
+                            ],
+                        ),
+                    )
+
+            winner_task = asyncio.create_task(
+                attach_upload(
+                    skill_id=winner_skill.id,
+                    draft_revision=winner_draft.draft_revision,
+                    upload_id=winner_upload.upload_id,
+                )
+            )
+            loser_task: asyncio.Task[SkillDraftRead] | None = None
+            try:
+                await asyncio.wait_for(canonical_verification_started.wait(), timeout=5)
+                loser_task = asyncio.create_task(
+                    attach_upload(
+                        skill_id=loser_skill.id,
+                        draft_revision=loser_draft.draft_revision,
+                        upload_id=loser_upload.upload_id,
+                    )
+                )
+                await asyncio.wait_for(second_lock_attempted.wait(), timeout=5)
+                assert loser_task.done() is False
+
+                release_canonical_verification.set()
+                await asyncio.wait_for(
+                    asyncio.gather(winner_task, loser_task), timeout=10
+                )
+            finally:
+                release_canonical_verification.set()
+                pending_tasks = [
+                    task
+                    for task in (winner_task, loser_task)
+                    if task is not None and not task.done()
+                ]
+                for task in pending_tasks:
+                    task.cancel()
+                if pending_tasks:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+            async with session_factory() as verification_session:
+                blob_rows = (
+                    (
+                        await verification_session.execute(
+                            select(SkillBlob).where(
+                                SkillBlob.workspace_id == role.workspace_id,
+                                SkillBlob.sha256 == sha256,
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+            assert lock_attempts == 2
+            assert canonical_reads == 1
+            assert copied_from == [winner_upload.key]
+            assert canonical_deletes == []
+            assert len(blob_rows) == 1
+        finally:
+            await concurrent_engine.dispose()
 
     @pytest.mark.parametrize(
         ("content_type", "reason"),

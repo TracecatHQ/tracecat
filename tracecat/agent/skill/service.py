@@ -54,6 +54,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.skill.types import ResolvedSkillRef, SkillUploadManifestConstraint
 from tracecat.authz.controls import require_scope
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetSkill,
@@ -86,6 +87,7 @@ SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
+SKILL_BLOB_PUBLICATION_LOCK_NAMESPACE = "tracecat.skill.blob.publication"
 # Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
@@ -508,6 +510,19 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def _acquire_blob_publication_lock(self) -> None:
+        """Serialize canonical blob publication within one workspace transaction.
+
+        A workspace-scoped key avoids deadlocks when one skill operation writes
+        multiple content digests in a different order from another operation.
+        """
+
+        lock_key = derive_lock_key_from_parts(
+            SKILL_BLOB_PUBLICATION_LOCK_NAMESPACE,
+            str(self.workspace_id),
+        )
+        await pg_advisory_xact_lock(self.session, lock_key)
+
     async def _insert_blob_row(
         self,
         *,
@@ -556,6 +571,11 @@ class SkillService(BaseWorkspaceService):
         """
 
         sha256 = self._compute_sha256(content)
+        existing = await self._get_blob_by_identity(sha256=sha256)
+        if existing is not None:
+            return existing
+
+        await self._acquire_blob_publication_lock()
         existing = await self._get_blob_by_identity(sha256=sha256)
         if existing is not None:
             return existing
@@ -658,6 +678,9 @@ class SkillService(BaseWorkspaceService):
         )
 
         blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
+        if blob_row is None:
+            await self._acquire_blob_publication_lock()
+            blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
         if blob_row is None:
             canonical_key = self._storage_key_for(normalized_upload_sha256)
             if upload.key != canonical_key:
