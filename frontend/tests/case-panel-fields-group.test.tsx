@@ -39,8 +39,8 @@ function makeField(
   }
 }
 
-// One plain field plus one dropdown-backed field that renders a clear button,
-// so the alignment assertions have something that could plausibly lead a row.
+// One plain field plus one dropdown-backed field with a value, so the
+// alignment assertions have something that could plausibly lead a row.
 const FIELDS: CaseFieldRead[] = [
   makeField({ id: "reporter", type: "TEXT", value: "analyst@example.com" }),
   makeField({
@@ -140,21 +140,14 @@ describe.each([
 })
 
 describe("CasePanelFieldsGroup clear affordance placement", () => {
-  it("keeps the in-control clear button after the label", () => {
-    // Guards the assertions above from being vacuous: the SELECT row really
-    // does render a clear button, and it sits inside the control, not the row.
-    const { container } = renderGroup(true)
-    const verdictRow = fieldRows(container)[1]
-    const clearButton = screen.getByRole("button", {
-      name: "Clear verdict field",
-    })
+  it("renders no clear affordance while the dropdown is closed", () => {
+    // Clearing lives inside the dropdown itself now, so a populated SELECT
+    // row must not render any clear control at rest.
+    renderGroup(true)
 
-    expect(verdictRow).toContainElement(clearButton)
-    expect(verdictRow.firstElementChild).toHaveTextContent("verdict")
-    expect(verdictRow.firstElementChild?.contains(clearButton)).toBe(false)
     expect(
-      verdictRow.querySelector(`.${CONTROL_CLASS}`)?.contains(clearButton)
-    ).toBe(true)
+      screen.queryByRole("button", { name: "Clear verdict field" })
+    ).not.toBeInTheDocument()
   })
 })
 

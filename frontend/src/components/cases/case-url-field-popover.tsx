@@ -1,7 +1,7 @@
 "use client"
 
 import { CornerDownLeft, ExternalLink, Trash2 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
@@ -65,6 +65,7 @@ export function UrlFieldPopover({
   const [open, setOpen] = useState(false)
   const [labelDraft, setLabelDraft] = useState(value?.label ?? "")
   const [urlDraft, setUrlDraft] = useState(value?.url ?? "")
+  const anchorRef = useRef<HTMLDivElement>(null)
 
   // Re-seed drafts from the saved value whenever the popover opens, so an
   // outside click discards unsaved drafts.
@@ -106,25 +107,73 @@ export function UrlFieldPopover({
     [handleApply]
   )
 
+  /**
+   * Open the popover on a plain left click only. Modifier and non-primary
+   * clicks fall through to the browser so cmd/ctrl-click opens a new tab and
+   * shift-click opens a new window.
+   */
+  const handleTriggerClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.button !== 0
+      ) {
+        return
+      }
+      event.preventDefault()
+      setOpen(true)
+    },
+    []
+  )
+
   const displayText = value ? value.label || value.url : "Add..."
+  const triggerClassName = cn(
+    "min-w-0 truncate text-right text-sm",
+    value
+      ? "text-primary underline underline-offset-4"
+      : "text-muted-foreground hover:underline"
+  )
+
+  function renderTrigger() {
+    // Render a real anchor for safe URLs so the browser handles new-tab
+    // clicks, the context menu, and the status-bar link preview natively.
+    if (value && isSafeUrl(value.url)) {
+      return (
+        <a
+          href={value.url}
+          rel="noopener noreferrer"
+          data-case-field-link=""
+          className={triggerClassName}
+          title={value.url}
+          onClick={handleTriggerClick}
+        >
+          {displayText}
+        </a>
+      )
+    }
+    return (
+      <button
+        type="button"
+        className={triggerClassName}
+        title={value?.url}
+        onClick={handleTriggerClick}
+      >
+        {displayText}
+      </button>
+    )
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
-        <div className="flex h-7 w-full items-center justify-end">
-          <button
-            type="button"
-            className={cn(
-              "min-w-0 truncate text-right text-sm",
-              value
-                ? "text-primary underline underline-offset-4"
-                : "text-muted-foreground hover:underline"
-            )}
-            title={value?.url}
-            onClick={() => setOpen(true)}
-          >
-            {displayText}
-          </button>
+        <div
+          ref={anchorRef}
+          className="flex h-7 w-full items-center justify-end"
+        >
+          {renderTrigger()}
         </div>
       </PopoverAnchor>
       <PopoverContent
@@ -132,6 +181,16 @@ export function UrlFieldPopover({
         align="end"
         sideOffset={4}
         collisionPadding={8}
+        onInteractOutside={(event) => {
+          // A pointer or focus event on this popover's own row is not an
+          // "outside" interaction. Without this the layer dismisses and the
+          // row's click handler immediately reopens it, replaying the open
+          // animation on every click.
+          const target = event.detail.originalEvent.target
+          if (target instanceof Node && anchorRef.current?.contains(target)) {
+            event.preventDefault()
+          }
+        }}
         aria-label={`Edit ${fieldId} URL`}
         className="w-[min(24rem,calc(100vw-2rem))] space-y-1 p-1.5"
       >

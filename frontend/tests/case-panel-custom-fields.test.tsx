@@ -65,53 +65,54 @@ function renderField(customField: CaseFieldRead) {
   return updateCase
 }
 
-function expectNoDropdownOpened() {
-  expect(screen.queryByPlaceholderText("Search...")).not.toBeInTheDocument()
-  expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
-}
-
-describe("ClearFieldButton", () => {
-  it("clears a BOOLEAN field set to true", async () => {
+describe("BOOLEAN clear option", () => {
+  it("clears a field set to true", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
       makeField({ id: "is_phishing", type: "BOOLEAN", value: true })
     )
 
+    await user.click(screen.getByRole("combobox"))
     await user.click(
-      screen.getByRole("button", { name: "Clear is_phishing field" })
+      await screen.findByRole("option", { name: "Clear is_phishing field" })
     )
 
     await waitFor(() => {
       expect(updateCase).toHaveBeenCalledWith({ fields: { is_phishing: null } })
     })
-    expectNoDropdownOpened()
   })
 
-  it("clears a BOOLEAN field set to false", async () => {
+  it("clears a field set to false", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
       makeField({ id: "is_phishing", type: "BOOLEAN", value: false })
     )
 
+    await user.click(screen.getByRole("combobox"))
     await user.click(
-      screen.getByRole("button", { name: "Clear is_phishing field" })
+      await screen.findByRole("option", { name: "Clear is_phishing field" })
     )
 
     await waitFor(() => {
       expect(updateCase).toHaveBeenCalledWith({ fields: { is_phishing: null } })
     })
-    expectNoDropdownOpened()
   })
 
-  it("hides the clear button when a BOOLEAN field is already empty", () => {
+  it("omits the clear option when the field is already empty", async () => {
+    const user = userEvent.setup()
     renderField(makeField({ id: "is_phishing", type: "BOOLEAN", value: null }))
 
+    await user.click(screen.getByRole("combobox"))
+    await screen.findByRole("option", { name: "True" })
+
     expect(
-      screen.queryByRole("button", { name: "Clear is_phishing field" })
+      screen.queryByRole("option", { name: "Clear is_phishing field" })
     ).not.toBeInTheDocument()
   })
+})
 
-  it("clears a SELECT field", async () => {
+describe("SELECT clear option", () => {
+  it("clears a field with a value", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
       makeField({
@@ -122,17 +123,77 @@ describe("ClearFieldButton", () => {
       })
     )
 
+    await user.click(screen.getByRole("combobox"))
     await user.click(
-      screen.getByRole("button", { name: "Clear verdict field" })
+      await screen.findByRole("button", { name: "Clear verdict field" })
     )
 
     await waitFor(() => {
       expect(updateCase).toHaveBeenCalledWith({ fields: { verdict: null } })
     })
-    expectNoDropdownOpened()
   })
 
-  it("clears a MULTI_SELECT field holding a single value", async () => {
+  it("omits the clear row when the field is already empty", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "verdict",
+        type: "SELECT",
+        value: null,
+        options: ["malicious", "benign"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    await screen.findByPlaceholderText("Search...")
+
+    expect(
+      screen.queryByRole("button", { name: "Clear verdict field" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("caps the option list height and hides its scrollbar", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "verdict",
+        type: "SELECT",
+        value: "malicious",
+        options: ["malicious", "benign"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    const list = await screen.findByRole("listbox")
+
+    expect(list).toHaveClass("max-h-56", "no-scrollbar", "overflow-y-auto")
+  })
+
+  it("keeps the clear row visible when the search matches nothing", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "verdict",
+        type: "SELECT",
+        value: "malicious",
+        options: ["malicious", "benign"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    await user.type(await screen.findByPlaceholderText("Search..."), "zzz")
+
+    expect(
+      screen.queryByRole("option", { name: /malicious/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear verdict field" })
+    ).toBeInTheDocument()
+  })
+})
+
+describe("MULTI_SELECT clear option", () => {
+  it("clears a field holding a single value", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
       makeField({
@@ -143,17 +204,17 @@ describe("ClearFieldButton", () => {
       })
     )
 
+    await user.click(screen.getByRole("combobox"))
     await user.click(
-      screen.getByRole("button", { name: "Clear tactics field" })
+      await screen.findByRole("button", { name: "Clear tactics field" })
     )
 
     await waitFor(() => {
       expect(updateCase).toHaveBeenCalledWith({ fields: { tactics: null } })
     })
-    expectNoDropdownOpened()
   })
 
-  it("clears a MULTI_SELECT field holding two values", async () => {
+  it("clears a field holding two values", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
       makeField({
@@ -164,14 +225,72 @@ describe("ClearFieldButton", () => {
       })
     )
 
+    await user.click(screen.getByRole("combobox"))
     await user.click(
-      screen.getByRole("button", { name: "Clear tactics field" })
+      await screen.findByRole("button", { name: "Clear tactics field" })
     )
 
     await waitFor(() => {
       expect(updateCase).toHaveBeenCalledWith({ fields: { tactics: null } })
     })
-    expectNoDropdownOpened()
+  })
+
+  it("omits the clear row when the field is already empty", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "tactics",
+        type: "MULTI_SELECT",
+        value: null,
+        options: ["alpha", "beta"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    await screen.findByPlaceholderText("Search...")
+
+    expect(
+      screen.queryByRole("button", { name: "Clear tactics field" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("caps the option list height and hides its scrollbar", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "tactics",
+        type: "MULTI_SELECT",
+        value: ["alpha"],
+        options: ["alpha", "beta"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    const list = await screen.findByRole("listbox")
+
+    expect(list).toHaveClass("max-h-56", "no-scrollbar", "overflow-y-auto")
+  })
+
+  it("keeps the clear row visible when the search matches nothing", async () => {
+    const user = userEvent.setup()
+    renderField(
+      makeField({
+        id: "tactics",
+        type: "MULTI_SELECT",
+        value: ["alpha"],
+        options: ["alpha", "beta"],
+      })
+    )
+
+    await user.click(screen.getByRole("combobox"))
+    await user.type(await screen.findByPlaceholderText("Search..."), "zzz")
+
+    expect(
+      screen.queryByRole("option", { name: "alpha" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear tactics field" })
+    ).toBeInTheDocument()
   })
 })
 

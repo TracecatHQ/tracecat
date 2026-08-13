@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react"
+import { Check, CircleSlash } from "lucide-react"
 import { type CSSProperties, useCallback, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
@@ -44,9 +44,11 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { getCaseFieldEditorValue } from "@/lib/case-field-display"
 import { cn, linearStyles } from "@/lib/utils"
@@ -284,36 +286,42 @@ interface CustomFieldProps {
 }
 
 /**
- * Small in-control X that clears a dropdown-backed field back to null.
- * Rendered as a sibling of the dropdown trigger (never nested inside it);
- * preventDefault on pointerdown stops Radix from opening the dropdown.
+ * Sentinel Select item value for the boolean field's clear row. Radix Select
+ * forbids empty-string item values, so the clear item carries this marker and
+ * `onValueChange` translates it to `null` before anything is persisted.
  */
-function ClearFieldButton({
+const CLEAR_SELECT_VALUE = "__clear__"
+
+/**
+ * Divider plus pinned "Clear" row rendered as a sibling of a cmdk `Command`
+ * inside a popover, so the search filter can never hide it and it never
+ * scrolls away with the option list. Clears the field back to null.
+ */
+function ClearFieldRow({
   fieldId,
   onClear,
 }: {
   fieldId: string
   onClear: () => void
 }) {
-  const label = `Clear ${fieldId} field`
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className="absolute right-1.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-      onPointerDown={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-      }}
-      onClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onClear()
-      }}
-    >
-      <X className="size-3" />
-    </button>
+    <>
+      <Separator />
+      <div className="p-1">
+        <button
+          type="button"
+          aria-label={`Clear ${fieldId} field`}
+          className="flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+          onClick={onClear}
+        >
+          <CircleSlash
+            className="h-3 w-3 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          Clear
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -506,58 +514,69 @@ export function CustomFieldInner({
             const hasValue = field.value === true || field.value === false
             return (
               <FormItem>
-                <div className="relative w-full min-w-0">
-                  <FormControl>
-                    <Select
-                      value={booleanSelectValue(field.value)}
-                      onValueChange={(value) => {
-                        const next = value === "true"
-                        field.onChange(next)
-                        onBlur?.(customField.id, next)
-                      }}
-                    >
-                      <SelectTrigger
-                        className={cn(
-                          linearStyles.trigger.base,
-                          "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden",
-                          hasValue && "pr-7"
-                        )}
-                        style={inputStyle}
-                      >
-                        <SelectValue
-                          placeholder={
-                            <div className="flex w-full items-center justify-end text-right text-sm">
-                              <span className="text-muted-foreground">
-                                Empty
-                              </span>
-                            </div>
-                          }
-                        >
-                          <div className="flex w-full items-center justify-end text-right text-sm">
-                            <span>{booleanDisplayLabel(field.value)}</span>
-                          </div>
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="true">
-                          <span className="text-sm">True</span>
-                        </SelectItem>
-                        <SelectItem value="false">
-                          <span className="text-sm">False</span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  {hasValue && (
-                    <ClearFieldButton
-                      fieldId={customField.id}
-                      onClear={() => {
+                <FormControl>
+                  <Select
+                    value={booleanSelectValue(field.value)}
+                    onValueChange={(value) => {
+                      if (value === CLEAR_SELECT_VALUE) {
                         field.onChange(null)
                         onBlur?.(customField.id, null)
-                      }}
-                    />
-                  )}
-                </div>
+                        return
+                      }
+                      const next = value === "true"
+                      field.onChange(next)
+                      onBlur?.(customField.id, next)
+                    }}
+                  >
+                    <SelectTrigger
+                      className={cn(
+                        linearStyles.trigger.base,
+                        "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden"
+                      )}
+                      style={inputStyle}
+                    >
+                      <SelectValue
+                        placeholder={
+                          <div className="flex w-full items-center justify-end text-right text-sm">
+                            <span className="text-muted-foreground">Empty</span>
+                          </div>
+                        }
+                      >
+                        <div className="flex w-full items-center justify-end text-right text-sm">
+                          <span>{booleanDisplayLabel(field.value)}</span>
+                        </div>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="true">
+                        <span className="text-sm">True</span>
+                      </SelectItem>
+                      <SelectItem value="false">
+                        <span className="text-sm">False</span>
+                      </SelectItem>
+                      {hasValue && (
+                        <>
+                          <SelectSeparator />
+                          <SelectItem
+                            value={CLEAR_SELECT_VALUE}
+                            aria-label={`Clear ${customField.id} field`}
+                            // Radix sets aria-labelledby on every item, which
+                            // outranks aria-label; drop it so the label wins.
+                            aria-labelledby={undefined}
+                          >
+                            <span className="flex items-center gap-2 text-sm">
+                              <CircleSlash
+                                className="h-3 w-3 shrink-0 text-muted-foreground"
+                                aria-hidden
+                              />
+                              Clear
+                            </span>
+                          </SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )
@@ -665,44 +684,32 @@ export function CustomFieldInner({
             return (
               <FormItem>
                 <Popover>
-                  <div className="relative w-full min-w-0">
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="ghost"
-                          role="combobox"
-                          className={cn(
-                            linearStyles.input.full,
-                            "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                            !currentValue && "text-muted-foreground",
-                            inputClassName,
-                            hasValue && "pr-7"
-                          )}
-                          style={inputStyle}
-                        >
-                          <span className="truncate">
-                            {currentValue || "Select..."}
-                          </span>
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    {hasValue && (
-                      <ClearFieldButton
-                        fieldId={customField.id}
-                        onClear={() => {
-                          field.onChange(null)
-                          onBlur?.(customField.id, null)
-                        }}
-                      />
-                    )}
-                  </div>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant="ghost"
+                        role="combobox"
+                        className={cn(
+                          linearStyles.input.full,
+                          "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                          !currentValue && "text-muted-foreground",
+                          inputClassName
+                        )}
+                        style={inputStyle}
+                      >
+                        <span className="truncate">
+                          {currentValue || "Select..."}
+                        </span>
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
                   <PopoverContent className="w-56 p-0" align="end">
                     <Command>
                       <CommandInput
                         placeholder="Search..."
                         className="h-8 text-sm"
                       />
-                      <CommandList>
+                      <CommandList className="max-h-56">
                         <CommandEmpty className="py-2 text-center text-sm">
                           No option found
                         </CommandEmpty>
@@ -731,6 +738,15 @@ export function CustomFieldInner({
                         </CommandGroup>
                       </CommandList>
                     </Command>
+                    {hasValue && (
+                      <ClearFieldRow
+                        fieldId={customField.id}
+                        onClear={() => {
+                          field.onChange(null)
+                          onBlur?.(customField.id, null)
+                        }}
+                      />
+                    )}
                   </PopoverContent>
                 </Popover>
                 <FormMessage />
@@ -782,42 +798,30 @@ export function CustomFieldInner({
               <FormItem>
                 <Popover>
                   <HoverCard openDelay={300}>
-                    <div className="relative w-full min-w-0">
-                      <HoverCardTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="ghost"
-                              role="combobox"
-                              className={cn(
-                                linearStyles.input.full,
-                                "inline-flex h-7 w-full min-w-0 justify-end gap-1 overflow-hidden whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                                currentValues.length === 0 &&
-                                  "text-muted-foreground",
-                                inputClassName,
-                                hasValue && "pr-7"
-                              )}
-                              style={inputStyle}
-                            >
-                              {currentValues.length === 0 ? (
-                                <span className="truncate">Select...</span>
-                              ) : (
-                                <MultiSelectBadges values={currentValues} />
-                              )}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                      </HoverCardTrigger>
-                      {hasValue && (
-                        <ClearFieldButton
-                          fieldId={customField.id}
-                          onClear={() => {
-                            field.onChange(null)
-                            onBlur?.(customField.id, null)
-                          }}
-                        />
-                      )}
-                    </div>
+                    <HoverCardTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="ghost"
+                            role="combobox"
+                            className={cn(
+                              linearStyles.input.full,
+                              "inline-flex h-7 w-full min-w-0 justify-end gap-1 overflow-hidden whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                              currentValues.length === 0 &&
+                                "text-muted-foreground",
+                              inputClassName
+                            )}
+                            style={inputStyle}
+                          >
+                            {currentValues.length === 0 ? (
+                              <span className="truncate">Select...</span>
+                            ) : (
+                              <MultiSelectBadges values={currentValues} />
+                            )}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                    </HoverCardTrigger>
                     {currentValues.length > 0 && (
                       <HoverCardContent
                         className="w-auto max-w-xs p-2"
@@ -844,7 +848,7 @@ export function CustomFieldInner({
                         placeholder="Search..."
                         className="h-8 text-sm"
                       />
-                      <CommandList>
+                      <CommandList className="max-h-56">
                         <CommandEmpty className="py-2 text-center text-sm">
                           No option found
                         </CommandEmpty>
@@ -865,6 +869,15 @@ export function CustomFieldInner({
                         </CommandGroup>
                       </CommandList>
                     </Command>
+                    {hasValue && (
+                      <ClearFieldRow
+                        fieldId={customField.id}
+                        onClear={() => {
+                          field.onChange(null)
+                          onBlur?.(customField.id, null)
+                        }}
+                      />
+                    )}
                   </PopoverContent>
                 </Popover>
                 <FormMessage />

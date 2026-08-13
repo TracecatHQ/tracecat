@@ -2,7 +2,14 @@
  * @jest-environment jsdom
  */
 
-import { act, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   getUrlHint,
@@ -11,7 +18,20 @@ import {
   type UrlFieldValue,
 } from "@/components/cases/case-url-field-popover"
 
+const originalConsoleError = console.error
+
 beforeAll(() => {
+  // The modifier-click tests intentionally leave the anchor's default action
+  // in place, which jsdom cannot follow. Drop only that noise; jsdom queues it
+  // on a timer, so a jest spy would be restored before it lands.
+  console.error = (...args: unknown[]) => {
+    const [first] = args
+    const message = first instanceof Error ? first.message : String(first)
+    if (message.includes("Not implemented: navigation")) {
+      return
+    }
+    originalConsoleError(...args)
+  }
   if (!HTMLElement.prototype.hasPointerCapture) {
     Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
       value: () => false,
@@ -40,6 +60,10 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks()
+})
+
+afterAll(() => {
+  console.error = originalConsoleError
 })
 
 const SAVED: UrlFieldValue = {
@@ -82,7 +106,7 @@ describe("UrlFieldPopover row", () => {
     renderPopover(SAVED)
 
     expect(
-      screen.getByRole("button", { name: "Zendesk ticket" })
+      screen.getByRole("link", { name: "Zendesk ticket" })
     ).toBeInTheDocument()
   })
 
@@ -90,7 +114,7 @@ describe("UrlFieldPopover row", () => {
     renderPopover({ url: "https://example.com/tickets/1", label: "" })
 
     expect(
-      screen.getByRole("button", { name: "https://example.com/tickets/1" })
+      screen.getByRole("link", { name: "https://example.com/tickets/1" })
     ).toBeInTheDocument()
   })
 
@@ -99,6 +123,93 @@ describe("UrlFieldPopover row", () => {
 
     expect(screen.getByRole("button", { name: "Add..." })).toBeInTheDocument()
   })
+
+  it("renders a real anchor to the saved URL when it is safe", () => {
+    renderPopover(SAVED)
+
+    const trigger = screen.getByRole("link", { name: "Zendesk ticket" })
+    expect(trigger).toHaveAttribute("href", "https://example.com/tickets/1")
+    expect(trigger).toHaveAttribute("rel", "noopener noreferrer")
+  })
+
+  it("renders a plain button with no href when there is no value", () => {
+    renderPopover(null)
+
+    const trigger = screen.getByRole("button", { name: "Add..." })
+    expect(trigger).not.toHaveAttribute("href")
+    expect(document.querySelector("a")).toBeNull()
+  })
+
+  it.each([
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["an invalid URL", "not-a-url"],
+  ])("never renders an anchor for %s", (_name, url) => {
+    renderPopover({ url, label: "Bad" })
+
+    const trigger = screen.getByRole("button", { name: "Bad" })
+    expect(trigger).not.toHaveAttribute("href")
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    expect(document.querySelector("a")).toBeNull()
+  })
+})
+
+describe("UrlFieldPopover trigger clicks", () => {
+  it("opens the popover on a plain left click instead of navigating", () => {
+    renderPopover(SAVED)
+
+    const trigger = screen.getByRole("link", { name: "Zendesk ticket" })
+    const click = createEvent.click(trigger, { button: 0 })
+    fireEvent(trigger, click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(labelInput()).toHaveValue("Zendesk ticket")
+    expect(urlInput()).toHaveValue("https://example.com/tickets/1")
+  })
+
+  it.each([
+    ["a meta", { metaKey: true }],
+    ["a ctrl", { ctrlKey: true }],
+    ["a shift", { shiftKey: true }],
+    ["an alt", { altKey: true }],
+    ["a middle-button", { button: 1 }],
+  ])(
+    "leaves %s click to the browser instead of opening the popover",
+    (_name, init) => {
+      renderPopover(SAVED)
+
+      const trigger = screen.getByRole("link", { name: "Zendesk ticket" })
+      const click = createEvent.click(trigger, init)
+      fireEvent(trigger, click)
+
+      expect(click.defaultPrevented).toBe(false)
+      expect(
+        screen.queryByPlaceholderText("Display label")
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByPlaceholderText("https://example.com")
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it("stays open with drafts intact when the row is clicked again", async () => {
+    const user = userEvent.setup()
+    renderPopover(SAVED)
+
+    const trigger = screen.getByRole("link", { name: "Zendesk ticket" })
+    await user.click(trigger)
+    await flushOutsideListeners()
+
+    await user.clear(labelInput())
+    await user.type(labelInput(), "Draft label")
+
+    // Clicking the anchor row while open must not dismiss-and-reopen the
+    // popover: a reopen would re-seed the drafts from the saved value.
+    await user.click(trigger)
+    await flushOutsideListeners()
+
+    expect(labelInput()).toHaveValue("Draft label")
+    expect(urlInput()).toHaveValue("https://example.com/tickets/1")
+  })
 })
 
 describe("UrlFieldPopover editing", () => {
@@ -106,7 +217,7 @@ describe("UrlFieldPopover editing", () => {
     const user = userEvent.setup()
     renderPopover(SAVED)
 
-    await user.click(screen.getByRole("button", { name: "Zendesk ticket" }))
+    await user.click(screen.getByRole("link", { name: "Zendesk ticket" }))
 
     expect(labelInput()).toHaveValue("Zendesk ticket")
     expect(urlInput()).toHaveValue("https://example.com/tickets/1")
@@ -209,7 +320,7 @@ describe("UrlFieldPopover actions", () => {
     const openSpy = jest.spyOn(window, "open").mockReturnValue(null)
     renderPopover(SAVED)
 
-    await user.click(screen.getByRole("button", { name: "Zendesk ticket" }))
+    await user.click(screen.getByRole("link", { name: "Zendesk ticket" }))
     await user.click(screen.getByRole("button", { name: "Open in new window" }))
 
     expect(openSpy).toHaveBeenCalledWith(
@@ -245,7 +356,7 @@ describe("UrlFieldPopover actions", () => {
     const user = userEvent.setup()
     const onSave = renderPopover(SAVED)
 
-    await user.click(screen.getByRole("button", { name: "Zendesk ticket" }))
+    await user.click(screen.getByRole("link", { name: "Zendesk ticket" }))
     await user.click(screen.getByRole("button", { name: "Remove URL" }))
 
     expect(onSave).toHaveBeenCalledWith(null)
@@ -257,7 +368,7 @@ describe("UrlFieldPopover dismissal", () => {
     const user = userEvent.setup()
     const onSave = renderPopover(SAVED)
 
-    await user.click(screen.getByRole("button", { name: "Zendesk ticket" }))
+    await user.click(screen.getByRole("link", { name: "Zendesk ticket" }))
     await flushOutsideListeners()
 
     await user.clear(labelInput())
@@ -273,7 +384,7 @@ describe("UrlFieldPopover dismissal", () => {
     })
     expect(onSave).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole("button", { name: "Zendesk ticket" }))
+    await user.click(screen.getByRole("link", { name: "Zendesk ticket" }))
 
     expect(labelInput()).toHaveValue("Zendesk ticket")
     expect(urlInput()).toHaveValue("https://example.com/tickets/1")

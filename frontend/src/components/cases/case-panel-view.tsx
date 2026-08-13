@@ -261,8 +261,11 @@ export function CasePanelView({
       ? "[@container(max-width:360px)]:h-auto [@container(max-width:360px)]:min-h-12 [@container(max-width:360px)]:flex-col [@container(max-width:360px)]:items-stretch [@container(max-width:360px)]:gap-0.5 [@container(max-width:360px)]:py-1"
       : undefined
   )
+  // `a[data-case-field-link]` covers the URL field, whose value renders as a
+  // real anchor so cmd-click opens a new tab. Plain anchors are deliberately
+  // excluded: clicking blank row space must never navigate away.
   const panelFieldRowInteractiveSelector =
-    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled])"
+    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled]), a[data-case-field-link]"
   const panelFieldRowTargetSelector =
     "button:not([disabled]), input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), a[href]"
   const handlePanelFieldRowClick = (
