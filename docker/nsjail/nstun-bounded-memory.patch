@@ -31,9 +31,9 @@ index 0e033ff..3be3bdf 100644
 +constexpr size_t TCP_FLOW_BUDGET = TCP_BUFFER_BUDGET / TCP_FLOW_BUFFER_BYTES;
 +static_assert(TCP_FLOW_BUDGET > 0);
 +/* UDP and ICMP sockets are owned by the parent NSTUN process and are not
-+ * constrained by the jailed child's RLIMIT_NOFILE. Keep their aggregate bound
-+ * in the same range as the roughly 120 TCP flows admitted by the buffer budget. */
-+constexpr size_t UDP_ICMP_SOCKET_BUDGET = 128;
++ * constrained by the jailed child's RLIMIT_NOFILE. Use NSTUN's intrinsic
++ * descriptor-table ceiling instead of a lower workload-specific heuristic. */
++constexpr size_t UDP_ICMP_SOCKET_BUDGET = NSTUN_MAX_FDS;
  
  
  /* Removed MemcmpLess in favor of C++20 operator<=> */
