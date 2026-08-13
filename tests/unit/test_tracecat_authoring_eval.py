@@ -205,3 +205,20 @@ def test_prompt_facing_sources_do_not_show_unsafe_upsert_examples() -> None:
     )
 
     assert result.passed, result.detail
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "complete_skill_upload",
+        "get_skill",
+        "prepare_skill_download",
+        "prepare_skill_upload",
+    ],
+)
+def test_staged_skill_tools_are_classified(tool_name: str) -> None:
+    assert run_local.tracecat_tool_name(f"mcp__tracecat__{tool_name}") == tool_name
+
+
+def test_removed_base64_skill_tool_is_not_classified() -> None:
+    assert run_local.tracecat_tool_name("mcp__tracecat__upload_skill") is None
