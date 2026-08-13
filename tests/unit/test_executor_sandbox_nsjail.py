@@ -53,6 +53,9 @@ from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
+    SandboxEgressRule,
+    SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
 )
@@ -479,18 +482,41 @@ def _write_network_policy_artifact_source(source_dir: Path) -> None:
     )
 
 
-def _open_private_parent_listener() -> tuple[socket.socket, IPv4Address, int]:
-    """Open a listener on the executor container's RFC 1918 address."""
+def _private_parent_ipv4_address() -> IPv4Address:
     parent_address = ip_address(socket.gethostbyname(socket.gethostname()))
     if not isinstance(parent_address, IPv4Address) or not any(
         parent_address in network for network in _RFC1918_NETWORKS
     ):
         _skip_smoke(f"executor address {parent_address} is not a private IPv4 address")
+    return parent_address
+
+
+def _open_private_parent_listener() -> tuple[socket.socket, IPv4Address, int]:
+    """Open a listener on the executor container's RFC 1918 address."""
+    parent_address = _private_parent_ipv4_address()
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind((str(parent_address), 0))
     listener.listen(4)
     return listener, parent_address, listener.getsockname()[1]
+
+
+def _open_private_parent_udp_sinks(
+    count: int,
+) -> tuple[tuple[socket.socket, ...], IPv4Address]:
+    """Keep deterministic UDP destinations open in the executor namespace."""
+    parent_address = _private_parent_ipv4_address()
+    sinks: list[socket.socket] = []
+    try:
+        for _ in range(count):
+            sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sinks.append(sink)
+            sink.bind((str(parent_address), 0))
+    except OSError as exc:
+        for sink in sinks:
+            sink.close()
+        _skip_smoke(f"could not open {count} parent UDP sinks: {exc}")
+    return tuple(sinks), parent_address
 
 
 def _open_parent_loopback_dns_listener() -> socket.socket:
@@ -852,11 +878,13 @@ async def _run_current_builtin_smoke_case(
 
 
 async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
-    """A low-FD guest cannot amplify one UDP socket into unbounded parent FDs."""
+    """A low-FD guest cannot amplify one socket beyond the parent budget."""
     smoke_case = SmokeCase.NSJAIL_SOCKET_BUDGET
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(272)
+    destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
     script_name = "udp_socket_budget.py"
     (tmp_path / script_name).write_text(
         "\n".join(
@@ -864,32 +892,59 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
                 "import socket",
                 "import time",
                 "",
+                f"destination_ports = {destination_ports!r}",
                 "udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)",
-                "for port in range(10_000, 10_256):",
-                '    udp_socket.sendto(b"x", ("1.1.1.1", port))',
+                "for port in destination_ports:",
+                f'    udp_socket.sendto(b"x", ("{parent_address}", port))',
+                "    time.sleep(0.002)",
                 "time.sleep(2)",
                 "",
             ]
         )
     )
 
-    result = await NsjailExecutor().execute(
-        tmp_path,
-        SandboxConfig(
-            network=SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT),
-            resources=ResourceLimits(
-                memory_mb=128,
-                cpu_seconds=10,
-                max_open_files=16,
-                max_processes=16,
-                timeout_seconds=10,
+    try:
+        result = await NsjailExecutor().execute(
+            tmp_path,
+            SandboxConfig(
+                network=SandboxNetworkRequest(
+                    SandboxNetworkPurpose.SCRIPT,
+                    policy=SandboxNetworkPolicy(
+                        allowed_rules=(
+                            SandboxEgressRule(
+                                destination=ip_network(f"{parent_address}/32"),
+                                protocol=SandboxNetworkProtocol.UDP,
+                            ),
+                        ),
+                    ),
+                ),
+                resources=ResourceLimits(
+                    memory_mb=128,
+                    cpu_seconds=10,
+                    max_open_files=16,
+                    max_processes=16,
+                    timeout_seconds=10,
+                ),
             ),
-        ),
-        script_name=script_name,
-    )
+            script_name=script_name,
+        )
+        received_packets = 0
+        for sink in udp_sinks:
+            sink.setblocking(False)
+            try:
+                data, _ = sink.recvfrom(1)
+            except BlockingIOError:
+                continue
+            if data == b"x":
+                received_packets += 1
+    finally:
+        for sink in udp_sinks:
+            sink.close()
 
     assert result.success, result.error
-    assert "UDP/ICMP parent socket budget exhausted" in result.stderr
+    assert received_packets == 256, (received_packets, result.stderr)
+    assert "Maximum number of UDP flows reached" not in result.stderr
+    assert "UDP/ICMP parent socket budget exhausted" in result.stderr, result.stderr
     assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
 
 
