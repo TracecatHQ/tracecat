@@ -40,10 +40,6 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
-    from tracecat.agent.constants import (
-        AGENT_TIMEOUT_SECONDS_MAX,
-        AGENT_TIMEOUT_SECONDS_MIN,
-    )
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
@@ -188,12 +184,6 @@ def _inherit_search_attributes_with_alias(
             if p.key != TemporalSearchAttr.ALIAS.key
         )
     return TypedSearchAttributes(search_attributes=pairs)
-
-
-def _agent_action_timeout(task: ActionStatement) -> int:
-    """Clamp the generic action timeout to the agent budget bounds."""
-    timeout = task.retry_policy.timeout
-    return min(max(timeout, AGENT_TIMEOUT_SECONDS_MIN), AGENT_TIMEOUT_SECONDS_MAX)
 
 
 def _build_agent_child_search_attributes(
@@ -1007,7 +997,7 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            timeout_seconds=_agent_action_timeout(task),
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1076,7 +1066,7 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            timeout_seconds=_agent_action_timeout(task),
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1153,7 +1143,7 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            timeout_seconds=_agent_action_timeout(task),
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,

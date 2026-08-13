@@ -3,9 +3,14 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
@@ -72,6 +77,27 @@ async def list_actions(
     ]
 
 
+def _validate_agent_timeout_bounds(
+    action_type: str, control_flow: ActionControlFlow | None
+) -> None:
+    """Reject out-of-bounds agent timeouts instead of silently rewriting them."""
+    if control_flow is None or not PlatformAction.is_agent(action_type):
+        return
+    retry_policy = control_flow.retry_policy
+    if "timeout" not in retry_policy.model_fields_set:
+        return
+    if not (
+        AGENT_TIMEOUT_SECONDS_MIN <= retry_policy.timeout <= AGENT_TIMEOUT_SECONDS_MAX
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Agent action timeout must be between "
+                f"{AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX} seconds."
+            ),
+        )
+
+
 @router.post("")
 @require_scope("workflow:create")
 async def create_action(
@@ -84,6 +110,7 @@ async def create_action(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
+    _validate_agent_timeout_bounds(params.type, params.control_flow)
     svc = WorkflowActionService(session, role=role)
     try:
         action = await svc.create_action(params)
@@ -104,7 +131,10 @@ async def create_action(
     )
 
 
-@router.get("/{action_id}")
+# exclude_unset: return control_flow as stored. Inflating defaults here makes
+# the builder re-save them as explicit author choices (e.g. pinning agent
+# timeouts to the generic 300s default).
+@router.get("/{action_id}", response_model_exclude_unset=True)
 @require_scope("workflow:read")
 async def get_action(
     role: WorkspaceActorRouteRole,
@@ -174,7 +204,7 @@ async def get_action(
     )
 
 
-@router.post("/{action_id}")
+@router.post("/{action_id}", response_model_exclude_unset=True)
 @require_scope("workflow:update")
 async def update_action(
     role: WorkspaceActorRouteRole,
@@ -191,6 +221,7 @@ async def update_action(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
+    _validate_agent_timeout_bounds(action.type, params.control_flow)
     action = await svc.update_action(action, params)
     return ActionRead.model_validate(action)
 

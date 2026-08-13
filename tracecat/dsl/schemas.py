@@ -14,7 +14,11 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema, core_schema
 
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_MAX,
+    AGENT_TIMEOUT_SECONDS_MIN,
+)
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import (
     JoinStrategy,
@@ -393,13 +397,19 @@ class ActionStatement(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def apply_agent_timeout_default(self) -> Self:
-        # Agent turns get a 30-minute budget unless the action sets one.
-        if (
-            PlatformAction.is_agent(self.action)
-            and "timeout" not in self.retry_policy.model_fields_set
-        ):
-            self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
+    def apply_agent_timeout_policy(self) -> Self:
+        # Agent turns get a 30-minute budget unless the action sets one. New
+        # writes are bounds-checked at the action API; stored values outside
+        # the sandbox budget are normalized here so the parsed statement is
+        # exactly what executes.
+        if PlatformAction.is_agent(self.action):
+            if "timeout" not in self.retry_policy.model_fields_set:
+                self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
+            else:
+                self.retry_policy.timeout = min(
+                    max(self.retry_policy.timeout, AGENT_TIMEOUT_SECONDS_MIN),
+                    AGENT_TIMEOUT_SECONDS_MAX,
+                )
         return self
 
 

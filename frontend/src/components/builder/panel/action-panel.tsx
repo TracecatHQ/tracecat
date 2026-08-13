@@ -111,6 +111,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  AGENT_TIMEOUT_SECONDS_DEFAULT,
+  AGENT_TIMEOUT_SECONDS_MAX,
+  AGENT_TIMEOUT_SECONDS_MIN,
+  DEFAULT_ACTION_TIMEOUT_SECONDS,
+  isAgentAction,
+} from "@/lib/action-timeout"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
@@ -322,10 +329,7 @@ function ActionPanelContent({
 
   // Special-case: disable form mode for reshape actions
   const isReshapeAction = action?.type === "core.transform.reshape"
-  const isAgentBackedAction =
-    action?.type === "ai.agent" ||
-    action?.type === "ai.action" ||
-    action?.type === "ai.preset_agent"
+  const isAgentBackedAction = isAgentAction(action?.type)
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -372,10 +376,25 @@ function ActionPanelContent({
     ]
   )
 
+  // Agent-backed actions carry the sandbox budget bounds on the timeout.
+  const formSchema = useMemo(
+    () =>
+      isAgentBackedAction
+        ? actionFormSchema.extend({
+            timeout: z
+              .number()
+              .int()
+              .min(AGENT_TIMEOUT_SECONDS_MIN)
+              .max(AGENT_TIMEOUT_SECONDS_MAX)
+              .optional(),
+          })
+        : actionFormSchema,
+    [isAgentBackedAction]
+  )
   // Local form state for this action. We always seed it from the latest
   // server-backed baseFormValues; hydration from drafts happens via effects.
   const methods = useForm<ActionFormSchema>({
-    resolver: zodResolver(actionFormSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: baseFormValues,
   })
 
@@ -1568,10 +1587,12 @@ function ActionPanelContent({
                         label="Timeout"
                         description={
                           isAgentBackedAction
-                            ? "Define the maximum active runtime in seconds for the agent (5–3600). Waiting for approvals does not count."
+                            ? `Define the maximum active runtime in seconds for the agent (${AGENT_TIMEOUT_SECONDS_MIN}–${AGENT_TIMEOUT_SECONDS_MAX}). Waiting for approvals does not count.`
                             : "Define the timeout in seconds for the action."
                         }
-                        tooltip={<TimeoutTooltip />}
+                        tooltip={
+                          <TimeoutTooltip isAgent={isAgentBackedAction} />
+                        }
                       >
                         <FormField
                           name="timeout"
@@ -1590,11 +1611,21 @@ function ActionPanelContent({
                                         : undefined
                                     )
                                   }
-                                  min={isAgentBackedAction ? 5 : 1}
-                                  max={isAgentBackedAction ? 3600 : undefined}
-                                  placeholder={
-                                    isAgentBackedAction ? "1800" : "300"
+                                  min={
+                                    isAgentBackedAction
+                                      ? AGENT_TIMEOUT_SECONDS_MIN
+                                      : 1
                                   }
+                                  max={
+                                    isAgentBackedAction
+                                      ? AGENT_TIMEOUT_SECONDS_MAX
+                                      : undefined
+                                  }
+                                  placeholder={String(
+                                    isAgentBackedAction
+                                      ? AGENT_TIMEOUT_SECONDS_DEFAULT
+                                      : DEFAULT_ACTION_TIMEOUT_SECONDS
+                                  )}
                                   className="text-xs"
                                 />
                               </FormControl>
