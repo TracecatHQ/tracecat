@@ -71,41 +71,89 @@ export function columnPercentagesFromWeights(
 }
 
 /**
- * Derive proportional column widths for a table that carries no width metadata.
+ * A single derivation pass: the weights that were measured and the percentages
+ * they normalise to.
+ *
+ * The two travel together so that a caller holding on to a derivation can
+ * compare a later table against the weights that actually produced the widths
+ * it is currently showing.
+ */
+export type DerivedColumnWidths = {
+  /** Clamped per-column character weights, one per column. */
+  weights: number[]
+  /** Percentages applied to the `<col>` elements; sums to exactly 100. */
+  percentages: number[]
+}
+
+/**
+ * Derive a table's per-column character weights, clamped to
+ * `[MIN_COLUMN_WEIGHT_CHARS, MAX_COLUMN_WEIGHT_CHARS]`.
  *
  * Weights come from the longest cell text in each column (header row included),
  * which is the only signal available for tables produced by an automation or an
- * agent. Returns `null` when the table is malformed and no sensible proportions
- * can be read, in which case callers should leave the columns alone —
+ * agent. Clamping here rather than leaving it to normalisation is what makes
+ * two weight lists comparable: equal weights derive equal percentages. Returns
+ * `null` when the table is malformed and nothing can be measured.
+ */
+export function deriveColumnWeights(table: ProseMirrorNode): number[] | null {
+  const weights = measureColumnWeights(table)
+  if (!weights) {
+    return null
+  }
+  return weights.map(clampColumnWeight)
+}
+
+/**
+ * Derive proportional column widths for a table that carries no width metadata.
+ *
+ * Returns `null` when the table is malformed and no sensible proportions can be
+ * read, in which case callers should leave the columns alone —
  * `table-layout: fixed` already renders them equally.
  */
-export function deriveColumnPercentages(
+export function deriveColumnWidths(
   table: ProseMirrorNode
-): number[] | null {
+): DerivedColumnWidths | null {
   const weights = deriveColumnWeights(table)
   if (!weights) {
     return null
   }
-  return columnPercentagesFromWeights(weights)
+  // Re-clamping already clamped weights is a no-op, so these percentages are
+  // exactly the ones these weights describe.
+  const percentages = columnPercentagesFromWeights(weights)
+  if (!percentages) {
+    return null
+  }
+  return { weights, percentages }
 }
 
 /**
- * Number of columns in a table node, or `null` when it has none or is malformed.
+ * Whether two weight lists hold the same weights in a different order — the
+ * fingerprint of a column move.
  *
- * Callers use this to tell a structural change (a column was inserted or
- * deleted) apart from a content change, which must not move the columns.
+ * A permutation leaves the multiset of weights untouched, and only a move can
+ * produce one: editing the text of a single column changes exactly one weight,
+ * which changes the multiset unless the edit was a no-op. So typing can never
+ * be mistaken for a move, and a move — which only ever permutes the columns —
+ * is always caught. Identical lists are not a reordering; nothing moved.
  */
-export function tableColumnCount(table: ProseMirrorNode): number | null {
-  const map = readTableMap(table)
-  if (!map || map.width < 1) {
-    return null
+export function columnWeightsAreReordered(
+  weights: readonly number[],
+  previous: readonly number[]
+): boolean {
+  if (weights.length !== previous.length) {
+    return false
   }
-  return map.width
+  if (weights.every((weight, index) => weight === previous[index])) {
+    return false
+  }
+  const sorted = [...weights].sort(compareWeights)
+  const previousSorted = [...previous].sort(compareWeights)
+  return sorted.every((weight, index) => weight === previousSorted[index])
 }
 
 /**
  * Derive proportional widths for a table and write them onto its `<col>`
- * elements, returning the percentages that were applied.
+ * elements, returning the derivation that was applied.
  *
  * Returns `null` — leaving the table to upstream — when it carries explicit
  * widths, and `null` after clearing any previously written width when no
@@ -115,16 +163,17 @@ export function applyDerivedColumnWidths(
   table: ProseMirrorNode,
   colgroup: HTMLElement,
   tableEl: HTMLTableElement
-): number[] | null {
+): DerivedColumnWidths | null {
   if (tableNodeHasExplicitWidths(table)) {
     return null
   }
 
-  const percentages = deriveColumnPercentages(table)
+  const derived = deriveColumnWidths(table)
+  const percentages = derived?.percentages ?? null
   if (!writeColumnPercentages(colgroup, tableEl, percentages)) {
     return null
   }
-  return percentages
+  return derived
 }
 
 /**
@@ -187,7 +236,7 @@ function readTableMap(table: ProseMirrorNode): TableMap | null {
   }
 }
 
-function deriveColumnWeights(table: ProseMirrorNode): number[] | null {
+function measureColumnWeights(table: ProseMirrorNode): number[] | null {
   const map = readTableMap(table)
   if (!map) {
     return null
@@ -251,4 +300,8 @@ function clampColumnWeight(weight: number): number {
 
 function roundToTwoDecimals(value: number): number {
   return Math.round(value * 100) / 100
+}
+
+function compareWeights(a: number, b: number): number {
+  return a - b
 }

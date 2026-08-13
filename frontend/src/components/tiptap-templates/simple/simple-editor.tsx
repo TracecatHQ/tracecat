@@ -135,13 +135,9 @@ const MainToolbarContent = ({
   statusIndicator?: React.ReactNode
 }) => {
   const { highlight, superSub, textAlign, images, darkMode } = features
-  const { insertButtons, deleteButtons } = useTableControls()
+  const { insertButtons, moveButtons, deleteButtons } = useTableControls()
   const isInTable = useIsInTable()
-  // Block quote, code block and nested tables do not apply inside a table cell.
-  const showBlockInsertButtons = !isInTable
-  const hasInsertButtons = insertButtons.length > 0
-  const hasDeleteButtons = deleteButtons.length > 0
-  const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
+  const shouldShowThemeSeparator = darkMode && (isMobile || isInTable)
 
   return (
     <>
@@ -163,20 +159,31 @@ const MainToolbarContent = ({
 
       <ToolbarSeparator />
 
-      <ToolbarGroup>
-        <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
-        <ListDropdownMenu
-          types={["bulletList", "orderedList", "taskList"]}
-          portal={isMobile}
-        />
-        {showBlockInsertButtons && (
-          <>
-            <BlockquoteButton />
-            <CodeBlockButton />
-            <TableInsertButton />
-          </>
-        )}
-      </ToolbarGroup>
+      {/* Inside a table this slot becomes the table controls. Headings, lists,
+          block quotes, code blocks and nested tables are all noise in a cell,
+          and the row/column controls are what the user actually reached for. */}
+      {isInTable ? (
+        // Insert, move and delete are separated so nine icons read as three
+        // intents rather than one undifferentiated row.
+        <>
+          <TableControlsGroup buttons={insertButtons} />
+          <ToolbarSeparator />
+          <TableControlsGroup buttons={moveButtons} />
+          <ToolbarSeparator />
+          <TableControlsGroup buttons={deleteButtons} />
+        </>
+      ) : (
+        <ToolbarGroup>
+          <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
+          <ListDropdownMenu
+            types={["bulletList", "orderedList", "taskList"]}
+            portal={isMobile}
+          />
+          <BlockquoteButton />
+          <CodeBlockButton />
+          <TableInsertButton />
+        </ToolbarGroup>
+      )}
 
       <ToolbarSeparator />
 
@@ -219,14 +226,6 @@ const MainToolbarContent = ({
         </>
       )}
 
-      {hasInsertButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <TableControlsGroup buttons={insertButtons} />
-        </>
-      )}
-
       {images && (
         <>
           <ToolbarSeparator />
@@ -238,14 +237,6 @@ const MainToolbarContent = ({
       )}
 
       <Spacer />
-
-      {hasDeleteButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <TableControlsGroup buttons={deleteButtons} />
-        </>
-      )}
 
       {shouldShowThemeSeparator && <ToolbarSeparator />}
 

@@ -1,13 +1,54 @@
 import type { TableOptions } from "@tiptap/extension-table"
 import { Table, TableView } from "@tiptap/extension-table"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { EditorState } from "@tiptap/pm/state"
+import type { TableRect } from "@tiptap/pm/tables"
+import { moveTableColumn, selectedRect } from "@tiptap/pm/tables"
+import type { DerivedColumnWidths } from "@/components/tiptap-node/table-node/table-column-widths"
 import {
   applyColumnPercentages,
   applyDerivedColumnWidths,
-  tableColumnCount,
+  columnWeightsAreReordered,
+  deriveColumnWeights,
 } from "@/components/tiptap-node/table-node/table-column-widths"
 import { renderTableMarkdown } from "@/components/tiptap-node/table-node/table-markdown"
 import { createMaterializeColumnWidthsPlugin } from "@/components/tiptap-node/table-node/table-materialize-widths"
+
+// Augmenting `@tiptap/react` rather than `@tiptap/core`: core is not a direct
+// dependency, so its specifier does not resolve from this package. `@tiptap/react`
+// re-exports it, and the augmentation merges into the same `Commands` interface
+// the `Editor` type reads.
+declare module "@tiptap/react" {
+  interface Commands<ReturnType> {
+    tracecatTable: {
+      /**
+       * Swap the column holding the selection with the one to its left.
+       * @returns True when the column moved, false at the leftmost column.
+       */
+      moveTableColumnLeft: () => ReturnType
+      /**
+       * Swap the column holding the selection with the one to its right.
+       * @returns True when the column moved, false at the rightmost column.
+       */
+      moveTableColumnRight: () => ReturnType
+    }
+  }
+}
+
+/**
+ * The selected cell rectangle, or `null` when the selection is not in a table.
+ *
+ * `selectedRect` throws for a selection outside a table instead of reporting it,
+ * and an exception thrown out of a command escapes `editor.can()`'s dry run
+ * rather than disabling the button.
+ */
+function selectedTableRect(state: EditorState): TableRect | null {
+  try {
+    return selectedRect(state)
+  } catch {
+    return null
+  }
+}
 
 /**
  * Upstream table node view that also applies derived proportional widths.
@@ -18,13 +59,15 @@ import { createMaterializeColumnWidthsPlugin } from "@/components/tiptap-node/ta
  * because prosemirror-tables walks up to the nearest `<table>` and treats its
  * first child as the colgroup.
  *
- * Widths are derived on structural change only — on mount and whenever the
- * column count moves — and merely re-applied for content changes.
+ * Widths are derived on structural change only — on mount, whenever the column
+ * count moves, and whenever a column is moved — and merely re-applied for
+ * content changes.
  */
 export class TracecatTableView extends TableView {
   /**
-   * Percentages written by the most recent derivation, or `null` when the last
-   * pass derived nothing (explicit widths, or a malformed table).
+   * The most recent derivation — the weights it measured and the percentages
+   * they produced — or `null` when the last pass derived nothing (explicit
+   * widths, or a malformed table).
    *
    * ProseMirror calls `update()` for every content change inside the table, so
    * deriving there would re-measure the cell text as the user types and the
@@ -32,11 +75,11 @@ export class TracecatTableView extends TableView {
    * feature exists to remove. Caching the derivation and replaying it keeps the
    * columns still until the table's shape actually changes.
    */
-  private derivedPercentages: number[] | null
+  private derivedWidths: DerivedColumnWidths | null
 
   constructor(node: ProseMirrorNode, cellMinWidth: number) {
     super(node, cellMinWidth)
-    this.derivedPercentages = applyDerivedColumnWidths(
+    this.derivedWidths = applyDerivedColumnWidths(
       node,
       this.colgroup,
       this.table
@@ -50,7 +93,7 @@ export class TracecatTableView extends TableView {
     }
 
     if (!this.reapplyDerivedColumnWidths()) {
-      this.derivedPercentages = applyDerivedColumnWidths(
+      this.derivedWidths = applyDerivedColumnWidths(
         this.node,
         this.colgroup,
         this.table
@@ -60,19 +103,40 @@ export class TracecatTableView extends TableView {
   }
 
   /**
-   * Replay the cached percentages, reporting whether they still fit the table.
+   * Replay the cached percentages, reporting whether they still describe the
+   * table.
    *
    * Re-applying rather than skipping is required: `updateColumns` runs inside
    * `super.update()` and rewrites every `<col>` from the node's attrs, putting
    * the `min-width` for a width-less column back where it fights
    * `table-layout: fixed`.
+   *
+   * Returns false — asking the caller to derive afresh — for the two changes
+   * the cached percentages cannot survive: a column inserted or deleted, which
+   * changes the number of weights, and a column moved, which reorders them.
+   * Everything else is a content edit, which deliberately leaves the columns
+   * where they are.
    */
   private reapplyDerivedColumnWidths(): boolean {
-    const cached = this.derivedPercentages
-    if (!cached || tableColumnCount(this.node) !== cached.length) {
+    const cached = this.derivedWidths
+    if (!cached) {
       return false
     }
-    return applyColumnPercentages(this.node, this.colgroup, this.table, cached)
+
+    const weights = deriveColumnWeights(this.node)
+    if (!weights || weights.length !== cached.weights.length) {
+      return false
+    }
+    if (columnWeightsAreReordered(weights, cached.weights)) {
+      return false
+    }
+
+    return applyColumnPercentages(
+      this.node,
+      this.colgroup,
+      this.table,
+      cached.percentages
+    )
   }
 }
 
@@ -103,6 +167,48 @@ export const TracecatTable = Table.extend<TableOptions, unknown>({
 
   addNodeView() {
     return ({ node }) => new TracecatTableView(node, this.options.cellMinWidth)
+  },
+
+  addCommands() {
+    return {
+      // The whole upstream table command set — `insertTable`, `addColumnBefore`,
+      // `deleteRow` and the rest — lives here and the toolbar depends on it, so
+      // it has to be carried over rather than replaced.
+      ...this.parent?.(),
+
+      // `moveTableColumn` moves the cells' attributes and content but rebuilds
+      // each cell with the node type already in the destination slot, so
+      // `colwidth` travels with the column while the header row stays headers.
+      // Both commands return false rather than throwing when the column is
+      // already against the edge, which is what makes `editor.can()` usable for
+      // the buttons' disabled state.
+      moveTableColumnLeft:
+        () =>
+        ({ state, dispatch }) => {
+          const rect = selectedTableRect(state)
+          if (!rect || rect.left === 0) {
+            return false
+          }
+          return moveTableColumn({ from: rect.left, to: rect.left - 1 })(
+            state,
+            dispatch
+          )
+        },
+
+      moveTableColumnRight:
+        () =>
+        ({ state, dispatch }) => {
+          const rect = selectedTableRect(state)
+          // `right` is exclusive, so it equals the width at the last column.
+          if (!rect || rect.right >= rect.map.width) {
+            return false
+          }
+          return moveTableColumn({ from: rect.right - 1, to: rect.right })(
+            state,
+            dispatch
+          )
+        },
+    }
   },
 
   addProseMirrorPlugins() {

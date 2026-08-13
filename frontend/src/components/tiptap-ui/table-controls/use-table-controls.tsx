@@ -7,6 +7,8 @@ import type { Editor } from "@tiptap/react"
 // points down and `PanelBottomOpen` points up. Users read the arrow, so the
 // name-to-command pairing looks inverted on purpose. Do not "fix" it.
 import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
   BookmarkX,
   Delete as DeleteIcon,
   PanelBottomOpen,
@@ -35,6 +37,7 @@ export type TableButton = {
  */
 export interface TableButtonGroups {
   insertButtons: TableButton[]
+  moveButtons: TableButton[]
   deleteButtons: TableButton[]
 }
 
@@ -49,7 +52,7 @@ export function getTableButtonGroups(
   isTableActive: boolean
 ): TableButtonGroups {
   if (!editor.isEditable) {
-    return { insertButtons: [], deleteButtons: [] }
+    return { insertButtons: [], moveButtons: [], deleteButtons: [] }
   }
 
   const insertButtons: TableButton[] = []
@@ -87,6 +90,25 @@ export function getTableButtonGroups(
     )
   }
 
+  const moveButtons: TableButton[] = isTableActive
+    ? [
+        {
+          key: "move-column-left",
+          tooltip: "Move column left",
+          disabled: !editor.can().moveTableColumnLeft(),
+          onClick: () => editor.chain().focus().moveTableColumnLeft().run(),
+          icon: <ArrowLeftToLine className="tiptap-button-icon" />,
+        },
+        {
+          key: "move-column-right",
+          tooltip: "Move column right",
+          disabled: !editor.can().moveTableColumnRight(),
+          onClick: () => editor.chain().focus().moveTableColumnRight().run(),
+          icon: <ArrowRightToLine className="tiptap-button-icon" />,
+        },
+      ]
+    : []
+
   const deleteButtons: TableButton[] = isTableActive
     ? [
         {
@@ -113,7 +135,7 @@ export function getTableButtonGroups(
       ]
     : []
 
-  return { insertButtons, deleteButtons }
+  return { insertButtons, moveButtons, deleteButtons }
 }
 
 /** Resolves whether the insert-table command is available for the selection. */
@@ -190,7 +212,7 @@ export function useTableControls(
 
   return React.useMemo<TableButtonGroups>(() => {
     if (!editor || !hasEditableEditor) {
-      return { insertButtons: [], deleteButtons: [] }
+      return { insertButtons: [], moveButtons: [], deleteButtons: [] }
     }
     return getTableButtonGroups(editor, isTableActive)
   }, [editor, hasEditableEditor, isTableActive])

@@ -5,10 +5,11 @@ import {
   applyColumnPercentages,
   applyDerivedColumnWidths,
   columnPercentagesFromWeights,
-  deriveColumnPercentages,
+  columnWeightsAreReordered,
+  deriveColumnWeights,
+  deriveColumnWidths,
   MAX_COLUMN_WEIGHT_CHARS,
   MIN_COLUMN_WEIGHT_CHARS,
-  tableColumnCount,
   tableNodeHasExplicitWidths,
 } from "@/components/tiptap-node/table-node/table-column-widths"
 import { TracecatTableView } from "@/components/tiptap-node/table-node/table-node-extension"
@@ -72,6 +73,11 @@ function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0)
 }
 
+/** The percentage half of a derivation, or `null` when nothing was derived. */
+function deriveColumnPercentages(table: ProseMirrorNode): number[] | null {
+  return deriveColumnWidths(table)?.percentages ?? null
+}
+
 describe("columnPercentagesFromWeights", () => {
   it("splits equal weights evenly", () => {
     expect(columnPercentagesFromWeights([10, 10, 10, 10])).toEqual([
@@ -117,7 +123,7 @@ describe("columnPercentagesFromWeights", () => {
   })
 })
 
-describe("deriveColumnPercentages", () => {
+describe("deriveColumnWidths", () => {
   it("gives a freshly inserted empty table equal columns", () => {
     expect(
       deriveColumnPercentages(
@@ -194,7 +200,79 @@ describe("deriveColumnPercentages", () => {
 
   it("returns null for a node that is not a table", () => {
     const paragraph = schema.nodes.paragraph.create(null, schema.text("hello"))
-    expect(deriveColumnPercentages(paragraph)).toBeNull()
+    expect(deriveColumnWidths(paragraph)).toBeNull()
+  })
+
+  it("returns the clamped weights the percentages were built from", () => {
+    expect(
+      deriveColumnWidths(
+        makeTable([
+          ["a".repeat(80), "b"],
+          ["c", "d"],
+        ])
+      )
+    ).toEqual({
+      weights: [MAX_COLUMN_WEIGHT_CHARS, MIN_COLUMN_WEIGHT_CHARS],
+      percentages: [86.96, 13.04],
+    })
+  })
+})
+
+describe("deriveColumnWeights", () => {
+  it("clamps the longest cell text of each column", () => {
+    expect(
+      deriveColumnWeights(
+        makeTable([
+          ["a".repeat(80), "b", "c".repeat(12)],
+          ["d", "e", "f"],
+        ])
+      )
+    ).toEqual([MAX_COLUMN_WEIGHT_CHARS, MIN_COLUMN_WEIGHT_CHARS, 12])
+  })
+
+  it("returns one weight per column a spanning cell covers", () => {
+    expect(
+      deriveColumnWeights(
+        makeTable([["a"], ["b", "c"]], { "0:0": { colspan: 2 } })
+      )
+    ).toEqual([MIN_COLUMN_WEIGHT_CHARS, MIN_COLUMN_WEIGHT_CHARS])
+  })
+
+  it("returns null for a node that is not a table", () => {
+    const paragraph = schema.nodes.paragraph.create(null, schema.text("hello"))
+    expect(deriveColumnWeights(paragraph)).toBeNull()
+  })
+})
+
+describe("columnWeightsAreReordered", () => {
+  it("reports a swap of two columns", () => {
+    expect(columnWeightsAreReordered([6, 40], [40, 6])).toBe(true)
+  })
+
+  it("reports a rotation of three columns", () => {
+    expect(columnWeightsAreReordered([10, 30, 20], [10, 20, 30])).toBe(true)
+  })
+
+  it("handles repeated weights as a multiset", () => {
+    expect(columnWeightsAreReordered([10, 20, 10], [10, 10, 20])).toBe(true)
+    // Same set of distinct values, different counts: not a reordering.
+    expect(columnWeightsAreReordered([10, 20, 20], [10, 10, 20])).toBe(false)
+  })
+
+  it("does not report identical weights", () => {
+    expect(columnWeightsAreReordered([10, 20, 30], [10, 20, 30])).toBe(false)
+    expect(columnWeightsAreReordered([], [])).toBe(false)
+  })
+
+  it("does not report a single changed weight", () => {
+    // Typing into one column can only ever move one weight, which changes the
+    // multiset unless the edit was a no-op.
+    expect(columnWeightsAreReordered([20, 20, 30], [10, 20, 30])).toBe(false)
+    expect(columnWeightsAreReordered([40, 40], [40, 6])).toBe(false)
+  })
+
+  it("does not report lists of different lengths", () => {
+    expect(columnWeightsAreReordered([10, 20], [10, 20, 30])).toBe(false)
   })
 })
 
@@ -253,32 +331,6 @@ describe("tableNodeHasExplicitWidths", () => {
   })
 })
 
-describe("tableColumnCount", () => {
-  it("counts the columns of a well-formed table", () => {
-    expect(
-      tableColumnCount(
-        makeTable([
-          ["a", "b", "c"],
-          ["d", "e", "f"],
-        ])
-      )
-    ).toBe(3)
-  })
-
-  it("counts the columns a spanning cell covers", () => {
-    expect(
-      tableColumnCount(
-        makeTable([["a"], ["b", "c"]], { "0:0": { colspan: 2 } })
-      )
-    ).toBe(2)
-  })
-
-  it("returns null for a node that is not a table", () => {
-    const paragraph = schema.nodes.paragraph.create(null, schema.text("hello"))
-    expect(tableColumnCount(paragraph)).toBeNull()
-  })
-})
-
 function makeRenderedTable(columnCount: number): {
   colgroup: HTMLTableColElement
   tableEl: HTMLTableElement
@@ -306,7 +358,10 @@ describe("applyDerivedColumnWidths", () => {
       tableEl
     )
 
-    expect(applied).toEqual([86.96, 13.04])
+    expect(applied).toEqual({
+      weights: [MAX_COLUMN_WEIGHT_CHARS, MIN_COLUMN_WEIGHT_CHARS],
+      percentages: [86.96, 13.04],
+    })
     const cols = Array.from(colgroup.querySelectorAll("col"))
     expect(cols.map((col) => col.style.width)).toEqual(["86.96%", "13.04%"])
     expect(cols.map((col) => col.style.minWidth)).toEqual(["", ""])
@@ -514,6 +569,82 @@ describe("TracecatTableView", () => {
     expect(colWidths(view)).toEqual(["86.96%", "13.04%"])
   })
 
+  it("re-derives when a column is moved", () => {
+    const view = new TracecatTableView(
+      makeTable([
+        ["a".repeat(80), "b"],
+        ["c", "d"],
+      ]),
+      CELL_MIN_WIDTH
+    )
+    expect(colWidths(view)).toEqual(["86.96%", "13.04%"])
+
+    // The same two columns, swapped: the wide one has to stay wide.
+    const handled = view.update(
+      makeTable([
+        ["b", "a".repeat(80)],
+        ["d", "c"],
+      ])
+    )
+
+    expect(handled).toBe(true)
+    expect(colWidths(view)).toEqual(["13.04%", "86.96%"])
+    expect(colMinWidths(view)).toEqual(["", ""])
+    expect(view.table.style.minWidth).toBe("")
+
+    // The moved order is the new baseline: typing still does not reflow.
+    view.update(
+      makeTable([
+        ["b".repeat(80), "a".repeat(80)],
+        ["d", "c"],
+      ])
+    )
+    expect(colWidths(view)).toEqual(["13.04%", "86.96%"])
+  })
+
+  it("re-derives when a column moves past two others", () => {
+    const view = new TracecatTableView(
+      makeTable([
+        ["a".repeat(10), "b".repeat(20), "c".repeat(30)],
+        ["d", "e", "f"],
+      ]),
+      CELL_MIN_WIDTH
+    )
+    expect(colWidths(view)).toEqual(["16.67%", "33.33%", "50%"])
+
+    view.update(
+      makeTable([
+        ["a".repeat(10), "c".repeat(30), "b".repeat(20)],
+        ["d", "f", "e"],
+      ])
+    )
+
+    expect(colWidths(view)).toEqual(["16.67%", "50%", "33.33%"])
+  })
+
+  it("keeps the derived widths when an edit changes a single weight", () => {
+    const view = new TracecatTableView(
+      makeTable([
+        ["a".repeat(10), "b".repeat(20), "c".repeat(30)],
+        ["d", "e", "f"],
+      ]),
+      CELL_MIN_WIDTH
+    )
+    expect(colWidths(view)).toEqual(["16.67%", "33.33%", "50%"])
+
+    // Typing in the first column until it weighs the same as the second. The
+    // multiset of weights changes, so this is a content edit, not a move.
+    view.update(
+      makeTable([
+        ["a".repeat(20), "b".repeat(20), "c".repeat(30)],
+        ["d", "e", "f"],
+      ])
+    )
+
+    expect(colWidths(view)).toEqual(["16.67%", "33.33%", "50%"])
+    expect(colMinWidths(view)).toEqual(["", "", ""])
+  })
+
   it("re-derives when a column is inserted", () => {
     const view = new TracecatTableView(
       makeTable([
@@ -585,6 +716,35 @@ describe("TracecatTableView", () => {
           ["c", "d"],
         ],
         { "0:0": { colwidth: [0, 300] } }
+      )
+    )
+
+    expect(colWidths(view)).toEqual(["", ""])
+    expect(colMinWidths(view)).toEqual(["25px", "25px"])
+  })
+
+  it("never touches an explicitly sized table when its columns move", () => {
+    const view = new TracecatTableView(
+      makeTable(
+        [
+          ["a".repeat(80), "b"],
+          ["c", "d"],
+        ],
+        { "0:0": { colwidth: [0, 300] } }
+      ),
+      CELL_MIN_WIDTH
+    )
+    expect(colWidths(view)).toEqual(["", ""])
+
+    // The explicit width travels with the column it belongs to, as
+    // `moveTableColumn` moves it.
+    view.update(
+      makeTable(
+        [
+          ["b", "a".repeat(80)],
+          ["d", "c"],
+        ],
+        { "0:1": { colwidth: [0, 300] } }
       )
     )
 
