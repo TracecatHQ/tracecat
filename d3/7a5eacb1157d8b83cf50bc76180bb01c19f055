@@ -1,0 +1,69 @@
+frontend/src/components/ui/sidebar.tsx
+  s_6f5cd9334aa7c2::t_f1e0003f299747 164-170
+  s_6f5cd9334aa7c2::t_b157b7ba5b47f9 362
+  s_6f5cd9334aa7c2::t_5171b4e162d768 53-56
+  s_6f5cd9334aa7c2::t_0cd2ec2c042b99 104-107,115-120
+  s_6f5cd9334aa7c2::t_7f3aa0ddcc3907 358-361,363-366
+frontend/src/components/cases/case-panel-common.tsx
+  s_6f5cd9334aa7c2::t_8085b18b6bfc96 26-33,38
+  s_6f5cd9334aa7c2::t_7272e1437b4623 34-35
+  s_6f5cd9334aa7c2::t_7a277ca6b03f0e 22-25,36-37,39
+frontend/src/components/ui/scroll-area.tsx
+  s_6f5cd9334aa7c2::t_6a586717c974ed 10-11,13-18
+  s_6f5cd9334aa7c2::t_40ad7154ff3fc2 12,27-30
+frontend/src/hooks/use-is-at-least-width.ts
+  s_6f5cd9334aa7c2::t_2dd8579f3f62b4 1-2,4-15,23-26,28-46,48-50
+  s_6f5cd9334aa7c2::t_a1c41d00d592af 3,16-22,27
+  s_6f5cd9334aa7c2::t_2929f361168c31 47
+frontend/src/hooks/use-auto-collapse-sidebar.ts
+  s_6f5cd9334aa7c2::t_5839c6119a6950 1-29,33-58
+  s_6f5cd9334aa7c2::t_03a906584cf680 30-32
+frontend/src/components/cases/editor.css
+  s_6f5cd9334aa7c2::t_98808fbdf54994 61-63
+frontend/src/components/cases/case-panel-fields-group.tsx
+  s_6f5cd9334aa7c2::t_f679606fd35000 43-45
+  s_6f5cd9334aa7c2::t_6d3be1615c584e 51-56
+  s_6f5cd9334aa7c2::t_f3036f82c477d0 4
+  s_6f5cd9334aa7c2::t_abf797f062af23 46-49
+frontend/src/hooks/use-media-query.ts
+  s_6f5cd9334aa7c2::t_18818f560c8e47 1-39
+frontend/src/components/cases/case-panel-view.tsx
+  s_6f5cd9334aa7c2::t_9651ac93bb4f65 23
+  s_6f5cd9334aa7c2::t_18000c363ea5e4 54
+  s_6f5cd9334aa7c2::t_06ae82890e059e 72-77
+  s_6f5cd9334aa7c2::t_5b99b512d1bfe8 494
+  s_6f5cd9334aa7c2::t_ca1e9a950d76b7 541
+  s_6f5cd9334aa7c2::t_dba11dbe8c6840 497-500
+  s_6f5cd9334aa7c2::t_72e1a08addb787 469-472,476,484
+  s_6f5cd9334aa7c2::t_cb585da8114fd0 156-159,165-167
+  s_6f5cd9334aa7c2::t_e0a708c8cbe8a6 544-545
+  s_6f5cd9334aa7c2::t_819f6630220679 340-342
+  s_6f5cd9334aa7c2::t_712326e9fded3d 536-539
+  s_6f5cd9334aa7c2::t_0ed1e2f77159c9 625,629,632-640
+  s_6f5cd9334aa7c2::t_42eff17d49a92f 531-535
+  s_6f5cd9334aa7c2::t_852416b6d9b3d7 160-164
+  s_6f5cd9334aa7c2::t_fce44f9c374c63 474
+  s_6f5cd9334aa7c2::t_3e0949f50c3472 482
+  s_6f5cd9334aa7c2::t_57f27b494666b2 344-349
+  s_6f5cd9334aa7c2::t_c65e0b95d3f906 528-530,540,542-543
+frontend/src/app/workspaces/[workspaceId]/cases/[caseId]/layout.tsx
+  s_6f5cd9334aa7c2::t_b44eb47935b3af 10,13-21
+  s_6f5cd9334aa7c2::t_ba7a958cf4895c 39
+  s_6f5cd9334aa7c2::t_d6f255e32f867b 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d37a5eacb1157d8b83cf50bc76180bb01c19f055",
+  "prompts": {},
+  "sessions": {
+    "s_6f5cd9334aa7c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "02b71856-f86c-44ef-8f5c-76b4bc465a9a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
