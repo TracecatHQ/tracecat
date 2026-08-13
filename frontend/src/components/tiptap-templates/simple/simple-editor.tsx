@@ -5,7 +5,6 @@ import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
-import { Table } from "@tiptap/extension-table"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { TableHeader } from "@tiptap/extension-table-header"
 import { TableRow } from "@tiptap/extension-table-row"
@@ -23,6 +22,7 @@ import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
+import { TracecatTable } from "@/components/tiptap-node/table-node/table-node-extension"
 // --- UI Primitives ---
 import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -423,7 +423,7 @@ export function SimpleEditor({
       MermaidCodeBlock.configure({
         renderWhenBlurred: renderMermaidWhenBlurred,
       }),
-      Table.configure({
+      TracecatTable.configure({
         resizable: false,
       }),
       TableRow,
