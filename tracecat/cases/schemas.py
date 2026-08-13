@@ -244,6 +244,7 @@ class CaseFieldReadMinimal(Schema):
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
@@ -263,6 +264,7 @@ class CaseFieldCreate(CustomFieldCreate):
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     required_on_closure: bool | None = Field(default=None)
 
     @model_validator(mode="before")

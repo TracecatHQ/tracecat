@@ -2198,6 +2198,7 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  display_name?: string | null
   kind?: CaseFieldKind | null
   required_on_closure?: boolean
 }
@@ -2283,6 +2284,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  display_name?: string | null
   required_on_closure?: boolean | null
 }
 

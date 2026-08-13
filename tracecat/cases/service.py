@@ -1543,7 +1543,10 @@ class CaseFieldsService(CustomFieldsService):
         params.nullable = True
         await self.editor.create_column(params)
 
-        field_def: dict[str, Any] = {"type": params.type.value}
+        field_def: dict[str, Any] = {
+            "type": params.type.value,
+            "display_name": params.display_name or params.name,
+        }
 
         if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
             field_def["options"] = normalize_column_options(params.options)
@@ -1739,6 +1742,13 @@ class CaseFieldsService(CustomFieldsService):
 
         if field_type:
             new_field_def: dict[str, Any] = {"type": field_type}
+
+            if isinstance(params, CaseFieldUpdate) and params.display_name is not None:
+                new_field_def["display_name"] = params.display_name
+            else:
+                new_field_def["display_name"] = (
+                    current_field_def.get("display_name") or field_id
+                )
 
             # Update options if provided (even empty list clears options)
             if params.options is not None:
