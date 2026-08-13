@@ -66,6 +66,7 @@ import { MarkButton } from "@/components/tiptap-ui/mark-button"
 import {
   TableControlsGroup,
   TableInsertButton,
+  useIsInTable,
   useTableControls,
 } from "@/components/tiptap-ui/table-controls"
 import { TextAlignButton } from "@/components/tiptap-ui/text-align-button"
@@ -135,6 +136,9 @@ const MainToolbarContent = ({
 }) => {
   const { highlight, superSub, textAlign, images, darkMode } = features
   const { insertButtons, deleteButtons } = useTableControls()
+  const isInTable = useIsInTable()
+  // Block quote, code block and nested tables do not apply inside a table cell.
+  const showBlockInsertButtons = !isInTable
   const hasInsertButtons = insertButtons.length > 0
   const hasDeleteButtons = deleteButtons.length > 0
   const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
@@ -165,9 +169,13 @@ const MainToolbarContent = ({
           types={["bulletList", "orderedList", "taskList"]}
           portal={isMobile}
         />
-        <BlockquoteButton />
-        <CodeBlockButton />
-        <TableInsertButton />
+        {showBlockInsertButtons && (
+          <>
+            <BlockquoteButton />
+            <CodeBlockButton />
+            <TableInsertButton />
+          </>
+        )}
       </ToolbarGroup>
 
       <ToolbarSeparator />

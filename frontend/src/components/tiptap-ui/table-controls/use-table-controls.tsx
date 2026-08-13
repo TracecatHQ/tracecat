@@ -1,6 +1,11 @@
 "use client"
 
 import type { Editor } from "@tiptap/react"
+// Panel icons below are chosen for the direction their arrow points, not for
+// the panel edge in their name. In lucide, `PanelLeftOpen` draws a
+// right-pointing arrow, `PanelRightOpen` a left-pointing one, `PanelTopOpen`
+// points down and `PanelBottomOpen` points up. Users read the arrow, so the
+// name-to-command pairing looks inverted on purpose. Do not "fix" it.
 import {
   BookmarkX,
   Delete as DeleteIcon,
@@ -56,28 +61,28 @@ export function getTableButtonGroups(
         tooltip: "Insert column to the left",
         disabled: !editor.can().addColumnBefore(),
         onClick: () => editor.chain().focus().addColumnBefore().run(),
-        icon: <PanelLeftOpen className="tiptap-button-icon" />,
+        icon: <PanelRightOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-column-after",
         tooltip: "Insert column to the right",
         disabled: !editor.can().addColumnAfter(),
         onClick: () => editor.chain().focus().addColumnAfter().run(),
-        icon: <PanelRightOpen className="tiptap-button-icon" />,
+        icon: <PanelLeftOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-before",
         tooltip: "Insert row above",
         disabled: !editor.can().addRowBefore(),
         onClick: () => editor.chain().focus().addRowBefore().run(),
-        icon: <PanelTopOpen className="tiptap-button-icon" />,
+        icon: <PanelBottomOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-after",
         tooltip: "Insert row below",
         disabled: !editor.can().addRowAfter(),
         onClick: () => editor.chain().focus().addRowAfter().run(),
-        icon: <PanelBottomOpen className="tiptap-button-icon" />,
+        icon: <PanelTopOpen className="tiptap-button-icon" />,
       }
     )
   }
@@ -111,6 +116,20 @@ export function getTableButtonGroups(
   return { insertButtons, deleteButtons }
 }
 
+/** Resolves whether the insert-table command is available for the selection. */
+function resolveCanInsertTable(editor: Editor | null): boolean {
+  if (!editor || !editor.isEditable) {
+    return false
+  }
+
+  const can = editor.can()
+  if (typeof can.insertTable !== "function") {
+    return editor.isEditable
+  }
+
+  return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
+}
+
 /**
  * Provides the insert-table command and whether it is currently available.
  *
@@ -134,20 +153,27 @@ export function useInsertTable(providedEditor?: Editor | null): {
       .run()
   }, [editor])
 
-  const canInsertTable = React.useMemo(() => {
-    if (!editor || !editor.isEditable) {
-      return false
-    }
-
-    const can = editor.can()
-    if (typeof can.insertTable !== "function") {
-      return editor.isEditable
-    }
-
-    return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
-  }, [editor])
+  // Deliberately computed during render instead of memoized on `editor`: the
+  // editor instance is stable for its whole lifetime, so a memo keyed on it
+  // would run once and the disabled state would never follow the selection.
+  // `useTiptapEditor` subscribes to `editorState`, which changes on every
+  // transaction and re-renders us, and `editor.can()` is cheap.
+  const canInsertTable = resolveCanInsertTable(editor)
 
   return { canInsertTable, insertTable }
+}
+
+/**
+ * Reports whether the cursor is currently inside a table.
+ *
+ * Recomputed on every render so it follows the selection; `useTiptapEditor`
+ * re-renders callers on each editor transaction.
+ *
+ * @param providedEditor - Optional editor instance, defaults to the context editor.
+ */
+export function useIsInTable(providedEditor?: Editor | null): boolean {
+  const { editor } = useTiptapEditor(providedEditor)
+  return !!editor?.isActive("table")
 }
 
 /**
@@ -160,7 +186,7 @@ export function useTableControls(
 ): TableButtonGroups {
   const { editor } = useTiptapEditor(providedEditor)
   const hasEditableEditor = !!editor && editor.isEditable
-  const isTableActive = !!editor && editor.isActive("table")
+  const isTableActive = useIsInTable(editor)
 
   return React.useMemo<TableButtonGroups>(() => {
     if (!editor || !hasEditableEditor) {
