@@ -35,7 +35,6 @@ function isCommentAgentSession(
   return (
     "created_by" in chat &&
     chat.entity_type === "case" &&
-    chat.agent_preset_id !== null &&
     chat.channel_context?.session_origin === "case_comment"
   )
 }

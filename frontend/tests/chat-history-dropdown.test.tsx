@@ -81,7 +81,7 @@ describe("ChatHistoryDropdown", () => {
         channel_context: { session_origin: "case_comment" },
         tools: null,
         mcp_integrations: null,
-        agent_preset_id: "preset-1",
+        agent_preset_id: null,
         agent_preset_version_id: "preset-version-1",
         harness_type: null,
         created_at: "2026-06-26T19:20:44Z",
