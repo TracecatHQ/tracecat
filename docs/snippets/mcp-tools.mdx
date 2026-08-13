@@ -445,6 +445,12 @@
   With `path`, read that one file from the draft. Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
 </ResponseField>
 
+<ResponseField name="prepare_skill_download" type="tool">
+  Prepare direct HTTP downloads of the complete mutable skill draft.
+
+  Pass the response to the local helper, which streams each file's bytes to disk and verifies its SHA-256 digest. Never fetch these URLs into model context. Use `get_skill` without `path` when only file digests are needed, and use `get_skill` with `path` to read one small text file inline.
+</ResponseField>
+
 <ResponseField name="prepare_skill_upload" type="tool">
   Prepare direct HTTP uploads for a complete local skill directory.
 

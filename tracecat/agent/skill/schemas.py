@@ -184,6 +184,27 @@ class SkillDraftFileRead(Schema):
     download_url: str | None = Field(default=None)
 
 
+class SkillDownloadPreparedFile(Schema):
+    """Short-lived direct-download instructions for one skill file."""
+
+    path: str
+    sha256: str
+    size_bytes: int
+    content_type: str
+    download_url: str
+    expires_at: datetime
+
+
+class SkillDownloadPreparedResponse(Schema):
+    """Prepared direct-download plan for a complete skill draft."""
+
+    workspace_id: WorkspaceID
+    skill_id: uuid.UUID
+    skill_name: str
+    draft_revision: int
+    files: list[SkillDownloadPreparedFile]
+
+
 class SkillUploadSessionCreate(Schema):
     """Request body for creating a staged draft upload."""
 

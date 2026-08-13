@@ -8,6 +8,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 from asyncpg import UniqueViolationError
@@ -212,6 +213,73 @@ class TestSkillService:
         assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_prepare_draft_download_returns_presigned_plan_for_all_files(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Every draft file should receive a rewritten presigned download URL."""
+
+        contents = {
+            "SKILL.md": b"---\nname: download-skill\n---\n\n# Download\n",
+            "scripts/helper.py": b"def main():\n    return 'ok'\n",
+        }
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="download-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(contents["SKILL.md"]).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(
+                            contents["scripts/helper.py"]
+                        ).decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
+            "http://downloads.example",
+        )
+
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+
+        assert prepared is not None
+        assert prepared.workspace_id == skill_service.workspace_id
+        assert prepared.skill_id == created.id
+        assert prepared.skill_name == "download-skill"
+        assert prepared.draft_revision == created.draft_revision
+        files_by_path = {file.path: file for file in prepared.files}
+        assert set(files_by_path) == {"SKILL.md", "scripts/helper.py"}
+        assert {path: file.sha256 for path, file in files_by_path.items()} == {
+            path: hashlib.sha256(content).hexdigest()
+            for path, content in contents.items()
+        }
+        assert files_by_path["SKILL.md"].size_bytes == len(contents["SKILL.md"])
+        assert (
+            files_by_path["scripts/helper.py"].content_type
+            == "text/x-python; charset=utf-8"
+        )
+        assert all(
+            urlparse(file.download_url).hostname == "downloads.example"
+            for file in prepared.files
+        )
+
+    async def test_prepare_draft_download_returns_none_for_missing_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Missing skills should not produce a draft download plan."""
+
+        assert await skill_service.prepare_draft_download(skill_id=uuid.uuid4()) is None
 
     async def test_create_skill_suffixes_live_duplicate_slug(
         self,

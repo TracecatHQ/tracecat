@@ -33,6 +33,8 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import (
+    SkillDownloadPreparedFile,
+    SkillDownloadPreparedResponse,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftFileRead,
@@ -9915,6 +9917,114 @@ async def test_get_skill_with_path_rejects_stdio_transport() -> None:
 
 
 @pytest.mark.anyio
+async def test_prepare_skill_download_returns_complete_presigned_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    expires_at = datetime.now(UTC) + timedelta(minutes=5)
+    expected_skill_id = skill_id
+    files = [
+        SkillDownloadPreparedFile(
+            path="SKILL.md",
+            sha256="5" * 64,
+            size_bytes=42,
+            content_type="text/markdown; charset=utf-8",
+            download_url="https://downloads.example/SKILL.md?signature=one",
+            expires_at=expires_at,
+        ),
+        SkillDownloadPreparedFile(
+            path="scripts/helper.py",
+            sha256="6" * 64,
+            size_bytes=84,
+            content_type="text/x-python; charset=utf-8",
+            download_url="https://downloads.example/helper.py?signature=two",
+            expires_at=expires_at,
+        ),
+    ]
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def prepare_draft_download(self, *, skill_id):
+            assert skill_id == expected_skill_id
+            return SkillDownloadPreparedResponse(
+                workspace_id=workspace_id,
+                skill_id=skill_id,
+                skill_name="triage-skill",
+                draft_revision=7,
+                files=files,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.prepare_skill_download)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        ctx=_fake_ctx(),
+    )
+
+    payload = _payload(result)
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["skill_name"] == "triage-skill"
+    assert payload["draft_revision"] == 7
+    assert [file["download_url"] for file in payload["files"]] == [
+        "https://downloads.example/SKILL.md?signature=one",
+        "https://downloads.example/helper.py?signature=two",
+    ]
+    assert [file["sha256"] for file in payload["files"]] == ["5" * 64, "6" * 64]
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_download_returns_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def prepare_draft_download(self, *, skill_id):
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError, match=rf"Skill '{skill_id}' not found"):
+        await _tool(mcp_server.prepare_skill_download)(
+            workspace_id=str(workspace_id),
+            skill_id=skill_id,
+            ctx=_fake_ctx(),
+        )
+
+
+@pytest.mark.anyio
+async def test_prepare_skill_download_rejects_stdio_transport() -> None:
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
+        await _tool(mcp_server.prepare_skill_download)(
+            workspace_id=str(uuid.uuid4()),
+            skill_id=uuid.uuid4(),
+            ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
 async def test_prepare_skill_upload_creates_skill_and_presigned_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -10224,6 +10334,7 @@ async def test_superseded_skill_tools_are_not_registered() -> None:
     assert "get_skill_draft" not in tool_names
     assert "get_skill_draft_file" not in tool_names
     assert "get_skill" in tool_names
+    assert "prepare_skill_download" in tool_names
 
 
 @pytest.mark.anyio

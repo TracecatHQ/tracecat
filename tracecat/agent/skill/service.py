@@ -28,6 +28,8 @@ from tracecat.agent.preset.schemas import AgentPresetSkillBindingBase
 from tracecat.agent.skill.schemas import (
     NewSkillName,
     SkillCreate,
+    SkillDownloadPreparedFile,
+    SkillDownloadPreparedResponse,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftFileRead,
@@ -78,6 +80,7 @@ from tracecat.tiers.enums import Entitlement
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
+DEFAULT_DOWNLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
@@ -1674,6 +1677,40 @@ class SkillService(BaseWorkspaceService):
         return await self._build_draft_read(skill)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def prepare_draft_download(
+        self, *, skill_id: uuid.UUID
+    ) -> SkillDownloadPreparedResponse | None:
+        """Prepare presigned downloads for every file in a skill draft."""
+
+        if (skill := await self.get_skill(skill_id)) is None:
+            return None
+
+        expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_DOWNLOAD_TTL_SECONDS)
+        files = [
+            SkillDownloadPreparedFile(
+                path=draft_file.path,
+                sha256=blob_row.sha256,
+                size_bytes=blob_row.size_bytes,
+                content_type=draft_file.content_type,
+                download_url=await blob.generate_presigned_download_url(
+                    key=blob_row.key,
+                    bucket=blob_row.bucket,
+                    override_content_type=draft_file.content_type,
+                    expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
+                ),
+                expires_at=expires_at,
+            )
+            for draft_file, blob_row in await self._list_draft_rows(skill_id)
+        ]
+        return SkillDownloadPreparedResponse(
+            workspace_id=self.workspace_id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            draft_revision=skill.draft_revision,
+            files=files,
+        )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_file(
         self, *, skill_id: uuid.UUID, path: str
     ) -> SkillDraftFileRead | None:
@@ -1722,6 +1759,7 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=draft_file.content_type,
+                expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
             ),
         )
 
@@ -1781,6 +1819,7 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=version_file.content_type,
+                expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
             ),
         )
 

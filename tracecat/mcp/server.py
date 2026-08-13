@@ -81,6 +81,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
     SkillCreate,
+    SkillDownloadPreparedResponse,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftFileRead,
@@ -1321,6 +1322,8 @@ _SKILL_FILE_WARNING = (
     "complete_skill_upload. "
     "Read an existing skill with `get_skill` before editing or resolving a "
     "revision conflict; pass `path` to fetch one file."
+    " For whole-directory hydration, prefer `prepare_skill_download` plus the "
+    "local helper over per-file reads."
 )
 _INLINE_WORKFLOW_YAML_MAX_BYTES = TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
 _workflow_artifact_redis: AsyncRedis | None = None
@@ -8346,6 +8349,41 @@ async def get_skill(
     except Exception as e:
         logger.error("Failed to get skill draft file", error=str(e))
         raise ToolError(f"Failed to get skill draft file: {e}") from None
+
+
+@mcp.tool()
+async def prepare_skill_download(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+    ctx: Context | None = None,
+) -> SkillDownloadPreparedResponse:
+    """Prepare direct HTTP downloads of the complete mutable skill draft.
+
+    Pass the response to the local helper, which streams each file's bytes to
+    disk and verifies its SHA-256 digest. Never fetch these URLs into model
+    context. Use `get_skill` without `path` when only file digests are needed,
+    and use `get_skill` with `path` to read one small text file inline.
+    """
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_skill_download")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            prepared = await svc.prepare_draft_download(skill_id=skill_id)
+            if prepared is None:
+                raise ToolError(f"Skill '{skill_id}' not found")
+            return prepared
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise _skill_validation_tool_error(e) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to prepare skill download", error=str(e))
+        raise ToolError(f"Failed to prepare skill download: {e}") from None
 
 
 @mcp.tool()
