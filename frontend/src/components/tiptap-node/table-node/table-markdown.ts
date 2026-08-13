@@ -2,6 +2,10 @@ import { renderTableToMarkdown } from "@tiptap/extension-table"
 // `@tiptap/core` is only a transitive dependency here; the repo reaches its
 // types through `@tiptap/react`, which re-exports them.
 import type { JSONContent, MarkdownRendererHelpers } from "@tiptap/react"
+import {
+  colwidthIsExplicit,
+  readSpan,
+} from "@/components/tiptap-node/table-node/table-column-widths"
 
 /**
  * Serialization contract for tables in a case description.
@@ -69,17 +73,13 @@ export function renderTableMarkdown(
  *
  * The JSON twin of `tableNodeHasExplicitWidths`. `renderMarkdown` is handed
  * plain JSON rather than ProseMirror nodes, and the two shapes have no common
- * accessor worth abstracting over. As with the node version, `colwidth` is
- * seeded with zeroes for colspan cells, so only a positive entry counts.
+ * accessor worth abstracting over, so only the traversal is duplicated: both
+ * decide through the shared `colwidthIsExplicit`.
  */
 export function tableJsonHasExplicitWidths(table: JSONContent): boolean {
   for (const row of table.content ?? []) {
     for (const cell of row.content ?? []) {
-      const colwidth: unknown = cell.attrs?.colwidth
-      if (!Array.isArray(colwidth)) {
-        continue
-      }
-      if (colwidth.some((width) => typeof width === "number" && width > 0)) {
+      if (colwidthIsExplicit(cell.attrs?.colwidth)) {
         return true
       }
     }
@@ -326,13 +326,6 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-}
-
-function readSpan(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return Math.round(value)
-  }
-  return 1
 }
 
 function readColwidth(value: unknown): number[] | null {

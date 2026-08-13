@@ -20,17 +20,52 @@ export const MIN_COLUMN_WEIGHT_CHARS = 6
 export const MAX_COLUMN_WEIGHT_CHARS = 40
 
 /**
- * Whether the table node carries author-provided column widths.
+ * Whether a cell's `colwidth` attribute states an author-provided width.
  *
  * `colwidth` is seeded with zeroes for colspan cells by prosemirror-tables, so
  * `[0, 300]` is a legitimate "second column is 300px wide" value and a bare
  * `[0]` means "no width". Only a positive entry counts as explicit.
+ *
+ * This predicate is the single home of that rule. Both traversals that ask the
+ * question — {@link tableNodeHasExplicitWidths} over ProseMirror nodes and
+ * `tableJsonHasExplicitWidths` over ProseMirror JSON — decide through here.
  */
+export function colwidthIsExplicit(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false
+  }
+  return value.some((width) => typeof width === "number" && width > 0)
+}
+
+/**
+ * Read a `colspan` or `rowspan` attribute as a positive whole number.
+ *
+ * Anything that is not a positive finite number — missing, `null`, `NaN`,
+ * `Infinity`, a string — covers a single column or row.
+ */
+export function readSpan(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.round(value)
+  }
+  return 1
+}
+
+/** The table's cell map, or `null` when the table cannot be mapped. */
+export function readTableMap(table: ProseMirrorNode): TableMap | null {
+  try {
+    // Throws for tables that are still malformed, e.g. before `fixTables` runs.
+    return TableMap.get(table)
+  } catch {
+    return null
+  }
+}
+
+/** Whether the table node carries author-provided column widths. */
 export function tableNodeHasExplicitWidths(table: ProseMirrorNode): boolean {
   for (let rowIndex = 0; rowIndex < table.childCount; rowIndex += 1) {
     const row = table.child(rowIndex)
     for (let cellIndex = 0; cellIndex < row.childCount; cellIndex += 1) {
-      if (hasPositiveColwidth(row.child(cellIndex))) {
+      if (colwidthIsExplicit(row.child(cellIndex).attrs.colwidth)) {
         return true
       }
     }
@@ -133,8 +168,11 @@ export function deriveColumnWidths(
  * A permutation leaves the multiset of weights untouched, and only a move can
  * produce one: editing the text of a single column changes exactly one weight,
  * which changes the multiset unless the edit was a no-op. So typing can never
- * be mistaken for a move, and a move — which only ever permutes the columns —
- * is always caught. Identical lists are not a reordering; nothing moved.
+ * be mistaken for a move. The converse does not hold — moving two columns whose
+ * clamped weights are equal, which the 6-character floor makes common, leaves
+ * the list identical and reads as "nothing moved" — but the outcome is right
+ * either way, because equal weights derive equal percentages and replaying the
+ * cached ones is indistinguishable from deriving them again.
  */
 export function columnWeightsAreReordered(
   weights: readonly number[],
@@ -227,15 +265,6 @@ function writeColumnPercentages(
   return true
 }
 
-function readTableMap(table: ProseMirrorNode): TableMap | null {
-  try {
-    // Throws for tables that are still malformed, e.g. before `fixTables` runs.
-    return TableMap.get(table)
-  } catch {
-    return null
-  }
-}
-
 function measureColumnWeights(table: ProseMirrorNode): number[] | null {
   const map = readTableMap(table)
   if (!map) {
@@ -260,7 +289,7 @@ function measureColumnWeights(table: ProseMirrorNode): number[] | null {
         if (!cell) {
           continue
         }
-        share = cell.textContent.length / readColspan(cell)
+        share = cell.textContent.length / readSpan(cell.attrs.colspan)
         shareByCellPos.set(cellPos, share)
       }
       if (share > weights[col]) {
@@ -270,22 +299,6 @@ function measureColumnWeights(table: ProseMirrorNode): number[] | null {
   }
 
   return weights
-}
-
-function hasPositiveColwidth(cell: ProseMirrorNode): boolean {
-  const colwidth: unknown = cell.attrs.colwidth
-  if (!Array.isArray(colwidth)) {
-    return false
-  }
-  return colwidth.some((width) => typeof width === "number" && width > 0)
-}
-
-function readColspan(cell: ProseMirrorNode): number {
-  const colspan: unknown = cell.attrs.colspan
-  if (typeof colspan === "number" && colspan > 0) {
-    return colspan
-  }
-  return 1
 }
 
 function clampColumnWeight(weight: number): number {

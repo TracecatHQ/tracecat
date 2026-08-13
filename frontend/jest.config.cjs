@@ -21,8 +21,14 @@ module.exports = {
     ],
   },
   testPathIgnorePatterns: ["/node_modules/", "/.next/", "/tests/smoke/"],
+  // Skip transforming node_modules, except for `marked` and `yaml`, which ship
+  // ESM only (marked's UMD build is not reachable through its exports map, so
+  // it is unusable under CJS). Matching on `node_modules/<pkg>/` anywhere in
+  // the path keeps this independent of the installer's layout, which nests the
+  // real package under `.pnpm/<pkg>@<version>/` but hoists it under npm, yarn,
+  // and pnpm's `node-linker=hoisted`.
   transformIgnorePatterns: [
-    "^(?!.*/\\.pnpm/marked@).*node_modules/(?!(yaml)/)",
+    "^(?!.*node_modules/(?:marked|yaml)/).*node_modules/",
   ],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",

@@ -50,6 +50,40 @@ function selectedTableRect(state: EditorState): TableRect | null {
   }
 }
 
+/** Whether a resolved rectangle has a column to its left to swap with. */
+function rectHasColumnLeft(rect: TableRect | null): rect is TableRect {
+  return rect !== null && rect.left > 0
+}
+
+/** Whether a resolved rectangle has a column to its right to swap with. */
+function rectHasColumnRight(rect: TableRect | null): rect is TableRect {
+  // `right` is exclusive, so it equals the width at the last column.
+  return rect !== null && rect.right < rect.map.width
+}
+
+/**
+ * Whether {@link TracecatTable}'s `moveTableColumnLeft` would move a column.
+ *
+ * The toolbar asks through here rather than through `editor.can()`, which would
+ * run the command for real — `moveColumn` transposes and rebuilds the entire
+ * table node — on every transaction while the cursor sits in a table. This is
+ * the same boundary rule the command itself applies, so the two cannot drift.
+ * It is the command's only reason to refuse; `moveColumn` can still decline a
+ * move it was asked to make, for a merged cell that spans both columns.
+ */
+export function canMoveTableColumnLeft(state: EditorState): boolean {
+  return rectHasColumnLeft(selectedTableRect(state))
+}
+
+/**
+ * Whether {@link TracecatTable}'s `moveTableColumnRight` would move a column.
+ *
+ * The mirror of {@link canMoveTableColumnLeft}; see it for why this exists.
+ */
+export function canMoveTableColumnRight(state: EditorState): boolean {
+  return rectHasColumnRight(selectedTableRect(state))
+}
+
 /**
  * Upstream table node view that also applies derived proportional widths.
  *
@@ -70,10 +104,12 @@ export class TracecatTableView extends TableView {
    * widths, or a malformed table).
    *
    * ProseMirror calls `update()` for every content change inside the table, so
-   * deriving there would re-measure the cell text as the user types and the
-   * columns would visibly resize on every keystroke — the exact reflow this
-   * feature exists to remove. Caching the derivation and replaying it keeps the
-   * columns still until the table's shape actually changes.
+   * applying freshly derived percentages there would visibly resize the columns
+   * on every keystroke — the exact reflow this feature exists to remove.
+   * Caching the percentages and replaying them keeps the columns still until
+   * the table's shape actually changes. Note that the weights are re-measured
+   * on every update regardless; that measurement is not what the cache avoids,
+   * it is what tells a content edit apart from a structural change.
    */
   private derivedWidths: DerivedColumnWidths | null
 
@@ -186,7 +222,7 @@ export const TracecatTable = Table.extend<TableOptions, unknown>({
         () =>
         ({ state, dispatch }) => {
           const rect = selectedTableRect(state)
-          if (!rect || rect.left === 0) {
+          if (!rectHasColumnLeft(rect)) {
             return false
           }
           return moveTableColumn({ from: rect.left, to: rect.left - 1 })(
@@ -199,8 +235,7 @@ export const TracecatTable = Table.extend<TableOptions, unknown>({
         () =>
         ({ state, dispatch }) => {
           const rect = selectedTableRect(state)
-          // `right` is exclusive, so it equals the width at the last column.
-          if (!rect || rect.right >= rect.map.width) {
+          if (!rectHasColumnRight(rect)) {
             return false
           }
           return moveTableColumn({ from: rect.right - 1, to: rect.right })(

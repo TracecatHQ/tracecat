@@ -18,6 +18,10 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
+import {
+  canMoveTableColumnLeft,
+  canMoveTableColumnRight,
+} from "@/components/tiptap-node/table-node/table-node-extension"
 // --- Hooks ---
 import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 
@@ -41,18 +45,24 @@ export interface TableButtonGroups {
   deleteButtons: TableButton[]
 }
 
+/** The no-buttons result, shared by every path that renders nothing. */
+function emptyTableButtonGroups(): TableButtonGroups {
+  return { insertButtons: [], moveButtons: [], deleteButtons: [] }
+}
+
 /**
  * Builds the row/column table toolbar buttons for the current editor state.
  *
- * Both groups are empty when the editor is not editable, or when the cursor is
- * not inside a table.
+ * Every group is empty when the editor is not editable, or when the cursor is
+ * not inside a table. This is the only place the editable check lives; callers
+ * pass the editor straight through.
  */
 export function getTableButtonGroups(
   editor: Editor,
   isTableActive: boolean
 ): TableButtonGroups {
   if (!editor.isEditable) {
-    return { insertButtons: [], moveButtons: [], deleteButtons: [] }
+    return emptyTableButtonGroups()
   }
 
   const insertButtons: TableButton[] = []
@@ -90,19 +100,24 @@ export function getTableButtonGroups(
     )
   }
 
+  // The other buttons ask `editor.can()`, which runs their command for real
+  // against a throwaway state. That is cheap for every command here except the
+  // two moves: `moveColumn` transposes and rebuilds the whole table node, and
+  // this runs on every transaction while the cursor is in a table, so the two
+  // moves ask the shared boundary rule directly instead.
   const moveButtons: TableButton[] = isTableActive
     ? [
         {
           key: "move-column-left",
           tooltip: "Move column left",
-          disabled: !editor.can().moveTableColumnLeft(),
+          disabled: !canMoveTableColumnLeft(editor.state),
           onClick: () => editor.chain().focus().moveTableColumnLeft().run(),
           icon: <ArrowLeftToLine className="tiptap-button-icon" />,
         },
         {
           key: "move-column-right",
           tooltip: "Move column right",
-          disabled: !editor.can().moveTableColumnRight(),
+          disabled: !canMoveTableColumnRight(editor.state),
           onClick: () => editor.chain().focus().moveTableColumnRight().run(),
           icon: <ArrowRightToLine className="tiptap-button-icon" />,
         },
@@ -145,8 +160,10 @@ function resolveCanInsertTable(editor: Editor | null): boolean {
   }
 
   const can = editor.can()
+  // No command, no insert: reporting "available" here would only enable a
+  // button whose click cannot do anything.
   if (typeof can.insertTable !== "function") {
-    return editor.isEditable
+    return false
   }
 
   return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
@@ -207,13 +224,16 @@ export function useTableControls(
   providedEditor?: Editor | null
 ): TableButtonGroups {
   const { editor } = useTiptapEditor(providedEditor)
-  const hasEditableEditor = !!editor && editor.isEditable
   const isTableActive = useIsInTable(editor)
 
-  return React.useMemo<TableButtonGroups>(() => {
-    if (!editor || !hasEditableEditor) {
-      return { insertButtons: [], moveButtons: [], deleteButtons: [] }
-    }
-    return getTableButtonGroups(editor, isTableActive)
-  }, [editor, hasEditableEditor, isTableActive])
+  // Deliberately computed during render, for the same reason as
+  // `useInsertTable` above. Every input a memo could key on is stable while the
+  // cursor stays inside one table — `editor` for its whole lifetime, and
+  // `isTableActive` until the cursor leaves — so the `editor.can()` flags would
+  // freeze at the moment the cursor entered the table and stop following the
+  // caret between columns. Do not re-memoize this.
+  if (!editor) {
+    return emptyTableButtonGroups()
+  }
+  return getTableButtonGroups(editor, isTableActive)
 }
