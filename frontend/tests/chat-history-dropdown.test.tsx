@@ -74,11 +74,11 @@ describe("ChatHistoryDropdown", () => {
       {
         id: "comment-session",
         workspace_id: "workspace-1",
-        title: "Triage agent case comment",
+        title: "Renamed investigation",
         created_by: "user-1",
         entity_type: "case",
         entity_id: "case-1",
-        channel_context: null,
+        channel_context: { session_origin: "case_comment" },
         tools: null,
         mcp_integrations: null,
         agent_preset_id: "preset-1",
@@ -90,7 +90,7 @@ describe("ChatHistoryDropdown", () => {
       {
         id: "regular-session",
         workspace_id: "workspace-1",
-        title: "Manual investigation",
+        title: "Investigate case comment",
         created_by: "user-1",
         entity_type: "case",
         entity_id: "case-1",
@@ -136,20 +136,22 @@ describe("ChatHistoryDropdown", () => {
 
     fireEvent.click(screen.getByText("Chats"))
 
-    expect(screen.getByText("Triage agent")).toBeInTheDocument()
+    expect(screen.getByText("Renamed investigation")).toBeInTheDocument()
     expect(screen.getAllByText("From comment")).toHaveLength(1)
-    expect(screen.getByText("Manual investigation")).toBeInTheDocument()
+    expect(screen.getByText("Investigate case comment")).toBeInTheDocument()
     expect(screen.getByText("case comment follow-up")).toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText("Search chats..."), {
       target: { value: "from comment" },
     })
 
-    expect(screen.getByText("Triage agent")).toBeInTheDocument()
-    expect(screen.queryByText("Manual investigation")).not.toBeInTheDocument()
+    expect(screen.getByText("Renamed investigation")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Investigate case comment")
+    ).not.toBeInTheDocument()
     expect(screen.queryByText("case comment follow-up")).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByText("Triage agent"))
+    fireEvent.click(screen.getByText("Renamed investigation"))
     expect(onSelectChat).toHaveBeenCalledWith("comment-session")
   })
 })

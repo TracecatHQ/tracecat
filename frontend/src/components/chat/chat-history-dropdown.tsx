@@ -27,7 +27,6 @@ import { getDisplayName } from "@/lib/auth"
 
 export type ChatHistoryScope = "team" | "mine"
 
-const COMMENT_AGENT_SESSION_SUFFIX = " case comment"
 const COMMENT_AGENT_SESSION_BADGE = "From comment"
 
 function isCommentAgentSession(
@@ -37,16 +36,8 @@ function isCommentAgentSession(
     "created_by" in chat &&
     chat.entity_type === "case" &&
     chat.agent_preset_id !== null &&
-    chat.title.endsWith(COMMENT_AGENT_SESSION_SUFFIX)
+    chat.channel_context?.session_origin === "case_comment"
   )
-}
-
-function chatHistoryTitle(
-  chat: AgentSessionsListSessionsResponse[number]
-): string {
-  return isCommentAgentSession(chat)
-    ? chat.title.slice(0, -COMMENT_AGENT_SESSION_SUFFIX.length)
-    : chat.title
 }
 
 interface ChatHistoryDropdownProps {
@@ -174,7 +165,7 @@ export function ChatHistoryDropdown({
                     <div className="flex min-w-0 flex-col">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium">
-                          {chatHistoryTitle(chat)}
+                          {chat.title}
                         </span>
                         <ChatLastErrorIndicator session={chat} />
                         {isCommentAgentSession(chat) ? (

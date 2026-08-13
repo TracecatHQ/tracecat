@@ -894,6 +894,8 @@ class TestCaseCommentsService:
             )
             assert agent_session is not None
             assert agent_session.agent_preset_version_id == version.id
+            assert agent_session.title == "Thread agent"
+            assert agent_session.channel_context == {"session_origin": "case_comment"}
             await session.refresh(other)
             assert other.session_id is None
             second = await dispatcher.create_or_get_agent_session(other.id)
