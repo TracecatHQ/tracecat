@@ -94,7 +94,6 @@ from tracecat.agent.skill.schemas import (
     SkillVersionRead,
 )
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.skill.types import SkillUploadManifestConstraint
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
@@ -8440,24 +8439,17 @@ async def prepare_skill_upload(
             if skill_id is None:
                 if name is None:
                     raise ToolError("name is required when creating a skill")
-                create_params = SkillCreate(
-                    name=name,
-                    description=description or None,
+                skill = await svc.create_skill(
+                    SkillCreate(name=name, description=description or None)
                 )
-                skill = await svc.create_skill(create_params)
                 resolved_skill_id = skill.id
                 base_revision = skill.draft_revision
-                manifest_constraint = SkillUploadManifestConstraint(
-                    name=create_params.name,
-                    description=create_params.description,
-                )
             else:
                 draft = await svc.get_draft(skill_id)
                 if draft is None:
                     raise ToolError(f"Skill '{skill_id}' not found")
                 resolved_skill_id = skill_id
                 base_revision = draft.draft_revision
-                manifest_constraint = None
 
             for file, normalized_path in zip(files, normalized_paths, strict=True):
                 upload_params = SkillUploadSessionCreate(
@@ -8468,7 +8460,6 @@ async def prepare_skill_upload(
                 upload = await svc.create_draft_upload(
                     skill_id=resolved_skill_id,
                     params=upload_params,
-                    manifest_constraint=manifest_constraint,
                 )
                 prepared_files.append(
                     SkillUploadPreparedFile(

@@ -52,7 +52,7 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
     SkillVersionSnapshotRead,
 )
-from tracecat.agent.skill.types import ResolvedSkillRef, SkillUploadManifestConstraint
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -2027,21 +2027,6 @@ class SkillService(BaseWorkspaceService):
             skill=skill,
             operations=params.operations,
         )
-        upload_manifest_constraints = {
-            SkillUploadManifestConstraint(
-                name=operation.upload.expected_skill_name,
-                description=operation.upload.expected_skill_description,
-            )
-            for operation in prepared_operations
-            if isinstance(operation, PreparedDraftAttachUploadedBlobOp)
-            and operation.upload.expected_skill_name is not None
-        }
-        if len(upload_manifest_constraints) > 1:
-            raise TracecatValidationError(
-                "Staged uploads have conflicting skill metadata constraints",
-                detail={"code": "skill_upload_metadata_constraint_conflict"},
-            )
-        upload_manifest_constraint = next(iter(upload_manifest_constraints), None)
         current_rows = await self._list_draft_rows(skill.id)
         path_to_blob = {
             draft_file.path: SkillFileBlobRef(
@@ -2103,35 +2088,6 @@ class SkillService(BaseWorkspaceService):
         validation = await self._validate_manifest_rows(
             [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
         )
-        if upload_manifest_constraint is not None:
-            if validation.errors:
-                raise TracecatValidationError(
-                    "Uploaded skill draft failed validation",
-                    detail={
-                        "code": "skill_upload_validation_failed",
-                        "errors": [
-                            error.model_dump(mode="json") for error in validation.errors
-                        ],
-                    },
-                )
-            if validation.name != upload_manifest_constraint.name:
-                raise TracecatValidationError(
-                    "Uploaded skill name must match the prepared create request",
-                    detail={
-                        "code": "skill_name_mismatch",
-                        "expected_name": upload_manifest_constraint.name,
-                        "actual_name": validation.name,
-                    },
-                )
-            if validation.description != upload_manifest_constraint.description:
-                raise TracecatValidationError(
-                    "Uploaded skill description must match the prepared create request",
-                    detail={
-                        "code": "skill_description_mismatch",
-                        "expected_description": upload_manifest_constraint.description,
-                        "actual_description": validation.description,
-                    },
-                )
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         if (
             skill.current_version_id is None
@@ -2161,7 +2117,6 @@ class SkillService(BaseWorkspaceService):
         *,
         skill_id: uuid.UUID,
         params: SkillUploadSessionCreate,
-        manifest_constraint: SkillUploadManifestConstraint | None = None,
     ) -> SkillUploadSessionRead:
         """Create a staged upload session for a draft blob."""
 
@@ -2183,14 +2138,6 @@ class SkillService(BaseWorkspaceService):
             sha256=normalized_sha256,
             size_bytes=params.size_bytes,
             content_type=normalized_content_type,
-            expected_skill_name=(
-                manifest_constraint.name if manifest_constraint is not None else None
-            ),
-            expected_skill_description=(
-                manifest_constraint.description
-                if manifest_constraint is not None
-                else None
-            ),
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             expires_at=expires_at,
