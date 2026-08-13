@@ -1,0 +1,59 @@
+frontend/src/components/tiptap-node/table-node/table-node.scss
+  s_bc5352235b23a6::t_e0732f119e5a55 68
+  s_2f5bb0e361a2fb::t_06c2e467123659 26-28,53-67
+frontend/src/components/tiptap-node/table-node/table-markdown.ts
+  s_bc5352235b23a6::t_4034d84b749e67 173-176
+  s_bc5352235b23a6::t_7528df5ef677c3 2-4
+  s_bc5352235b23a6::t_aa13c481f2f3dd 1,5-172,177-357
+frontend/tests/table-markdown.test.ts
+  s_bc5352235b23a6::t_698d475360663e 1-5,8-168,173-341,389
+  s_bc5352235b23a6::t_6ed933e167d185 342-388
+  s_bc5352235b23a6::t_ded2c8a275865d 6-7
+  s_bc5352235b23a6::t_c02b5548d5a094 169-172
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_2f5bb0e361a2fb::t_06c2e467123659 427-430
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_2f5bb0e361a2fb::t_06c2e467123659 9-10,80,85-88,98-103,107-113
+  s_bc5352235b23a6::t_cc952458151f2c 89-95
+  s_bc5352235b23a6::t_c02b5548d5a094 114
+  s_bc5352235b23a6::t_3c39671b026330 1,97
+  s_bc5352235b23a6::t_7ecdd874484e4f 115
+frontend/src/components/tiptap-node/table-node/table-materialize-widths.ts
+  s_bc5352235b23a6::t_49d3388e030b64 159
+  s_bc5352235b23a6::t_3a44396c269930 3-6,12-28,32-34,36-127,129-158,160-173
+  s_bc5352235b23a6::t_984acab0c21c43 2
+  s_bc5352235b23a6::t_ed65d53d2c1d61 1
+  s_bc5352235b23a6::t_be84a970662e6d 7-11,29-31
+  s_bc5352235b23a6::t_68c68a11ade88f 128
+  s_bc5352235b23a6::t_42570069030a01 35
+frontend/jest.config.cjs
+  s_2f5bb0e361a2fb::t_06c2e467123659 14-21,24,26
+  s_2f5bb0e361a2fb::t_68d0f7b470f054 25
+frontend/tests/table-resize-plugins.test.ts
+  s_bc5352235b23a6::t_39f851b874beb4 1-4,6-71
+  s_bc5352235b23a6::t_ded2c8a275865d 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a81b060d944bcc90579041ebbe59676dd4bd56b2",
+  "prompts": {},
+  "sessions": {
+    "s_2f5bb0e361a2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9aa2d16-cea5-47d9-b5bc-dc72ba4b4fa2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
