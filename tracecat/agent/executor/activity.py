@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
+import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
@@ -163,6 +164,9 @@ class AgentExecutorResult(BaseModel):
     terminal_stream_error_emitted: bool | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
+    # Active wall-clock seconds this turn consumed. 0.0 means a legacy activity
+    # result did not carry this field, so old histories keep full budgets.
+    active_seconds: float = 0.0
     # Legacy replay compatibility only. New executions load terminal message
     # history in the durable workflow after the final executor turn completes.
     messages: list[ChatMessage] | None = None
@@ -1234,7 +1238,9 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         input=input,
         timeout_seconds=timeout_seconds,
     )
+    turn_started_at = time.monotonic()
     result = await executor.run()
+    result.active_seconds = time.monotonic() - turn_started_at
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
