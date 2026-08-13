@@ -492,7 +492,6 @@ class NsjailExecutor:
                 process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
             raise SandboxTimeoutError(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
@@ -635,7 +634,6 @@ class NsjailExecutor:
                 process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
             raise SandboxTimeoutError(
                 f"Package installation timed out after {timeout_seconds}s"
@@ -903,7 +901,6 @@ class NsjailExecutor:
                 process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
             raise SandboxTimeoutError(
                 f"Action execution timed out after {config.timeout_seconds}s"

@@ -201,6 +201,22 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
+TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
+    os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
+)
+"""Maximum number of registry artifacts kept in the executor-local cache.
+
+Set to 0 to disable entry-count eviction."""
+
+TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = int(
+    os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES") or 10 * 1024**3
+)
+"""Maximum on-disk size of the executor-local registry artifact cache, in bytes.
+
+Cold downloads and extraction scratch are admitted within this bound. Mounted
+artifacts only account for their backing image file. Set to 0 to disable
+size-based eviction and materialization limits."""
+
 TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
     "TRACECAT__AGENT_SKILL_CACHE_DIR", "/tmp/tracecat/agent-skill-cache"
 )
