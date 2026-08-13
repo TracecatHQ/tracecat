@@ -185,6 +185,7 @@ class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
 
     id: str
+    display_name: str
     type: CaseFieldReadType
     description: str
     nullable: bool
@@ -213,8 +214,10 @@ class CaseFieldReadMinimal(Schema):
         kind: CaseFieldKind | None = None
         required_on_closure = False
         options: list[str] | None = None
+        display_name = column["name"]
         if field_schema and (meta := field_schema.get(column["name"])):
             read_type = CaseFieldReadType(meta["type"])
+            display_name = meta.get("display_name") or column["name"]
             options = meta.get("options")
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
@@ -225,6 +228,7 @@ class CaseFieldReadMinimal(Schema):
         return cls.model_validate(
             {
                 "id": column["name"],
+                "display_name": display_name,
                 "type": read_type,
                 "description": column.get("comment") or "",
                 "nullable": column["nullable"],

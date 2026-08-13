@@ -6326,8 +6326,9 @@ async def list_case_fields(
 ) -> MCPPaginatedResponse[CaseFieldReadMinimal]:
     """List case field definitions in a workspace.
 
-    Returns a JSON array of field objects with `id`, `type`, `description`,
-    `nullable`, `default`, `reserved`, `options`, and optional `kind`.
+    Returns a JSON array of field objects with `id`, `display_name`, `type`,
+    `description`, `nullable`, `default`, `reserved`, `options`, and optional
+    `kind`.
     """
 
     try:
