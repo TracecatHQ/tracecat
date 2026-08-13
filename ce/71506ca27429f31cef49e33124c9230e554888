@@ -1,0 +1,34 @@
+frontend/src/components/tiptap-ui/table-controls/table-controls.tsx
+  s_bc5352235b23a6::t_6678db642e3af7 1-72
+frontend/src/components/tiptap-ui/table-controls/use-table-controls.tsx
+  s_bc5352235b23a6::t_bb3c340e92c404 1-171
+frontend/src/components/tiptap-node/table-node/table-node.scss
+  s_bc5352235b23a6::t_1cb8aa9410797f 1-37
+frontend/src/components/tiptap-ui/table-controls/index.tsx
+  s_bc5352235b23a6::t_c9e3882a4ced3d 1-2
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_bc5352235b23a6::t_af945997d304bf 27
+  s_bc5352235b23a6::t_bc34e0a515932e 17
+  s_bc5352235b23a6::t_b401f3e3956aa4 137-139
+  s_bc5352235b23a6::t_4557c65fdd6fbf 66-70
+  s_bc5352235b23a6::t_21c3e4f6e5ce9f 238
+  s_bc5352235b23a6::t_b23506a36fdee4 170
+  s_bc5352235b23a6::t_877fa85c8c8fe0 218
+  s_bc5352235b23a6::t_f6183d65c92682 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ce71506ca27429f31cef49e33124c9230e554888",
+  "prompts": {},
+  "sessions": {
+    "s_bc5352235b23a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39dcf4ed-69ec-4ae4-ab06-c6e96b8b442d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
