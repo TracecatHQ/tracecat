@@ -1,0 +1,41 @@
+frontend/tests/table-move-column.test.ts
+  s_90501279aa3394::t_427ec89ba4c72f 1-124,126-127,129-302
+  s_90501279aa3394::t_2b7440eab2a0f7 125,128
+frontend/src/components/tiptap-templates/simple/simple-editor.tsx
+  s_90501279aa3394::t_958e7ecf8da714 51-55,57-58
+  s_90501279aa3394::t_a1c0c7f1b7cb30 307
+  s_90501279aa3394::t_65a66f6e90e027 298-306
+  s_5dc61c7524b393::t_c427d37bf1d42f 308
+  s_90501279aa3394::t_d450bcfdf04580 158,167,179,186,193,200,205-227
+  s_5dc61c7524b393::t_6d99cdeef63b2d 348-388
+  s_90501279aa3394::t_e774537a06d06a 255
+  s_90501279aa3394::t_9c4db5cb5eeb02 619
+  s_90501279aa3394::t_7c49c798b468a9 30-34
+  s_90501279aa3394::t_be2c3b869ef8e9 228
+frontend/src/components/tiptap-node/table-node/table-node-extension.ts
+  s_90501279aa3394::t_cd55eb26440635 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "85cd25e1a423d2f053e703ea61941e888d32421b",
+  "prompts": {},
+  "sessions": {
+    "s_5dc61c7524b393": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6fadbb64-417a-494a-bbd2-0514b96203b9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_90501279aa3394": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c0c28759-9153-46eb-a004-4e54d4a5a83a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
