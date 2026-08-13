@@ -34,10 +34,6 @@ definition:
       description: Number of results per page (max 100)
       default: 100
   steps:
-    - ref: encode_auth
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: build_params
       action: core.script.run_python
       args:
@@ -66,7 +62,7 @@ definition:
         url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/search.json
         method: GET
         headers:
-          Authorization: Basic ${{ steps.encode_auth.result }}
+          Authorization: Basic ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
           Accept: application/json
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}

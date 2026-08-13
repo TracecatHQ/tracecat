@@ -551,11 +551,11 @@ async def test_prepare_resolved_context_preserves_only_mapped_parameter(
     )
 
     assert prepared.resolved_context.evaluated_args == {
-        runtime_parameter: "runtime-secret:runtime-variable",
+        runtime_parameter: f"{MASK_VALUE}:runtime-variable",
         preserved_parameter: preserved_source,
     }
     assert get_action_secrets.await_args.kwargs == {
-        "secret_exprs": {"runtime.TOKEN"},
+        "secret_exprs": set(),
         "action_secrets": action_secrets,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
@@ -601,13 +601,13 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     )
 
     assert prepared.resolved_context.evaluated_args == {
-        "case_id": "runtime-secret",
+        "case_id": MASK_VALUE,
         "content": (
             f"Host: api.example.com, token: {MASK_VALUE}, encoded: {MASK_VALUE}"
         ),
     }
     assert get_action_secrets.await_args.kwargs == {
-        "secret_exprs": {"runtime.TOKEN"},
+        "secret_exprs": set(),
         "action_secrets": action_secrets,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
@@ -623,12 +623,48 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     ],
 )
 @pytest.mark.anyio
-async def test_prepare_resolved_context_resolves_unmapped_parameters(
+async def test_prepare_resolved_context_redacts_unmapped_parameters(
     mocker,
     action_name: str,
     parameter: str,
 ):
     """Policy matching requires the exact action and parameter pair."""
+    get_action_secrets, get_workspace_variables, _ = (
+        _patch_expression_policy_resolution(
+            mocker,
+            action_name=action_name,
+            action_secrets=set(),
+            fetched_secrets={"runtime": {"TOKEN": "runtime-secret"}},
+            workspace_variables={},
+        )
+    )
+    args = {parameter: "${{ SECRETS.runtime.TOKEN }}"}
+
+    prepared = await prepare_resolved_context(
+        input=_expression_policy_input(action_name, args),
+        role=_expression_policy_role("tracecat-executor"),
+    )
+
+    assert prepared.resolved_context.evaluated_args == {parameter: MASK_VALUE}
+    assert get_action_secrets.await_args.kwargs["secret_exprs"] == set()
+    assert get_workspace_variables.await_args.kwargs["variable_exprs"] == set()
+
+
+@pytest.mark.parametrize(
+    ("action_name", "parameter"),
+    [
+        ("core.http_poll", "headers"),
+        ("core.http_request", "auth"),
+        ("core.http_request", "headers"),
+        ("core.http_request", "params"),
+    ],
+)
+@pytest.mark.anyio
+async def test_prepare_resolved_context_resolves_explicit_parameters(
+    mocker,
+    action_name: str,
+    parameter: str,
+):
     get_action_secrets, get_workspace_variables, _ = (
         _patch_expression_policy_resolution(
             mocker,

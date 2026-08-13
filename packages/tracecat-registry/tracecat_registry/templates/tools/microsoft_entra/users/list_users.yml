@@ -79,7 +79,6 @@ definition:
           count: ${{ inputs.count }}
           consistency_level_eventual: ${{ inputs.consistency_level_eventual }}
           max_page_size: ${{ inputs.max_page_size }}
-          token: ${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
         script: |
           def main(
               filter,
@@ -92,7 +91,6 @@ definition:
               count,
               consistency_level_eventual,
               max_page_size,
-              token,
           ):
               params = {}
               if filter:
@@ -111,7 +109,7 @@ definition:
                   params["$skiptoken"] = skip_token
               if count:
                   params["$count"] = "true"
-              headers = {"Authorization": f"Bearer {token}"}
+              headers = {}
               if search or count or consistency_level_eventual:
                   headers["ConsistencyLevel"] = "eventual"
               if max_page_size is not None:
@@ -122,6 +120,6 @@ definition:
       args:
         url: ${{ inputs.base_url }}/${{ inputs.api_version }}/users
         method: GET
-        headers: ${{ steps.build_request.result.headers }}
+        headers: '${{ FN.merge([{"Authorization": FN.concat("Bearer ", SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN)}, steps.build_request.result.headers]) }}'
         params: ${{ steps.build_request.result.params }}
   returns: ${{ steps.list_users.result.data }}

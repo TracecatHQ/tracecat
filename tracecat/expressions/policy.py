@@ -75,47 +75,24 @@ PRESERVE_PARAMETERS = frozenset(
     }
 )
 
-REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
-    "core.workflow.create_workflow": frozenset({"title", "description"}),
-    "core.cases.create_case": frozenset(
-        {"summary", "description", "fields", "payload", "tags", "dropdown_values"}
-    ),
-    "core.cases.update_case": frozenset(
-        {"summary", "description", "fields", "payload", "tags", "dropdown_values"}
-    ),
-    "core.cases.create_comment": frozenset({"content"}),
-    "core.cases.reply_to_comment": frozenset({"content"}),
-    "core.cases.update_comment": frozenset({"content"}),
-    "core.table.create_table": frozenset({"name", "columns"}),
-    "core.table.create_column": frozenset({"column"}),
-    "core.table.update_column": frozenset({"update"}),
-    "core.table.insert_row": frozenset({"row_data"}),
-    "core.table.insert_rows": frozenset({"rows_data"}),
-    "core.table.update_row": frozenset({"row_data"}),
-    "core.cases.insert_row": frozenset({"row"}),
-    "ai.agent.create_preset": frozenset(
-        {"instructions", "name", "description", "slug", "base_url", "output_type"}
-    ),
-    "ai.agent.update_preset": frozenset(
-        {
-            "instructions",
-            "name",
-            "description",
-            "new_slug",
-            "base_url",
-            "output_type",
-        }
-    ),
-}
+# Explicit credential-bearing fields at the outbound request boundary.
+RESOLVE_PARAMETERS = frozenset(
+    {
+        ("core.http_poll", "headers"),
+        ("core.http_request", "auth"),
+        ("core.http_request", "headers"),
+        ("core.http_request", "params"),
+    }
+)
 
 
 def expression_policy(action: str, parameter: str) -> ExpressionPolicy:
     """Return the policy for an exact action-parameter pair."""
     if (action, parameter) in PRESERVE_PARAMETERS:
         return ExpressionPolicy.PRESERVE
-    if parameter in REDACT_PARAMETERS.get(action, frozenset()):
-        return ExpressionPolicy.REDACT_SECRETS
-    return ExpressionPolicy.RESOLVE
+    if (action, parameter) in RESOLVE_PARAMETERS:
+        return ExpressionPolicy.RESOLVE
+    return ExpressionPolicy.REDACT_SECRETS
 
 
 @dataclass(frozen=True, slots=True)

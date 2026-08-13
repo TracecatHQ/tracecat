@@ -17,17 +17,13 @@ definition:
       type: int
       description: The ID of the ticket
   steps:
-    - ref: encode_auth
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: get_comments
       action: core.http_request
       args:
         url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/tickets/${{ inputs.ticket_id }}/comments.json
         method: GET
         headers:
-          Authorization: Basic ${{ steps.encode_auth.result }}
+          Authorization: Basic ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
           Content-Type: application/json
           Accept: application/json
     - ref: extract_attachments
