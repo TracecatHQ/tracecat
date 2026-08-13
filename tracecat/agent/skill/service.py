@@ -54,7 +54,6 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.skill.types import ResolvedSkillRef, SkillUploadManifestConstraint
 from tracecat.authz.controls import require_scope
-from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetSkill,
@@ -87,7 +86,6 @@ SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
-SKILL_BLOB_PUBLICATION_LOCK_NAMESPACE = "tracecat.skill.blob.publication"
 # Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
@@ -109,6 +107,14 @@ class SkillFileBlobRef:
 
     blob: SkillBlob
     content_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class SkillBlobPublicationClaim:
+    """Result of claiming one workspace-scoped blob identity for publication."""
+
+    blob: SkillBlob
+    is_owner: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,28 +516,20 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _acquire_blob_publication_lock(self) -> None:
-        """Serialize canonical blob publication within one workspace transaction.
-
-        A workspace-scoped key avoids deadlocks when one skill operation writes
-        multiple content digests in a different order from another operation.
-        """
-
-        lock_key = derive_lock_key_from_parts(
-            SKILL_BLOB_PUBLICATION_LOCK_NAMESPACE,
-            str(self.workspace_id),
-        )
-        await pg_advisory_xact_lock(self.session, lock_key)
-
-    async def _insert_blob_row(
+    async def _claim_blob_publication(
         self,
         *,
         sha256: str,
         bucket: str,
         key: str,
         size_bytes: int,
-    ) -> SkillBlob:
-        """Insert a blob row, reusing the canonical row if another writer won."""
+    ) -> SkillBlobPublicationClaim:
+        """Claim a digest for publication, or reuse the concurrent winner.
+
+        The existing workspace/digest uniqueness constraint arbitrates only
+        writers for the same content identity. The row stays uncommitted until
+        its owner finishes publishing and verifying the canonical object.
+        """
 
         normalized_sha256 = self._normalize_sha256(sha256)
         stmt = (
@@ -551,14 +549,14 @@ class SkillService(BaseWorkspaceService):
             blob_row = await self.get_blob(blob_id)
             if blob_row is None:
                 raise TracecatNotFoundError(f"Skill blob '{blob_id}' not found")
-            return blob_row
+            return SkillBlobPublicationClaim(blob=blob_row, is_owner=True)
 
         existing = await self._get_blob_by_identity(sha256=normalized_sha256)
         if existing is None:
             raise TracecatNotFoundError(
                 "Skill blob row was not found after a concurrent insert"
             )
-        return existing
+        return SkillBlobPublicationClaim(blob=existing, is_owner=False)
 
     async def _get_or_create_blob(self, *, content: bytes) -> SkillBlob:
         """Create or reuse a content-addressed skill blob.
@@ -575,24 +573,27 @@ class SkillService(BaseWorkspaceService):
         if existing is not None:
             return existing
 
-        await self._acquire_blob_publication_lock()
-        existing = await self._get_blob_by_identity(sha256=sha256)
-        if existing is not None:
-            return existing
-
         storage_key = self._storage_key_for(sha256)
-        await blob.upload_file(
-            content=content,
-            key=storage_key,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            content_type="application/octet-stream",
-        )
-        return await self._insert_blob_row(
+        claim = await self._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
         )
+        if not claim.is_owner:
+            return claim.blob
+
+        try:
+            await blob.upload_file(
+                content=content,
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                content_type="application/octet-stream",
+            )
+        except Exception:
+            await self.session.delete(claim.blob)
+            raise
+        return claim.blob
 
     async def _stream_verify_object(
         self,
@@ -679,22 +680,26 @@ class SkillService(BaseWorkspaceService):
 
         blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
         if blob_row is None:
-            await self._acquire_blob_publication_lock()
-            blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
-        if blob_row is None:
             canonical_key = self._storage_key_for(normalized_upload_sha256)
-            if upload.key != canonical_key:
-                await blob.copy_file(
-                    source_key=upload.key,
-                    destination_key=canonical_key,
-                    bucket=upload.bucket,
-                    content_type="application/octet-stream",
-                )
-                # The staged PUT URL may still be valid here, so a concurrent
-                # re-PUT between the verification above and the copy could
-                # poison the content-addressed blob. Verify the canonical copy
-                # itself before it becomes reusable.
+            claim = await self._claim_blob_publication(
+                sha256=normalized_upload_sha256,
+                bucket=upload.bucket,
+                key=canonical_key,
+                size_bytes=upload.size_bytes,
+            )
+            blob_row = claim.blob
+            if claim.is_owner and upload.key != canonical_key:
                 try:
+                    await blob.copy_file(
+                        source_key=upload.key,
+                        destination_key=canonical_key,
+                        bucket=upload.bucket,
+                        content_type="application/octet-stream",
+                    )
+                    # The staged PUT URL may still be valid here, so a concurrent
+                    # re-PUT between the verification above and the copy could
+                    # poison the content-addressed blob. Verify the canonical copy
+                    # itself before it becomes reusable.
                     await self._stream_verify_object(
                         key=canonical_key,
                         bucket=upload.bucket,
@@ -702,7 +707,8 @@ class SkillService(BaseWorkspaceService):
                         expected_size_bytes=upload.size_bytes,
                         error_detail=integrity_error_detail,
                     )
-                except TracecatValidationError:
+                except Exception:
+                    await self.session.delete(claim.blob)
                     try:
                         await blob.delete_file(key=canonical_key, bucket=upload.bucket)
                     except Exception as exc:
@@ -712,12 +718,6 @@ class SkillService(BaseWorkspaceService):
                             error=str(exc),
                         )
                     raise
-            blob_row = await self._insert_blob_row(
-                sha256=normalized_upload_sha256,
-                bucket=upload.bucket,
-                key=canonical_key,
-                size_bytes=upload.size_bytes,
-            )
 
         upload.blob_id = blob_row.id
         upload.completed_at = datetime.now(UTC)

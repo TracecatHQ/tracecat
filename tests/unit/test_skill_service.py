@@ -40,10 +40,13 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionReadMinimal,
 )
-from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
+from tracecat.agent.skill.service import (
+    SKILL_SLUG_UNIQUE_CONSTRAINT,
+    SkillBlobPublicationClaim,
+    SkillService,
+)
 from tracecat.agent.skill.types import SkillUploadManifestConstraint
 from tracecat.auth.types import Role
-from tracecat.db.locks import pg_advisory_xact_lock
 from tracecat.db.models import (
     Skill,
     SkillBlob,
@@ -55,7 +58,6 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.storage import blob as blob_storage
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -155,23 +157,23 @@ async def _legacy_archive_skill(session: AsyncSession, skill_id: uuid.UUID) -> d
 
 @pytest.mark.anyio
 class TestSkillService:
-    async def test_insert_blob_row_reuses_existing_blob_identity(
+    async def test_claim_blob_publication_reuses_existing_identity(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Concurrent blob inserts should reuse the canonical row on conflict."""
+        """Only the first claim should own publication for a blob identity."""
 
         content = b"shared blob content"
         sha256 = hashlib.sha256(content).hexdigest()
         storage_key = skill_service._storage_key_for(sha256)
 
-        original = await skill_service._insert_blob_row(
+        original = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
         )
-        reused = await skill_service._insert_blob_row(
+        reused = await skill_service._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
@@ -190,7 +192,9 @@ class TestSkillService:
             .all()
         )
 
-        assert reused.id == original.id
+        assert original.is_owner is True
+        assert reused.is_owner is False
+        assert reused.blob.id == original.blob.id
         assert len(blob_rows) == 1
 
     async def test_create_skill_seeds_default_draft(
@@ -1576,12 +1580,11 @@ class TestSkillService:
             assert unchanged is not None
             assert unchanged.draft_revision == draft.draft_revision
 
-    async def test_concurrent_uploads_serialize_canonical_blob_publication(
+    async def test_concurrent_blob_claims_reuse_the_committed_owner(
         self,
         svc_role: Role,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A second writer must reuse the winner's canonical object after commit."""
+        """Same-digest contenders should reuse the row claimed by the winner."""
 
         role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
         concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
@@ -1591,206 +1594,62 @@ class TestSkillService:
         )
 
         try:
+            async with session_factory() as seed_session:
+                seed_session.add(
+                    Workspace(
+                        id=role.workspace_id,
+                        name="test-workspace",
+                        organization_id=role.organization_id,
+                    )
+                )
+                await seed_session.commit()
+
             content = b"shared staged upload\n"
             sha256 = hashlib.sha256(content).hexdigest()
-            async with session_factory() as seed_session:
-                workspace = await seed_session.scalar(
-                    select(Workspace).where(Workspace.id == role.workspace_id)
-                )
-                if workspace is None:
-                    seed_session.add(
-                        Workspace(
-                            id=role.workspace_id,
-                            name="test-workspace",
-                            organization_id=role.organization_id,
-                        )
-                    )
-                    await seed_session.commit()
-
-                seed_service = SkillService(
-                    session=seed_session,
+            storage_key = f"skills/{role.workspace_id}/{sha256}"
+            async with (
+                session_factory() as owner_session,
+                session_factory() as contender_session,
+            ):
+                owner_service = SkillService(
+                    session=owner_session,
                     role=role.model_copy(deep=True),
                 )
-                winner_skill = await seed_service.create_skill(
-                    SkillCreate(name="blob-winner")
+                contender_service = SkillService(
+                    session=contender_session,
+                    role=role.model_copy(deep=True),
                 )
-                loser_skill = await seed_service.create_skill(
-                    SkillCreate(name="blob-loser")
-                )
-                winner_draft = await seed_service.get_draft(winner_skill.id)
-                loser_draft = await seed_service.get_draft(loser_skill.id)
-                assert winner_draft is not None
-                assert loser_draft is not None
-
-                upload_params = SkillUploadSessionCreate(
+                owner_claim = await owner_service._claim_blob_publication(
                     sha256=sha256,
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
                     size_bytes=len(content),
-                    content_type="text/plain; charset=utf-8",
                 )
-                winner_upload = await seed_service.create_draft_upload(
-                    skill_id=winner_skill.id,
-                    params=upload_params,
-                )
-                loser_upload = await seed_service.create_draft_upload(
-                    skill_id=loser_skill.id,
-                    params=upload_params,
-                )
-                canonical_key = seed_service._storage_key_for(sha256)
 
-            canonical_verification_started = asyncio.Event()
-            release_canonical_verification = asyncio.Event()
-            second_lock_attempted = asyncio.Event()
-            lock_attempts = 0
-            canonical_reads = 0
-            copied_from: list[str] = []
-            canonical_deletes: list[str] = []
-            staged_keys = {winner_upload.key, loser_upload.key}
-            original_open_download_stream = blob_storage.open_download_stream
+                contender_started = asyncio.Event()
 
-            async def observed_pg_advisory_xact_lock(
-                session: AsyncSession, key: int
-            ) -> None:
-                nonlocal lock_attempts
-                lock_attempts += 1
-                if lock_attempts == 2:
-                    second_lock_attempted.set()
-                await pg_advisory_xact_lock(session, key)
-
-            async def fake_file_exists(*, key: str, bucket: str) -> bool:
-                del key, bucket
-                return True
-
-            class FakeStream:
-                async def iter_chunks(self, *, chunk_size: int):
-                    del chunk_size
-                    yield content
-
-            @asynccontextmanager
-            async def fake_open_download_stream(*, key: str, bucket: str):
-                nonlocal canonical_reads
-                if key not in staged_keys and key != canonical_key:
-                    async with original_open_download_stream(
-                        key=key,
-                        bucket=bucket,
-                    ) as stream_response:
-                        yield stream_response
-                    return
-                if key == canonical_key:
-                    canonical_reads += 1
-                    canonical_verification_started.set()
-                    await release_canonical_verification.wait()
-                yield FakeStream(), len(content)
-
-            async def fake_copy_file(
-                *,
-                source_key: str,
-                destination_key: str,
-                bucket: str,
-                content_type: str | None = None,
-            ) -> None:
-                del bucket, content_type
-                assert destination_key == canonical_key
-                copied_from.append(source_key)
-
-            async def fake_delete_file(*, key: str, bucket: str) -> None:
-                del bucket
-                if key == canonical_key:
-                    canonical_deletes.append(key)
-
-            monkeypatch.setattr(
-                "tracecat.agent.skill.service.pg_advisory_xact_lock",
-                observed_pg_advisory_xact_lock,
-            )
-            monkeypatch.setattr(
-                "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
-            )
-            monkeypatch.setattr(
-                "tracecat.agent.skill.service.blob.open_download_stream",
-                fake_open_download_stream,
-            )
-            monkeypatch.setattr(
-                "tracecat.agent.skill.service.blob.copy_file", fake_copy_file
-            )
-            monkeypatch.setattr(
-                "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
-            )
-
-            async def attach_upload(
-                *, skill_id: uuid.UUID, draft_revision: int, upload_id: uuid.UUID
-            ) -> SkillDraftRead:
-                async with session_factory() as session:
-                    service = SkillService(
-                        session=session,
-                        role=role.model_copy(deep=True),
+                async def claim_as_contender() -> SkillBlobPublicationClaim:
+                    contender_started.set()
+                    claim = await contender_service._claim_blob_publication(
+                        sha256=sha256,
+                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                        key=storage_key,
+                        size_bytes=len(content),
                     )
-                    return await service.patch_draft(
-                        skill_id=skill_id,
-                        params=SkillDraftPatch(
-                            base_revision=draft_revision,
-                            operations=[
-                                SkillDraftAttachUploadedBlobOp(
-                                    path="references/shared.txt",
-                                    upload_id=upload_id,
-                                )
-                            ],
-                        ),
-                    )
+                    await contender_session.commit()
+                    return claim
 
-            winner_task = asyncio.create_task(
-                attach_upload(
-                    skill_id=winner_skill.id,
-                    draft_revision=winner_draft.draft_revision,
-                    upload_id=winner_upload.upload_id,
-                )
-            )
-            loser_task: asyncio.Task[SkillDraftRead] | None = None
-            try:
-                await asyncio.wait_for(canonical_verification_started.wait(), timeout=5)
-                loser_task = asyncio.create_task(
-                    attach_upload(
-                        skill_id=loser_skill.id,
-                        draft_revision=loser_draft.draft_revision,
-                        upload_id=loser_upload.upload_id,
-                    )
-                )
-                await asyncio.wait_for(second_lock_attempted.wait(), timeout=5)
-                assert loser_task.done() is False
+                contender_task = asyncio.create_task(claim_as_contender())
+                await contender_started.wait()
+                await asyncio.sleep(0)
+                assert contender_task.done() is False
 
-                release_canonical_verification.set()
-                await asyncio.wait_for(
-                    asyncio.gather(winner_task, loser_task), timeout=10
-                )
-            finally:
-                release_canonical_verification.set()
-                pending_tasks = [
-                    task
-                    for task in (winner_task, loser_task)
-                    if task is not None and not task.done()
-                ]
-                for task in pending_tasks:
-                    task.cancel()
-                if pending_tasks:
-                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                await owner_session.commit()
+                contender_claim = await asyncio.wait_for(contender_task, timeout=5)
 
-            async with session_factory() as verification_session:
-                blob_rows = (
-                    (
-                        await verification_session.execute(
-                            select(SkillBlob).where(
-                                SkillBlob.workspace_id == role.workspace_id,
-                                SkillBlob.sha256 == sha256,
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-
-            assert lock_attempts == 2
-            assert canonical_reads == 1
-            assert copied_from == [winner_upload.key]
-            assert canonical_deletes == []
-            assert len(blob_rows) == 1
+            assert owner_claim.is_owner is True
+            assert contender_claim.is_owner is False
+            assert contender_claim.blob.id == owner_claim.blob.id
         finally:
             await concurrent_engine.dispose()
 
