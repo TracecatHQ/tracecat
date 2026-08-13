@@ -201,11 +201,24 @@ append_matching_files() {
 # also descends into untracked paths under the repo root - nested clones of other
 # repositories and extra git worktrees - and rewrites version strings that do not
 # belong to this checkout.
+#
+# Only regular files (mode 100644/100755) qualify. Tracked symlinks such as
+# docs/CLAUDE.md would otherwise match through their target, and sed -i then
+# replaces the link itself with a regular file.
 tracked_candidate_files() {
-    git ls-files -z -- \
+    local entry mode path
+
+    git ls-files -s -z -- \
         ':(glob)**/docker-compose*.yml' \
         'docs' \
-        'deployments'
+        'deployments' |
+        while IFS= read -r -d '' entry; do
+            mode="${entry%% *}"
+            path="${entry#*$'\t'}"
+            case "$mode" in
+            100644 | 100755) printf '%s\0' "$path" ;;
+            esac
+        done
 }
 
 # Capture Tracecat-specific version contexts, including files that only carry the
