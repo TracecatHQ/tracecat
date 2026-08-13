@@ -360,9 +360,17 @@ export const LinkPopover = React.forwardRef<
       syncAnchorRect()
       window.addEventListener("scroll", syncAnchorRect, true)
       window.addEventListener("resize", syncAnchorRect)
+      // Moving between two links leaves both `isOpen` and `editor` unchanged, so
+      // without these the anchor would stay on the previous link while the
+      // popover's own URL field updates on selectionUpdate. `transaction` also
+      // covers edits that reflow the link without moving the selection.
+      editor.on("selectionUpdate", syncAnchorRect)
+      editor.on("transaction", syncAnchorRect)
       return () => {
         window.removeEventListener("scroll", syncAnchorRect, true)
         window.removeEventListener("resize", syncAnchorRect)
+        editor.off("selectionUpdate", syncAnchorRect)
+        editor.off("transaction", syncAnchorRect)
       }
     }, [isOpen, editor])
 
