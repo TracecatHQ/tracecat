@@ -1,6 +1,7 @@
 "use client"
 
 import type { CaseFieldRead, CaseUpdate } from "@/client"
+import { CASE_PANEL_GROUP_LABEL_CLASS } from "@/components/cases/case-panel-common"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import {
   SidebarGroup,
@@ -39,10 +40,20 @@ export function CasePanelFieldsGroup({
   onRowClick,
 }: CasePanelFieldsGroupProps) {
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Fields</SidebarGroupLabel>
+    // mt-4 opens the section gap after Properties in both the docked rail and
+    // the stacked layout, which wrap this group in different parents (neither
+    // of which applies a flex gap between the groups).
+    <SidebarGroup className="mt-4">
+      <SidebarGroupLabel className={CASE_PANEL_GROUP_LABEL_CLASS}>
+        Fields
+      </SidebarGroupLabel>
       <SidebarGroupContent className="px-2">
-        <div className="flex flex-col gap-2">
+        {/* gap-1, not gap-2: grouping is read from the ratio of between-section
+            to within-section whitespace. A 4px row gap against the ~32px
+            section gap gives ~8:1, so the sections separate clearly without
+            spending more vertical space. Keep in sync with the Properties
+            group in `case-panel-view.tsx`. */}
+        <div className="flex flex-col gap-1">
           {visibleCustomFields.map((field) => {
             const label = field.id
             return (

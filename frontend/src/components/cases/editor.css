@@ -58,9 +58,9 @@
 
 /*
  * The case panel scrolls on `bg-muted/20` layered over the page background.
- * This recomputes that composite; keep it in sync with the ScrollArea class in
- * `case-panel-view.tsx`. Browsers without `color-mix()` keep the plain
- * background above, which is visually near-identical at 20% muted.
+ * This recomputes that composite; keep it in sync with the `.tc-case-panel`
+ * root class in `case-panel-view.tsx`. Browsers without `color-mix()` keep
+ * the plain background above, which is visually near-identical at 20% muted.
  */
 @supports (background: color-mix(in srgb, red 50%, blue)) {
   .case-description-editor--panel

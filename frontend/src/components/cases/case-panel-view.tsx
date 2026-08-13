@@ -20,6 +20,7 @@ import { CaseAttachmentsSection } from "@/components/cases/case-attachments-sect
 import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
+import { CASE_PANEL_GROUP_LABEL_CLASS } from "@/components/cases/case-panel-common"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import { CasePanelFieldsGroup } from "@/components/cases/case-panel-fields-group"
 import {
@@ -50,6 +51,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   isCustomFieldValueEmpty,
@@ -66,6 +68,12 @@ import {
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+/**
+ * Minimum `.tc-case-panel` width (px) at which the details rail stays docked:
+ * the 416px (26rem) rail plus a ~624px minimum usable case body.
+ */
+const CASE_DETAILS_DOCK_MIN_WIDTH = 1040
 
 type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
 const CASE_PANEL_TABS = new Set<CasePanelTab>([
@@ -144,6 +152,18 @@ export function CasePanelView({
   // Get active tab from URL query params, default to "comments"
   const routeTab = parseCasePanelTab(searchParams?.get("tab")) ?? "comments"
   const activeTab = embedded ? embeddedTab : routeTab
+
+  // Measure the container, not the viewport: the chat sidebar
+  // (`ResizableSidebar`, 450px default) is a sibling flex child, so with chat
+  // open the case row is far narrower than the window and a viewport media
+  // query would wrongly keep the rail docked.
+  // A callback ref, not `useRef`: the measured node renders below the loading
+  // and error early returns, so a ref object would still be null on the first
+  // effect run and the observer would never attach.
+  const [rootNode, setRootNode] = useState<HTMLDivElement | null>(null)
+  const canDock = useIsAtLeastWidth(rootNode, CASE_DETAILS_DOCK_MIN_WIDTH)
+  const showDockedDetails = !embedded && canDock
+  const showInlineDetails = !embedded && !canDock
 
   useEffect(() => {
     if (!embedded) {
@@ -317,9 +337,16 @@ export function CasePanelView({
   const caseDetailsContent = (
     <>
       <SidebarGroup>
-        <SidebarGroupLabel>Properties</SidebarGroupLabel>
+        <SidebarGroupLabel className={CASE_PANEL_GROUP_LABEL_CLASS}>
+          Properties
+        </SidebarGroupLabel>
         <SidebarGroupContent className="px-2">
-          <div className="flex flex-col gap-2">
+          {/* gap-1, not gap-2: grouping is read from the ratio of
+              between-section to within-section whitespace. A 4px row gap
+              against the ~32px section gap gives ~8:1, so the sections
+              separate clearly without spending more vertical space. Keep in
+              sync with `case-panel-fields-group.tsx`. */}
+          <div className="flex flex-col gap-1">
             <div
               className={panelFieldRowClassName}
               onClick={handlePanelFieldRowClick}
@@ -439,16 +466,22 @@ export function CasePanelView({
   return (
     <>
       <CaseWorkflowTrigger caseData={caseData} />
+      {/* The shared `bg-muted/20` lives on this root so the body and the
+          details rail composite over the same `SidebarInset` background —
+          one continuous surface with no seam. Keep it in sync with the
+          sticky-toolbar `color-mix` in `cases/editor.css`. */}
       <div
+        ref={setRootNode}
         className={cn(
-          "tc-case-panel flex h-full w-full min-w-0",
+          "tc-case-panel flex h-full w-full min-w-0 bg-muted/20",
           embedded && "@container"
         )}
       >
         <div className="min-w-0 flex-1">
           <ScrollArea
+            hideScrollbar
             className={cn(
-              "h-full min-w-0 bg-muted/20",
+              "h-full min-w-0",
               embedded &&
                 "[&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
             )}
@@ -458,12 +491,13 @@ export function CasePanelView({
                 "mx-auto w-full min-w-0 max-w-4xl",
                 embedded
                   ? "px-4 py-5 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
-                  : "px-6 pt-20 pb-24"
+                  : "px-4 pt-20 pb-24 lg:px-6"
               )}
             >
-              {/* Non-embedded, the gap below the tags comes from the description
-                  editor's sticky toolbar padding — see `cases/editor.css`. */}
-              <div className={cn("flex flex-col", embedded && "mb-2")}>
+              {/* When the details rail is docked, the gap below the tags comes
+                  from the description editor's sticky toolbar padding — see
+                  `cases/editor.css`. */}
+              <div className="flex flex-col">
                 <div className="py-1.5 first:pt-0 last:pb-0">
                   <CasePanelSummary
                     caseData={caseData}
@@ -491,6 +525,24 @@ export function CasePanelView({
                 </div>
               </div>
 
+              {/* When the row is too narrow to dock the rail — or the view is
+                  embedded in the chat artifact panel — stack the details
+                  between the tags and the description so the primary metadata
+                  stays reachable rather than sitting below the editor.
+                  The pt-12 balances the whitespace above "Properties" against
+                  the perceived gap below the bottom border, which includes the
+                  description editor's visually empty sticky-toolbar band.
+                  The px-0 overrides strip the sidebar primitives' horizontal
+                  insets (SidebarGroup p-2, label/content px-2) so the
+                  "Properties" label and row text share the title/description
+                  left edge; row hover backgrounds still bleed past it via
+                  their -mx-2. The docked rail keeps the paddings. */}
+              {(showInlineDetails || embedded) && (
+                <div className="mb-4 border-b pt-12 pb-2 [&_[data-sidebar=group-content]]:px-0 [&_[data-sidebar=group-label]]:px-0 [&_[data-sidebar=group]]:px-0">
+                  {caseDetailsContent}
+                </div>
+              )}
+
               <div className="mb-4">
                 <CasePanelDescription
                   caseData={caseData}
@@ -506,12 +558,6 @@ export function CasePanelView({
                     workspaceId={workspaceId}
                     caseData={caseData}
                   />
-                </div>
-              )}
-
-              {embedded && (
-                <div className="mb-6 border-y bg-background/80 py-2">
-                  {caseDetailsContent}
                 </div>
               )}
 
@@ -576,14 +622,22 @@ export function CasePanelView({
             </div>
           </ScrollArea>
         </div>
-        {!embedded && (
+        {showDockedDetails && (
           <Sidebar
             side="right"
             collapsible="none"
-            className="w-[22rem] shrink-0 border-l border-border bg-background text-foreground"
+            className="w-[26rem] shrink-0 bg-transparent text-foreground"
           >
             <SidebarContent className="h-full">
-              {caseDetailsContent}
+              {/* pt-[4.25rem] (68px) lands the "Properties" label text flush
+                  with the case title text at 84px from the panel top:
+                  - main column: pt-20 (80px) + title Input h-9 (36px) with a
+                    text-xl 28px line → text top = 80 + (36 − 28) / 2 = 84px
+                  - rail: SidebarGroup p-2 (8px) + SidebarGroupLabel h-8
+                    (32px) with a text-xs 16px line → text top = wrapper
+                    padding + 8 + (32 − 16) / 2 = wrapper + 16px
+                  - 84 − 16 = 68px = 4.25rem */}
+              <div className="px-2 pt-[4.25rem]">{caseDetailsContent}</div>
             </SidebarContent>
           </Sidebar>
         )}
