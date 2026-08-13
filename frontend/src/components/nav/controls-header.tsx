@@ -1815,9 +1815,9 @@ function CaseStatusControl({
     useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   return (
-    <div className="min-w-0">
+    <div className="flex min-w-0 items-center">
       {caseAddonsEnabled ? (
-        <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
+        <div className="no-scrollbar max-w-[min(48vw,36rem)] overflow-x-auto">
           <CaseDurationMetrics
             durations={caseDurations}
             definitions={caseDurationDefinitions}
