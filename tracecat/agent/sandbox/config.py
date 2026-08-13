@@ -4,7 +4,7 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network namespace always isolated for private loopback; pasta enables outbound access
+- Network namespace always isolated for private loopback; NSTUN controls outbound access
 - LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LLM gateway
 - Namespace isolation (PID, user, mount, IPC, UTS namespaces)
 - Fresh read-only /proc inside the jail PID namespace
@@ -25,21 +25,29 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tracecat.sandbox.types import SandboxNetworkRequest
 
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_DIR,
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     CONTROL_SOCKET_NAME,
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
+    build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
+    JAILED_AGENT_UV_STATE_DIR,
     JAILED_AGENT_WORK_DIR,
+    job_uv_state_dir,
 )
 
 # Valid environment variable name pattern (POSIX compliant)
@@ -120,6 +128,8 @@ AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
     "USER": "agent",
+    # Keep UV caches, credentials, managed Pythons, and tools out of stable home.
+    **build_agent_runtime_uv_env(JAILED_AGENT_UV_STATE_DIR),
     "TRACECAT__DISABLE_NSJAIL": "false",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
@@ -220,7 +230,7 @@ def build_agent_nsjail_config(
     control_socket_path: Path | None = None,
     session_home_dir: Path | None = None,
     session_work_dir: Path | None = None,
-    enable_internet_access: bool = False,
+    network: SandboxNetworkRequest | None = None,
     skills_dir: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
@@ -241,9 +251,8 @@ def build_agent_nsjail_config(
             and mount_control_socket is True, defaults to socket_dir/control.sock.
         session_home_dir: Optional host directory mounted as the jailed agent home.
         session_work_dir: Optional host directory mounted as the jailed work dir.
-        enable_internet_access: If True, enables pasta userspace networking for
-            outbound internet access. Default is False (network isolated with
-            private loopback only).
+        network: Requested outbound capability. None leaves the private network
+            namespace without an outbound backend.
         skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
@@ -254,16 +263,14 @@ def build_agent_nsjail_config(
     """
     # Import lazily so sandboxed runtime imports of this module do not require
     # the full tracecat.sandbox package to be mounted inside the jail.
-    from tracecat.sandbox.networking import (
-        pasta_dns_mount_config_lines,
-        pasta_user_net_config_lines,
-        write_pasta_network_files,
-    )
+    from tracecat.sandbox.networking import resolve_sandbox_network_plan
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
+    uv_state_dir = job_uv_state_dir(job_dir)
+    _validate_path(uv_state_dir, "uv_state_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
     if llm_socket_path is not None:
@@ -291,10 +298,12 @@ def build_agent_nsjail_config(
     _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
 
+    network_plan = resolve_sandbox_network_plan(socket_dir, network)
+
     # Network behavior:
-    # - always isolate network namespace for private loopback
-    # - internet enabled: add pasta userspace networking for outbound access
-    # - internet disabled: no route out of the isolated namespace
+    # - always isolate the network namespace and its private loopback
+    # - internet enabled: NSTUN applies the deployment-owned outbound policy
+    # - internet disabled: no user_net backend and no route out
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
@@ -323,8 +332,7 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
 
-    if enable_internet_access:
-        lines.extend(pasta_user_net_config_lines())
+    lines.extend(network_plan.user_net_lines)
 
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
@@ -339,9 +347,7 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
         )
 
-    if enable_internet_access:
-        network_files = write_pasta_network_files(socket_dir)
-        lines.extend(pasta_dns_mount_config_lines(network_files))
+    lines.extend(network_plan.dns_mount_lines)
 
     # Fresh procfs avoids leaking executor-container process metadata. Docker
     # runtimes must run these containers with systempaths=unconfined; otherwise
@@ -363,9 +369,10 @@ def build_agent_nsjail_config(
             "",
             "# Tracecat job mountpoint namespace",
             "# The tmpfs only backs files placed directly under this directory;",
-            "# /run/tracecat/job is a separate read-only bind mount from the host.",
+            "# job data and its UV-managed state are separate host bind mounts.",
             f'mount {{ dst: "{AGENT_RUNTIME_DIR}" fstype: "tmpfs" rw: true options: "size=1M" }}',
             f'mount {{ src: "{job_dir}" dst: "{JAILED_AGENT_JOB_DIR}" is_bind: true rw: false }}',
+            f'mount {{ src: "{uv_state_dir}" dst: "{JAILED_AGENT_UV_STATE_DIR}" is_bind: true rw: true }}',
         ]
     )
     lines.extend(
@@ -505,7 +512,7 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
     for key, value in config.env_vars.items():
         _validate_env_key(key)
         _validate_env_value(key, value)
-        if key in AGENT_SANDBOX_BASE_ENV:
+        if key in AGENT_SANDBOX_BASE_ENV or key in AGENT_RUNTIME_PROTECTED_ENV_VARS:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"
             )

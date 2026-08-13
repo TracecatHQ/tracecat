@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Search message groups
+  description: Search Sublime message groups using API-native query parameters.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/searchmessagegroups-1
+  namespace: tools.sublime
+  name: search_message_groups
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/search
+        method: GET
+        params: ${{ inputs.params }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

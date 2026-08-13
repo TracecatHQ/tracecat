@@ -1,23 +1,28 @@
 """RegistrySyncRunner - Orchestrates sandboxed registry sync phases.
 
 This module implements the core logic for syncing a registry repository
-with nsjail sandboxing. It coordinates four phases:
+with nsjail sandboxing. It coordinates six phases:
 
-1. Git clone (subprocess, needs SSH) - for git origins only
-2. Package install (nsjail + network) - install dependencies
-3. Action discovery (nsjail, NO network) - import and discover actions
-4. Artifact build and upload - create portable registry environment
+1. SSH host-key acquisition (fresh nsjail + network, no credentials)
+2. Git clone (fresh nsjail, network + scoped SSH agent) - for git origins only
+3. Package install (nsjail + network) - install dependencies
+4. Action discovery (nsjail, NO network) - import and discover actions
+5. Artifact packaging (fresh nsjail, NO network)
+6. Artifact upload (trusted worker code, outside nsjail)
 
 Security model:
-- SSH keys are used ONLY for git clone (outside nsjail)
+- The host-key jail has network access but no SSH agent or worker credentials
+- A dedicated one-key SSH agent socket is exposed ONLY to the clone jail
 - DB credentials are NEVER passed to sandbox
-- Discovery phase has network disabled to prevent exfiltration
+- Discovery and packaging have network disabled
+- Enabling nsjail globally makes registry sync fail closed when it is unavailable
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,8 +34,8 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import RegistryError
+from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.artifact_keys import get_artifact_s3_key
 from tracecat.registry.constants import PLATFORM_REGISTRY_NAMESPACE
 from tracecat.registry.sync.artifact import (
@@ -41,8 +46,14 @@ from tracecat.registry.sync.artifact import (
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
-from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
+from tracecat.registry.sync.sandbox import RegistrySyncSandbox
+from tracecat.registry.sync.schemas import (
+    RegistrySyncRequest,
+    RegistrySyncResult,
+    SyncResultSuccess,
+)
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.sandbox.utils import is_nsjail_available
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -112,6 +123,36 @@ class RegistrySyncValidationError(RegistrySyncRunnerError):
         self.validation_errors = validation_errors
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedPackage:
+    """Package source and immutable revision selected for one sync."""
+
+    path: Path
+    commit_sha: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _SandboxedBackend:
+    """Available NsJail backend selected for the full sync."""
+
+    sandbox: RegistrySyncSandbox = field(default_factory=RegistrySyncSandbox)
+
+
+@dataclass(frozen=True, slots=True)
+class _UnsandboxedBackend:
+    """Explicit no-NsJail compatibility backend."""
+
+
+@dataclass(frozen=True, slots=True)
+class _UnavailableBackend:
+    """Required NsJail backend that is unavailable on this worker."""
+
+
+type _RegistrySyncBackend = (
+    _SandboxedBackend | _UnsandboxedBackend | _UnavailableBackend
+)
+
+
 class RegistrySyncRunner:
     """Orchestrates all phases of sandboxed registry sync.
 
@@ -126,19 +167,30 @@ class RegistrySyncRunner:
         self,
         install_timeout: int | None = None,
         discover_timeout: int | None = None,
+        clone_timeout: int | None = None,
     ):
         """Initialize the runner.
 
         Args:
             install_timeout: Timeout for package installation (default from config).
             discover_timeout: Timeout for action discovery (default from config).
+            clone_timeout: Timeout for Git clone operations (default from config).
         """
-        self.install_timeout: int = install_timeout or int(
-            os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT", 600)
+        self.install_timeout = (
+            install_timeout or config.TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT
         )
-        self.discover_timeout: int = discover_timeout or int(
-            os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT", 300)
+        self.discover_timeout = (
+            discover_timeout or config.TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT
         )
+        self.clone_timeout = (
+            clone_timeout or config.TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT
+        )
+        if config.TRACECAT__DISABLE_NSJAIL:
+            self._backend: _RegistrySyncBackend = _UnsandboxedBackend()
+        elif is_nsjail_available():
+            self._backend = _SandboxedBackend()
+        else:
+            self._backend = _UnavailableBackend()
 
     async def run(self, request: RegistrySyncRequest) -> RegistrySyncResult:
         """Execute the full registry sync flow.
@@ -152,6 +204,20 @@ class RegistrySyncRunner:
         Raises:
             RegistrySyncRunnerError: If any phase fails.
         """
+        if (
+            request.origin_type == "local"
+            and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED
+        ):
+            raise RegistrySyncRunnerError(
+                "Local repository is not enabled on this instance. "
+                "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true."
+            )
+        if isinstance(self._backend, _UnavailableBackend):
+            raise RegistrySyncRunnerError(
+                "Registry sync requires nsjail, but nsjail is unavailable on this "
+                "ExecutorWorker"
+            )
+
         logger.info(
             "Starting registry sync",
             origin=request.origin,
@@ -164,120 +230,234 @@ class RegistrySyncRunner:
             prefix="tracecat_sync_"
         ) as temp_dir:
             work_dir = Path(temp_dir)
-
-            # Phase 1: Resolve package path based on origin type
-            if request.origin_type == "builtin":
-                package_path = await self._get_builtin_package_path()
-                commit_sha = None
-            elif request.origin_type == "local":
-                package_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
-                commit_sha = None
-            elif request.origin_type == "git":
-                if not request.git_url:
-                    raise RegistrySyncRunnerError(
-                        "git_url is required for git origin type"
+            match self._backend:
+                case _SandboxedBackend(sandbox=sandbox):
+                    return await self._run_sandboxed(request, work_dir, sandbox)
+                case _UnsandboxedBackend():
+                    return await self._run_unsandboxed(request, work_dir)
+                case _UnavailableBackend():
+                    raise AssertionError(
+                        "Unavailable backend passed the fail-closed guard"
                     )
-                ssh_key = await self._fetch_registry_ssh_key(request.organization_id)
-                package_path, commit_sha = await self._clone_repository(
+
+    async def _run_sandboxed(
+        self,
+        request: RegistrySyncRequest,
+        work_dir: Path,
+        sandbox: RegistrySyncSandbox,
+    ) -> RegistrySyncResult:
+        """Execute all registry phases with the selected NsJail backend."""
+        resolved = await self._resolve_sandboxed_package(request, work_dir, sandbox)
+        self._log_resolved_package(request, resolved, sandboxed=True)
+        output_dir = work_dir / "artifact"
+
+        installed_site_packages = await sandbox.install_package(
+            package_path=resolved.path,
+            output_dir=output_dir,
+            timeout_seconds=self.install_timeout,
+        )
+        logger.info(
+            "Registry package installed",
+            site_packages_path=str(installed_site_packages),
+        )
+
+        discovery = self._load_prebuilt_actions(request)
+        if discovery is None:
+            discovery = await self._discover_sandboxed_actions(
+                request=request,
+                resolved=resolved,
+                installed_site_packages=installed_site_packages,
+                sandbox=sandbox,
+            )
+        self._raise_for_validation_errors(discovery)
+
+        artifact_result = await sandbox.package_site_packages(
+            site_packages=installed_site_packages,
+            output_dir=output_dir,
+            timeout_seconds=self.install_timeout,
+        )
+        self._log_built_artifact(artifact_result)
+        return await self._finalize_sync(
+            request=request,
+            resolved=resolved,
+            discovery=discovery,
+            artifact_result=artifact_result,
+        )
+
+    async def _run_unsandboxed(
+        self,
+        request: RegistrySyncRequest,
+        work_dir: Path,
+    ) -> RegistrySyncResult:
+        """Execute the explicit no-NsJail compatibility flow."""
+        resolved = await self._resolve_unsandboxed_package(request, work_dir)
+        self._log_resolved_package(request, resolved, sandboxed=False)
+        artifact_result = await self._build_unsandboxed_execution_artifact(
+            package_path=resolved.path,
+            output_dir=work_dir / "artifact",
+        )
+        self._log_built_artifact(artifact_result)
+
+        discovery = self._load_prebuilt_actions(request)
+        if discovery is None:
+            discovery = await self._discover_unsandboxed_actions(
+                request, resolved.commit_sha
+            )
+        self._raise_for_validation_errors(discovery)
+        return await self._finalize_sync(
+            request=request,
+            resolved=resolved,
+            discovery=discovery,
+            artifact_result=artifact_result,
+        )
+
+    async def _resolve_sandboxed_package(
+        self,
+        request: RegistrySyncRequest,
+        work_dir: Path,
+        sandbox: RegistrySyncSandbox,
+    ) -> _ResolvedPackage:
+        """Resolve a package source without leaving the sandboxed backend."""
+        if request.origin_type == "builtin":
+            return _ResolvedPackage(await self._get_builtin_package_path(), None)
+        if request.origin_type == "local":
+            return _ResolvedPackage(
+                Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH),
+                None,
+            )
+        if not request.git_url:
+            raise RegistrySyncRunnerError("git_url is required for git origin type")
+
+        ssh_key = await self._fetch_registry_ssh_key(request.organization_id)
+        try:
+            try:
+                package_path, commit_sha = await sandbox.clone_repository(
                     git_url=request.git_url,
                     commit_sha=request.commit_sha,
                     ssh_key=ssh_key,
                     work_dir=work_dir,
+                    timeout_seconds=self.clone_timeout,
                 )
-            else:
-                raise RegistrySyncRunnerError(
-                    f"Unknown origin type: {request.origin_type}"
-                )
+            except Exception as exc:
+                raise GitCloneError(f"Sandboxed Git clone failed: {exc}") from exc
+        finally:
+            ssh_key = ""
+        return _ResolvedPackage(package_path, commit_sha)
 
-            logger.info(
-                "Package path resolved",
-                origin_type=request.origin_type,
-                package_path=str(package_path),
+    async def _resolve_unsandboxed_package(
+        self,
+        request: RegistrySyncRequest,
+        work_dir: Path,
+    ) -> _ResolvedPackage:
+        """Resolve a package source with the explicit compatibility backend."""
+        if request.origin_type == "builtin":
+            return _ResolvedPackage(await self._get_builtin_package_path(), None)
+        if request.origin_type == "local":
+            return _ResolvedPackage(
+                Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH),
+                None,
             )
+        if not request.git_url:
+            raise RegistrySyncRunnerError("git_url is required for git origin type")
 
-            storage_namespace = request.storage_namespace or PLATFORM_REGISTRY_NAMESPACE
-
-            # Phase 2: Build execution artifact. This installs dependencies and
-            # may need network access, but upload waits until validation passes.
-            artifact_result = await self._build_execution_artifact(
-                package_path=package_path,
-                output_dir=work_dir / "artifact",
+        logger.warning(
+            "NsJail is explicitly disabled; registry Git clone is not sandboxed",
+            disable_nsjail=True,
+        )
+        ssh_key = await self._fetch_registry_ssh_key(request.organization_id)
+        try:
+            package_path, commit_sha = await self._clone_repository(
+                git_url=request.git_url,
+                commit_sha=request.commit_sha,
+                ssh_key=ssh_key,
+                work_dir=work_dir,
             )
+        finally:
+            ssh_key = ""
+        return _ResolvedPackage(package_path, commit_sha)
 
-            logger.info(
-                "Registry artifact built",
-                squashfs_path=str(artifact_result.squashfs_path),
-                artifact_size_bytes=artifact_result.artifact_size_bytes,
+    def _load_prebuilt_actions(
+        self,
+        request: RegistrySyncRequest,
+    ) -> SyncResultSuccess | None:
+        """Load a release-built manifest when one matches this request."""
+        storage_namespace = request.storage_namespace or PLATFORM_REGISTRY_NAMESPACE
+        prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
+            origin=request.origin,
+            target_version=request.target_version,
+            storage_namespace=storage_namespace,
+        )
+        if prebuilt_manifest is None:
+            return None
+        try:
+            actions = prebuilt_manifest.to_action_creates(
+                repository_id=request.repository_id,
+                origin=request.origin,
             )
-
-            # Phase 3: Discover actions from the installed packages, or load the
-            # release-built manifest for builtin registries.
-            prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
+        except Exception as exc:
+            logger.warning(
+                "Ignoring prebuilt registry manifest that could not be converted",
                 origin=request.origin,
                 target_version=request.target_version,
-                storage_namespace=storage_namespace,
+                error=str(exc),
             )
-            actions: list[RegistryActionCreate] | None = None
-            validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = {}
-            if prebuilt_manifest is not None:
-                try:
-                    actions = prebuilt_manifest.to_action_creates(
-                        repository_id=request.repository_id,
-                        origin=request.origin,
-                    )
-                    validation_errors = {}
-                    logger.info(
-                        "Loaded prebuilt builtin registry manifest",
-                        num_actions=len(actions),
-                        target_version=request.target_version,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Ignoring prebuilt registry manifest that could not be converted",
-                        origin=request.origin,
-                        target_version=request.target_version,
-                        error=str(e),
-                    )
-                    prebuilt_manifest = None
+            return None
+        logger.info(
+            "Loaded prebuilt builtin registry manifest",
+            num_actions=len(actions),
+            target_version=request.target_version,
+        )
+        return SyncResultSuccess(actions=actions)
 
-            if actions is None:
-                actions, validation_errors = await self._discover_actions(
-                    repository_id=request.repository_id,
-                    origin=request.origin,
-                    commit_sha=commit_sha,
-                    validate=request.validate_actions,
-                    git_repo_package_name=request.git_repo_package_name,
-                    organization_id=request.organization_id,
-                )
+    @staticmethod
+    def _raise_for_validation_errors(discovery: SyncResultSuccess) -> None:
+        if discovery.validation_errors:
+            raise RegistrySyncValidationError(discovery.validation_errors)
 
-                logger.info(
-                    "Actions discovered",
-                    num_actions=len(actions),
-                    num_validation_errors=len(validation_errors),
-                )
+    @staticmethod
+    def _log_resolved_package(
+        request: RegistrySyncRequest,
+        resolved: _ResolvedPackage,
+        *,
+        sandboxed: bool,
+    ) -> None:
+        logger.info(
+            "Package path resolved",
+            origin_type=request.origin_type,
+            package_path=str(resolved.path),
+            sandboxed=sandboxed,
+        )
 
-            if validation_errors:
-                raise RegistrySyncValidationError(validation_errors)
+    @staticmethod
+    def _log_built_artifact(artifact_result: RegistryArtifactBuildResult) -> None:
+        logger.info(
+            "Registry artifact built",
+            squashfs_path=str(artifact_result.squashfs_path),
+            artifact_size_bytes=artifact_result.artifact_size_bytes,
+        )
 
-            # Phase 4: Upload SquashFS image to S3
-            artifact_uri = await self._upload_squashfs(
-                squashfs_path=artifact_result.squashfs_path,
-                repository_origin=request.origin,
-                commit_sha=commit_sha,
-                storage_namespace=request.storage_namespace,
-            )
-
-            logger.info(
-                "Registry artifact uploaded",
-                artifact_uri=artifact_uri,
-            )
-
-            return RegistrySyncResult(
-                actions=actions,
-                artifact_uri=artifact_uri,
-                commit_sha=commit_sha,
-                validation_errors=validation_errors,
-            )
+    async def _finalize_sync(
+        self,
+        *,
+        request: RegistrySyncRequest,
+        resolved: _ResolvedPackage,
+        discovery: SyncResultSuccess,
+        artifact_result: RegistryArtifactBuildResult,
+    ) -> RegistrySyncResult:
+        """Upload a validated artifact and create the workflow result."""
+        artifact_uri = await self._upload_squashfs(
+            squashfs_path=artifact_result.squashfs_path,
+            repository_origin=request.origin,
+            commit_sha=resolved.commit_sha,
+            storage_namespace=request.storage_namespace,
+        )
+        logger.info("Registry artifact uploaded", artifact_uri=artifact_uri)
+        return RegistrySyncResult(
+            actions=discovery.actions,
+            artifact_uri=artifact_uri,
+            commit_sha=resolved.commit_sha,
+            validation_errors=discovery.validation_errors,
+        )
 
     async def _get_builtin_package_path(self) -> Path:
         """Get the path to the builtin tracecat_registry package.
@@ -366,7 +546,7 @@ class RegistrySyncRunner:
             )
 
         # Timeout for git operations (clone, fetch, checkout)
-        git_timeout = 120  # 2 minutes
+        git_timeout = self.clone_timeout
 
         try:
             # Clone the repository
@@ -464,12 +644,12 @@ class RegistrySyncRunner:
                     _ = ssh_key_path.write_bytes(b"\x00" * len(ssh_key))
                     ssh_key_path.unlink()
 
-    async def _build_execution_artifact(
+    async def _build_unsandboxed_execution_artifact(
         self,
         package_path: Path,
         output_dir: Path,
     ) -> RegistryArtifactBuildResult:
-        """Build a SquashFS registry artifact from the package.
+        """Build an artifact with the explicit no-NsJail compatibility path.
 
         Args:
             package_path: Path to the package directory.
@@ -482,55 +662,121 @@ class RegistrySyncRunner:
             RegistryArtifactBuildError: If build fails.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
+        logger.warning(
+            "NsJail is explicitly disabled; registry package installation is not "
+            "sandboxed",
+            disable_nsjail=True,
+        )
         return await build_artifact_from_path(package_path, output_dir)
 
-    async def _discover_actions(
-        self,
-        repository_id: UUID,
-        origin: str,
-        commit_sha: str | None = None,
-        validate: bool = False,
-        git_repo_package_name: str | None = None,
-        organization_id: UUID | None = None,
-    ) -> tuple[
-        list[RegistryActionCreate], dict[str, list[RegistryActionValidationErrorInfo]]
-    ]:
-        """Discover actions from the repository.
+    @staticmethod
+    def _resolve_package_name(
+        request: RegistrySyncRequest,
+        package_path: Path,
+    ) -> str:
+        """Resolve the import package name used by sandboxed discovery."""
+        if request.origin_type == "builtin":
+            return request.origin
+        if request.git_repo_package_name:
+            return request.git_repo_package_name
+        if request.git_url:
+            try:
+                return parse_git_url(request.git_url).repo
+            except ValueError as exc:
+                raise RegistrySyncRunnerError(
+                    "Cannot resolve package name from invalid registry Git URL"
+                ) from exc
+        return package_path.name
 
-        This uses the existing subprocess-based discovery mechanism.
-        In the future, this could be replaced with nsjail-based discovery
-        with network disabled for extra security.
+    async def _discover_sandboxed_actions(
+        self,
+        *,
+        request: RegistrySyncRequest,
+        resolved: _ResolvedPackage,
+        installed_site_packages: Path,
+        sandbox: RegistrySyncSandbox,
+    ) -> SyncResultSuccess:
+        """Discover installed actions in the selected no-network jail.
 
         Args:
-            repository_id: Database repository ID.
-            origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
-            commit_sha: Optional commit SHA to load for remote repositories.
-            validate: Whether to validate template actions.
-            git_repo_package_name: Optional override for git repository package name.
+            request: Registry sync request.
+            resolved: Package source and resolved revision.
+            installed_site_packages: Isolated installation output.
+            sandbox: Backend selected for the full sync.
 
         Returns:
-            Tuple of (actions, validation_errors).
+            Typed discovery result.
 
         Raises:
             ActionDiscoveryError: If discovery fails.
         """
-
+        package_name = self._resolve_package_name(request, resolved.path)
         try:
-            result = await fetch_actions_from_subprocess(
-                origin=origin,
-                repository_id=repository_id,
-                commit_sha=commit_sha,
-                validate=validate,
-                git_repo_package_name=git_repo_package_name,
-                timeout=float(self.discover_timeout),
-                organization_id=organization_id,
+            result = await sandbox.discover_actions(
+                site_packages=installed_site_packages,
+                origin=request.origin,
+                package_name=package_name,
+                repository_id=request.repository_id,
+                commit_sha=resolved.commit_sha,
+                validate=request.validate_actions,
+                organization_id=request.organization_id,
+                timeout_seconds=self.discover_timeout,
             )
-            return result.actions, result.validation_errors
-        except Exception as e:
+        except Exception as exc:
             raise ActionDiscoveryError(
-                f"Failed to discover actions: {e}",
-                non_retryable=_is_non_retryable_discovery_error(e),
-            ) from e
+                f"Failed to discover actions: {exc}",
+                non_retryable=_is_non_retryable_discovery_error(exc),
+            ) from exc
+        self._log_discovered_actions(result)
+        return result
+
+    async def _discover_unsandboxed_actions(
+        self,
+        request: RegistrySyncRequest,
+        commit_sha: str | None,
+    ) -> SyncResultSuccess:
+        """Discover actions with the explicit subprocess compatibility path.
+
+        Args:
+            request: Registry sync request.
+            commit_sha: Resolved repository revision, if any.
+
+        Returns:
+            Typed discovery result.
+
+        Raises:
+            ActionDiscoveryError: If discovery fails.
+        """
+        try:
+            logger.warning(
+                "NsJail is explicitly disabled; registry action discovery is not "
+                "sandboxed",
+                disable_nsjail=True,
+            )
+            result = await fetch_actions_from_subprocess(
+                origin=request.origin,
+                repository_id=request.repository_id,
+                commit_sha=commit_sha,
+                validate=request.validate_actions,
+                git_repo_package_name=request.git_repo_package_name,
+                timeout=float(self.discover_timeout),
+                organization_id=request.organization_id,
+            )
+        except Exception as exc:
+            raise ActionDiscoveryError(
+                f"Failed to discover actions: {exc}",
+                non_retryable=_is_non_retryable_discovery_error(exc),
+            ) from exc
+        self._log_discovered_actions(result)
+        return result
+
+    @staticmethod
+    def _log_discovered_actions(discovery: SyncResultSuccess) -> None:
+        logger.info(
+            "Actions discovered",
+            num_actions=len(discovery.actions),
+            num_validation_errors=len(discovery.validation_errors),
+        )
 
     async def _upload_squashfs(
         self,

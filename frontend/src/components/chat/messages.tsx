@@ -9,6 +9,7 @@ import { type ComponentProps, useEffect, useRef } from "react"
 import type { Streamdown } from "streamdown"
 import { MarkdownWithFrontmatter } from "@/components/ai-elements/markdown-with-frontmatter"
 import { Dots } from "@/components/loading/dots"
+import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import {
   ALLOWED_MARKDOWN_IMAGE_PREFIXES,
@@ -186,9 +187,7 @@ export function Messages({
       // Force-refetch the case & related queries so the UI updates instantly
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
       invalidateCaseActivityQueries(queryClient, entityId, workspaceId)
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", entityId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, entityId, workspaceId)
     }
   }, [messages, entityType, entityId, workspaceId, queryClient])
 

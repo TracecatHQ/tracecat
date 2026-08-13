@@ -640,6 +640,28 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
+variable "executor_registry_cache_max_entries" {
+  type        = number
+  description = "Maximum number of entries in the executor-local registry artifact cache (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES). Set to 0 to disable entry-count eviction."
+  default     = 64
+
+  validation {
+    condition     = var.executor_registry_cache_max_entries >= 0 && floor(var.executor_registry_cache_max_entries) == var.executor_registry_cache_max_entries
+    error_message = "executor_registry_cache_max_entries must be a non-negative integer."
+  }
+}
+
+variable "executor_registry_cache_max_bytes" {
+  type        = number
+  description = "Maximum executor-local registry artifact cache size in bytes (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES). Set to 0 to disable size-based limits."
+  default     = 10737418240
+
+  validation {
+    condition     = var.executor_registry_cache_max_bytes >= 0 && floor(var.executor_registry_cache_max_bytes) == var.executor_registry_cache_max_bytes
+    error_message = "executor_registry_cache_max_bytes must be a non-negative integer."
+  }
+}
+
 variable "executor_max_concurrent_activities" {
   type        = number
   description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."

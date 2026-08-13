@@ -11,9 +11,11 @@ import os
 import shutil
 import signal
 import subprocess
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 
+from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.config import (
     TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_NSJAIL_PATH,
@@ -41,11 +43,46 @@ async def terminate_process_group(process: asyncio.subprocess.Process) -> None:
     await process.wait()
 
 
+async def terminate_supervised_process(process: asyncio.subprocess.Process) -> None:
+    """Request descendant cleanup from a Linux process supervisor."""
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            os.kill(process.pid, signal.SIGTERM)
+        # An untrusted action runs under the supervisor's UID and can stop the
+        # outer supervisor. SIGTERM remains pending for a stopped process, so
+        # resume it before waiting for its cleanup handler to run.
+        with suppress(ProcessLookupError):
+            os.kill(process.pid, signal.SIGCONT)
+    # The supervisor exits only after its detached subreaper has killed and
+    # reaped the action's complete descendant tree. Do not impose a shorter
+    # wait that could release registry leases while cleanup is still active.
+    await process.wait()
+
+
+async def _finish_process_group_cleanup(
+    process: asyncio.subprocess.Process,
+    communicate_task: asyncio.Task[tuple[bytes | None, bytes | None]],
+    termination_task: asyncio.Future[None] | None,
+    terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]],
+) -> None:
+    """Finish process termination and consume the communication task."""
+    if termination_task is None:
+        termination_task = asyncio.ensure_future(terminate(process))
+    try:
+        await termination_task
+    finally:
+        if not communicate_task.done():
+            communicate_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await communicate_task
+
+
 async def communicate_process_group(
     process: asyncio.subprocess.Process,
     *,
     input: bytes | None = None,  # noqa: A002
     timeout: float | None = None,
+    terminate: Callable[[asyncio.subprocess.Process], Awaitable[None]] | None = None,
 ) -> tuple[bytes, bytes]:
     """Communicate with a process while containing its process group.
 
@@ -53,24 +90,38 @@ async def communicate_process_group(
     ``communicate()`` and asyncio's ``wait()`` to wait after the leader exits.
     Polling ``returncode`` observes the leader exit independently, letting us
     terminate the group immediately and close those pipes. Cancellation also
-    terminates the group before it propagates.
+    terminates the group before it propagates. Callers with a stronger process
+    supervisor can supply its cleanup function as ``terminate``.
     """
+    terminator = terminate or terminate_process_group
     communicate_task = asyncio.create_task(process.communicate(input=input))
-    group_terminated = False
+    termination_task: asyncio.Future[None] | None = None
+    operation_error: BaseException | None = None
     try:
         async with asyncio.timeout(timeout):
             while process.returncode is None:
                 await asyncio.sleep(_PROCESS_EXIT_POLL_INTERVAL_SECONDS)
-            await terminate_process_group(process)
-            group_terminated = True
+            termination_task = asyncio.ensure_future(terminator(process))
+            await asyncio.shield(termination_task)
             stdout, stderr = await communicate_task
+    except BaseException as e:
+        operation_error = e
+        raise
     finally:
-        if not group_terminated:
-            await terminate_process_group(process)
-        if not communicate_task.done():
-            communicate_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await communicate_task
+        cleanup_task = asyncio.create_task(
+            _finish_process_group_cleanup(
+                process,
+                communicate_task,
+                termination_task,
+                terminator,
+            )
+        )
+        try:
+            await rejoin_future_through_cancellation(cleanup_task)
+        except BaseException as cleanup_error:
+            if operation_error is not None:
+                raise operation_error from cleanup_error
+            raise
 
     if stdout is None or stderr is None:
         raise RuntimeError("Captured stdout and stderr are required")

@@ -3,6 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.service import (
+    AuditService,
+    AuditWebhookNotConfiguredError,
+    AuditWebhookUrlNotAllowedError,
+)
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
@@ -17,6 +22,7 @@ from tracecat.settings.schemas import (
     AppSettingsUpdate,
     AuditSettingsRead,
     AuditSettingsUpdate,
+    AuditWebhookTestResult,
     GitSettingsRead,
     GitSettingsUpdate,
     SAMLSettingsRead,
@@ -226,6 +232,33 @@ async def update_audit_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_audit_settings(params)
+
+
+@router.post("/audit/test", response_model=AuditWebhookTestResult)
+@require_scope("org:settings:update")
+async def test_audit_webhook(
+    *,
+    role: OrgUserRole,
+    params: AuditSettingsUpdate,
+) -> AuditWebhookTestResult:
+    """Probe the submitted audit webhook configuration with a marked test event."""
+    try:
+        return await AuditService.probe_webhook(
+            sink="organization",
+            organization_id=role.organization_id,
+            role=role,
+            settings=params,
+        )
+    except AuditWebhookNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook is not configured",
+        ) from exc
+    except AuditWebhookUrlNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook URL is not allowed",
+        ) from exc
 
 
 @router.get("/agent", response_model=AgentSettingsRead)

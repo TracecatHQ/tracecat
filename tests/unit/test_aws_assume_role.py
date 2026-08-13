@@ -1,8 +1,7 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-import tracecat_registry.integrations.amazon_s3 as amazon_s3
 import tracecat_registry.integrations.aws_boto3 as aws_boto3
 from tracecat_registry import SecretNotFoundError
 
@@ -293,79 +292,3 @@ async def test_get_session_region_override_takes_precedence() -> None:
         aws_secret_access_key="secret_test",
         region_name="ap-south-2",
     )
-
-
-class _AsyncAwsClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, object]]] = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return None
-
-    async def list_buckets(self) -> dict[str, object]:
-        self.calls.append(("list_buckets", {}))
-        return {"Buckets": []}
-
-    async def list_objects_v2(self, **kwargs: object) -> dict[str, object]:
-        self.calls.append(("list_objects_v2", kwargs))
-        return {"Contents": []}
-
-
-class _AsyncAwsSession:
-    def __init__(self, client: _AsyncAwsClient) -> None:
-        self.client_instance = client
-        self.client_calls: list[tuple[str, str | None]] = []
-
-    def client(self, service_name: str, endpoint_url: str | None = None):
-        self.client_calls.append((service_name, endpoint_url))
-        return self.client_instance
-
-
-@pytest.mark.anyio
-async def test_call_api_accepts_region_override() -> None:
-    client = _AsyncAwsClient()
-    session = _AsyncAwsSession(client)
-
-    with patch.object(
-        aws_boto3, "get_session", AsyncMock(return_value=session)
-    ) as get_session:
-        result = await aws_boto3.call_api(
-            service_name="s3",
-            method_name="list_buckets",
-            endpoint_url="https://s3.example.test",
-            region_name="custom-region-1",
-        )
-
-    get_session.assert_awaited_once_with(region_name="custom-region-1")
-    assert session.client_calls == [("s3", "https://s3.example.test")]
-    assert client.calls == [("list_buckets", {})]
-    assert result == {"Buckets": []}
-
-
-@pytest.mark.anyio
-async def test_s3_list_objects_accepts_region_override() -> None:
-    client = _AsyncAwsClient()
-    session = _AsyncAwsSession(client)
-
-    with patch.object(
-        aws_boto3, "get_session", AsyncMock(return_value=session)
-    ) as get_session:
-        result = await amazon_s3.list_objects(
-            bucket="example-bucket",
-            prefix="logs/",
-            endpoint_url="https://s3.example.test",
-            region_name="custom-region-1",
-        )
-
-    get_session.assert_awaited_once_with(region_name="custom-region-1")
-    assert session.client_calls == [("s3", "https://s3.example.test")]
-    assert client.calls == [
-        (
-            "list_objects_v2",
-            {"Bucket": "example-bucket", "Prefix": "logs/", "MaxKeys": 1000},
-        )
-    ]
-    assert result == {"Contents": []}

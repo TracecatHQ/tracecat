@@ -54,11 +54,11 @@ def stub_case_duration_entitlements() -> Iterator[None]:
             return_value=None,
         ),
         patch(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
         ),
         patch(
-            "tracecat.cases.service.publish_case_event_payload",
+            "tracecat.cases.events.publish_case_event_payload",
             new=AsyncMock(return_value=None),
         ),
     ):

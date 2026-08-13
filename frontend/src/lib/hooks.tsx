@@ -24,6 +24,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AuditWebhookTestResult,
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
@@ -237,6 +238,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsTestAuditWebhookData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -257,6 +259,7 @@ import {
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsTestAuditWebhook,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -385,9 +388,20 @@ import {
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
   listCaseDurationDefinitions,
   listCaseDurations,
 } from "@/lib/case-durations"
+import {
+  CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS,
+  caseCommentQueryKeys,
+  hasActiveCaseCommentInvocations,
+  hasActiveCaseCommentThreadInvocations,
+  invalidateCaseCommentQueries,
+} from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
@@ -3118,6 +3132,38 @@ export function useOrgAuditSettings() {
     },
   })
 
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      SettingsTestAuditWebhookData
+    >({
+      mutationFn: settingsTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Failed to test audit webhook", error)
+            toast({
+              title: "Failed to test audit webhook",
+              description: getApiErrorDetail(error) ?? "Unknown error",
+            })
+        }
+      },
+    })
+
   return {
     // Get
     auditSettings,
@@ -3127,6 +3173,9 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    // Test
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 
@@ -4096,9 +4145,13 @@ export function useCaseComments({
     isLoading: caseCommentsIsLoading,
     error: caseCommentsError,
   } = useQuery<CaseCommentRead[], TracecatApiError>({
-    queryKey: ["case-comments", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.comments(caseId, workspaceId),
     queryFn: async () => await casesListComments({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4118,9 +4171,13 @@ export function useCaseCommentThreads({
     isLoading: caseCommentThreadsIsLoading,
     error: caseCommentThreadsError,
   } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.threads(caseId, workspaceId),
     queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentThreadInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4128,19 +4185,6 @@ export function useCaseCommentThreads({
     caseCommentThreadsIsLoading,
     caseCommentThreadsError,
   }
-}
-
-function invalidateCaseCommentQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
-  caseId: string,
-  workspaceId: string
-) {
-  queryClient.invalidateQueries({
-    queryKey: ["case-comments", caseId, workspaceId],
-  })
-  queryClient.invalidateQueries({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
-  })
 }
 
 export function useCreateCaseComment({

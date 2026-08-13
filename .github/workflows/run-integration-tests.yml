@@ -182,7 +182,7 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__FEATURE_FLAGS: ""
-          # Keep sandboxed registry sync enabled (run on executor via Temporal)
+          # Keep executor-hosted registry sync enabled (run via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
         run: |
           set -euo pipefail
@@ -245,7 +245,7 @@ jobs:
         env:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
-          # Keep sandboxed registry sync enabled (run on executor via Temporal)
+          # Keep executor-hosted registry sync enabled (run via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
           TEMPORAL__CLUSTER_URL: "localhost:7233"

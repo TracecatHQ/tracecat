@@ -692,7 +692,7 @@ def _get_cookie_name() -> str:
 cookie_transport = CookieTransport(
     cookie_name=_get_cookie_name(),
     cookie_max_age=config.SESSION_EXPIRE_TIME_SECONDS,
-    cookie_secure=config.TRACECAT__API_URL.startswith("https"),
+    cookie_secure=config.TRACECAT__PUBLIC_API_URL.startswith("https"),
 )
 
 

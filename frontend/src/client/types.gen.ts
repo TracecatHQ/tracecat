@@ -884,6 +884,10 @@ export type AgentSessionRead = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -911,6 +915,10 @@ export type AgentSessionReadVercel = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -942,6 +950,10 @@ export type AgentSessionReadWithMessages = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1372,7 +1384,7 @@ export type AuditSettingsUpdate = {
     [key: string]: string
   } | null
   /**
-   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
    */
   audit_webhook_custom_payload?: {
     [key: string]: unknown
@@ -1385,6 +1397,15 @@ export type AuditSettingsUpdate = {
    * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
    */
   audit_webhook_verify_ssl?: boolean
+}
+
+/**
+ * Result of a synchronous audit webhook test-fire request.
+ */
+export type AuditWebhookTestResult = {
+  ok: boolean
+  receiver_status_code?: number | null
+  error_category?: "receiver_error" | "timeout" | "request_error" | null
 }
 
 /**
@@ -1667,6 +1688,52 @@ export type CaseBatchUpdate = {
   update: CaseUpdate
 }
 
+/**
+ * Read model for agent attribution on a generated comment reply.
+ */
+export type CaseCommentAgentAttributionRead = {
+  invocation_id: string
+  preset_name: string
+  preset_slug: string
+  session_id?: string | null
+}
+
+/**
+ * Structured terminal failure persisted for a comment agent invocation.
+ */
+export type CaseCommentAgentInvocationError = {
+  kind: CaseCommentAgentInvocationErrorKind
+  message: string
+}
+
+export type CaseCommentAgentInvocationErrorKind =
+  | "startup"
+  | "preparation"
+  | "agent_turn"
+  | "completion"
+  | "cancelled"
+
+/**
+ * Read model for an agent invocation triggered by a comment mention.
+ */
+export type CaseCommentAgentInvocationRead = {
+  id: string
+  preset_name: string
+  preset_slug: string
+  status: CaseCommentAgentInvocationStatus
+  session_id?: string | null
+  error?: CaseCommentAgentInvocationError | null
+}
+
+/**
+ * Lifecycle state for an agent invoked from a case-comment mention.
+ */
+export type CaseCommentAgentInvocationStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+
 export type CaseCommentCreate = {
   content: string
   parent_id?: string | null
@@ -1675,6 +1742,15 @@ export type CaseCommentCreate = {
 
 export type CaseCommentDeleteMode = "soft" | "hard"
 
+export type CaseCommentMentionRead = {
+  id: string
+  target_type: MentionTargetType
+  target_id: string
+  label: string
+  created_at: string
+  invocation?: CaseCommentAgentInvocationRead | null
+}
+
 export type CaseCommentRead = {
   id: string
   created_at: string
@@ -1682,10 +1758,12 @@ export type CaseCommentRead = {
   content: string
   parent_id?: string | null
   workflow?: CaseCommentWorkflowRead | null
+  agent?: CaseCommentAgentAttributionRead | null
   user?: UserRead | null
   last_edited_at?: string | null
   deleted_at?: string | null
   is_deleted?: boolean
+  mentions?: Array<CaseCommentMentionRead>
 }
 
 export type CaseCommentThreadRead = {
@@ -2120,6 +2198,7 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  display_name?: string | null
   kind?: CaseFieldKind | null
   required_on_closure?: boolean
 }
@@ -2137,6 +2216,7 @@ export type CaseFieldKind = "LONG_TEXT" | "URL"
  */
 export type CaseFieldRead = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2153,6 +2233,7 @@ export type CaseFieldRead = {
  */
 export type CaseFieldReadMinimal = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2203,6 +2284,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  display_name?: string | null
   required_on_closure?: boolean | null
 }
 
@@ -5304,6 +5386,16 @@ export type status5 =
   | "superseded"
 
 /**
+ * Polymorphic target kind for a parsed case-comment mention.
+ *
+ * Only ``AGENT`` is supported today. The finite set lives here (rather than
+ * as a bare ``str`` checked at runtime) so every mention-aware call site —
+ * the parser, persistence, and API read schema — shares one exhaustive,
+ * type-checked domain of valid target kinds.
+ */
+export type MentionTargetType = "agent"
+
+/**
  * The type/kind of message stored in the chat.
  */
 export type MessageKind =
@@ -5713,7 +5805,7 @@ export type PlatformAuditSettingsUpdate = {
     [key: string]: string
   } | null
   /**
-   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
    */
   audit_webhook_custom_payload?: {
     [key: string]: unknown
@@ -11741,6 +11833,10 @@ export type AgentSessionsCreateSessionResponse = AgentSessionRead
 
 export type AgentSessionsListSessionsData = {
   /**
+   * Filter by session creator. Omit to list the entire workspace.
+   */
+  createdBy?: string | null
+  /**
    * Filter by entity ID
    */
   entityId?: string | null
@@ -12057,6 +12153,12 @@ export type AdminUpdateAuditSettingsData = {
 }
 
 export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminTestAuditWebhookData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminTestAuditWebhookResponse = AuditWebhookTestResult
 
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
@@ -12427,6 +12529,12 @@ export type SettingsUpdateAuditSettingsData = {
 }
 
 export type SettingsUpdateAuditSettingsResponse = void
+
+export type SettingsTestAuditWebhookData = {
+  requestBody: AuditSettingsUpdate
+}
+
+export type SettingsTestAuditWebhookResponse = AuditWebhookTestResult
 
 export type SettingsGetAgentSettingsResponse = AgentSettingsRead
 
@@ -17480,6 +17588,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/audit/test": {
+    post: {
+      req: AdminTestAuditWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/settings/registry": {
     get: {
       res: {
@@ -18218,6 +18341,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/audit/test": {
+    post: {
+      req: SettingsTestAuditWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
         /**
          * Validation Error
          */

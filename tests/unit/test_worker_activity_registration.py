@@ -63,6 +63,69 @@ def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
 
 
 @pytest.mark.anyio
+async def test_executor_worker_continues_after_registry_cache_warmup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.executor import worker
+
+    shutdown_event = asyncio.Event()
+    warmup = AsyncMock(side_effect=OSError("transient cache failure"))
+    action_runner = Mock()
+    action_runner.registry_artifacts.ensure_swept = warmup
+    action_gateway = Mock()
+    action_gateway.start = AsyncMock()
+    action_gateway.stop = AsyncMock()
+    initialize_backend = AsyncMock()
+    shutdown_backend = AsyncMock()
+    close_storage_cache = AsyncMock()
+    get_temporal_client = AsyncMock(return_value=object())
+    warning = Mock()
+    worker_constructed = False
+
+    class _FakeWorker:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            nonlocal worker_constructed
+            del args, kwargs
+            worker_constructed = True
+
+        async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+
+    monkeypatch.setattr(worker, "ActionGateway", lambda: action_gateway)
+    monkeypatch.setattr(worker, "get_action_runner", lambda: action_runner)
+    monkeypatch.setattr(worker, "initialize_executor_backend", initialize_backend)
+    monkeypatch.setattr(worker, "shutdown_executor_backend", shutdown_backend)
+    monkeypatch.setattr(worker, "close_storage_client_cache", close_storage_cache)
+    monkeypatch.setattr(worker, "get_temporal_client", get_temporal_client)
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    monkeypatch.setattr(worker.logger, "warning", warning)
+
+    await worker.main(shutdown_event=shutdown_event)
+
+    warmup.assert_awaited_once()
+    initialize_backend.assert_awaited_once()
+    get_temporal_client.assert_awaited_once()
+    assert worker_constructed is True
+    warning.assert_called_once_with(
+        "Registry artifact cache warmup failed; continuing worker startup",
+        error="transient cache failure",
+    )
+    shutdown_backend.assert_awaited_once()
+    close_storage_cache.assert_awaited_once()
+    action_gateway.stop.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -32,7 +32,6 @@ with workflow.unsafe.imports_passed_through():
         resolve_workflow_concurrency_limits_enabled_activity,
     )
     from tracecat.dsl.interceptor import SentryInterceptor
-    from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
@@ -121,7 +120,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     initialize_platform_tracing("tracecat-worker")
 
-    client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    client = await get_temporal_client()
 
     interceptors = []
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
