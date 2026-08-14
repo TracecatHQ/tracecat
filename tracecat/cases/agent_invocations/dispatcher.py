@@ -20,6 +20,8 @@ from tracecat.db.models import CaseCommentAgentInvocation, CaseCommentMention
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 
+COMMENT_AGENT_SESSION_CONTEXT = {"session_origin": "case_comment"}
+
 
 class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
     """Create linked agent sessions for comment invocation workflows."""
@@ -86,12 +88,13 @@ class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
             agent_session = await session_service.create_session(
                 AgentSessionCreate(
                     id=session_id,
-                    title=f"{invocation.preset_name} case comment",
+                    title=invocation.preset_name,
                     entity_type=AgentSessionEntity.CASE,
                     entity_id=case_id,
                     agent_preset_id=preset_id,
                     agent_preset_version_id=preset_version.id,
-                )
+                ),
+                channel_context=COMMENT_AGENT_SESSION_CONTEXT,
             )
         return PreparedCommentAgentSession(
             invocation_id=invocation.id,
