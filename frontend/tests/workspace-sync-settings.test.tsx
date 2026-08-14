@@ -729,7 +729,9 @@ describe("WorkspaceSyncSettings", () => {
       "sticky",
       "bottom-0",
       "z-10",
-      "bg-background"
+      "bg-background",
+      "after:h-8",
+      "after:bg-background"
     )
     const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
     expect(applyPullButton).toBeEnabled()

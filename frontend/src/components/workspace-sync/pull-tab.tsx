@@ -320,7 +320,7 @@ export function WorkspaceSyncPullTab({
       <div
         role="group"
         aria-label="Pull actions"
-        className="sticky bottom-0 z-10 flex min-w-0 flex-col gap-3 border-t bg-background py-4 sm:flex-row sm:items-center sm:justify-between"
+        className="sticky bottom-0 z-10 flex min-w-0 flex-col gap-3 border-t bg-background py-4 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-8 after:bg-background after:content-[''] sm:flex-row sm:items-center sm:justify-between"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
           <ArrowDownIcon className="size-3.5" />
