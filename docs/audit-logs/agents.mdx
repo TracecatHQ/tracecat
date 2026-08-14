@@ -13,37 +13,30 @@ See [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage) f
 
 ## Configure the exporter
 
-<Steps>
-  <Step title="Open organization settings">
-    Open the workspace menu, select **Organization**, then open **Agent OTel**
-    under **Settings**.
-  </Step>
-  <Step title="Set the endpoint">
-    Enter the OTLP endpoint of your collector, such as
-    `https://otel.example.com`. Tracecat rejects the configuration if you enable
-    telemetry with a signal turned on and no endpoint.
-  </Step>
-  <Step title="Choose signals and headers">
-    Keep `metrics_enabled` and `logs_enabled` on for both signals, or turn either
-    off. Turn on `traces_enabled` to also export traces. Add any exporter headers
-    your collector requires, then save.
-  </Step>
-</Steps>
-
-You can also read and write the same configuration through `GET /settings/agent-otel` and `PATCH /settings/agent-otel`.
-
-### Exporter headers
-
-Most collectors authenticate the exporter with a header, such as `Authorization: Bearer <collector-token>`. Supply headers as a name-to-value map:
+Read the current configuration with `GET /settings/agent-otel` and update it with `PATCH /settings/agent-otel`:
 
 ```json
 {
-  "Authorization": "Bearer <collector-token>",
-  "X-Scope-OrgID": "tracecat"
+  "agent_otel_config": {
+    "enabled": true,
+    "endpoint": "https://otel.example.com",
+    "metrics_enabled": true,
+    "logs_enabled": true,
+    "traces_enabled": false
+  },
+  "agent_otel_headers": {
+    "Authorization": "Bearer <collector-token>"
+  }
 }
 ```
 
-Tracecat encrypts headers at rest and attaches them to outbound telemetry in the OTLP gateway, outside the agent sandbox, so sandboxed agent code never reads a collector credential. Omitting `agent_otel_headers` from an update leaves the stored headers unchanged; send an empty object to clear them.
+Tracecat rejects a configuration that enables telemetry with a signal turned on and no endpoint. The endpoint must not embed credentials or a query string; authenticate the exporter through `agent_otel_headers` instead.
+
+### Exporter headers
+
+Supply `agent_otel_headers` as a name-to-value map, such as an `Authorization` header for your collector. Tracecat encrypts headers at rest and attaches them to outbound telemetry in the OTLP gateway, outside the agent sandbox, so sandboxed agent code never reads a collector credential.
+
+Omitting `agent_otel_headers` from an update leaves the stored headers unchanged; send an empty object to clear them.
 
 ## Privacy controls
 

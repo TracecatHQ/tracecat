@@ -1,14 +1,15 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from urllib.parse import quote
 
 import orjson
 from pydantic import (
-    AnyHttpUrl,
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    HttpUrl,
     PositiveInt,
     SecretStr,
     field_validator,
@@ -19,6 +20,24 @@ from tracecat import config
 
 OtelProtocol = Literal["grpc", "http/json", "http/protobuf"]
 MetricsTemporality = Literal["delta", "cumulative"]
+
+
+def _reject_endpoint_credentials(value: HttpUrl) -> HttpUrl:
+    # agent_otel_config is stored unencrypted and echoed by the read API, so
+    # credentials must only travel through the encrypted headers field.
+    if value.username or value.password:
+        raise ValueError(
+            "endpoint must not embed credentials; use exporter headers instead"
+        )
+    if value.query:
+        raise ValueError(
+            "endpoint must not include a query string; use exporter headers "
+            "for authentication"
+        )
+    return value
+
+
+OtlpEndpoint = Annotated[HttpUrl, AfterValidator(_reject_endpoint_credentials)]
 
 
 class AgentOtelConfig(BaseModel):
@@ -38,7 +57,7 @@ class AgentOtelConfig(BaseModel):
         default=None,
         description="OTLP transport protocol for all signals.",
     )
-    endpoint: AnyHttpUrl | None = Field(
+    endpoint: OtlpEndpoint | None = Field(
         default=None,
         description="OTLP collector endpoint for all signals.",
     )
@@ -271,7 +290,7 @@ def _build_sandbox_env(
 def _set_env(
     env: dict[str, str],
     key: str,
-    value: str | int | bool | AnyHttpUrl | None,
+    value: str | int | bool | HttpUrl | None,
 ) -> None:
     if value is None:
         return

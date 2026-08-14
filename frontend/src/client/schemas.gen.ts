@@ -1987,6 +1987,7 @@ export const $AgentOtelConfig = {
       anyOf: [
         {
           type: "string",
+          maxLength: 2083,
           minLength: 1,
           format: "uri",
         },
