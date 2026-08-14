@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
+from claude_agent_sdk.types import UserMessage
 
+from tracecat.agent.runtime.claude_code.session_lines import (
+    MODEL_CONTEXT_PROMPT_PREFIX,
+)
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
@@ -162,6 +166,79 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
     lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
     assert [line["uuid"] for line in lines] == ["prompt-uuid", "answer-uuid"]
     assert "cancelled" not in history.sdk_session_data
+
+
+@pytest.mark.anyio
+async def test_display_only_context_splits_ui_from_model_history() -> None:
+    """Raw source text is visible while the full prompt only reaches the model."""
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    sdk_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        sdk_session_id="sdk-session-123",
+        curr_run_id=None,
+    )
+    context_prompt = f"{MODEL_CONTEXT_PROMPT_PREFIX}hidden thread instructions"
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": "display-uuid",
+                "isDisplayOnly": True,
+                "message": {"role": "user", "content": "Raw comment content"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": "context-uuid",
+                "message": {"role": "user", "content": context_prompt},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "assistant",
+                "uuid": "answer-uuid",
+                "parentUuid": "context-uuid",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Agent answer"}],
+                },
+            },
+        ),
+    ]
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result(entries),
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    history = await service.load_session_history(session_id)
+    assert history is not None
+    model_lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in model_lines] == [
+        "context-uuid",
+        "answer-uuid",
+    ]
+
+    messages = await service.list_messages(session_id)
+    assert len(messages) == 2
+    assert isinstance(messages[0].message, UserMessage)
+    assert messages[0].message.content == "Raw comment content"
+    assert all(context_prompt not in str(message.message) for message in messages)
 
 
 @pytest.mark.anyio

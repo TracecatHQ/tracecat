@@ -50,6 +50,9 @@ from tracecat.agent.runtime.claude_code.runtime import (
     ClaudeAgentRuntime,
     _claude_project_dir_name,
 )
+from tracecat.agent.runtime.claude_code.session_lines import (
+    MODEL_CONTEXT_PROMPT_PREFIX,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 
@@ -2857,6 +2860,24 @@ class TestClaudeAgentRuntimeInternalSessionLines:
                         "text": "<command-name>/compact</command-name>",
                     }
                 ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is True
+
+    def test_hides_model_context_prompt(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Integration context remains model-visible without becoming a bubble."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        line_data = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": (f"{MODEL_CONTEXT_PROMPT_PREFIX}private routing context"),
             },
         }
 
