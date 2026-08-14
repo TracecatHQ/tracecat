@@ -2,6 +2,8 @@ import {
   formatCaseFieldDisplayLabel,
   formatCaseFieldNumericDisplayValue,
   getCaseFieldEditorValue,
+  isCustomFieldValueEmpty,
+  orderCustomFieldsForDisplay,
 } from "@/lib/case-field-display"
 
 describe("case field display formatting", () => {
@@ -39,5 +41,73 @@ describe("case field display formatting", () => {
         url: "https://example.com",
       })
     ).toBe("Apple")
+  })
+})
+
+describe("isCustomFieldValueEmpty", () => {
+  it("treats null, blank strings, and empty containers as empty", () => {
+    expect(isCustomFieldValueEmpty(null)).toBe(true)
+    expect(isCustomFieldValueEmpty(undefined)).toBe(true)
+    expect(isCustomFieldValueEmpty("")).toBe(true)
+    expect(isCustomFieldValueEmpty("   ")).toBe(true)
+    expect(isCustomFieldValueEmpty([])).toBe(true)
+    expect(isCustomFieldValueEmpty({})).toBe(true)
+  })
+
+  it("treats booleans and real values as non-empty", () => {
+    expect(isCustomFieldValueEmpty(false)).toBe(false)
+    expect(isCustomFieldValueEmpty(true)).toBe(false)
+    expect(isCustomFieldValueEmpty(0)).toBe(false)
+    expect(isCustomFieldValueEmpty("text")).toBe(false)
+    expect(isCustomFieldValueEmpty(["a"])).toBe(false)
+    expect(isCustomFieldValueEmpty({ a: 1 })).toBe(false)
+  })
+})
+
+describe("orderCustomFieldsForDisplay", () => {
+  // Interleaved so the partition assertions below are not vacuous: empties
+  // (alpha, charlie, echo) alternate with non-empties (bravo, delta, foxtrot),
+  // and `delta` holds `false` so booleans exercise the non-empty path.
+  const fields = [
+    { id: "alpha", value: "" },
+    { id: "bravo", value: "filled" },
+    { id: "charlie", value: null },
+    { id: "delta", value: false },
+    { id: "echo", value: [] },
+    { id: "foxtrot", value: { key: "value" } },
+  ]
+
+  it("collapsed shows only non-empty fields in their original order", () => {
+    expect(orderCustomFieldsForDisplay(fields, false).map((f) => f.id)).toEqual(
+      ["bravo", "delta", "foxtrot"]
+    )
+  })
+
+  it("expanded puts non-empty fields first, then empty ones, stably", () => {
+    expect(orderCustomFieldsForDisplay(fields, true).map((f) => f.id)).toEqual([
+      "bravo",
+      "delta",
+      "foxtrot",
+      "alpha",
+      "charlie",
+      "echo",
+    ])
+  })
+
+  it("treats whitespace-only strings and empty objects as empty", () => {
+    const sparse = [
+      { id: "ws", value: "   " },
+      { id: "kept", value: "x" },
+      { id: "obj", value: {} },
+    ]
+
+    expect(orderCustomFieldsForDisplay(sparse, false).map((f) => f.id)).toEqual(
+      ["kept"]
+    )
+    expect(orderCustomFieldsForDisplay(sparse, true).map((f) => f.id)).toEqual([
+      "kept",
+      "ws",
+      "obj",
+    ])
   })
 })

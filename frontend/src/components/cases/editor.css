@@ -30,6 +30,16 @@
   min-height: 160px;
 }
 
+.case-description-editor--boxed
+  .case-description-editor
+  .simple-editor-content
+  .simple-editor,
+.case-description-editor--boxed
+  .case-description-editor
+  .simple-editor-toolbar {
+  padding-inline: 0.75rem;
+}
+
 .case-description-editor {
   width: 100%;
   padding: 0;
@@ -41,8 +51,107 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  --simple-editor-toolbar-gap: 0.25rem;
-  background: transparent;
+  --simple-editor-toolbar-gap: 0.5rem;
+  /* The toolbar sticks over scrolling content, so it needs an opaque surface. */
+  --tt-toolbar-bg-color: hsl(var(--background));
+}
+
+/*
+ * The case panel scrolls on the plain page background — see the
+ * `.tc-case-panel` root in `case-panel-view.tsx`, which carries no surface
+ * class of its own. `--tc-case-surface` names that surface for the
+ * description editor's sticky toolbar below, the one thing left that pins
+ * over scrolling panel content and therefore needs an opaque fill.
+ */
+.tc-case-panel {
+  --tc-case-surface: hsl(var(--background));
+}
+
+/*
+ * The switcher band sits above the ScrollArea (see `case-panel-view.tsx`),
+ * so the toolbar pins at the base rule's `top: 0` — the top of the scroll
+ * viewport — and only needs the composite surface color, so scrolling
+ * content cannot show through it.
+ */
+.case-description-editor--panel .case-description-editor
+  .simple-editor-toolbar {
+  --tt-toolbar-bg-color: var(--tc-case-surface);
+}
+
+/*
+ * Square the sticky bar off and bleed it past the text column, otherwise its
+ * rounded corners let scrolling content show through at the edges.
+ */
+.case-description-editor--panel .case-description-editor
+  .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
+  margin-inline: -0.75rem;
+  padding-inline: 0.75rem;
+  border-radius: 0;
+}
+
+/*
+ * Inset the pinned bar from the top of the scroll viewport. The taller
+ * min-height absorbs the padding, and the matching gap above the bar is
+ * dropped from the header block in `case-panel-view.tsx`, so the buttons do
+ * not move at rest.
+ */
+.case-description-editor--page .case-description-editor
+  .simple-editor-toolbar.tiptap-toolbar[data-variant="floating"] {
+  --case-toolbar-pin-inset: 1rem;
+  min-height: calc(var(--tt-toolbar-height) + var(--case-toolbar-pin-inset));
+  padding-top: var(--case-toolbar-pin-inset);
+}
+
+/*
+ * Dialog variant: the editor fills the dialog body, the toolbar stays a
+ * fixed header, and the content area scrolls internally. `SimpleEditor`
+ * sets `height: auto` inline on `.case-description-editor` (its wrapper),
+ * so the wrapper fills through `flex: 1` rather than `height: 100%`.
+ */
+.case-description-editor--dialog {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.case-description-editor--dialog .case-description-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.case-description-editor--dialog
+  .case-description-editor
+  .simple-editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.case-description-editor--dialog
+  .case-description-editor
+  .simple-editor-content
+  .simple-editor {
+  min-height: 100%;
+}
+
+/*
+ * Align the dialog editor with the `px-6` dialog header: the toolbar and the
+ * first character of text both start at 1.5rem, flush with the dialog title.
+ * Both selectors carry four classes, so they outrank the base
+ * `.case-description-editor .simple-editor-content .simple-editor` padding
+ * shorthand and the `.simple-editor-toolbar.tiptap-toolbar[data-variant]`
+ * rules in `simple-editor.scss` regardless of stylesheet order.
+ */
+.case-description-editor--dialog .case-description-editor
+  .simple-editor-content
+  .simple-editor,
+.case-description-editor--dialog
+  .case-description-editor
+  .simple-editor-toolbar.tiptap-toolbar {
+  padding-inline: 1.5rem;
 }
 
 .case-description-editor .simple-editor-content .simple-editor:focus-visible {

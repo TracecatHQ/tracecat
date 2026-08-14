@@ -1,30 +1,19 @@
 "use client"
 
-import {
-  Activity,
-  Braces,
-  MessageSquare,
-  MoreHorizontal,
-  Paperclip,
-  Table2,
-  X,
-} from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
-  CaseFieldRead,
   CasePriority,
   CaseSeverity,
   CaseStatus,
   CaseUpdate,
 } from "@/client"
-import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CommentSection } from "@/components/cases/case-comments-section"
-import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
-import { CustomField } from "@/components/cases/case-panel-custom-fields"
-import { CasePanelDescription } from "@/components/cases/case-panel-description"
+import { CASE_PANEL_GROUP_LABEL_CLASS } from "@/components/cases/case-panel-common"
+import { CasePanelContent } from "@/components/cases/case-panel-content"
+import { CasePanelFieldsGroup } from "@/components/cases/case-panel-fields-group"
 import {
   type AssigneeInfo,
   AssigneeSelect,
@@ -34,21 +23,22 @@ import {
   StatusSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
-import { CasePayloadSection } from "@/components/cases/case-payload-section"
-import { CaseTasksSection } from "@/components/cases/case-tasks-section"
+import { CasePanelSwitcher } from "@/components/cases/case-panel-switcher"
+import {
+  CASE_PANELS,
+  type CasePanelKey,
+  casePanelPanelId,
+  casePanelTabId,
+  DEFAULT_CASE_PANEL,
+  parseCasePanelKey,
+} from "@/components/cases/case-panels"
+import { CaseTagPicker } from "@/components/cases/case-tag-picker"
+import { getCaseTaskProgress } from "@/components/cases/case-task-status"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
-import { CaseFeed } from "@/components/cases/cases-feed"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
   SidebarContent,
@@ -57,72 +47,64 @@ import {
   SidebarGroupLabel,
 } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/components/ui/use-toast"
+import { useDigitShortcuts } from "@/hooks/use-digit-shortcuts"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
-  useAddCaseTag,
+  isCustomFieldValueEmpty,
+  orderCustomFieldsForDisplay,
+} from "@/lib/case-field-display"
+import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
   useCaseFields,
-  useCaseTagCatalog,
+  useCaseTasks,
   useGetCase,
-  useRemoveCaseTag,
   useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
-import { cn, undoSlugify } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
-const CASE_PANEL_TABS = new Set<CasePanelTab>([
-  "comments",
-  "activity",
-  "attachments",
-  "rows",
-  "payload",
-])
+/**
+ * Minimum `.tc-case-panel` width (px) at which the details rail stays docked:
+ * the 384px (24rem) rail plus a ~656px minimum usable case body. Held at 1040
+ * rather than tracking the rail width down, so a narrowing row stacks slightly
+ * earlier and hands the body its full width instead of squeezing the tabs.
+ */
+const CASE_DETAILS_DOCK_MIN_WIDTH = 1040
 
-function parseCasePanelTab(
-  value: string | null | undefined
-): CasePanelTab | null {
-  if (!value || !CASE_PANEL_TABS.has(value as CasePanelTab)) {
-    return null
-  }
-  return value as CasePanelTab
-}
+/**
+ * Width of the docked details rail. Shared by the rail itself and by the
+ * spacer that reserves the same width in the switcher band, so the band's
+ * centered column stays the same box as the body's and the tabs keep landing
+ * on the case title. A literal string constant rather than two inline classes:
+ * Tailwind still sees the full class name in this file, and the two cannot
+ * drift apart.
+ */
+const CASE_DETAILS_RAIL_WIDTH_CLASS = "w-[24rem]"
 
-function isCustomFieldValueEmpty(value: unknown): boolean {
-  if (value === null || value === undefined) return true
-  if (typeof value === "string") return value.trim().length === 0
-  if (typeof value === "number") return Number.isNaN(value)
-  if (typeof value === "boolean") return false
-  if (Array.isArray(value)) return value.length === 0
-  if (typeof value === "object")
-    return Object.keys(value as object).length === 0
-  return false
-}
-
-interface CasePanelContentProps {
+interface CasePanelViewProps {
   caseId: string
   embedded?: boolean
   initialTab?: string | null
   onTabChange?: (tab: string) => void
 }
 
+/** Full case details view: top switcher band, active panel, comments, and the properties rail. */
 export function CasePanelView({
   caseId,
   embedded = false,
   initialTab,
   onTabChange,
-}: CasePanelContentProps) {
+}: CasePanelViewProps) {
   const workspaceId = useWorkspaceId()
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { hasEntitlement } = useEntitlements()
+  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
@@ -139,16 +121,12 @@ export function CasePanelView({
     workspaceId,
     caseId,
   })
-  const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
-  const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
-  const { caseTags } = useCaseTagCatalog(workspaceId)
   const { dropdownDefinitions } = useCaseDropdownDefinitions(
     workspaceId,
     caseAddonsEnabled
   )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { caseFields: caseFieldDefinitions } = useCaseFields(workspaceId)
-  const { toast } = useToast()
   const [closureDialog, setClosureDialog] = useState<{
     open: boolean
     targetStatus: CaseStatus
@@ -158,58 +136,130 @@ export function CasePanelView({
     [caseData?.fields]
   )
   const [showAllCustomFields, setShowAllCustomFields] = useState(false)
-  const [embeddedTab, setEmbeddedTab] = useState<CasePanelTab>(
-    () => parseCasePanelTab(initialTab) ?? "comments"
+  const [embeddedPanel, setEmbeddedPanel] = useState<CasePanelKey>(
+    () => parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL
   )
   const visibleCustomFields = useMemo(
-    () =>
-      showAllCustomFields
-        ? customFields
-        : customFields.filter((field) => !isCustomFieldValueEmpty(field.value)),
+    () => orderCustomFieldsForDisplay(customFields, showAllCustomFields),
     [customFields, showAllCustomFields]
   )
-  const handleCustomFieldClear = useCallback(
-    async (field: CaseFieldRead) => {
-      try {
-        await updateCase({
-          fields: {
-            [field.id]: null,
-          },
-        })
-      } catch (error) {
-        console.error("Failed to clear custom field:", error)
-      }
-    },
-    [updateCase]
+  // Active panel from the URL `?tab=` param (or embedded state), defaulting
+  // to the description. A locked panel's tab still renders — indistinguishable
+  // from the rest — and entitlement gating has three surfaces: pressing the
+  // tab (or its digit shortcut) opens the upgrade dialog instead of switching,
+  // and a `?tab=tasks` deep link resolves to the default silently — a dialog
+  // on arrival would be hostile, and landing on the empty panel would strand
+  // the reader. While entitlements load, presses on a locked tab are no-ops
+  // rather than dialogs, so an entitled org never sees an upsell flash.
+  const routePanel =
+    parseCasePanelKey(searchParams?.get("tab")) ?? DEFAULT_CASE_PANEL
+  const requestedPanel = embedded ? embeddedPanel : routePanel
+  const lockedPanelKeys = useMemo<readonly CasePanelKey[]>(
+    () => (caseAddonsEnabled ? [] : ["tasks"]),
+    [caseAddonsEnabled]
+  )
+  const activePanel = lockedPanelKeys.includes(requestedPanel)
+    ? DEFAULT_CASE_PANEL
+    : requestedPanel
+  const panelIdPrefix = useId()
+  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
+
+  // The ring's query lives in the view, not the Tasks panel: the switcher
+  // must show progress while the panel is unmounted. React Query dedupes on
+  // the shared ["case-tasks", ...] key, so mounting the panel adds no second
+  // request and its mutations refresh the ring for free. `enabled` keeps the
+  // gated endpoint quiet for orgs without `case_addons`.
+  const { caseTasks } = useCaseTasks({
+    caseId,
+    workspaceId,
+    enabled: caseAddonsEnabled,
+  })
+  const taskProgress = useMemo(
+    () => getCaseTaskProgress(caseTasks),
+    [caseTasks]
   )
 
-  // Get active tab from URL query params, default to "comments"
-  const routeTab = parseCasePanelTab(searchParams?.get("tab")) ?? "comments"
-  const activeTab = embedded ? embeddedTab : routeTab
+  // Measure the container, not the viewport: the chat sidebar
+  // (`ResizableSidebar`, 450px default) is a sibling flex child, so with chat
+  // open the case row is far narrower than the window and a viewport media
+  // query would wrongly keep the rail docked.
+  // A callback ref, not `useRef`: the measured node renders below the loading
+  // and error early returns, so a ref object would still be null on the first
+  // effect run and the observer would never attach.
+  const [rootNode, setRootNode] = useState<HTMLDivElement | null>(null)
+  const canDock = useIsAtLeastWidth(rootNode, CASE_DETAILS_DOCK_MIN_WIDTH)
+  const showDockedDetails = !embedded && canDock
+  const showInlineDetails = !embedded && !canDock
 
   useEffect(() => {
     if (!embedded) {
       return
     }
-    const nextTab = parseCasePanelTab(initialTab) ?? "comments"
-    if (nextTab !== embeddedTab) {
-      setEmbeddedTab(nextTab)
+    const nextPanel = parseCasePanelKey(initialTab) ?? DEFAULT_CASE_PANEL
+    if (nextPanel !== embeddedPanel) {
+      setEmbeddedPanel(nextPanel)
     }
-  }, [caseId, embedded, embeddedTab, initialTab])
+  }, [caseId, embedded, embeddedPanel, initialTab])
 
-  // Function to handle tab changes and update URL
-  const handleTabChange = useCallback(
-    (tab: string) => {
-      const nextTab = parseCasePanelTab(tab) ?? "comments"
-      if (embedded) {
-        setEmbeddedTab(nextTab)
-        onTabChange?.(nextTab)
+  const handlePanelChange = useCallback(
+    (panel: CasePanelKey) => {
+      if (lockedPanelKeys.includes(panel)) {
+        // No navigation either way. The dialog waits for a resolved answer:
+        // `hasEntitlement` reports false while entitlements load, and an
+        // entitled org must not glimpse an upsell for a feature it has.
+        if (!entitlementsIsLoading) {
+          setLockedFeatureDialogOpen(true)
+        }
         return
       }
-      router.push(`/workspaces/${workspaceId}/cases/${caseId}?tab=${nextTab}`)
+      if (embedded) {
+        setEmbeddedPanel(panel)
+        onTabChange?.(panel)
+        return
+      }
+      // `replace`, not `push`, so Back leaves the page instead of walking
+      // panel history; `scroll: false` keeps the body's scroll position.
+      // Preserve the other query params rather than dropping them.
+      const params = new URLSearchParams(searchParams?.toString() ?? "")
+      params.set("tab", panel)
+      router.replace(
+        `/workspaces/${workspaceId}/cases/${caseId}?${params.toString()}`,
+        { scroll: false }
+      )
     },
-    [embedded, router, workspaceId, caseId, onTabChange]
+    [
+      lockedPanelKeys,
+      entitlementsIsLoading,
+      embedded,
+      router,
+      searchParams,
+      workspaceId,
+      caseId,
+      onTabChange,
+    ]
   )
+
+  const handleDigitShortcut = useCallback(
+    (digit: number) => {
+      const definition = CASE_PANELS.find((panel) => panel.shortcut === digit)
+      if (!definition) {
+        return
+      }
+      // Digits never renumber, and a locked panel's digit behaves exactly
+      // like pressing its tab — `handlePanelChange` opens the dialog.
+      handlePanelChange(definition.key)
+    },
+    [handlePanelChange]
+  )
+
+  // Route-level instance only: a case route and a case artifact in the chat
+  // panel can be mounted at once, and two window listeners would switch both
+  // panels on one keypress.
+  useDigitShortcuts({
+    count: CASE_PANELS.length,
+    onDigit: handleDigitShortcut,
+    enabled: !embedded,
+  })
 
   if (caseDataIsLoading) {
     return (
@@ -297,33 +347,17 @@ export function CasePanelView({
     await updateCase(params)
   }
 
-  const handleTagToggle = async (tagId: string, hasTag: boolean) => {
-    try {
-      if (hasTag) {
-        // Remove tag
-        await removeCaseTag(tagId)
-      } else {
-        // Add tag
-        await addCaseTag({ tag_id: tagId })
-      }
-    } catch (error) {
-      console.error("Failed to modify tag:", error)
-      toast({
-        title: "Error",
-        description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} case. Please try again.`,
-        variant: "destructive",
-      })
-    }
-  }
-
   const panelFieldRowClassName = cn(
     "group -mx-2 flex h-7 w-full min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70",
     embedded
       ? "[@container(max-width:360px)]:h-auto [@container(max-width:360px)]:min-h-12 [@container(max-width:360px)]:flex-col [@container(max-width:360px)]:items-stretch [@container(max-width:360px)]:gap-0.5 [@container(max-width:360px)]:py-1"
       : undefined
   )
+  // `a[data-case-field-link]` covers the URL field, whose value renders as a
+  // real anchor so cmd-click opens a new tab. Plain anchors are deliberately
+  // excluded: clicking blank row space must never navigate away.
   const panelFieldRowInteractiveSelector =
-    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled])"
+    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled]), a[data-case-field-link]"
   const panelFieldRowTargetSelector =
     "button:not([disabled]), input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), a[href]"
   const handlePanelFieldRowClick = (
@@ -354,8 +388,6 @@ export function CasePanelView({
     control.focus()
   }
 
-  const tabTriggerClassName =
-    "flex h-full shrink-0 items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
   const panelSelectTriggerClassName = cn(
     "h-7 w-full min-w-0 max-w-full justify-end border-none px-2 text-right text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:min-w-0 [&>span]:w-full",
     embedded
@@ -375,9 +407,16 @@ export function CasePanelView({
   const caseDetailsContent = (
     <>
       <SidebarGroup>
-        <SidebarGroupLabel>Properties</SidebarGroupLabel>
+        <SidebarGroupLabel className={CASE_PANEL_GROUP_LABEL_CLASS}>
+          Properties
+        </SidebarGroupLabel>
         <SidebarGroupContent className="px-2">
-          <div className="flex flex-col gap-2">
+          {/* gap-1, not gap-2: grouping is read from the ratio of
+              between-section to within-section whitespace. A 4px row gap
+              against the ~32px section gap gives ~8:1, so the sections
+              separate clearly without spending more vertical space. Keep in
+              sync with `case-panel-fields-group.tsx`. */}
+          <div className="flex flex-col gap-1">
             <div
               className={panelFieldRowClassName}
               onClick={handlePanelFieldRowClick}
@@ -475,99 +514,136 @@ export function CasePanelView({
           </div>
         </SidebarGroupContent>
       </SidebarGroup>
-      <SidebarGroup>
-        <SidebarGroupLabel>Fields</SidebarGroupLabel>
-        <SidebarGroupContent className="px-2">
-          <div className="flex flex-col gap-2">
-            {visibleCustomFields.length > 0 ? (
-              visibleCustomFields.map((field) => {
-                const label = undoSlugify(field.id)
-                return (
-                  <div
-                    key={field.id}
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    {showAllCustomFields && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                        onClick={() => handleCustomFieldClear(field)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        <span className="sr-only">Clear {label} field</span>
-                      </Button>
-                    )}
-                    <span className={panelLabelClassName} title={label}>
-                      {label}
-                    </span>
-                    <div className={panelControlClassName}>
-                      <div className="flex h-7 w-full items-center gap-2">
-                        <div className="min-w-0 flex-1">
-                          <CustomField
-                            customField={field}
-                            updateCase={updateCase}
-                            formClassName="w-full min-w-0 max-w-full"
-                            inputClassName={cn(
-                              "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
-                              embedded &&
-                                "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
-                            )}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            ) : customFields.length === 0 ? (
-              <span className="text-sm text-muted-foreground">
-                No custom fields configured
-              </span>
-            ) : null}
-            {customFields.length > 0 && (
-              <button
-                type="button"
-                className="h-7 text-left text-sm text-muted-foreground underline-offset-4 hover:underline"
-                onClick={() => setShowAllCustomFields((prev) => !prev)}
-              >
-                {showAllCustomFields ? "Hide empty fields" : "View all fields"}
-              </button>
-            )}
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <CasePanelFieldsGroup
+        customFields={customFields}
+        visibleCustomFields={visibleCustomFields}
+        showAll={showAllCustomFields}
+        onToggleShowAll={() => setShowAllCustomFields((prev) => !prev)}
+        updateCase={updateCase}
+        rowClassName={panelFieldRowClassName}
+        labelClassName={panelLabelClassName}
+        controlClassName={panelControlClassName}
+        inputClassName={cn(
+          "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+          embedded &&
+            "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+        )}
+        onRowClick={handlePanelFieldRowClick}
+      />
     </>
   )
 
   return (
     <>
       <CaseWorkflowTrigger caseData={caseData} />
+      {/* The case sits on the plain page background, the same surface the nav
+          rail and every other route paint. The boxes inside it — tasks,
+          comments, duration pills — are the tinted ones, so contrast comes
+          from the content rather than from a wash under the whole panel. */}
       <div
+        ref={setRootNode}
         className={cn(
-          "tc-case-panel flex h-full w-full min-w-0",
+          "tc-case-panel flex h-full w-full min-w-0 flex-col",
           embedded && "@container"
         )}
       >
-        <div className="min-w-0 flex-1">
-          <ScrollArea
-            className={cn(
-              "h-full min-w-0 bg-muted/20",
-              embedded &&
-                "[&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
-            )}
-          >
+        {/* The switcher band: a plain flex row above the scroll area. Nothing
+            scrolls under it, so it needs no sticky positioning, z-index,
+            bleed margins, or surface color. In route mode its height is
+            intrinsic — pt-6 (24px) above a 32px row of tabs, so 56px — and
+            that pt-6 is the only knob for the gap between the header border
+            and the tabs; the 56px total feeds the 92px alignment derivation
+            on the docked rail below. Both modes now put the tabs inside the
+            body's centered column (`mx-auto max-w-4xl` at the same px), so the
+            first tab's hit box starts on the case title's left edge at every
+            panel width — including wide panels, where the column's centering
+            slack `(panelWidth − 896) / 2` used to open the biggest gap. The
+            row takes no negative inset: the active tab's tint is the widest
+            thing in the band, and letting it bleed past the title reads as a
+            misaligned column even when the glyph inside it does not. The
+            tradeoff
+            is vertical: the tabs no longer stack under the `SidebarTrigger` in
+            `nav/controls-header.tsx`, which stays at the 12px chrome inset. */}
+        <div
+          className={cn(
+            "flex shrink-0 items-center",
+            embedded ? "h-10" : "pt-6"
+          )}
+        >
+          {embedded ? (
+            <div className="min-w-0 flex-1">
+              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
+                {/* No sidebar toggle to align to here, so the embedded band
+                    keeps the body column's geometry and the first tab's 24px
+                    hit box starts on the same edge as the case title below. */}
+                <CasePanelSwitcher
+                  activePanel={activePanel}
+                  onPanelChange={handlePanelChange}
+                  idPrefix={panelIdPrefix}
+                  taskProgress={taskProgress}
+                  tasks={caseTasks}
+                  compact
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1">
+              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 lg:px-6">
+                {/* No negative inset: a non-compact tab is min-w-8 around a
+                    size-4 icon, so its hit box starts on the title's text edge
+                    and the glyph sits 8px inside it. */}
+                <CasePanelSwitcher
+                  activePanel={activePanel}
+                  onPanelChange={handlePanelChange}
+                  idPrefix={panelIdPrefix}
+                  taskProgress={taskProgress}
+                  tasks={caseTasks}
+                />
+              </div>
+            </div>
+          )}
+          {/* The band spans the whole panel, but the body column below it is
+              narrowed by the docked rail. Without this spacer the band's
+              `mx-auto max-w-4xl` column centers over the wider box and the
+              tabs drift right of the title by half the rail. */}
+          {showDockedDetails && (
             <div
-              className={cn(
-                "mx-auto w-full min-w-0 max-w-4xl",
-                embedded
-                  ? "px-4 py-5 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
-                  : "px-6 py-8 pb-24"
-              )}
+              aria-hidden="true"
+              className={cn("shrink-0", CASE_DETAILS_RAIL_WIDTH_CLASS)}
+            />
+          )}
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1">
+            {/* The viewport override neutralizes Radix's `display: table`
+                sizing div, whose intrinsic sizing lets any nowrap text (a
+                truncating task title, say) inflate the whole body column past
+                the viewport instead of truncating. Applied in both modes: the
+                body is designed to wrap or truncate, never to scroll
+                horizontally. */}
+            <ScrollArea
+              hideScrollbar
+              className="h-full min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
             >
-              <div className="mb-2">
+              {/* pt-8 holds the title text at 92px from the panel top, given
+                  the 56px band outside the scroll area:
+                  56 + 32 + (title Input h-9 36px − text-xl 28px line) / 2 =
+                  92. The band's own top padding is what sets the gap above the
+                  tabs; this one sets the 36px gap between the tabs and the
+                  title, so the two are tuned independently. Embedded keeps
+                  pt-0 — its 40px compact band already supplies the full
+                  offset. */}
+              <div
+                className={cn(
+                  "mx-auto w-full min-w-0 max-w-4xl",
+                  embedded
+                    ? "px-4 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
+                    : "px-4 pb-16 pt-8 lg:px-6"
+                )}
+              >
+                {/* When the details rail is docked, the gap below the tags comes
+                  from the description editor's sticky toolbar padding — see
+                  `cases/editor.css`. */}
                 <div className="flex flex-col">
                   <div className="py-1.5 first:pt-0 last:pb-0">
                     <CasePanelSummary
@@ -576,8 +652,8 @@ export function CasePanelView({
                       compact={embedded}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2.5">
                       {caseData.tags?.length ? (
                         caseData.tags.map((tag) => (
                           <TagBadge key={tag.id} tag={tag} />
@@ -588,147 +664,105 @@ export function CasePanelView({
                         </span>
                       )}
                     </div>
-                    {caseTags && caseTags.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Manage tags</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="text-xs">
-                          {caseTags.map((tag) => {
-                            const hasTag = caseData.tags?.some(
-                              (t) => t.id === tag.id
-                            )
-                            return (
-                              <DropdownMenuCheckboxItem
-                                key={tag.id}
-                                className="text-xs"
-                                checked={hasTag}
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  await handleTagToggle(tag.id, !!hasTag)
-                                }}
-                              >
-                                <div
-                                  className="mr-2 flex size-2 rounded-full"
-                                  style={{
-                                    backgroundColor: tag.color || undefined,
-                                  }}
-                                />
-                                <span>{tag.name}</span>
-                              </DropdownMenuCheckboxItem>
-                            )
-                          })}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                    <CaseTagPicker
+                      caseId={caseId}
+                      workspaceId={workspaceId}
+                      appliedTags={caseData.tags}
+                    />
                   </div>
                 </div>
-              </div>
 
-              <div className="mb-4">
-                <CasePanelDescription
-                  caseData={caseData}
-                  updateCase={updateCase}
-                  compact={embedded}
-                />
-              </div>
+                {/* When the row is too narrow to dock the rail — or the view is
+                  embedded in the chat artifact panel — stack the details
+                  between the tags and the description so the primary metadata
+                  stays reachable rather than sitting below the editor.
+                  The pt-12 balances the whitespace above "Properties" against
+                  the perceived gap below the bottom border, which includes the
+                  description editor's visually empty sticky-toolbar band.
+                  The px-0 overrides strip the sidebar primitives' horizontal
+                  insets (SidebarGroup p-2, label/content px-2) so the
+                  "Properties" label and row text share the title/description
+                  left edge; row hover backgrounds still bleed past it via
+                  their -mx-2. The docked rail keeps the paddings. */}
+                {(showInlineDetails || embedded) && (
+                  <div className="mb-4 border-b pt-12 pb-2 [&_[data-sidebar=group-content]]:px-0 [&_[data-sidebar=group-label]]:px-0 [&_[data-sidebar=group]]:px-0">
+                    {caseDetailsContent}
+                  </div>
+                )}
 
-              {caseAddonsEnabled && (
-                <div className="mb-6">
-                  <CaseTasksSection
+                {/* Exactly one panel at a time; inactive panels unmount. The
+                  description supplies its own top whitespace: a 60px sticky
+                  toolbar band that is `visibility: hidden` at rest (see
+                  cases/editor.css), which lands its first line of text ~68px
+                  below the tags. `mt-16` starts every other panel on that same
+                  y, so switching tabs does not walk the content up and down
+                  the column. */}
+                <div
+                  role="tabpanel"
+                  id={casePanelPanelId(panelIdPrefix, activePanel)}
+                  aria-labelledby={casePanelTabId(panelIdPrefix, activePanel)}
+                  className={cn(activePanel !== "description" && "mt-16")}
+                >
+                  <CasePanelContent
+                    panel={activePanel}
                     caseId={caseId}
                     workspaceId={workspaceId}
                     caseData={caseData}
+                    updateCase={updateCase}
+                    embedded={embedded}
                   />
                 </div>
-              )}
 
-              {embedded && (
-                <div className="mb-6 border-y bg-background/80 py-2">
-                  {caseDetailsContent}
-                </div>
-              )}
-
-              <Tabs
-                value={activeTab}
-                onValueChange={handleTabChange}
-                className={cn("w-full", embedded ? "mt-6" : "mt-[4.5rem]")}
-              >
-                <TabsList className="h-8 w-full justify-start gap-6 overflow-x-auto rounded-none bg-transparent p-0">
-                  <TabsTrigger className={tabTriggerClassName} value="comments">
-                    <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-                    Comments
-                  </TabsTrigger>
-                  <TabsTrigger className={tabTriggerClassName} value="activity">
-                    <Activity className="mr-1.5 h-3.5 w-3.5" />
-                    Activity
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className={tabTriggerClassName}
-                    value="attachments"
-                  >
-                    <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                    Attachments
-                  </TabsTrigger>
-                  <TabsTrigger className={tabTriggerClassName} value="rows">
-                    <Table2 className="mr-1.5 h-3.5 w-3.5" />
-                    Tables
-                  </TabsTrigger>
-                  <TabsTrigger className={tabTriggerClassName} value="payload">
-                    <Braces className="mr-1.5 h-3.5 w-3.5" />
-                    Payload
-                  </TabsTrigger>
-                </TabsList>
-                <Separator className="mt-0" />
-
-                <TabsContent value="comments" className="mt-4">
+                {/* Comments are not a panel: they always render below whichever
+                  panel is active, separated by whitespace only — no rule, no
+                  heading. The section landmark hands AT the boundary that the
+                  missing heading would have marked. Nothing pins over the top
+                  of the scroll viewport anymore, so anchored scrolls need no
+                  offset. */}
+                <section
+                  aria-label="Comments"
+                  className={embedded ? "mt-10" : "mt-16"}
+                >
                   <CommentSection caseId={caseId} workspaceId={workspaceId} />
-                </TabsContent>
-
-                <TabsContent value="activity" className="mt-4">
-                  <CaseFeed caseId={caseId} workspaceId={workspaceId} />
-                </TabsContent>
-
-                <TabsContent value="attachments" className="mt-4">
-                  <CaseAttachmentsSection
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                  />
-                </TabsContent>
-
-                <TabsContent value="rows" className="mt-4">
-                  <CaseLinkedRowsSection
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                  />
-                </TabsContent>
-
-                <TabsContent value="payload" className="mt-4">
-                  <CasePayloadSection caseData={caseData} />
-                </TabsContent>
-              </Tabs>
-            </div>
-          </ScrollArea>
+                </section>
+              </div>
+            </ScrollArea>
+          </div>
+          {showDockedDetails && (
+            <Sidebar
+              side="right"
+              collapsible="none"
+              className={cn(
+                "shrink-0 bg-transparent text-foreground",
+                CASE_DETAILS_RAIL_WIDTH_CLASS
+              )}
+            >
+              <SidebarContent className="h-full">
+                {/* pt-5 (20px) lands the "Properties" label text flush with
+                    the case title text, both 92px from the panel top. Both
+                    columns sit under the shared 56px switcher band:
+                    - main column: body wrapper pt-8 (32px) + title Input h-9
+                      (36px) with a text-xl 28px line → text top =
+                      56 + 32 + (36 − 28) / 2 = 92px
+                    - rail: pt-5 (20px) + SidebarGroup p-2 (8px) +
+                      SidebarGroupLabel h-8 (32px) with a text-xs 16px line →
+                      text top = 56 + 20 + 8 + (32 − 16) / 2 = 92px */}
+                <div className="px-2 pt-5">{caseDetailsContent}</div>
+              </SidebarContent>
+            </Sidebar>
+          )}
         </div>
-        {!embedded && (
-          <Sidebar
-            side="right"
-            collapsible="none"
-            className="w-[22rem] shrink-0 border-l border-border bg-background text-foreground"
-          >
-            <SidebarContent className="h-full">
-              {caseDetailsContent}
-            </SidebarContent>
-          </Sidebar>
-        )}
       </div>
+      {/* One dialog for every locked tab press — mounted here rather than in
+          the switcher so the embedded and route layouts share it, and so the
+          switcher keeps knowing nothing of entitlements. */}
+      <LockedFeatureModal
+        open={lockedFeatureDialogOpen}
+        onOpenChange={setLockedFeatureDialogOpen}
+        title="Enterprise only"
+        description="Case tasks are only available on enterprise plans."
+        bullets={[]}
+      />
       {closureDialog && (
         <CaseClosureDialog
           open={closureDialog.open}

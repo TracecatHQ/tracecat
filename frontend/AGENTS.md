@@ -56,6 +56,8 @@ Use these rules for work in `frontend/`.
 - Do not add child backgrounds that cut across a parent container's rounded
   border corners.
 - Use "Title case example" style for UI copy rather than full title case.
+- Do not use all-caps for titles, headings, or field labels, and do not reach
+  for the `uppercase` utility on them. Use sentence case instead.
 
 ## Input and focus consistency
 
