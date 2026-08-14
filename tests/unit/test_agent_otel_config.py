@@ -1,5 +1,5 @@
 import pytest
-from pydantic import AnyHttpUrl, SecretStr, ValidationError
+from pydantic import HttpUrl, SecretStr, ValidationError
 
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
@@ -13,7 +13,7 @@ def test_resolve_org_agent_otel_config_redirects_sandbox_to_relay() -> None:
     resolved = resolve_agent_otel_config(
         org_config=AgentOtelConfig(
             enabled=True,
-            endpoint=AnyHttpUrl("https://collector.example.com"),
+            endpoint=HttpUrl("https://collector.example.com"),
         ),
         org_headers={"Authorization": "Bearer token"},
         platform_override=None,
@@ -39,7 +39,7 @@ def test_resolve_org_agent_otel_config_without_relay_keeps_endpoint() -> None:
         org_config=AgentOtelConfig(
             enabled=True,
             protocol="grpc",
-            endpoint=AnyHttpUrl("https://collector.example.com"),
+            endpoint=HttpUrl("https://collector.example.com"),
         ),
         org_headers=None,
         platform_override=None,
@@ -57,13 +57,13 @@ def test_platform_override_wins_over_enabled_org_config() -> None:
     resolved = resolve_agent_otel_config(
         org_config=AgentOtelConfig(
             enabled=True,
-            endpoint=AnyHttpUrl("https://org.example.com"),
+            endpoint=HttpUrl("https://org.example.com"),
         ),
         org_headers={"Authorization": "Bearer org"},
         platform_override=AgentOtelPlatformOverride(
             config=AgentOtelConfig(
                 enabled=True,
-                endpoint=AnyHttpUrl("https://platform.example.com"),
+                endpoint=HttpUrl("https://platform.example.com"),
             ),
             headers={"x-api-key": SecretStr("platform")},
         ),
@@ -81,7 +81,7 @@ def test_platform_override_false_wins_over_enabled_org_config() -> None:
     resolved = resolve_agent_otel_config(
         org_config=AgentOtelConfig(
             enabled=True,
-            endpoint=AnyHttpUrl("https://org.example.com"),
+            endpoint=HttpUrl("https://org.example.com"),
         ),
         org_headers={"Authorization": "Bearer org"},
         platform_override=AgentOtelPlatformOverride(
@@ -131,6 +131,22 @@ def test_agent_otel_config_rejects_empty_resource_attribute() -> None:
         AgentOtelConfig(resource_attributes={"service.name": "  "})
 
 
+def test_agent_otel_config_rejects_endpoint_userinfo() -> None:
+    with pytest.raises(ValidationError, match="must not embed credentials"):
+        AgentOtelConfig(
+            enabled=True,
+            endpoint=HttpUrl("https://user:password@collector.example.com"),
+        )
+
+
+def test_agent_otel_config_rejects_endpoint_query_string() -> None:
+    with pytest.raises(ValidationError, match="must not include a query string"):
+        AgentOtelConfig(
+            enabled=True,
+            endpoint=HttpUrl("https://collector.example.com/v1?api-key=secret"),
+        )
+
+
 def test_agent_otel_config_requires_endpoint_when_enabled() -> None:
     with pytest.raises(ValidationError, match="no endpoint is configured"):
         AgentOtelConfig(enabled=True)
@@ -169,7 +185,7 @@ def test_traces_alone_require_endpoint() -> None:
 def test_enabling_traces_sets_beta_flag() -> None:
     env = AgentOtelConfig(
         enabled=True,
-        endpoint=AnyHttpUrl("https://collector.example.com"),
+        endpoint=HttpUrl("https://collector.example.com"),
         traces_enabled=True,
     ).to_env()
 
@@ -179,7 +195,7 @@ def test_enabling_traces_sets_beta_flag() -> None:
 
 def test_disabled_traces_do_not_set_beta_flag() -> None:
     env = AgentOtelConfig(
-        enabled=True, endpoint=AnyHttpUrl("https://collector.example.com")
+        enabled=True, endpoint=HttpUrl("https://collector.example.com")
     ).to_env()
 
     assert env["OTEL_TRACES_EXPORTER"] == "none"
@@ -190,7 +206,7 @@ def test_agent_otel_config_serializes_typed_fields_to_env() -> None:
     otel_config = AgentOtelConfig(
         enabled=True,
         protocol="http/protobuf",
-        endpoint=AnyHttpUrl("https://collector.example.com:4318"),
+        endpoint=HttpUrl("https://collector.example.com:4318"),
         logs_enabled=False,
         metrics_temporality="cumulative",
         metric_export_interval_ms=10_000,
@@ -225,7 +241,7 @@ def test_agent_otel_config_serializes_typed_fields_to_env() -> None:
 
 def test_unset_agent_otel_fields_are_omitted_from_env() -> None:
     env = AgentOtelConfig(
-        enabled=True, endpoint=AnyHttpUrl("https://collector.example.com")
+        enabled=True, endpoint=HttpUrl("https://collector.example.com")
     ).to_env()
 
     assert env == {
