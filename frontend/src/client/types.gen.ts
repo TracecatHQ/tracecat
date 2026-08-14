@@ -547,6 +547,10 @@ export type AgentOtelConfig = {
    */
   logs_enabled?: boolean
   /**
+   * Whether traces are exported. Enables Claude Code beta tracing.
+   */
+  traces_enabled?: boolean
+  /**
    * Metrics aggregation temporality.
    */
   metrics_temporality?: "delta" | "cumulative" | null

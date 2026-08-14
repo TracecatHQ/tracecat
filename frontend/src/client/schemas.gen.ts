@@ -2009,6 +2009,13 @@ export const $AgentOtelConfig = {
       description: "Whether logs and events are exported.",
       default: true,
     },
+    traces_enabled: {
+      type: "boolean",
+      title: "Traces Enabled",
+      description:
+        "Whether traces are exported. Enables Claude Code beta tracing.",
+      default: false,
+    },
     metrics_temporality: {
       anyOf: [
         {

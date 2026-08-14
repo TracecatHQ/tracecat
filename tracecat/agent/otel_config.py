@@ -50,6 +50,10 @@ class AgentOtelConfig(BaseModel):
         default=True,
         description="Whether logs and events are exported.",
     )
+    traces_enabled: bool = Field(
+        default=False,
+        description="Whether traces are exported. Enables Claude Code beta tracing.",
+    )
     metrics_temporality: MetricsTemporality | None = Field(
         default=None,
         description="Metrics aggregation temporality.",
@@ -106,7 +110,7 @@ class AgentOtelConfig(BaseModel):
     def validate_otlp_endpoint(self) -> Self:
         if (
             self.enabled
-            and (self.metrics_enabled or self.logs_enabled)
+            and (self.metrics_enabled or self.logs_enabled or self.traces_enabled)
             and self.endpoint is None
         ):
             raise ValueError("telemetry is enabled but no endpoint is configured")
@@ -118,11 +122,15 @@ class AgentOtelConfig(BaseModel):
         _set_env(env, "OTEL_EXPORTER_OTLP_PROTOCOL", self.protocol)
         _set_env(env, "OTEL_EXPORTER_OTLP_ENDPOINT", self.endpoint)
 
-        # OTLP via the relay is the only egress from the sandbox; traces stay off
-        # until Claude Code tracing leaves beta.
+        # OTLP via the relay is the only egress from the sandbox; pull-based and
+        # console exporters are not supported.
         env["OTEL_METRICS_EXPORTER"] = "otlp" if self.metrics_enabled else "none"
         env["OTEL_LOGS_EXPORTER"] = "otlp" if self.logs_enabled else "none"
-        env["OTEL_TRACES_EXPORTER"] = "none"
+        env["OTEL_TRACES_EXPORTER"] = "otlp" if self.traces_enabled else "none"
+        if self.traces_enabled:
+            # Claude Code emits traces only with this beta flag; owned here so it
+            # never becomes API surface.
+            env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] = "1"
 
         _set_env(
             env,

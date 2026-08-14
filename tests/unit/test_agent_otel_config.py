@@ -156,6 +156,36 @@ def test_all_signals_off_does_not_require_endpoint() -> None:
     assert otel_config.to_env()["OTEL_LOGS_EXPORTER"] == "none"
 
 
+def test_traces_alone_require_endpoint() -> None:
+    with pytest.raises(ValidationError, match="no endpoint is configured"):
+        AgentOtelConfig(
+            enabled=True,
+            metrics_enabled=False,
+            logs_enabled=False,
+            traces_enabled=True,
+        )
+
+
+def test_enabling_traces_sets_beta_flag() -> None:
+    env = AgentOtelConfig(
+        enabled=True,
+        endpoint=AnyHttpUrl("https://collector.example.com"),
+        traces_enabled=True,
+    ).to_env()
+
+    assert env["OTEL_TRACES_EXPORTER"] == "otlp"
+    assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+
+
+def test_disabled_traces_do_not_set_beta_flag() -> None:
+    env = AgentOtelConfig(
+        enabled=True, endpoint=AnyHttpUrl("https://collector.example.com")
+    ).to_env()
+
+    assert env["OTEL_TRACES_EXPORTER"] == "none"
+    assert "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA" not in env
+
+
 def test_agent_otel_config_serializes_typed_fields_to_env() -> None:
     otel_config = AgentOtelConfig(
         enabled=True,
