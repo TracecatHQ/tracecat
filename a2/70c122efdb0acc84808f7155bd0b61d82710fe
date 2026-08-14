@@ -1,0 +1,24 @@
+frontend/tests/case-tag-picker.test.tsx
+  s_a1f56891d78c50::t_e85a6e702db24b 1-4,12-61,67-139
+  s_a1f56891d78c50::t_b5407797cba649 5-11,62-66
+frontend/src/components/cases/case-tag-picker.tsx
+  s_a1f56891d78c50::t_cfabf84c7ffc5f 157,165
+  s_a1f56891d78c50::t_b2f81cbbfe755f 43,57-87,96,103
+  s_a1f56891d78c50::t_99092e6dc64d5b 106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a270c122efdb0acc84808f7155bd0b61d82710fe",
+  "prompts": {},
+  "sessions": {
+    "s_a1f56891d78c50": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7f48404-08cf-4d43-9511-a9ad5c9cefaa",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
