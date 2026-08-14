@@ -1,5 +1,17 @@
+diff --git a/monitor.cc b/monitor.cc
+--- a/monitor.cc
++++ b/monitor.cc
+@@ -83,7 +83,7 @@ struct fdHandler_t {
+ /* --- per-thread context -------------------------------- */
+ 
+ constexpr size_t MAX_EVENTS = 16;
+-constexpr size_t MAX_HANDLERS = 2048;
++constexpr size_t MAX_HANDLERS = 4096;
+ constexpr size_t MAX_PERIODICS = 16;
+ constexpr int kSetupTimeoutSec = 10;
+ constexpr int kShutdownEscalationSec = 2;
 diff --git a/nstun/core.h b/nstun/core.h
-index 0e033ff..3be3bdf 100644
+index 0e033ff..4999e14 100644
 --- a/nstun/core.h
 +++ b/nstun/core.h
 @@ -11,6 +11,7 @@
@@ -10,7 +22,15 @@ index 0e033ff..3be3bdf 100644
  
  #include "net_defs.h"
  #include "nstun.h"
-@@ -25,11 +26,24 @@ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
+@@ -19,17 +20,31 @@
+ namespace nstun {
+ 
+ constexpr size_t NSTUN_MAX_FLOWS = 1024;
+-constexpr size_t NSTUN_MAX_FDS = 2048;
++constexpr size_t NSTUN_MAX_UDP_FLOWS = 2048;
++constexpr size_t NSTUN_MAX_FDS = 4096;
+ constexpr size_t NSTUN_MAX_RULES = 128;
+ constexpr size_t UDP_QUEUE_PACKET_MAX = 1500;
  constexpr size_t UDP_QUEUE_MAX_PACKETS = 50;
  constexpr int VLEN = 64;
  
@@ -33,12 +53,12 @@ index 0e033ff..3be3bdf 100644
 +/* UDP and ICMP sockets are owned by the parent NSTUN process and are not
 + * constrained by the jailed child's RLIMIT_NOFILE. Bound their aggregate
 + * kernel socket memory separately while leaving headroom for DNS bursts. */
-+constexpr size_t UDP_ICMP_SOCKET_BUDGET = 1024;
++constexpr size_t UDP_ICMP_SOCKET_BUDGET = 2048;
 +static_assert(UDP_ICMP_SOCKET_BUDGET < NSTUN_MAX_FDS);
  
  
  /* Removed MemcmpLess in favor of C++20 operator<=> */
-@@ -62,6 +75,22 @@ struct __attribute__((packed)) IcmpFlowKey6 {
+@@ -62,6 +77,22 @@ struct __attribute__((packed)) IcmpFlowKey6 {
  
  struct Context;
  
@@ -61,7 +81,7 @@ index 0e033ff..3be3bdf 100644
  enum class FlowType { TCP, UDP, ICMP };
  enum class ProxyMode : uint8_t { NONE, SOCKS5, HTTP_CONNECT };
  
-@@ -118,11 +147,16 @@ struct UdpFlow {
+@@ -118,11 +149,16 @@ struct UdpFlow {
  	uint32_t bnd_ip;
  	uint16_t bnd_port;
  	bool host_fd_is_listener;
@@ -80,7 +100,7 @@ index 0e033ff..3be3bdf 100644
  	size_t c_tx_queue_head;
  	size_t c_tx_queue_tail;
  	size_t c_tx_queue_count;
-@@ -149,7 +183,7 @@ struct TcpFlow {
+@@ -149,7 +185,7 @@ struct TcpFlow {
  	size_t tx_acked_offset;
  	size_t rx_sent_offset;
  
@@ -89,7 +109,7 @@ index 0e033ff..3be3bdf 100644
  	std::unique_ptr<uint8_t[]> c_tcp_tx_buf;
  	size_t c_tcp_tx_len;
  	std::unique_ptr<uint8_t[]> c_proxy_rx_buf;
-@@ -164,6 +198,7 @@ struct TcpFlow {
+@@ -164,6 +200,7 @@ struct TcpFlow {
  
  struct IcmpFlow {
  	struct FlowHeader header;
@@ -97,15 +117,20 @@ index 0e033ff..3be3bdf 100644
  };
  
  
-@@ -185,6 +220,7 @@ struct Context {
+@@ -185,9 +222,10 @@ struct Context {
  
  	TcpFlow c_ipv4_tcp_flows[NSTUN_MAX_FLOWS];
  	size_t num_c_ipv4_tcp_flows;
+-	UdpFlow c_ipv4_udp_flows[NSTUN_MAX_FLOWS];
 +	size_t udp_icmp_socket_count;
- 	UdpFlow c_ipv4_udp_flows[NSTUN_MAX_FLOWS];
++	UdpFlow c_ipv4_udp_flows[NSTUN_MAX_UDP_FLOWS];
  	size_t num_c_ipv4_udp_flows;
- 	UdpFlow c_ipv6_udp_flows[NSTUN_MAX_FLOWS];
-@@ -222,6 +258,44 @@ struct Context {
+-	UdpFlow c_ipv6_udp_flows[NSTUN_MAX_FLOWS];
++	UdpFlow c_ipv6_udp_flows[NSTUN_MAX_UDP_FLOWS];
+ 	size_t num_c_ipv6_udp_flows;
+ 	TcpFlow c_ipv6_tcp_flows[NSTUN_MAX_FLOWS];
+ 	size_t num_c_ipv6_tcp_flows;
+@@ -222,6 +260,44 @@ struct Context {
  
  };
  
@@ -364,7 +389,7 @@ index 643d037..d1edeb8 100644
  		return nullptr;
  	}
 diff --git a/nstun/udp.cc b/nstun/udp.cc
-index 6f7804b..bb37b9a 100644
+index 6f7804b..69bf0ce 100644
 --- a/nstun/udp.cc
 +++ b/nstun/udp.cc
 @@ -5,6 +5,7 @@
@@ -391,6 +416,38 @@ index 6f7804b..bb37b9a 100644
  static const char* udp_state_to_str(UdpSocks5State state) {
  	struct {
  		const uint64_t state;
+@@ -47,7 +57,7 @@ static constexpr time_t UDP_TIMEOUT_ESTABLISHED = 60;
+ static constexpr time_t UDP_TIMEOUT_CONNECTING = 5; /* SOCKS5 TCP setup */
+ static UdpFlow* find_ipv4_udp_flow(Context* ctx, const FlowKey4& key4) {
+ 	size_t active_seen = 0;
+-	for (size_t i = 0; i < NSTUN_MAX_FLOWS; ++i) {
++	for (size_t i = 0; i < NSTUN_MAX_UDP_FLOWS; ++i) {
+ 		UdpFlow& flow = ctx->c_ipv4_udp_flows[i];
+ 		if (flow.header.active) {
+ 			if (!flow.header.is_ipv6 &&
+@@ -66,7 +76,7 @@ static UdpFlow* find_ipv4_udp_flow(Context* ctx, const FlowKey4& key4) {
+ 
+ static UdpFlow* find_ipv6_udp_flow(Context* ctx, const FlowKey6& key6) {
+ 	size_t active_seen = 0;
+-	for (size_t i = 0; i < NSTUN_MAX_FLOWS; ++i) {
++	for (size_t i = 0; i < NSTUN_MAX_UDP_FLOWS; ++i) {
+ 		UdpFlow& flow = ctx->c_ipv6_udp_flows[i];
+ 		if (flow.header.active) {
+ 			if (memcmp(&flow.header.key6, &key6, sizeof(key6)) == 0) {
+@@ -102,11 +112,11 @@ static UdpFlow* alloc_udp_flow(UdpFlow* flows, size_t max_flows) {
+ }
+ 
+ static UdpFlow* alloc_ipv4_udp_flow(Context* ctx) {
+-	return alloc_udp_flow(ctx->c_ipv4_udp_flows, NSTUN_MAX_FLOWS);
++	return alloc_udp_flow(ctx->c_ipv4_udp_flows, NSTUN_MAX_UDP_FLOWS);
+ }
+ 
+ static UdpFlow* alloc_ipv6_udp_flow(Context* ctx) {
+-	return alloc_udp_flow(ctx->c_ipv6_udp_flows, NSTUN_MAX_FLOWS);
++	return alloc_udp_flow(ctx->c_ipv6_udp_flows, NSTUN_MAX_UDP_FLOWS);
+ }
+ 
+ static void prepare_recvmmsg(Context* ctx) {
 @@ -133,6 +143,7 @@ void udp_destroy_flow(Context* ctx, UdpFlow* flow) {
  			LOG_W("Failed to remove host_fd from monitor");
  		}
@@ -565,6 +622,42 @@ index 6f7804b..bb37b9a 100644
  	size_t idx = flow->c_tx_queue_tail;
  	memcpy(flow->c_tx_queue[idx].data, data, data_len);
  	flow->c_tx_queue[idx].len = data_len;
+@@ -759,7 +802,7 @@ void handle_udp4_impl(
+ 			break;
+ 		}
+ 
+-		if (ctx->num_c_ipv4_udp_flows >= NSTUN_MAX_FLOWS) {
++		if (ctx->num_c_ipv4_udp_flows >= NSTUN_MAX_UDP_FLOWS) {
+ 			LOG_W("Maximum number of UDP flows reached, dropping");
+ 			send_icmp4_error(
+ 			    ctx, ip, ntohs(ip->tot_len), ICMP_DEST_UNREACH, ICMP_PORT_UNREACH);
+@@ -778,7 +821,7 @@ void handle_udp4_impl(
+ 
+ 	if (flow->use_socks5 && flow->state != UDP_S5_ESTABLISHED) {
+ 		/* Cap queued packet size to prevent memory exhaustion:
+-		 * NSTUN_MAX_FLOWS * 50 packets * UDP_QUEUE_PACKET_MAX = ~75MB worst case */
++		 * NSTUN_MAX_UDP_FLOWS * 50 packets * UDP_QUEUE_PACKET_MAX = ~150MB worst case */
+ 		if (!udp_enqueue_packet(flow, data, data_len, "UDP")) {
+ 			return;
+ 		}
+@@ -934,7 +977,7 @@ static void handle_host_udp_accept_pkt6(Context* ctx, int listen_fd, const nstun
+ 
+ 	UdpFlow* flow = find_ipv6_udp_flow(ctx, key6);
+ 	if (!flow) {
+-		if (ctx->num_c_ipv6_udp_flows >= NSTUN_MAX_FLOWS) {
++		if (ctx->num_c_ipv6_udp_flows >= NSTUN_MAX_UDP_FLOWS) {
+ 			LOG_W("Maximum number of IPv6 UDP flows reached, dropping");
+ 			return;
+ 		}
+@@ -983,7 +1026,7 @@ static void handle_host_udp_accept_pkt4(Context* ctx, int listen_fd, const nstun
+ 
+ 	UdpFlow* flow = find_ipv4_udp_flow(ctx, key4);
+ 	if (!flow) {
+-		if (ctx->num_c_ipv4_udp_flows >= NSTUN_MAX_FLOWS) {
++		if (ctx->num_c_ipv4_udp_flows >= NSTUN_MAX_UDP_FLOWS) {
+ 			LOG_W("Maximum number of UDP flows reached, dropping");
+ 			return;
+ 		}
 @@ -1152,22 +1195,28 @@ static UdpFlow* udp_create_flow6(Context* ctx, const FlowKey6& key6, const RuleR
  		    flow->use_socks5 ? 1 : 0, guest_port, tcp_fd,
  		    flow->header.is_redirected ? " [redirected]" : "");
@@ -611,3 +704,12 @@ index 6f7804b..bb37b9a 100644
  		flow->state = UDP_S5_ESTABLISHED;
  		LOG_D("Flow %d: initialized to UDP_S5_ESTABLISHED (IPv6)", fd);
  		set_udp_flow_by_fd(ctx, fd, flow);
+@@ -1249,7 +1298,7 @@ void handle_udp6_impl(
+ 			break;
+ 		}
+ 
+-		if (ctx->num_c_ipv6_udp_flows >= NSTUN_MAX_FLOWS) {
++		if (ctx->num_c_ipv6_udp_flows >= NSTUN_MAX_UDP_FLOWS) {
+ 			LOG_W("Maximum number of IPv6 UDP flows reached, dropping");
+ 			send_icmp6_error(ctx, ip, sizeof(ip6_hdr) + payload_size, ICMP6_DST_UNREACH,
+ 			    ICMP6_DST_UNREACH_NOPORT);
