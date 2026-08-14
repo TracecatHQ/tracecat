@@ -17,7 +17,7 @@ import {
   formatDurationLong,
   parseISODurationSafe,
 } from "@/lib/time"
-import { cn } from "@/lib/utils"
+import { cn, INSET_SURFACE } from "@/lib/utils"
 
 /**
  * Age past which a pill stops rendering seconds.
@@ -199,7 +199,13 @@ export function CaseDurationMetrics({
               <Badge
                 variant="outline"
                 className={cn(
-                  "gap-1.5 whitespace-nowrap px-2 py-1 text-xs font-medium bg-background text-foreground",
+                  "gap-1.5 whitespace-nowrap px-2 py-1 text-xs font-medium text-foreground",
+                  // The comment and task boxes' surface exactly: same
+                  // `bg-muted/20` fill and the same `border-border/60` edge.
+                  // The fill alone was not enough — `Badge`'s full-opacity
+                  // border read as a harder, darker chip next to them.
+                  INSET_SURFACE,
+                  "border-border/60",
                   // Inline pills size to their content and never compress, so a
                   // short name like "TTR" takes only the width it needs. Once
                   // the row outgrows its slot it scrolls, rather than squeezing

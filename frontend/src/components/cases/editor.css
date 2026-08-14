@@ -57,21 +57,25 @@
 }
 
 /*
- * The case panel scrolls on `bg-muted/20` layered over the page background.
- * This recomputes that composite; keep it in sync with the `.tc-case-panel`
- * root class in `case-panel-view.tsx`. Browsers without `color-mix()` keep
- * the plain background above, which is visually near-identical at 20% muted.
+ * The case panel scrolls on the plain page background — see the
+ * `.tc-case-panel` root in `case-panel-view.tsx`, which carries no surface
+ * class of its own. `--tc-case-surface` names that surface for the
+ * description editor's sticky toolbar below, the one thing left that pins
+ * over scrolling panel content and therefore needs an opaque fill.
  */
-@supports (background: color-mix(in srgb, red 50%, blue)) {
-  .case-description-editor--panel
-    .case-description-editor
-    .simple-editor-toolbar {
-    --tt-toolbar-bg-color: color-mix(
-      in srgb,
-      hsl(var(--muted)) 20%,
-      hsl(var(--background))
-    );
-  }
+.tc-case-panel {
+  --tc-case-surface: hsl(var(--background));
+}
+
+/*
+ * The switcher band sits above the ScrollArea (see `case-panel-view.tsx`),
+ * so the toolbar pins at the base rule's `top: 0` — the top of the scroll
+ * viewport — and only needs the composite surface color, so scrolling
+ * content cannot show through it.
+ */
+.case-description-editor--panel .case-description-editor
+  .simple-editor-toolbar {
+  --tt-toolbar-bg-color: var(--tc-case-surface);
 }
 
 /*
