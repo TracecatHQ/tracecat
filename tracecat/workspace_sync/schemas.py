@@ -214,6 +214,20 @@ class AgentPresetSubagentRef(BaseModel):
     )
 
 
+class McpIntegrationHint(BaseModel):
+    """Portable identity hint for best-effort MCP integration correlation."""
+
+    model_config = ConfigDict(extra="allow")
+
+    slug: str = Field(min_length=1, description="Source MCP integration slug.")
+    server_type: str = Field(description="Source MCP server type.")
+    auth_type: str = Field(description="Source MCP authentication type.")
+    name: str | None = Field(
+        default=None,
+        description="Source MCP integration display name.",
+    )
+
+
 class AgentPresetVersionResourceSpec(BaseModel):
     """Immutable agent preset snapshot stored under a preset's versions dir."""
 
@@ -273,7 +287,14 @@ class AgentPresetVersionResourceSpec(BaseModel):
     )
     mcp_integrations: list[str] = Field(
         default_factory=list,
-        description="MCP integration slugs available to the agent.",
+        description="Source MCP integration ids available to the agent.",
+    )
+    mcp_integration_hints: dict[uuid.UUID, McpIntegrationHint] = Field(
+        default_factory=dict,
+        exclude_if=lambda value: not value,
+        description=(
+            "Optional portable identity hints keyed by source MCP integration id."
+        ),
     )
     retries: int = Field(
         default=3,
@@ -288,6 +309,23 @@ class AgentPresetVersionResourceSpec(BaseModel):
         default=False,
         description="Whether the agent may access the internet.",
     )
+
+    @model_validator(mode="after")
+    def validate_mcp_integration_hints(self) -> AgentPresetVersionResourceSpec:
+        """Reject hints that do not describe an integration in this version."""
+        integration_ids: set[uuid.UUID] = set()
+        for integration in self.mcp_integrations:
+            try:
+                integration_ids.add(uuid.UUID(integration))
+            except ValueError:
+                continue
+        if stale_ids := set(self.mcp_integration_hints) - integration_ids:
+            formatted_ids = ", ".join(str(source_id) for source_id in sorted(stale_ids))
+            raise ValueError(
+                "MCP integration hints must reference ids in mcp_integrations: "
+                f"{formatted_ids}"
+            )
+        return self
 
 
 class AgentPresetResourceSpec(BaseModel):
