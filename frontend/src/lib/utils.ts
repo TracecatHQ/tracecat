@@ -63,6 +63,14 @@ export const linearStyles = {
     hover: "hover:bg-muted/50",
   },
 } as const
+
+/**
+ * Surface for the boxes that sit on a case: the tasks container, the comment
+ * cards, and the header's duration pills. The case panel itself paints
+ * nothing — it is the plain page background, like every other route — so this
+ * faint wash is what lifts a box off it, in both themes, without a shadow.
+ */
+export const INSET_SURFACE = "bg-muted/20"
 export const copyToClipboard = async ({
   target,
   message,
@@ -129,6 +137,15 @@ export function isServer() {
 
 export function capitalizeFirst(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+/** Formats a byte count as a human-readable size, e.g. `321.1 KB`. */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 Bytes"
+  const k = 1024
+  const sizes = ["Bytes", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
 export function shortTimeAgo(date: Date) {
