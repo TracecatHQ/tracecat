@@ -1,0 +1,22 @@
+frontend/tests/app-sidebar.test.tsx
+  s_4597215d7c0827::t_38413be0c6882c 10,18,35-55,96,102,106,148,217-233
+  s_4597215d7c0827::t_e7255b3b1eed3e 234
+frontend/src/components/sidebar/app-sidebar.tsx
+  s_4597215d7c0827::t_38413be0c6882c 444-446
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "bab44bc8b8122e6d394721a567e916fa1f034e28",
+  "prompts": {},
+  "sessions": {
+    "s_4597215d7c0827": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a001f6-376b-70c3-b5bf-743116fa71e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
