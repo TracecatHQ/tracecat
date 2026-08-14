@@ -49,6 +49,8 @@ function makeField(
     Partial<CaseFieldRead>
 ): CaseFieldRead {
   return {
+    // The API defaults a field's display name to its identifier.
+    display_name: overrides.id,
     description: "",
     nullable: true,
     default: null,

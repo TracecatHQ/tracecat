@@ -70,6 +70,7 @@ beforeEach(() => {
 const requiredFields: CaseFieldReadMinimal[] = [
   {
     id: "closure_reason",
+    display_name: "closure_reason",
     type: "TEXT",
     description: "Why the case was closed",
     nullable: true,
