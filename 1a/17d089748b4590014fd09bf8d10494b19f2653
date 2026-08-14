@@ -1,0 +1,24 @@
+frontend/tests/copy-to-clipboard.test.ts
+  s_a1f56891d78c50::t_8dbf0038d5441c 1-44
+frontend/src/components/cases/case-attachments-section.tsx
+  s_a1f56891d78c50::t_f2b620f73f35aa 172-181
+frontend/src/lib/utils.ts
+  s_a1f56891d78c50::t_c15fbb0dbc1154 74-78
+  s_a1f56891d78c50::t_26d17434d3db5c 105,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1a17d089748b4590014fd09bf8d10494b19f2653",
+  "prompts": {},
+  "sessions": {
+    "s_a1f56891d78c50": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7f48404-08cf-4d43-9511-a9ad5c9cefaa",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
