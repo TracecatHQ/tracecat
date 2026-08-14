@@ -1,0 +1,32 @@
+frontend/src/components/cases/case-panel-switcher.tsx
+  s_a1f56891d78c50::t_16e59f8df1e54d 77-78
+  s_a1f56891d78c50::t_619a488d0c518b 138-149
+frontend/tests/case-panel-view-locked-tabs.test.tsx
+  s_a1f56891d78c50::t_b5407797cba649 113-115
+  s_a1f56891d78c50::t_4da5ba11814b80 1-112,116-254
+frontend/src/components/cases/case-panels.ts
+  s_a1f56891d78c50::t_2ba106babef540 27
+  s_a1f56891d78c50::t_9c6f584992942a 44
+frontend/src/components/cases/case-panel-view.tsx
+  s_a1f56891d78c50::t_5f4b8682ad63b9 38
+  s_a1f56891d78c50::t_ef8139e0c4f3f0 230-239,245,248-249,252
+  s_a1f56891d78c50::t_02b0899caf5695 756-765
+  s_a1f56891d78c50::t_0dae6b700f7c70 147-153,157,161,165
+  s_a1f56891d78c50::t_bd4aa38737d587 206-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b37d37bb859b467f3d2b1c16b0715bf5e874b63d",
+  "prompts": {},
+  "sessions": {
+    "s_a1f56891d78c50": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7f48404-08cf-4d43-9511-a9ad5c9cefaa",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
