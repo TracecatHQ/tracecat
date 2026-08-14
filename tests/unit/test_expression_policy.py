@@ -9,7 +9,6 @@ from tracecat.dsl.schemas import TemplateExecutionContext
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.policy import (
     PRESERVE_PARAMETERS,
-    RESOLVE_PARAMETERS,
     ActionArgumentPlan,
     ExpressionPolicy,
     ProvenanceMap,
@@ -76,22 +75,11 @@ def _resolve_root(
 
 
 def test_action_parameter_policy_scope_is_explicit() -> None:
-    # PRESERVE and RESOLVE bypass secret redaction, so both scopes must stay
-    # tiny and explicitly reviewed. Unlisted pairs redact secrets by default.
+    # PRESERVE skips evaluation entirely, so its scope must stay tiny and
+    # explicitly reviewed. Unlisted pairs resolve by default.
     assert PRESERVE_PARAMETERS == {
         ("core.workflow.edit_workflow", "patch_ops"),
         ("core.workflow.create_workflow", "definition_yaml"),
-    }
-    assert RESOLVE_PARAMETERS == {
-        ("core.http_paginate", "auth"),
-        ("core.http_paginate", "headers"),
-        ("core.http_paginate", "params"),
-        ("core.http_poll", "auth"),
-        ("core.http_poll", "headers"),
-        ("core.http_poll", "params"),
-        ("core.http_request", "auth"),
-        ("core.http_request", "headers"),
-        ("core.http_request", "params"),
     }
 
 
@@ -141,15 +129,17 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
     )
     assert (
         expression_policy("core.workflow.edit_workflow", "workflow_id")
-        is ExpressionPolicy.REDACT_SECRETS
+        is ExpressionPolicy.RESOLVE
     )
     assert (
         expression_policy("core.transform.reshape", "patch_ops")
-        is ExpressionPolicy.REDACT_SECRETS
+        is ExpressionPolicy.RESOLVE
     )
     assert expression_policy("core.http_request", "headers") is ExpressionPolicy.RESOLVE
+    assert expression_policy("core.http_request", "url") is ExpressionPolicy.RESOLVE
     assert (
-        expression_policy("core.http_request", "url") is ExpressionPolicy.REDACT_SECRETS
+        expression_policy("core.cases.create_comment", "content")
+        is ExpressionPolicy.REDACT_SECRETS
     )
 
 

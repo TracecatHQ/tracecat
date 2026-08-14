@@ -551,11 +551,11 @@ async def test_prepare_resolved_context_preserves_only_mapped_parameter(
     )
 
     assert prepared.resolved_context.evaluated_args == {
-        runtime_parameter: f"{MASK_VALUE}:runtime-variable",
+        runtime_parameter: "runtime-secret:runtime-variable",
         preserved_parameter: preserved_source,
     }
     assert get_action_secrets.await_args.kwargs == {
-        "secret_exprs": set(),
+        "secret_exprs": {"runtime.TOKEN"},
         "action_secrets": action_secrets,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
@@ -601,13 +601,13 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     )
 
     assert prepared.resolved_context.evaluated_args == {
-        "case_id": MASK_VALUE,
+        "case_id": "runtime-secret",
         "content": (
             f"Host: api.example.com, token: {MASK_VALUE}, encoded: {MASK_VALUE}"
         ),
     }
     assert get_action_secrets.await_args.kwargs == {
-        "secret_exprs": set(),
+        "secret_exprs": {"runtime.TOKEN"},
         "action_secrets": action_secrets,
     }
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == {"runtime"}
@@ -623,7 +623,7 @@ async def test_prepare_resolved_context_redacts_secrets_before_collection(
     ],
 )
 @pytest.mark.anyio
-async def test_prepare_resolved_context_redacts_unmapped_parameters(
+async def test_prepare_resolved_context_resolves_unmapped_parameters(
     mocker,
     action_name: str,
     parameter: str,
@@ -645,8 +645,8 @@ async def test_prepare_resolved_context_redacts_unmapped_parameters(
         role=_expression_policy_role("tracecat-executor"),
     )
 
-    assert prepared.resolved_context.evaluated_args == {parameter: MASK_VALUE}
-    assert get_action_secrets.await_args.kwargs["secret_exprs"] == set()
+    assert prepared.resolved_context.evaluated_args == {parameter: "runtime-secret"}
+    assert get_action_secrets.await_args.kwargs["secret_exprs"] == {"runtime.TOKEN"}
     assert get_workspace_variables.await_args.kwargs["variable_exprs"] == set()
 
 
