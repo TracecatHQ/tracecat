@@ -910,7 +910,7 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
-    udp_sinks, parent_address = _open_private_parent_udp_sinks(272)
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(1040)
     destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
     script_name = "udp_socket_budget.py"
     (tmp_path / script_name).write_text(
@@ -969,9 +969,9 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             sink.close()
 
     assert result.success, result.error
-    assert received_packets == 256, (received_packets, result.stderr)
-    assert "Maximum number of UDP flows reached" not in result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" in result.stderr, result.stderr
+    assert received_packets == 1024, (received_packets, result.stderr)
+    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
+    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
     assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
 
 
