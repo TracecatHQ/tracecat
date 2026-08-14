@@ -40,7 +40,7 @@ function sortAppliedFirst(
 interface CaseTagPickerListProps {
   catalogTags: CaseTagRead[]
   appliedTags: CaseTagRead[] | undefined
-  onToggle: (tagId: string, hasTag: boolean) => Promise<void>
+  onToggle: (tagId: string, hasTag: boolean) => Promise<boolean>
 }
 
 function CaseTagPickerList({
@@ -54,6 +54,37 @@ function CaseTagPickerList({
   const [orderedTags] = useState(() =>
     sortAppliedFirst(catalogTags, appliedTags)
   )
+  // Session-local applied state, flipped before the mutation lands (and
+  // flipped back on failure). Reading `appliedTags` live instead would lag
+  // the server between mutation success and the case-detail refetch, so a
+  // quick second toggle of the same tag would repeat the same operation.
+  const [appliedTagIds, setAppliedTagIds] = useState(
+    () => new Set(appliedTags?.map((tag) => tag.id))
+  )
+
+  async function toggleTag(tagId: string, hasTag: boolean) {
+    setAppliedTagIds((prev) => {
+      const next = new Set(prev)
+      if (hasTag) {
+        next.delete(tagId)
+      } else {
+        next.add(tagId)
+      }
+      return next
+    })
+    const succeeded = await onToggle(tagId, hasTag)
+    if (!succeeded) {
+      setAppliedTagIds((prev) => {
+        const next = new Set(prev)
+        if (hasTag) {
+          next.add(tagId)
+        } else {
+          next.delete(tagId)
+        }
+        return next
+      })
+    }
+  }
 
   return (
     <Command>
@@ -62,17 +93,17 @@ function CaseTagPickerList({
         <CommandEmpty>No tags found.</CommandEmpty>
         <CommandGroup>
           {orderedTags.map((tag) => {
-            const hasTag = appliedTags?.some((t) => t.id === tag.id)
+            const hasTag = appliedTagIds.has(tag.id)
             return (
               <CommandItem
                 key={tag.id}
                 value={tag.name}
                 className="group text-xs"
                 onSelect={async () => {
-                  await onToggle(tag.id, !!hasTag)
+                  await toggleTag(tag.id, hasTag)
                 }}
               >
-                <CheckIndicator checked={!!hasTag} />
+                <CheckIndicator checked={hasTag} />
                 <div
                   className="size-2 shrink-0 rounded-full"
                   style={{
@@ -123,6 +154,7 @@ export function CaseTagPicker({
         // Add tag
         await addCaseTag({ tag_id: tagId })
       }
+      return true
     } catch (error) {
       console.error("Failed to modify tag:", error)
       toast({
@@ -130,6 +162,7 @@ export function CaseTagPicker({
         description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} case. Please try again.`,
         variant: "destructive",
       })
+      return false
     }
   }
 
