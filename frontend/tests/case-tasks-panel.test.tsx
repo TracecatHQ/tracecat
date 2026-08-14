@@ -418,6 +418,87 @@ describe("CaseTasksPanel", () => {
     expect(updateTask.mock.calls[0][0]).toEqual({ assignee_id: null })
   })
 
+  // --- Optimistic field patches --------------------------------------------
+  // The row overlays in-flight patches over the task prop: `useUpdateCaseTask`
+  // only invalidates on success, so until the refetch lands the prop lags the
+  // server. These tests never refresh the mocked tasks, standing in for that
+  // window.
+
+  it("displays a patched status before any refetch lands", async () => {
+    setTasks([makeTask({ status: "todo" })])
+
+    renderPanel()
+    openMenu(screen.getByRole("button", { name: "Change status: To do" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /completed/i }))
+
+    expect(
+      screen.getByRole("button", { name: "Change status: Completed" })
+    ).toBeInTheDocument()
+  })
+
+  it("sends a re-selection of the original status made before the refetch", async () => {
+    setTasks([makeTask({ status: "todo" })])
+
+    renderPanel()
+    openMenu(screen.getByRole("button", { name: /change status/i }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /completed/i }))
+    // Second thoughts while the first patch is still in flight: the stale
+    // task prop still says "todo", but the row must compare against what it
+    // shows, not what the server last said, or this click is discarded.
+    openMenu(screen.getByRole("button", { name: /change status/i }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /to do/i }))
+
+    expect(updateTask).toHaveBeenCalledTimes(2)
+    expect(updateTask.mock.calls[0][0]).toEqual({ status: "completed" })
+    expect(updateTask.mock.calls[1][0]).toEqual({ status: "todo" })
+  })
+
+  it("keeps a re-selection of the displayed status a no-op", async () => {
+    setTasks([makeTask({ status: "todo" })])
+
+    renderPanel()
+    openMenu(screen.getByRole("button", { name: /change status/i }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /to do/i }))
+
+    expect(updateTask).not.toHaveBeenCalled()
+  })
+
+  it("reverts the displayed status when the patch fails", async () => {
+    updateTask.mockImplementation((_payload, options) =>
+      options?.onError?.(new Error("boom"))
+    )
+    setTasks([makeTask({ status: "todo" })])
+
+    renderPanel()
+    openMenu(screen.getByRole("button", { name: /change status/i }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: /completed/i }))
+
+    expect(updateTask).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole("button", { name: "Change status: To do" })
+    ).toBeInTheDocument()
+  })
+
+  it("resolves a patched assignee through the member list for display", async () => {
+    setTasks([makeTask({ assignee: null })])
+
+    renderPanel()
+    fireEvent.click(screen.getByRole("button", { name: "Assign to" }))
+    fireEvent.click(
+      await screen.findByRole("option", { name: /analyst@example.com/i })
+    )
+
+    expect(updateTask).toHaveBeenCalledTimes(1)
+    expect(updateTask.mock.calls[0][0]).toEqual({ assignee_id: "user-1" })
+    // The task prop has no hydrated assignee yet; the avatar and label come
+    // from the workspace member with the pending id.
+    expect(
+      screen.getByRole("button", {
+        name: "Assign to: currently analyst@example.com",
+      })
+    ).toBeInTheDocument()
+  })
+
   // --- Workflow pill: run in read mode ------------------------------------
 
   it("runs the linked workflow from the pill instead of a play button", () => {

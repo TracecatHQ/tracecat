@@ -12,7 +12,7 @@ import {
   User,
   Workflow,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   CasePriority,
   CaseRead,
@@ -145,6 +145,18 @@ export function CaseTaskRow({
   )
 }
 
+/**
+ * In-flight single-field patches, merged over the server's task for
+ * everything the read face shows and guards. `null` means explicitly
+ * cleared; an absent key means "no patch in flight, read the server".
+ */
+interface PendingTaskPatch {
+  status?: CaseTaskStatus
+  priority?: CasePriority
+  assignee_id?: string | null
+  workflow_id?: string | null
+}
+
 /** Props for the read face of {@link CaseTaskRow}. */
 interface CaseTaskReadRowProps {
   task: CaseTaskRead
@@ -183,38 +195,117 @@ function CaseTaskReadRow({
   const sortedMembers = useMemo(() => sortMembersByEmail(members), [members])
   const assigneeItems = useMemo(() => buildAssigneeItems(members), [members])
 
-  const assignee: CaseTaskAssigneeDisplay | null = task.assignee
-    ? toAssigneeDisplay(task.assignee)
-    : null
-  const statusDefinition = CASE_TASK_STATUSES[task.status]
-  const priorityDefinition = PRIORITIES[task.priority]
-  const showPriority = hasPrioritySignal(task.priority)
+  // Patches applied before the mutation lands. `updateTask` only invalidates
+  // on success, so between a patch and the case-tasks refetch the `task` prop
+  // lags the server — reading it live would pin the menus to stale values and
+  // silently discard a quick re-selection of the original one. Each field is
+  // reverted on mutation failure and pruned once the server reflects it, so
+  // the overlay never masks a later change made elsewhere.
+  const [pendingPatch, setPendingPatch] = useState<PendingTaskPatch>({})
+
+  useEffect(() => {
+    setPendingPatch((prev) => {
+      const next = { ...prev }
+      if (next.status === task.status) {
+        delete next.status
+      }
+      if (next.priority === task.priority) {
+        delete next.priority
+      }
+      if (next.assignee_id === (task.assignee?.id ?? null)) {
+        delete next.assignee_id
+      }
+      if (next.workflow_id === (task.workflow_id ?? null)) {
+        delete next.workflow_id
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [task.status, task.priority, task.assignee?.id, task.workflow_id])
+
+  const status = pendingPatch.status ?? task.status
+  const priority = pendingPatch.priority ?? task.priority
+  const assigneeId =
+    pendingPatch.assignee_id !== undefined
+      ? pendingPatch.assignee_id
+      : (task.assignee?.id ?? null)
+  const workflowId =
+    pendingPatch.workflow_id !== undefined
+      ? pendingPatch.workflow_id
+      : (task.workflow_id ?? null)
+
+  // A pending assignee arrives as a bare id, so its display resolves through
+  // the member list rather than the task's hydrated assignee.
+  let assignee: CaseTaskAssigneeDisplay | null = null
+  if (pendingPatch.assignee_id === undefined) {
+    assignee = task.assignee ? toAssigneeDisplay(task.assignee) : null
+  } else if (pendingPatch.assignee_id !== null) {
+    const member = members.find(
+      (item) => item.user_id === pendingPatch.assignee_id
+    )
+    assignee = member
+      ? {
+          id: member.user_id,
+          email: member.email,
+          firstName: member.first_name,
+          lastName: member.last_name,
+        }
+      : null
+  }
+  // The run pill follows the overlay too, resolved from the workspace list
+  // because the panel's `workflow` prop is derived from the stale task.
+  const resolvedWorkflow =
+    pendingPatch.workflow_id === undefined
+      ? workflow
+      : (workflows.find((item) => item.id === pendingPatch.workflow_id) ?? null)
+
+  const statusDefinition = CASE_TASK_STATUSES[status]
+  const priorityDefinition = PRIORITIES[priority]
+  const showPriority = hasPrioritySignal(priority)
   // Unset priority still needs a way in, so the slot keeps a generic signal
   // glyph that only surfaces on hover.
   const PriorityIcon = showPriority ? priorityDefinition.icon : SignalHigh
 
   // --- Single-field patches -----------------------------------------------
+  function patchTask(patch: PendingTaskPatch) {
+    setPendingPatch((prev) => ({ ...prev, ...patch }))
+    updateTask(patch, {
+      onError: () => {
+        // Fall back to server truth for this field alone (the hook already
+        // toasts) — unless a newer patch to it is the one on display.
+        setPendingPatch((prev) => {
+          const next = { ...prev }
+          for (const key of Object.keys(patch) as (keyof PendingTaskPatch)[]) {
+            if (next[key] === patch[key]) {
+              delete next[key]
+            }
+          }
+          return next
+        })
+      },
+    })
+  }
+
   function patchStatus(value: CaseTaskStatus) {
-    if (value !== task.status) {
-      updateTask({ status: value })
+    if (value !== status) {
+      patchTask({ status: value })
     }
   }
 
   function patchPriority(value: CasePriority) {
-    if (value !== task.priority) {
-      updateTask({ priority: value })
+    if (value !== priority) {
+      patchTask({ priority: value })
     }
   }
 
   function patchAssignee(value: string | null) {
-    if (value !== (task.assignee?.id ?? null)) {
-      updateTask({ assignee_id: value })
+    if (value !== assigneeId) {
+      patchTask({ assignee_id: value })
     }
   }
 
   function patchWorkflow(value: string | null) {
-    if (value !== (task.workflow_id ?? null)) {
-      updateTask({ workflow_id: value })
+    if (value !== workflowId) {
+      patchTask({ workflow_id: value })
     }
   }
 
@@ -232,7 +323,7 @@ function CaseTaskReadRow({
             <div className="flex h-11 items-center gap-2">
               <CaseTaskFieldMenu
                 items={STATUS_MENU_ITEMS}
-                value={task.status}
+                value={status}
                 onSelect={(value) => {
                   if (isCaseTaskStatus(value)) {
                     patchStatus(value)
@@ -246,7 +337,7 @@ function CaseTaskReadRow({
                   aria-label={`Change status: ${statusDefinition.label}`}
                   className={TASK_ICON_TRIGGER_CLASS}
                 >
-                  <CaseTaskStatusIcon status={task.status} className="size-5" />
+                  <CaseTaskStatusIcon status={status} className="size-5" />
                 </button>
               </CaseTaskFieldMenu>
               {/* Inert on purpose — editing goes through ⋯ → Edit. The title
@@ -291,7 +382,7 @@ function CaseTaskReadRow({
               <div className="flex shrink-0 items-center gap-1.5 pl-2">
                 <CaseTaskFieldMenu
                   items={PRIORITY_MENU_ITEMS}
-                  value={task.priority}
+                  value={priority}
                   onSelect={(value) => {
                     if (isCasePriority(value)) {
                       patchPriority(value)
@@ -314,7 +405,7 @@ function CaseTaskReadRow({
                       className={cn(
                         "size-5",
                         showPriority
-                          ? priorityIconTone(task.priority)
+                          ? priorityIconTone(priority)
                           : "text-muted-foreground"
                       )}
                     />
@@ -322,7 +413,7 @@ function CaseTaskReadRow({
                 </CaseTaskFieldMenu>
                 <CaseTaskFieldPicker
                   items={assigneeItems}
-                  value={assignee?.id ?? null}
+                  value={assigneeId}
                   emptyValue={UNASSIGNED}
                   onSelect={patchAssignee}
                   placeholder="Assign to…"
@@ -354,12 +445,12 @@ function CaseTaskReadRow({
                 {/* The workflow pill is the run button, and it disappears
                     entirely when no workflow is set. Picking a workflow lives
                     in the composer and the context menu. */}
-                {workflow && (
+                {resolvedWorkflow && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Run workflow: ${workflow.title}`}
+                        aria-label={`Run workflow: ${resolvedWorkflow.title}`}
                         onClick={() => setRunDialogOpen(true)}
                         className={cn(
                           TASK_PILL_CLASS,
@@ -367,7 +458,9 @@ function CaseTaskReadRow({
                         )}
                       >
                         <Play className="size-3.5 shrink-0" />
-                        <span className="truncate">{workflow.title}</span>
+                        <span className="truncate">
+                          {resolvedWorkflow.title}
+                        </span>
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-xs">
@@ -410,7 +503,7 @@ function CaseTaskReadRow({
               Change status
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-40">
-              <ContextMenuRadioGroup value={task.status}>
+              <ContextMenuRadioGroup value={status}>
                 {CASE_TASK_STATUS_VALUES.map((value) => {
                   const definition = CASE_TASK_STATUSES[value]
                   const Icon = definition.icon
@@ -440,7 +533,7 @@ function CaseTaskReadRow({
               Assign to
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-56">
-              <ContextMenuRadioGroup value={task.assignee?.id ?? UNASSIGNED}>
+              <ContextMenuRadioGroup value={assigneeId ?? UNASSIGNED}>
                 <ContextMenuRadioItem
                   value={UNASSIGNED}
                   className="text-xs"
@@ -475,7 +568,7 @@ function CaseTaskReadRow({
               Set priority
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-40">
-              <ContextMenuRadioGroup value={task.priority}>
+              <ContextMenuRadioGroup value={priority}>
                 {Object.values(PRIORITIES).map((priority) => {
                   const Icon = priority.icon
                   return (
@@ -504,7 +597,7 @@ function CaseTaskReadRow({
               Set workflow
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-56">
-              <ContextMenuRadioGroup value={task.workflow_id ?? NO_WORKFLOW}>
+              <ContextMenuRadioGroup value={workflowId ?? NO_WORKFLOW}>
                 <ContextMenuRadioItem
                   value={NO_WORKFLOW}
                   className="text-xs"
@@ -543,11 +636,11 @@ function CaseTaskReadRow({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      {workflow && (
+      {resolvedWorkflow && (
         <WorkflowTriggerDialog
           caseData={caseData}
-          workflowId={workflow.id}
-          workflowTitle={workflow.title}
+          workflowId={resolvedWorkflow.id}
+          workflowTitle={resolvedWorkflow.title}
           taskId={task.id}
           defaultTriggerValues={task.default_trigger_values}
           open={runDialogOpen}
