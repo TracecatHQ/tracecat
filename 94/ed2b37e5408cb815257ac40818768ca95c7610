@@ -1,0 +1,21 @@
+frontend/src/components/cases/case-panel-view.tsx
+  s_712243f4abb07c::t_14478e55d7d951 540-546
+  s_712243f4abb07c::t_61995c683bd88e 576-578
+  s_712243f4abb07c::t_663a238d25b074 559-560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "94ed2b37e5408cb815257ac40818768ca95c7610",
+  "prompts": {},
+  "sessions": {
+    "s_712243f4abb07c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1aceb04-06c2-4c6b-8fa7-e1d7f2bd8049",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
