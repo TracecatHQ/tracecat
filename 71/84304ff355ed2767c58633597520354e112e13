@@ -1,0 +1,23 @@
+frontend/tests/case-panel-custom-fields.test.tsx
+  s_712243f4abb07c::t_2bb537db82b12e 52-53
+frontend/tests/case-closure-dialog.test.tsx
+  s_712243f4abb07c::t_9fb6103d6681d5 73
+frontend/tests/case-panel-fields-group.test.tsx
+  s_712243f4abb07c::t_a8ea31f7b4c1c0 32-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "7184304ff355ed2767c58633597520354e112e13",
+  "prompts": {},
+  "sessions": {
+    "s_712243f4abb07c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1aceb04-06c2-4c6b-8fa7-e1d7f2bd8049",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
