@@ -169,8 +169,16 @@ function AttachmentRow({
   const isImage = attachment.content_type.startsWith("image/")
   const createdAtDate = new Date(attachment.created_at)
 
-  function copySha() {
-    copyToClipboard({ value: attachment.sha256, message: "SHA-256 copied" })
+  async function copySha() {
+    // Only claim "Copied" once the write actually landed: `copyToClipboard`
+    // reports failure (e.g. no clipboard API over plain HTTP) as `false`.
+    const copied = await copyToClipboard({
+      value: attachment.sha256,
+      message: "SHA-256 copied",
+    })
+    if (!copied) {
+      return
+    }
     setShaCopied(true)
     if (shaCopiedResetRef.current !== null) {
       window.clearTimeout(shaCopiedResetRef.current)

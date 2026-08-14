@@ -71,6 +71,11 @@ export const linearStyles = {
  * faint wash is what lifts a box off it, in both themes, without a shadow.
  */
 export const INSET_SURFACE = "bg-muted/20"
+/**
+ * Copies `value` — or the text content of the `target` selector — to the
+ * clipboard. Returns whether the write landed, so callers can hold their
+ * "Copied" feedback when the clipboard API is unavailable (e.g. plain HTTP).
+ */
 export const copyToClipboard = async ({
   target,
   message,
@@ -97,8 +102,10 @@ export const copyToClipboard = async ({
     }
     await navigator.clipboard.writeText(copyValue)
     console.log(message ?? "Copied!!!")
+    return true
   } catch (error) {
     console.log(error)
+    return false
   }
 }
 
