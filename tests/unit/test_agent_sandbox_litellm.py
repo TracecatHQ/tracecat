@@ -94,7 +94,11 @@ def clean_redis_db() -> Iterator[None]:
 
 
 class _LiteLLMRequestPayload(TypedDict, total=False):
+    messages: list[object]
     model: str
+    path: str
+    stream: bool
+    tools: list[str]
 
 
 class _SkillVisibilityMessage(TypedDict):
@@ -112,7 +116,13 @@ _STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
 _STDIO_MCP_BURST_FLOW_COUNT = (
     _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
 )
+_STDIO_MCP_BASH_FLOW_COUNT = 256
+_STDIO_MCP_COMBINED_FLOW_COUNT = (
+    _STDIO_MCP_BURST_FLOW_COUNT + _STDIO_MCP_BASH_FLOW_COUNT
+)
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
+_STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
+_STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
 _RFC1918_NETWORKS = (
     IPv4Network("10.0.0.0/8"),
     IPv4Network("172.16.0.0/12"),
@@ -183,6 +193,31 @@ def main():
             sockets[0].sendto(f"initialized:{server_id}".encode(), (host, ports[0]))
         elif request_id is not None:
             respond(request_id, {})
+
+
+if __name__ == "__main__":
+    main()
+"""
+_STDIO_MCP_BASH_PROBE_SOURCE = f"""\
+import socket
+import sys
+
+
+def main():
+    host, raw_ports = sys.argv[1:]
+    ports = [int(port) for port in raw_ports.split(",")]
+    sockets = []
+    for port in ports:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(b"x", (host, port))
+        sockets.append(udp_socket)
+
+    for udp_socket in sockets:
+        udp_socket.settimeout(8)
+        if udp_socket.recv(3) != b"ack":
+            raise RuntimeError("Bash UDP probe was not acknowledged")
+
+    print("{_STDIO_MCP_BASH_RESULT_MARKER}", len(sockets), flush=True)
 
 
 if __name__ == "__main__":
@@ -378,6 +413,12 @@ def _build_stdio_mcp_burst_servers(
     return servers
 
 
+def _write_bash_network_probe(job_dir: Path) -> Path:
+    probe_path = job_dir / "bash_network_probe.py"
+    probe_path.write_text(_STDIO_MCP_BASH_PROBE_SOURCE)
+    return session_paths_module.JAILED_AGENT_JOB_DIR / probe_path.name
+
+
 def _make_fake_claude_options() -> _FakeClaudeOptions:
     return _FakeClaudeOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"})
 
@@ -392,10 +433,27 @@ def _decode_litellm_request_payload(body_bytes: bytes) -> _LiteLLMRequestPayload
     if not isinstance(decoded, dict):
         return {}
 
+    payload: _LiteLLMRequestPayload = {}
     model = decoded.get("model")
     if isinstance(model, str):
-        return {"model": model}
-    return {}
+        payload["model"] = model
+
+    stream = decoded.get("stream")
+    if isinstance(stream, bool):
+        payload["stream"] = stream
+
+    messages = decoded.get("messages")
+    if isinstance(messages, list):
+        payload["messages"] = messages
+
+    tools = decoded.get("tools")
+    if isinstance(tools, list):
+        tool_names: list[str] = []
+        for tool in tools:
+            if isinstance(tool, dict) and isinstance(name := tool.get("name"), str):
+                tool_names.append(name)
+        payload["tools"] = tool_names
+    return payload
 
 
 def _parse_skill_visibility_message(message: object) -> _SkillVisibilityMessage:
@@ -541,6 +599,7 @@ class _FakeProxy:
 
 class _FakeLLMSocketProxy:
     instances: list[_FakeLLMSocketProxy] = []
+    scripted_bash_command: str | None = None
 
     def __init__(
         self,
@@ -556,6 +615,7 @@ class _FakeLLMSocketProxy:
         self.started = False
         self.stopped = False
         self.request_count = 0
+        self.message_request_count = 0
         self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
@@ -605,7 +665,40 @@ class _FakeLLMSocketProxy:
         self.request_count += 1
 
         request_body = _decode_litellm_request_payload(body_bytes)
+        request_line = headers.partition(b"\r\n")[0].decode("latin1")
+        request_line_parts = request_line.split()
+        if len(request_line_parts) >= 2:
+            request_body["path"] = request_line_parts[1]
         self.requests.append(request_body)
+
+        request_path = request_body.get("path", "")
+        is_messages_request = request_path.partition("?")[0] == "/v1/messages"
+        is_nonstream_messages_request = (
+            is_messages_request and request_body.get("stream") is not True
+        )
+        if is_nonstream_messages_request:
+            self.message_request_count += 1
+
+        if (
+            self.scripted_bash_command is not None
+            and self.message_request_count == 1
+            and is_nonstream_messages_request
+        ):
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": _STDIO_MCP_BASH_TOOL_USE_ID,
+                    "name": "Bash",
+                    "input": {
+                        "command": self.scripted_bash_command,
+                        "description": "Exercise sandbox networking after MCP startup",
+                    },
+                }
+            ]
+            stop_reason = "tool_use"
+        else:
+            content = [{"type": "text", "text": "fake claude response"}]
+            stop_reason = "end_turn"
 
         body = json.dumps(
             {
@@ -613,8 +706,8 @@ class _FakeLLMSocketProxy:
                 "type": "message",
                 "role": "assistant",
                 "model": request_body.get("model") or "customer-alias",
-                "content": [{"type": "text", "text": "fake claude response"}],
-                "stop_reason": "end_turn",
+                "content": content,
+                "stop_reason": stop_reason,
                 "stop_sequence": None,
                 "usage": {
                     "input_tokens": 1,
@@ -970,6 +1063,7 @@ async def _run_full_claude_harness_runtime_case(
     enable_internet_access: bool = False,
     executor_input: AgentExecutorInput | None = None,
     job_dir: Path | None = None,
+    scripted_bash_command: str | None = None,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
@@ -1003,6 +1097,11 @@ async def _run_full_claude_harness_runtime_case(
         del self
         persisted_session_lines.append((sdk_session_id, session_line, internal))
 
+    monkeypatch.setattr(
+        _FakeLLMSocketProxy,
+        "scripted_bash_command",
+        scripted_bash_command,
+    )
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
         nsjail_module,
@@ -1055,7 +1154,7 @@ async def _run_full_claude_harness_runtime_case(
     assert result.success is True
     assert result.error is None
     assert result.output == "fake claude response"
-    assert result.result_num_turns == 1
+    assert result.result_num_turns == (2 if scripted_bash_command else 1)
     assert result.messages is None
 
     assert len(_FakeLLMSocketProxy.instances) == 1
@@ -1075,20 +1174,31 @@ async def _run_stdio_mcp_startup_burst_case(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Initialize one real agent across a cold, multi-uvx MCP startup burst."""
-    if not 1024 < _STDIO_MCP_BURST_FLOW_COUNT < 2048:
-        raise AssertionError("startup burst must distinguish the old and new budgets")
+    """Initialize many MCPs, then make the agent use Bash under retained load."""
+    if not 1024 < _STDIO_MCP_BURST_FLOW_COUNT < _STDIO_MCP_COMBINED_FLOW_COUNT:
+        raise AssertionError("MCP startup must exceed the old 1024-flow budget")
+    if _STDIO_MCP_COMBINED_FLOW_COUNT >= 2048:
+        raise AssertionError("combined MCP and Bash burst must fit the new budget")
 
     udp_sinks, parent_address = _open_private_parent_udp_sinks(
-        _STDIO_MCP_BURST_FLOW_COUNT
+        _STDIO_MCP_COMBINED_FLOW_COUNT
     )
-    destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
+    mcp_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[:_STDIO_MCP_BURST_FLOW_COUNT]
+    ]
+    bash_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[_STDIO_MCP_BURST_FLOW_COUNT:]
+    ]
     job_dir = tmp_path / "stdio-mcp-startup-burst"
     job_dir.mkdir(parents=True)
     mcp_servers = _build_stdio_mcp_burst_servers(
         job_dir=job_dir,
         parent_address=parent_address,
-        destination_ports=destination_ports,
+        destination_ports=mcp_destination_ports,
+    )
+    bash_probe_path = _write_bash_network_probe(job_dir)
+    bash_command = f"python3 {bash_probe_path} {parent_address} " + ",".join(
+        str(port) for port in bash_destination_ports
     )
     base_input = _make_passthrough_executor_input(enable_internet_access=False)
     executor_input = base_input.model_copy(
@@ -1160,6 +1270,7 @@ async def _run_stdio_mcp_startup_burst_case(
             tmp_path=tmp_path,
             executor_input=executor_input,
             job_dir=job_dir,
+            scripted_bash_command=bash_command,
         )
         await asyncio.sleep(0.1)
     finally:
@@ -1167,11 +1278,29 @@ async def _run_stdio_mcp_startup_burst_case(
             loop.remove_reader(sink.fileno())
             sink.close()
 
-    assert received_packets == _STDIO_MCP_BURST_FLOW_COUNT, received_packets
+    assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
     expected_initialized_servers = {
         str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
     }
     assert initialized_servers == expected_initialized_servers, initialized_servers
+
+    [proxy] = _FakeLLMSocketProxy.instances
+    message_requests = [
+        request
+        for request in proxy.requests
+        if request.get("path", "").partition("?")[0] == "/v1/messages"
+        and request.get("stream") is not True
+    ]
+    assert len(message_requests) == 2, message_requests
+    assert "Bash" in message_requests[0].get("tools", [])
+    # Web tools execute provider-side, so assert that the agent can select them
+    # without miscounting them as jailed NSTUN flows.
+    advertised_tools = json.dumps(message_requests[0].get("messages", []))
+    assert "WebFetch" in advertised_tools
+    assert "WebSearch" in advertised_tools
+    bash_result = json.dumps(message_requests[1].get("messages", []))
+    assert _STDIO_MCP_BASH_TOOL_USE_ID in bash_result
+    assert _STDIO_MCP_BASH_RESULT_MARKER in bash_result
 
 
 async def _run_mcp_compression_initialize_case(
@@ -2543,7 +2672,7 @@ async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_nstun_
 
 
 @pytest.mark.anyio
-async def test_agent_nsjail_initializes_many_uvx_stdio_mcp_servers_during_udp_burst(
+async def test_agent_nsjail_handles_stdio_mcp_startup_and_bash_network_burst(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
