@@ -2198,6 +2198,7 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  display_name?: string | null
   kind?: CaseFieldKind | null
   required_on_closure?: boolean
 }
@@ -2215,6 +2216,7 @@ export type CaseFieldKind = "LONG_TEXT" | "URL"
  */
 export type CaseFieldRead = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2231,6 +2233,7 @@ export type CaseFieldRead = {
  */
 export type CaseFieldReadMinimal = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2281,6 +2284,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  display_name?: string | null
   required_on_closure?: boolean | null
 }
 

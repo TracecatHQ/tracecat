@@ -23,7 +23,7 @@ from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
-from tracecat.authz.controls import check_scopes, get_missing_scopes, require_scope
+from tracecat.authz.controls import get_missing_scopes, require_scope
 from tracecat.cases.agent_invocations.queue import (
     invoke_comment_agent_turns_after_commit,
 )
@@ -1543,7 +1543,10 @@ class CaseFieldsService(CustomFieldsService):
         params.nullable = True
         await self.editor.create_column(params)
 
-        field_def: dict[str, Any] = {"type": params.type.value}
+        field_def: dict[str, Any] = {
+            "type": params.type.value,
+            "display_name": params.display_name or params.name,
+        }
 
         if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
             field_def["options"] = normalize_column_options(params.options)
@@ -1739,6 +1742,13 @@ class CaseFieldsService(CustomFieldsService):
 
         if field_type:
             new_field_def: dict[str, Any] = {"type": field_type}
+
+            if isinstance(params, CaseFieldUpdate) and params.display_name is not None:
+                new_field_def["display_name"] = params.display_name
+            else:
+                new_field_def["display_name"] = (
+                    current_field_def.get("display_name") or field_id
+                )
 
             # Update options if provided (even empty list clears options)
             if params.options is not None:
@@ -2594,6 +2604,20 @@ class CaseCommentsService(BaseWorkspaceService):
             persisted_agent_mention = True
         return persisted_agent_mention
 
+    async def _can_invoke_comment_agents(self) -> bool:
+        """Return whether this actor may turn a persisted mention into a run.
+
+        Mention facts belong to the comment and persist even when execution is
+        unavailable. Entitlements and scopes therefore gate invocation rows,
+        not comment creation.
+        """
+        user_scopes = self.role.scopes or frozenset()
+        return (
+            not get_missing_scopes(user_scopes, {"agent:execute"})
+            and await self.has_entitlement(Entitlement.AGENT_ADDONS)
+            and await self.has_entitlement(Entitlement.CASE_ADDONS)
+        )
+
     @require_scope("case:update")
     async def create_comment(
         self, case: Case, params: CaseCommentCreate
@@ -2658,16 +2682,12 @@ class CaseCommentsService(BaseWorkspaceService):
             has_agent_mention = await self._persist_comment_mentions(
                 comment=comment, content=params.content
             )
-            if has_agent_mention:
-                await self.require_entitlement(Entitlement.AGENT_ADDONS)
-                check_scopes(self.role, "agent:execute")
-                await self._require_replies_entitlement()
             await self.session.flush()
             invocations = (
                 await CaseCommentAgentInvocationService(
                     session=self.session, role=self.role
                 ).create_pending_for_comment(comment.id)
-                if has_agent_mention
+                if has_agent_mention and await self._can_invoke_comment_agents()
                 else []
             )
             invoke_comment_agent_turns_after_commit(

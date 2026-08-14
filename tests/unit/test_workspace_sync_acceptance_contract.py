@@ -6387,6 +6387,7 @@ async def test_case_field_sync_preserves_select_options(
                 "type": "case_field",
                 "id": "severity_band",
                 "name": "severity_band",
+                "display_name": "Severity Band",
                 "field_type": "select",
                 "options": ["low", "medium", "high"],
                 "required_on_closure": True,
@@ -6405,6 +6406,7 @@ async def test_case_field_sync_preserves_select_options(
         select(CaseFields).where(CaseFields.workspace_id == svc_role.workspace_id)
     )
     assert definition is not None
+    assert definition.schema["severity_band"]["display_name"] == "Severity Band"
     assert definition.schema["severity_band"]["options"] == ["low", "medium", "high"]
     assert definition.schema["severity_band"]["required_on_closure"] is True
 
@@ -6412,6 +6414,7 @@ async def test_case_field_sync_preserves_select_options(
     field_spec = yaml.safe_load(
         projection.files[f"{CASE_FIELD_ROOT}/severity_band.yml"]
     )
+    assert field_spec["display_name"] == "Severity Band"
     assert field_spec["options"] == ["low", "medium", "high"]
     assert field_spec["required_on_closure"] is True
 

@@ -8196,6 +8196,19 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
     kind: {
       anyOf: [
         {
@@ -8233,6 +8246,10 @@ export const $CaseFieldRead = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8296,6 +8313,7 @@ export const $CaseFieldRead = {
   type: "object",
   required: [
     "id",
+    "display_name",
     "type",
     "description",
     "nullable",
@@ -8312,6 +8330,10 @@ export const $CaseFieldReadMinimal = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8370,7 +8392,15 @@ export const $CaseFieldReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "type", "description", "nullable", "default", "reserved"],
+  required: [
+    "id",
+    "display_name",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+  ],
   title: "CaseFieldReadMinimal",
   description: "Minimal read model for a case field.",
 } as const
@@ -8470,6 +8500,19 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
     },
     required_on_closure: {
       anyOf: [
