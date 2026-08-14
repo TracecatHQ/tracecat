@@ -1970,20 +1970,175 @@ export const $AgentOtelConfig = {
       description: "Whether Claude Code telemetry is enabled for agent runs.",
       default: false,
     },
-    env: {
+    protocol: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["grpc", "http/json", "http/protobuf"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Protocol",
+      description: "OTLP transport protocol for all signals.",
+    },
+    endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "uri",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint",
+      description: "OTLP collector endpoint for all signals.",
+    },
+    metrics_enabled: {
+      type: "boolean",
+      title: "Metrics Enabled",
+      description: "Whether metrics are exported.",
+      default: true,
+    },
+    logs_enabled: {
+      type: "boolean",
+      title: "Logs Enabled",
+      description: "Whether logs and events are exported.",
+      default: true,
+    },
+    metrics_temporality: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["delta", "cumulative"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Temporality",
+      description: "Metrics aggregation temporality.",
+    },
+    metric_export_interval_ms: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metric Export Interval Ms",
+      description: "Metrics export interval in milliseconds.",
+    },
+    logs_export_interval_ms: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logs Export Interval Ms",
+      description: "Logs export interval in milliseconds.",
+    },
+    metrics_include_session_id: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Session Id",
+      description:
+        "Whether metrics include the Claude Code session identifier.",
+    },
+    metrics_include_version: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Version",
+      description: "Whether metrics include the Claude Code version.",
+    },
+    metrics_include_account_uuid: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metrics Include Account Uuid",
+      description:
+        "Whether metrics include the authenticated account identifier.",
+    },
+    log_user_prompts: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log User Prompts",
+      description: "Whether telemetry includes user prompt content.",
+    },
+    log_tool_details: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log Tool Details",
+      description:
+        "Whether telemetry includes tool parameters and input arguments.",
+    },
+    log_tool_content: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Log Tool Content",
+      description: "Whether telemetry includes tool input and output content.",
+    },
+    resource_attributes: {
       additionalProperties: {
         type: "string",
       },
       type: "object",
-      title: "Env",
-      description:
-        "Allowlisted Claude Code OTel environment variables. Headers are configured separately.",
+      title: "Resource Attributes",
+      description: "Resource attributes attached to exported telemetry.",
     },
   },
   additionalProperties: false,
   type: "object",
   title: "AgentOtelConfig",
-  description: "Organization-scoped Claude Code OTel configuration.",
+  description: `Organization-scoped Claude Code OTel configuration.
+
+See https://code.claude.com/docs/en/monitoring-usage for the env vars
+these fields map onto.`,
 } as const
 
 export const $AgentOtelSettingsRead = {

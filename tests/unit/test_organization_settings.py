@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import orjson
 import pytest
 from fastapi import HTTPException
+from pydantic import AnyHttpUrl
 from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -454,10 +455,8 @@ async def test_update_agent_otel_settings_encrypts_headers(
         AgentOtelSettingsUpdate(
             agent_otel_config=AgentOtelConfig(
                 enabled=True,
-                env={
-                    "OTEL_LOGS_EXPORTER": "otlp",
-                    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
-                },
+                endpoint=AnyHttpUrl("https://collector.example.com"),
+                logs_enabled=False,
             ),
             agent_otel_headers={"Authorization": "Bearer token"},
         )
@@ -470,10 +469,8 @@ async def test_update_agent_otel_settings_encrypts_headers(
 
     assert service.get_value(settings_by_key["agent_otel_config"]) == {
         "enabled": True,
-        "env": {
-            "OTEL_LOGS_EXPORTER": "otlp",
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
-        },
+        "endpoint": "https://collector.example.com/",
+        "logs_enabled": False,
     }
     assert settings_by_key["agent_otel_headers"].is_encrypted is True
     assert service.get_value(settings_by_key["agent_otel_headers"]) == {

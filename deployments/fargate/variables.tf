@@ -673,15 +673,9 @@ variable "agent_executor_max_concurrent_activities" {
   default     = 3
 }
 
-variable "agent_otel_platform_override_enabled" {
+variable "agent_otel_platform_override_config" {
   type        = string
-  description = "Optional definitive Agent OTel platform override flag. Set true or false to override org-level config."
-  default     = null
-}
-
-variable "agent_otel_platform_override_env" {
-  type        = string
-  description = "JSON object of allowlisted Claude Code OTel env vars for the Agent OTel platform override."
+  description = "Typed Agent OTel configuration JSON. Unset uses org configuration; present overrides it."
   default     = null
 }
 

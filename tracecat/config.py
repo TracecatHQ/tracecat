@@ -875,19 +875,14 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
-TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENABLED = os.environ.get(
-    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENABLED"
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG = os.environ.get(
+    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG"
 )
-"""Optional platform-wide Agent OTel override flag.
+"""Typed Agent OTel configuration for the optional platform override.
 
-Unset means org-level Agent OTel settings apply. Set to true or false to make
-the platform override definitive for every tenant.
+Unset means organization settings apply. A JSON object with ``enabled`` set to
+true or false definitively overrides organization configuration for every tenant.
 """
-
-TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENV = os.environ.get(
-    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENV"
-)
-"""JSON object of allowlisted Claude Code OTel env vars for the platform override."""
 
 TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS = os.environ.get(
     "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS"

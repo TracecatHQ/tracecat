@@ -521,6 +521,9 @@ export type AgentModelAccessRead = {
 
 /**
  * Organization-scoped Claude Code OTel configuration.
+ *
+ * See https://code.claude.com/docs/en/monitoring-usage for the env vars
+ * these fields map onto.
  */
 export type AgentOtelConfig = {
   /**
@@ -528,9 +531,61 @@ export type AgentOtelConfig = {
    */
   enabled?: boolean
   /**
-   * Allowlisted Claude Code OTel environment variables. Headers are configured separately.
+   * OTLP transport protocol for all signals.
    */
-  env?: {
+  protocol?: "grpc" | "http/json" | "http/protobuf" | null
+  /**
+   * OTLP collector endpoint for all signals.
+   */
+  endpoint?: string | null
+  /**
+   * Whether metrics are exported.
+   */
+  metrics_enabled?: boolean
+  /**
+   * Whether logs and events are exported.
+   */
+  logs_enabled?: boolean
+  /**
+   * Metrics aggregation temporality.
+   */
+  metrics_temporality?: "delta" | "cumulative" | null
+  /**
+   * Metrics export interval in milliseconds.
+   */
+  metric_export_interval_ms?: number | null
+  /**
+   * Logs export interval in milliseconds.
+   */
+  logs_export_interval_ms?: number | null
+  /**
+   * Whether metrics include the Claude Code session identifier.
+   */
+  metrics_include_session_id?: boolean | null
+  /**
+   * Whether metrics include the Claude Code version.
+   */
+  metrics_include_version?: boolean | null
+  /**
+   * Whether metrics include the authenticated account identifier.
+   */
+  metrics_include_account_uuid?: boolean | null
+  /**
+   * Whether telemetry includes user prompt content.
+   */
+  log_user_prompts?: boolean | null
+  /**
+   * Whether telemetry includes tool parameters and input arguments.
+   */
+  log_tool_details?: boolean | null
+  /**
+   * Whether telemetry includes tool input and output content.
+   */
+  log_tool_content?: boolean | null
+  /**
+   * Resource attributes attached to exported telemetry.
+   */
+  resource_attributes?: {
     [key: string]: string
   }
 }

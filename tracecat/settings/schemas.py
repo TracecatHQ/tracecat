@@ -1,9 +1,9 @@
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from tracecat.agent.otel_config import AgentOtelConfig
+from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -253,15 +253,7 @@ class AgentOtelSettingsUpdate(BaseSettingsGroup):
     def validate_agent_otel_headers(cls, value: Any) -> Any:
         if value is None or not isinstance(value, dict):
             return value
-
-        for key, header_value in value.items():
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError("OTel header names must be non-empty strings")
-            if not isinstance(header_value, str) or not header_value:
-                raise ValueError(
-                    f"OTel header {key} must have a non-empty string value"
-                )
-
+        validate_otel_header_items(cast(dict[str, Any], value))
         return value
 
 
