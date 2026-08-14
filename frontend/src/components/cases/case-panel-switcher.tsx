@@ -45,13 +45,6 @@ export interface CasePanelSwitcherProps {
    * route and an embedded chat artifact instance never collide.
    */
   idPrefix: string
-  /** Panels whose buttons are not rendered (entitlement denied). */
-  hiddenPanelKeys?: readonly CasePanelKey[]
-  /**
-   * Panels whose entitlement is still resolving: an invisible slot reserves
-   * the button's space so the right-aligned row never reflows on resolve.
-   */
-  pendingPanelKeys?: readonly CasePanelKey[]
   /** Task counts for the Tasks button ring. Zero total renders the plain icon. */
   taskProgress?: CaseTaskProgress
   /**
@@ -81,14 +74,13 @@ export interface CasePanelSwitcherProps {
  * even the embedded panel's 280px floor, while the route band's 232px (6×32 +
  * 5×8) sits in a row that spans the full panel width. Knows nothing of
  * routing, queries, or entitlements — the view resolves those and passes
- * results in.
+ * results in; every panel always gets a button, and an entitlement-locked
+ * press is the view's `onPanelChange` to intercept.
  */
 export function CasePanelSwitcher({
   activePanel,
   onPanelChange,
   idPrefix,
-  hiddenPanelKeys = [],
-  pendingPanelKeys = [],
   taskProgress,
   tasks,
   compact = false,
@@ -143,35 +135,18 @@ export function CasePanelSwitcher({
       )}
       onKeyDown={handleTablistKeyDown}
     >
-      {CASE_PANELS.map((definition) => {
-        if (pendingPanelKeys.includes(definition.key)) {
-          return (
-            <div
-              key={definition.key}
-              aria-hidden="true"
-              className={cn(
-                "invisible pointer-events-none",
-                compact ? "size-6" : "size-8"
-              )}
-            />
-          )
-        }
-        if (hiddenPanelKeys.includes(definition.key)) {
-          return null
-        }
-        return (
-          <CasePanelTabButton
-            key={definition.key}
-            definition={definition}
-            selected={definition.key === activePanel}
-            onSelect={onPanelChange}
-            idPrefix={idPrefix}
-            taskProgress={definition.key === "tasks" ? taskProgress : undefined}
-            tasks={definition.key === "tasks" ? tasks : undefined}
-            compact={compact}
-          />
-        )
-      })}
+      {CASE_PANELS.map((definition) => (
+        <CasePanelTabButton
+          key={definition.key}
+          definition={definition}
+          selected={definition.key === activePanel}
+          onSelect={onPanelChange}
+          idPrefix={idPrefix}
+          taskProgress={definition.key === "tasks" ? taskProgress : undefined}
+          tasks={definition.key === "tasks" ? tasks : undefined}
+          compact={compact}
+        />
+      ))}
     </div>
   )
 }

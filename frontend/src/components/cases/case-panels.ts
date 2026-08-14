@@ -24,7 +24,7 @@ export const CASE_PANEL_KEYS = [
 /** One key from {@link CASE_PANEL_KEYS}. */
 export type CasePanelKey = (typeof CASE_PANEL_KEYS)[number]
 
-/** Panel shown when `?tab=` is absent, unrecognized, or entitlement-hidden. */
+/** Panel shown when `?tab=` is absent, unrecognized, or entitlement-locked. */
 export const DEFAULT_CASE_PANEL: CasePanelKey = "description"
 
 /** Retired `?tab=` values. `comments` was the old default. */
@@ -41,7 +41,7 @@ export interface CasePanelDefinition {
   icon: LucideIcon
   /**
    * 1-based digit shortcut, fixed forever per panel — never derived from the
-   * visible button list, so hiding a button never renumbers the others.
+   * button list, so an entitlement-locked panel never renumbers the others.
    */
   shortcut: number
 }

@@ -35,6 +35,7 @@ import {
 import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { getCaseTaskProgress } from "@/components/cases/case-task-status"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -143,27 +144,25 @@ export function CasePanelView({
     [customFields, showAllCustomFields]
   )
   // Active panel from the URL `?tab=` param (or embedded state), defaulting
-  // to the description. Entitlement gating has three surfaces — the hidden
-  // switcher button, the no-op digit shortcut, and `?tab=tasks` deep links —
-  // so a hidden requested panel resolves to the default rather than landing
-  // on an empty panel with no button to leave it. While entitlements load,
-  // the switcher reserves an invisible Tasks slot so the right-aligned row
-  // never reflows when the answer arrives.
+  // to the description. A locked panel's tab still renders — indistinguishable
+  // from the rest — and entitlement gating has three surfaces: pressing the
+  // tab (or its digit shortcut) opens the upgrade dialog instead of switching,
+  // and a `?tab=tasks` deep link resolves to the default silently — a dialog
+  // on arrival would be hostile, and landing on the empty panel would strand
+  // the reader. While entitlements load, presses on a locked tab are no-ops
+  // rather than dialogs, so an entitled org never sees an upsell flash.
   const routePanel =
     parseCasePanelKey(searchParams?.get("tab")) ?? DEFAULT_CASE_PANEL
   const requestedPanel = embedded ? embeddedPanel : routePanel
-  const hiddenPanelKeys = useMemo<readonly CasePanelKey[]>(
+  const lockedPanelKeys = useMemo<readonly CasePanelKey[]>(
     () => (caseAddonsEnabled ? [] : ["tasks"]),
     [caseAddonsEnabled]
   )
-  const pendingPanelKeys = useMemo<readonly CasePanelKey[]>(
-    () => (!caseAddonsEnabled && entitlementsIsLoading ? ["tasks"] : []),
-    [caseAddonsEnabled, entitlementsIsLoading]
-  )
-  const activePanel = hiddenPanelKeys.includes(requestedPanel)
+  const activePanel = lockedPanelKeys.includes(requestedPanel)
     ? DEFAULT_CASE_PANEL
     : requestedPanel
   const panelIdPrefix = useId()
+  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
 
   // The ring's query lives in the view, not the Tasks panel: the switcher
   // must show progress while the panel is unmounted. React Query dedupes on
@@ -204,6 +203,15 @@ export function CasePanelView({
 
   const handlePanelChange = useCallback(
     (panel: CasePanelKey) => {
+      if (lockedPanelKeys.includes(panel)) {
+        // No navigation either way. The dialog waits for a resolved answer:
+        // `hasEntitlement` reports false while entitlements load, and an
+        // entitled org must not glimpse an upsell for a feature it has.
+        if (!entitlementsIsLoading) {
+          setLockedFeatureDialogOpen(true)
+        }
+        return
+      }
       if (embedded) {
         setEmbeddedPanel(panel)
         onTabChange?.(panel)
@@ -219,19 +227,29 @@ export function CasePanelView({
         { scroll: false }
       )
     },
-    [embedded, router, searchParams, workspaceId, caseId, onTabChange]
+    [
+      lockedPanelKeys,
+      entitlementsIsLoading,
+      embedded,
+      router,
+      searchParams,
+      workspaceId,
+      caseId,
+      onTabChange,
+    ]
   )
 
   const handleDigitShortcut = useCallback(
     (digit: number) => {
       const definition = CASE_PANELS.find((panel) => panel.shortcut === digit)
-      // Digits never renumber: a hidden panel's digit stays a no-op.
-      if (!definition || hiddenPanelKeys.includes(definition.key)) {
+      if (!definition) {
         return
       }
+      // Digits never renumber, and a locked panel's digit behaves exactly
+      // like pressing its tab — `handlePanelChange` opens the dialog.
       handlePanelChange(definition.key)
     },
-    [handlePanelChange, hiddenPanelKeys]
+    [handlePanelChange]
   )
 
   // Route-level instance only: a case route and a case artifact in the chat
@@ -562,8 +580,6 @@ export function CasePanelView({
                   activePanel={activePanel}
                   onPanelChange={handlePanelChange}
                   idPrefix={panelIdPrefix}
-                  hiddenPanelKeys={hiddenPanelKeys}
-                  pendingPanelKeys={pendingPanelKeys}
                   taskProgress={taskProgress}
                   tasks={caseTasks}
                   compact
@@ -580,8 +596,6 @@ export function CasePanelView({
                   activePanel={activePanel}
                   onPanelChange={handlePanelChange}
                   idPrefix={panelIdPrefix}
-                  hiddenPanelKeys={hiddenPanelKeys}
-                  pendingPanelKeys={pendingPanelKeys}
                   taskProgress={taskProgress}
                   tasks={caseTasks}
                 />
@@ -739,6 +753,16 @@ export function CasePanelView({
           )}
         </div>
       </div>
+      {/* One dialog for every locked tab press — mounted here rather than in
+          the switcher so the embedded and route layouts share it, and so the
+          switcher keeps knowing nothing of entitlements. */}
+      <LockedFeatureModal
+        open={lockedFeatureDialogOpen}
+        onOpenChange={setLockedFeatureDialogOpen}
+        title="Enterprise only"
+        description="Case tasks are only available on enterprise plans."
+        bullets={[]}
+      />
       {closureDialog && (
         <CaseClosureDialog
           open={closureDialog.open}
