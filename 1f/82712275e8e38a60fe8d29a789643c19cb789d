@@ -1,0 +1,35 @@
+frontend/tests/case-tasks-panel.test.tsx
+  s_a1f56891d78c50::t_23fa5b61fed818 421-501
+frontend/src/components/cases/case-task-row.tsx
+  s_a1f56891d78c50::t_3db99809d2309f 198-263,269-287,289-290,295-296,301-302,307-308
+  s_a1f56891d78c50::t_62318cc6ab2b24 326
+  s_a1f56891d78c50::t_b5733c9a5f5c93 408
+  s_a1f56891d78c50::t_7f3e13e7b5d7da 416
+  s_a1f56891d78c50::t_39fb28cd63862e 385
+  s_a1f56891d78c50::t_c614606497237e 639,642-643
+  s_a1f56891d78c50::t_2c5d323c4abf0b 448,453
+  s_a1f56891d78c50::t_a79e7d61808200 461-463
+  s_a1f56891d78c50::t_74c879bca8b712 15
+  s_a1f56891d78c50::t_1444248548aa9a 506
+  s_a1f56891d78c50::t_23d3001c5708d0 340
+  s_a1f56891d78c50::t_fdfda62acb9d8f 148-159
+  s_a1f56891d78c50::t_9b9fc79cf1ae22 571
+  s_a1f56891d78c50::t_e14b560662a7c9 536
+  s_a1f56891d78c50::t_80e92b55327307 600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1f82712275e8e38a60fe8d29a789643c19cb789d",
+  "prompts": {},
+  "sessions": {
+    "s_a1f56891d78c50": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b7f48404-08cf-4d43-9511-a9ad5c9cefaa",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
