@@ -33,7 +33,7 @@ index 0e033ff..3be3bdf 100644
 +/* UDP and ICMP sockets are owned by the parent NSTUN process and are not
 + * constrained by the jailed child's RLIMIT_NOFILE. Bound their aggregate
 + * kernel socket memory separately while leaving headroom for DNS bursts. */
-+constexpr size_t UDP_ICMP_SOCKET_BUDGET = 256;
++constexpr size_t UDP_ICMP_SOCKET_BUDGET = 1024;
 +static_assert(UDP_ICMP_SOCKET_BUDGET < NSTUN_MAX_FDS);
  
  
