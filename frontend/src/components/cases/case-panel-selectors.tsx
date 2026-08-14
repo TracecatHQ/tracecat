@@ -423,22 +423,31 @@ export function AssigneeSelect({
               >
                 <CheckIndicator checked={!assignee} />
                 <NoAssignee iconClassName="!size-2.5" />
+                {/* cmdk owns `aria-selected` for highlight, so the current
+                    assignee rides on the accessible name instead. */}
+                {!assignee && <span className="sr-only">{", selected"}</span>}
               </CommandItem>
-              {sortedMembers.map((member) => (
-                <CommandItem
-                  key={member.user_id}
-                  value={memberSearchValue(member)}
-                  className="group text-xs"
-                  onSelect={() => handleAssign(member)}
-                >
-                  <CheckIndicator checked={assignee?.id === member.user_id} />
-                  <AssignedUser
-                    email={member.email}
-                    firstName={member.first_name}
-                    lastName={member.last_name}
-                  />
-                </CommandItem>
-              ))}
+              {sortedMembers.map((member) => {
+                const isAssignee = assignee?.id === member.user_id
+                return (
+                  <CommandItem
+                    key={member.user_id}
+                    value={memberSearchValue(member)}
+                    className="group text-xs"
+                    onSelect={() => handleAssign(member)}
+                  >
+                    <CheckIndicator checked={isAssignee} />
+                    <AssignedUser
+                      email={member.email}
+                      firstName={member.first_name}
+                      lastName={member.last_name}
+                    />
+                    {isAssignee && (
+                      <span className="sr-only">{", selected"}</span>
+                    )}
+                  </CommandItem>
+                )
+              })}
               {workspaceMembers.length === 0 && (
                 <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
                   No users available to assign

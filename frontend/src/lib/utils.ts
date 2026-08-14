@@ -148,6 +148,14 @@ export function formatFileSize(bytes: number): string {
   return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
+/**
+ * Formats how long ago `date` was as a compact label, e.g. `4w ago`.
+ *
+ * Each unit hands over only once the next one can report at least 1, so no
+ * bucket ever renders a zero: weeks cover days 7-29 and months cover days
+ * 30-364. Handing over on the unit's own count instead (weeks at 4, months at
+ * 12) leaves gaps where the larger unit floors to `0mo` or `0y`.
+ */
 export function shortTimeAgo(date: Date) {
   const diffMs = Math.max(Date.now() - date.getTime(), 0)
   const diffSec = Math.floor(diffMs / 1000)
@@ -163,14 +171,11 @@ export function shortTimeAgo(date: Date) {
   const diffDay = Math.floor(diffHour / 24)
   if (diffDay < 7) return `${diffDay}d ago`
 
-  const diffWeek = Math.floor(diffDay / 7)
-  if (diffWeek < 4) return `${diffWeek}w ago`
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`
 
-  const diffMonth = Math.floor(diffDay / 30)
-  if (diffMonth < 12) return `${diffMonth}mo ago`
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`
 
-  const diffYear = Math.floor(diffDay / 365)
-  return `${diffYear}y ago`
+  return `${Math.floor(diffDay / 365)}y ago`
 }
 
 /**

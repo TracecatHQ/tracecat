@@ -268,7 +268,13 @@ export function CaseTaskComposer({
           aria-label="Task title"
           className="min-w-0 flex-1 bg-transparent text-sm font-medium leading-6 text-foreground outline-none placeholder:text-muted-foreground/60"
         />
-        <div className="flex shrink-0 items-center gap-1.5 pl-2">
+        {/* Shrinkable, not `shrink-0`: in a narrow panel — the chat artifact
+            at its minimum width — a rigid cluster pushes cancel and submit out
+            of an `overflow-hidden` container and the task can no longer be
+            saved by pointer. The title has a 0 flex basis, so it takes none of
+            the shrink and still collapses first; inside here only the workflow
+            pill gives, down to its icon. */}
+        <div className="flex min-w-0 items-center gap-1.5 pl-2">
           <CaseTaskFieldMenu
             items={PRIORITY_MENU_ITEMS}
             value={priority}
@@ -340,16 +346,20 @@ export function CaseTaskComposer({
           >
             <button
               type="button"
+              // `shrink min-w-0` overrides the pill's default `shrink-0`: this
+              // is the one control in the cluster whose label can go, so it
+              // absorbs the squeeze down to its icon and the buttons beside it
+              // stay reachable.
               className={cn(
                 TASK_PILL_CLASS,
-                "max-w-36",
+                "min-w-0 max-w-36 shrink",
                 selectedWorkflow
                   ? "text-muted-foreground hover:text-foreground"
                   : "text-muted-foreground"
               )}
             >
               <Workflow className="size-3.5 shrink-0" />
-              <span className="truncate">
+              <span className="min-w-0 truncate">
                 {selectedWorkflow ? selectedWorkflow.title : "Workflow"}
               </span>
             </button>
