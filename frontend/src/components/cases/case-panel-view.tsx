@@ -537,9 +537,13 @@ export function CasePanelView({
             and the tabs; the 56px total feeds the 92px alignment derivation
             on the docked rail below. Both modes now put the tabs inside the
             body's centered column (`mx-auto max-w-4xl` at the same px), so the
-            first tab's glyph sits on the case title's left edge at every panel
-            width — including wide panels, where the column's centering slack
-            `(panelWidth − 896) / 2` used to open the biggest gap. The tradeoff
+            first tab's hit box starts on the case title's left edge at every
+            panel width — including wide panels, where the column's centering
+            slack `(panelWidth − 896) / 2` used to open the biggest gap. The
+            row takes no negative inset: the active tab's tint is the widest
+            thing in the band, and letting it bleed past the title reads as a
+            misaligned column even when the glyph inside it does not. The
+            tradeoff
             is vertical: the tabs no longer stack under the `SidebarTrigger` in
             `nav/controls-header.tsx`, which stays at the 12px chrome inset. */}
         <div
@@ -552,12 +556,9 @@ export function CasePanelView({
             <div className="min-w-0 flex-1">
               <div className="mx-auto w-full min-w-0 max-w-4xl px-4 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5">
                 {/* No sidebar toggle to align to here, so the embedded band
-                    keeps the body column's geometry, and -ml-1.5 pulls the
-                    tabs left by the icon's own centering padding so the first
-                    glyph — not its 24px hit box — lines up with the case
-                    title below. */}
+                    keeps the body column's geometry and the first tab's 24px
+                    hit box starts on the same edge as the case title below. */}
                 <CasePanelSwitcher
-                  className="-ml-1.5"
                   activePanel={activePanel}
                   onPanelChange={handlePanelChange}
                   idPrefix={panelIdPrefix}
@@ -572,12 +573,10 @@ export function CasePanelView({
           ) : (
             <div className="min-w-0 flex-1">
               <div className="mx-auto w-full min-w-0 max-w-4xl px-4 lg:px-6">
-                {/* -ml-2 pulls the row left by the button's own centering
-                    padding: a non-compact tab is min-w-8 around a size-4 icon,
-                    so the glyph sits 8px inside its hit box. Offsetting it
-                    lands the glyph — not the box — on the title's text edge. */}
+                {/* No negative inset: a non-compact tab is min-w-8 around a
+                    size-4 icon, so its hit box starts on the title's text edge
+                    and the glyph sits 8px inside it. */}
                 <CasePanelSwitcher
-                  className="-ml-2"
                   activePanel={activePanel}
                   onPanelChange={handlePanelChange}
                   idPrefix={panelIdPrefix}
