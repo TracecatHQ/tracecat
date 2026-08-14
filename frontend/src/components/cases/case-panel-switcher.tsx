@@ -1,6 +1,11 @@
 "use client"
 
-import { type KeyboardEvent as ReactKeyboardEvent, useRef } from "react"
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useRef,
+} from "react"
+import type { CaseTaskRead } from "@/client"
 import {
   CASE_PANELS,
   type CasePanelDefinition,
@@ -10,11 +15,16 @@ import {
 } from "@/components/cases/case-panels"
 import { CaseTaskProgressRing } from "@/components/cases/case-task-progress-ring"
 import {
+  CaseTaskStatusIcon,
+  sortCaseTasksByUrgency,
+} from "@/components/cases/case-task-status"
+import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { Kbd } from "@/components/ui/kbd"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { parseShortcutKeys } from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
 
@@ -45,6 +55,12 @@ export interface CasePanelSwitcherProps {
   /** Task counts for the Tasks button ring. Zero total renders the plain icon. */
   taskProgress?: CaseTaskProgress
   /**
+   * The case's tasks, previewed in the Tasks button's hover card. Undefined or
+   * empty falls back to the plain label card, which also covers the loading
+   * and entitlement-denied cases.
+   */
+  tasks?: CaseTaskRead[]
+  /**
    * Embedded (chat artifact) density: `size-6` buttons, ring only with no
    * count text, and no shortcut hints — digit shortcuts bind route-side only.
    */
@@ -74,6 +90,7 @@ export function CasePanelSwitcher({
   hiddenPanelKeys = [],
   pendingPanelKeys = [],
   taskProgress,
+  tasks,
   compact = false,
   className,
 }: CasePanelSwitcherProps) {
@@ -150,6 +167,7 @@ export function CasePanelSwitcher({
             onSelect={onPanelChange}
             idPrefix={idPrefix}
             taskProgress={definition.key === "tasks" ? taskProgress : undefined}
+            tasks={definition.key === "tasks" ? tasks : undefined}
             compact={compact}
           />
         )
@@ -164,6 +182,7 @@ interface CasePanelTabButtonProps {
   onSelect: (panel: CasePanelKey) => void
   idPrefix: string
   taskProgress?: CaseTaskProgress
+  tasks?: CaseTaskRead[]
   compact: boolean
 }
 
@@ -173,6 +192,7 @@ function CasePanelTabButton({
   onSelect,
   idPrefix,
   taskProgress,
+  tasks,
   compact,
 }: CasePanelTabButtonProps) {
   const Icon = definition.icon
@@ -186,6 +206,64 @@ function CasePanelTabButton({
     showRing && taskProgress
       ? `${definition.label}, ${taskProgress.done} of ${taskProgress.total} done`
       : definition.label
+
+  // Two cards behind one trigger. The Tasks tab previews its list when it has
+  // one; every other tab — and Tasks itself while the query is empty, loading,
+  // or entitlement-denied — keeps the label + shortcut card. Resolved in an
+  // if/else rather than inline, so the JSX below stays a single expression.
+  let hoverCardContent: ReactNode
+  if (tasks?.length) {
+    hoverCardContent = (
+      // p-1 overrides the p-4 default: the rows carry their own px-2 py-1, so
+      // the card's padding is just the 4px gutter around the list. Width stays
+      // the default w-64 — fixed, so a long title truncates instead of
+      // stretching the card to the panel's width.
+      <HoverCardContent side="bottom" align="start" className="w-64 p-1">
+        {/* Two caps, one height: max-h-56 on the root clips the card, and the
+            same cap on Radix's viewport is what actually makes it scroll — a
+            percentage height (`size-full`) against the root's auto height
+            resolves to auto, so without it the overflow is simply cut off.
+            The inner override neutralizes Radix's `display: table` sizing div,
+            whose intrinsic sizing would let a nowrap title inflate the card
+            past w-64 instead of truncating. */}
+        <ScrollArea
+          hideScrollbar
+          className="max-h-56 [&_[data-radix-scroll-area-viewport]]:max-h-56 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
+        >
+          {sortCaseTasksByUrgency(tasks).map((task) => (
+            <div
+              key={task.id}
+              className="flex min-w-0 items-center gap-2 rounded-sm px-2 py-1"
+            >
+              <CaseTaskStatusIcon
+                status={task.status}
+                className="size-3.5 shrink-0"
+              />
+              <span className="truncate text-xs">{task.title}</span>
+            </div>
+          ))}
+        </ScrollArea>
+      </HoverCardContent>
+    )
+  } else {
+    hoverCardContent = (
+      <HoverCardContent
+        side="bottom"
+        className="flex w-auto items-center gap-1.5 px-2 py-1"
+      >
+        <span className="text-xs">{definition.label}</span>
+        {compact && showRing && taskProgress && (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {taskProgress.done}/{taskProgress.total}
+          </span>
+        )}
+        {!compact &&
+          parseShortcutKeys({
+            shortcutKeys: String(definition.shortcut),
+          }).map((shortcutKey) => <Kbd key={shortcutKey}>{shortcutKey}</Kbd>)}
+      </HoverCardContent>
+    )
+  }
 
   return (
     <HoverCard openDelay={350} closeDelay={100}>
@@ -224,21 +302,7 @@ function CasePanelTabButton({
           )}
         </button>
       </HoverCardTrigger>
-      <HoverCardContent
-        side="bottom"
-        className="flex w-auto items-center gap-1.5 px-2 py-1"
-      >
-        <span className="text-xs">{definition.label}</span>
-        {compact && showRing && taskProgress && (
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {taskProgress.done}/{taskProgress.total}
-          </span>
-        )}
-        {!compact &&
-          parseShortcutKeys({
-            shortcutKeys: String(definition.shortcut),
-          }).map((shortcutKey) => <Kbd key={shortcutKey}>{shortcutKey}</Kbd>)}
-      </HoverCardContent>
+      {hoverCardContent}
     </HoverCard>
   )
 }

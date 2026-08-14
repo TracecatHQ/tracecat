@@ -124,6 +124,52 @@ export function getCaseTaskProgress(
   }
 }
 
+/**
+ * Sort rank per status, lowest first: outstanding work above finished work,
+ * and `blocked` last of the three outstanding states because it is waiting on
+ * something rather than actionable right now. A `Record` over the generated
+ * union so a new status fails to compile instead of silently ranking 0.
+ */
+const CASE_TASK_STATUS_RANK: Record<CaseTaskStatus, number> = {
+  todo: 0,
+  in_progress: 1,
+  blocked: 2,
+  completed: 3,
+}
+
+/**
+ * Sort rank per priority, lowest first: the urgency ramp read top-down.
+ * `unknown` and `other` carry no signal, so they sink below `low`.
+ */
+const CASE_TASK_PRIORITY_RANK: Record<CasePriority, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  unknown: 4,
+  other: 5,
+}
+
+/**
+ * Orders tasks for preview surfaces — the switcher's hover card today: open
+ * work first, then by descending priority. Non-mutating, and stable within a
+ * rank pair, so tasks that tie keep their server order.
+ */
+export function sortCaseTasksByUrgency(
+  tasks: readonly CaseTaskRead[]
+): CaseTaskRead[] {
+  return [...tasks].sort((a, b) => {
+    const statusDelta =
+      CASE_TASK_STATUS_RANK[a.status] - CASE_TASK_STATUS_RANK[b.status]
+    if (statusDelta !== 0) {
+      return statusDelta
+    }
+    return (
+      CASE_TASK_PRIORITY_RANK[a.priority] - CASE_TASK_PRIORITY_RANK[b.priority]
+    )
+  })
+}
+
 /** Props for {@link CaseTaskStatusIcon}. */
 export interface CaseTaskStatusIconProps {
   status: CaseTaskStatus

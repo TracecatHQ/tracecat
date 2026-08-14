@@ -75,6 +75,16 @@ import { useWorkspaceId } from "@/providers/workspace-id"
  */
 const CASE_DETAILS_DOCK_MIN_WIDTH = 1040
 
+/**
+ * Width of the docked details rail. Shared by the rail itself and by the
+ * spacer that reserves the same width in the switcher band, so the band's
+ * centered column stays the same box as the body's and the tabs keep landing
+ * on the case title. A literal string constant rather than two inline classes:
+ * Tailwind still sees the full class name in this file, and the two cannot
+ * drift apart.
+ */
+const CASE_DETAILS_RAIL_WIDTH_CLASS = "w-[24rem]"
+
 interface CasePanelViewProps {
   caseId: string
   embedded?: boolean
@@ -525,17 +535,17 @@ export function CasePanelView({
             intrinsic — pt-6 (24px) above a 32px row of tabs, so 56px — and
             that pt-6 is the only knob for the gap between the header border
             and the tabs; the 56px total feeds the 92px alignment derivation
-            on the docked rail below. The row is left-aligned at px-3 against
-            the whole panel rather than following the body's centered column: that
-            12px inset matches the `<header>` in `nav/controls-header.tsx`,
-            whose `SidebarTrigger` box also starts at x=12 in the same
-            `SidebarInset` column, so tab and toggle stack in one vertical
-            line. Alignment with the case title's left edge is the deliberate
-            tradeoff — Linear hangs its tab row off the same chrome inset. */}
+            on the docked rail below. Both modes now put the tabs inside the
+            body's centered column (`mx-auto max-w-4xl` at the same px), so the
+            first tab's glyph sits on the case title's left edge at every panel
+            width — including wide panels, where the column's centering slack
+            `(panelWidth − 896) / 2` used to open the biggest gap. The tradeoff
+            is vertical: the tabs no longer stack under the `SidebarTrigger` in
+            `nav/controls-header.tsx`, which stays at the 12px chrome inset. */}
         <div
           className={cn(
             "flex shrink-0 items-center",
-            embedded ? "h-10" : "px-3 pt-6"
+            embedded ? "h-10" : "pt-6"
           )}
         >
           {embedded ? (
@@ -554,18 +564,39 @@ export function CasePanelView({
                   hiddenPanelKeys={hiddenPanelKeys}
                   pendingPanelKeys={pendingPanelKeys}
                   taskProgress={taskProgress}
+                  tasks={caseTasks}
                   compact
                 />
               </div>
             </div>
           ) : (
-            <CasePanelSwitcher
-              activePanel={activePanel}
-              onPanelChange={handlePanelChange}
-              idPrefix={panelIdPrefix}
-              hiddenPanelKeys={hiddenPanelKeys}
-              pendingPanelKeys={pendingPanelKeys}
-              taskProgress={taskProgress}
+            <div className="min-w-0 flex-1">
+              <div className="mx-auto w-full min-w-0 max-w-4xl px-4 lg:px-6">
+                {/* -ml-2 pulls the row left by the button's own centering
+                    padding: a non-compact tab is min-w-8 around a size-4 icon,
+                    so the glyph sits 8px inside its hit box. Offsetting it
+                    lands the glyph — not the box — on the title's text edge. */}
+                <CasePanelSwitcher
+                  className="-ml-2"
+                  activePanel={activePanel}
+                  onPanelChange={handlePanelChange}
+                  idPrefix={panelIdPrefix}
+                  hiddenPanelKeys={hiddenPanelKeys}
+                  pendingPanelKeys={pendingPanelKeys}
+                  taskProgress={taskProgress}
+                  tasks={caseTasks}
+                />
+              </div>
+            </div>
+          )}
+          {/* The band spans the whole panel, but the body column below it is
+              narrowed by the docked rail. Without this spacer the band's
+              `mx-auto max-w-4xl` column centers over the wider box and the
+              tabs drift right of the title by half the rail. */}
+          {showDockedDetails && (
+            <div
+              aria-hidden="true"
+              className={cn("shrink-0", CASE_DETAILS_RAIL_WIDTH_CLASS)}
             />
           )}
         </div>
@@ -688,7 +719,10 @@ export function CasePanelView({
             <Sidebar
               side="right"
               collapsible="none"
-              className="w-[24rem] shrink-0 bg-transparent text-foreground"
+              className={cn(
+                "shrink-0 bg-transparent text-foreground",
+                CASE_DETAILS_RAIL_WIDTH_CLASS
+              )}
             >
               <SidebarContent className="h-full">
                 {/* pt-5 (20px) lands the "Properties" label text flush with
