@@ -88,7 +88,10 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
     "core.cases.create_comment": frozenset({"content"}),
     "core.cases.reply_to_comment": frozenset({"content"}),
     "core.cases.update_comment": frozenset({"content"}),
+    "core.cases.upload_attachment": frozenset({"file_name"}),
+    "core.cases.upload_attachment_from_url": frozenset({"file_name"}),
     "core.table.create_table": frozenset({"name", "columns"}),
+    "core.table.update_table": frozenset({"new_name"}),
     "core.table.create_column": frozenset({"column"}),
     "core.table.update_column": frozenset({"update"}),
     "core.table.insert_row": frozenset({"row_data"}),
@@ -96,7 +99,16 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
     "core.table.update_row": frozenset({"row_data"}),
     "core.cases.insert_row": frozenset({"row"}),
     "ai.agent.create_preset": frozenset(
-        {"instructions", "name", "description", "slug", "base_url", "output_type"}
+        {
+            "instructions",
+            "name",
+            "description",
+            "slug",
+            "model_name",
+            "model_provider",
+            "base_url",
+            "output_type",
+        }
     ),
     "ai.agent.update_preset": frozenset(
         {
@@ -104,6 +116,8 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
             "name",
             "description",
             "new_slug",
+            "model_name",
+            "model_provider",
             "base_url",
             "output_type",
         }

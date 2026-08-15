@@ -143,6 +143,31 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("action", "parameter"),
+    [
+        ("core.table.update_table", "new_name"),
+        ("ai.agent.create_preset", "model_name"),
+        ("ai.agent.create_preset", "model_provider"),
+        ("ai.agent.update_preset", "model_name"),
+        ("ai.agent.update_preset", "model_provider"),
+        ("core.cases.upload_attachment", "file_name"),
+        ("core.cases.upload_attachment_from_url", "file_name"),
+    ],
+)
+def test_explicit_durable_string_fields_redact_secrets(
+    action: str,
+    parameter: str,
+) -> None:
+    prepared = _resolve_root(
+        action,
+        {parameter: "prefix-${{ SECRETS.api.TOKEN }}"},
+        {"SECRETS": {"api": {"TOKEN": "runtime-secret"}}},
+    )
+
+    assert prepared == {parameter: f"prefix-{MASK_VALUE}"}
+
+
 def test_redact_secret_expressions_preserves_non_secret_templates() -> None:
     value = (
         "Host: ${{ VARS.api.host }}, "
