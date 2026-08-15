@@ -41,14 +41,16 @@ type DataPath = tuple[PathSegment, ...]
 _PATH_SEGMENT = re.compile(
     r"""
     (?:
-        \.(?P<field>[A-Za-z_][A-Za-z0-9_]*)
+        \.(?:
+            (?P<field>[A-Za-z_][A-Za-z0-9_]*)
+            |(?P<dot_quoted>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
+        )
         |\[(?P<index>-?\d+)\]
         |\[(?P<quoted>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\]
     )
     """,
     re.VERBOSE,
 )
-_ROOT_INPUT = re.compile(r"^\.([A-Za-z_][A-Za-z0-9_]*)")
 
 
 class ExpressionPolicy(StrEnum):
@@ -316,7 +318,7 @@ class _RedactionPolicy:
         del source, standalone
         if (ref := _direct_input_ref(tree)) is not None:
             selection = _select_input(ref, self.provenance)
-            if selection is None or not selection.dependencies.secret:
+            if not selection.dependencies.secret:
                 return default()
             if self.reject or selection.dependencies.secret_keys:
                 _raise_secret_key_error()
@@ -351,7 +353,7 @@ class _PreservePolicy:
         """Substitute input source and materialize only a safe field carrier."""
         if (ref := _direct_input_ref(tree)) is not None:
             selection = _select_input(ref, self.provenance)
-            if selection is None or not selection.source_found:
+            if not selection.source_found:
                 return source
             authored = selection.source
             if (
@@ -461,12 +463,8 @@ def _derive_dependencies(
 ) -> _SecretDependencies:
     match value:
         case str():
-            if (
-                parent is not None
-                and (ref := _template_input_ref(value)) is not None
-                and (selection := _select_input(ref, parent)) is not None
-            ):
-                return selection.dependencies
+            if parent is not None and (ref := _template_input_ref(value)) is not None:
+                return _select_input(ref, parent).dependencies
 
             secret = False
             secret_keys = False
@@ -510,30 +508,31 @@ def _derive_dependencies(
 def _select_input(
     ref: _InputRef,
     provenance: ProvenanceMap,
-) -> _InputSelection | None:
-    binding = provenance.get(ref.parameter)
-    if binding is None:
-        return None
+) -> _InputSelection:
+    sources = {parameter: binding.source for parameter, binding in provenance.items()}
+    root_dependencies = _SecretDependencies(
+        children={
+            parameter: binding.dependencies
+            for parameter, binding in provenance.items()
+            if binding.dependencies.secret
+        }
+    )
 
     if ref.path is None:
-        dependencies = binding.dependencies.collapsed()
-    elif (
-        dependency_path := _normalize_negative_indices(ref.path, binding.source)
-    ) is None:
-        dependencies = binding.dependencies.collapsed()
+        dependencies = root_dependencies.collapsed()
+    elif (dependency_path := _normalize_negative_indices(ref.path, sources)) is None:
+        dependencies = root_dependencies.collapsed()
     else:
-        dependencies = binding.dependencies.select(dependency_path)
+        dependencies = root_dependencies.select(dependency_path)
 
-    if not ref.suffix:
-        return _InputSelection(True, binding.source, dependencies)
     try:
         source = eval_jsonpath(
-            f"source{ref.suffix}",
-            {"source": binding.source},
+            f"source{ref.selector}",
+            {"source": sources},
             strict=True,
         )
     except TracecatExpressionError:
-        return _InputSelection(False, None, dependencies)
+        return _InputSelection(False, None, root_dependencies.collapsed())
     return _InputSelection(True, source, dependencies)
 
 
@@ -573,8 +572,7 @@ def _tree_dependencies(
         for node in tree.find_data("template_action_inputs"):
             if (ref := _direct_input_ref(node)) is None:
                 continue
-            if (selection := _select_input(ref, provenance)) is not None:
-                collected.append(selection.dependencies)
+            collected.append(_select_input(ref, provenance).dependencies)
     return _SecretDependencies.merged(collected)
 
 
@@ -612,27 +610,19 @@ def _parse_expression(expression: str) -> Tree[Token]:
 
 @dataclass(frozen=True, slots=True)
 class _InputRef:
-    """One parsed ``inputs.<parameter><suffix>`` reference."""
+    """One parsed ``inputs<selector>`` reference."""
 
-    parameter: str
-    """Referenced template input name."""
-
-    suffix: str
-    """Raw path suffix used to select within the authored source."""
+    selector: str
+    """Raw JSONPath selector applied to the authored input mapping."""
 
     path: DataPath | None
-    """Parsed suffix segments, or None when the suffix defies path parsing."""
+    """Concrete path segments, or None for non-concrete JSONPath selectors."""
 
 
-def _parse_input_ref(path: str) -> _InputRef | None:
-    root = _ROOT_INPUT.match(path)
-    if root is None:
-        return None
-    suffix = path[root.end() :]
+def _parse_input_ref(path: str) -> _InputRef:
     return _InputRef(
-        parameter=root.group(1),
-        suffix=suffix,
-        path=_parse_path_segments(suffix),
+        selector=path,
+        path=_parse_path_segments(path),
     )
 
 
@@ -647,9 +637,9 @@ def _parse_path_segments(suffix: str) -> DataPath | None:
             segments.append(attribute)
         elif (index := match.group("index")) is not None:
             segments.append(int(index))
-        elif (quoted := match.group("quoted")) is not None:
+        elif (quoted := match.group("dot_quoted") or match.group("quoted")) is not None:
             value = ast.literal_eval(quoted)
-            if not isinstance(value, str):
+            if not isinstance(value, str) or value == "*":
                 return None
             segments.append(value)
         position = match.end()

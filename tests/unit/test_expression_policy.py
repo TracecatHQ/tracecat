@@ -210,6 +210,9 @@ def test_redact_secret_expressions_recurses_through_values() -> None:
     [
         '${{ inputs.content || "fallback" }}',
         "${{ FN.to_base64(inputs.content) }}",
+        '${{ FN.to_base64(inputs["content"]) }}',
+        "${{ FN.to_base64(inputs['content']) }}",
+        '${{ FN.to_base64(inputs."content") }}',
     ],
 )
 def test_compound_template_input_dependency_is_redacted(expression: str) -> None:
@@ -223,6 +226,61 @@ def test_compound_template_input_dependency_is_redacted(expression: str) -> None
     )
 
     assert prepared == {"content": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".content",
+        '["content"]',
+        "['content']",
+        '."content"',
+    ],
+)
+def test_equivalent_input_selectors_redact_direct_secret(selector: str) -> None:
+    state = _state(
+        source_args={"content": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"content": "runtime-secret"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"content": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        (".*", [MASK_VALUE, {"content": MASK_VALUE}]),
+        ('["*"]', [MASK_VALUE, {"content": MASK_VALUE}]),
+        ('."*"', [MASK_VALUE, {"content": MASK_VALUE}]),
+        ("..content", MASK_VALUE),
+    ],
+)
+def test_non_concrete_input_selectors_redact_conservatively(
+    selector: str,
+    expected: Any,
+) -> None:
+    state = _state(
+        source_args={
+            "safe": "plain",
+            "nested": {"content": "${{ SECRETS.api.TOKEN }}"},
+        },
+        runtime_inputs={
+            "safe": "plain",
+            "nested": {"content": "runtime-secret"},
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"content": expected}
 
 
 def test_template_input_dependencies_preserve_structured_paths() -> None:
@@ -442,6 +500,114 @@ def test_substitution_splices_caller_source_without_evaluating() -> None:
         "note": "Token: ${{ ACTIONS.fetch.result.body }}",
         "step": "${{ steps.prev.result }}",
     }
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".ops",
+        '["ops"]',
+        "['ops']",
+        '."ops"',
+    ],
+)
+def test_equivalent_input_selectors_preserve_authored_source(selector: str) -> None:
+    source_ops = [
+        {
+            "op": "add",
+            "path": "/definition/actions/-",
+            "value": "${{ SECRETS.api.TOKEN }}",
+        }
+    ]
+    state = _state(
+        source_args={"ops": source_ops},
+        runtime_inputs={
+            "ops": [
+                {
+                    "op": "add",
+                    "path": "/definition/actions/-",
+                    "value": "runtime-secret",
+                }
+            ]
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"patch_ops": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"patch_ops": source_ops}
+
+
+@pytest.mark.parametrize(
+    ("source_args", "runtime_inputs", "selector", "expected"),
+    [
+        (
+            {
+                "first": {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                },
+                "second": {
+                    "op": "add",
+                    "path": "/b",
+                    "value": "plain",
+                },
+            },
+            {
+                "first": {"op": "add", "path": "/a", "value": "secret"},
+                "second": {"op": "add", "path": "/b", "value": "plain"},
+            },
+            ".*",
+            [
+                {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                },
+                {"op": "add", "path": "/b", "value": "plain"},
+            ],
+        ),
+        (
+            {
+                "wrapper": {
+                    "ops": [
+                        {
+                            "op": "add",
+                            "path": "/a",
+                            "value": "${{ SECRETS.api.FIRST }}",
+                        }
+                    ]
+                }
+            },
+            {"wrapper": {"ops": [{"op": "add", "path": "/a", "value": "secret"}]}},
+            "..ops",
+            [
+                {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                }
+            ],
+        ),
+    ],
+)
+def test_non_concrete_input_selectors_preserve_authored_source(
+    source_args: dict[str, Any],
+    runtime_inputs: dict[str, Any],
+    selector: str,
+    expected: Any,
+) -> None:
+    state = _state(source_args=source_args, runtime_inputs=runtime_inputs)
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"patch_ops": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"patch_ops": expected}
 
 
 def test_substitution_keeps_unresolvable_references() -> None:
