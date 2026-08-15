@@ -1008,6 +1008,7 @@ def _policy_wrapper_resolved(
     evaluated_args: dict[str, object],
     variables: dict[str, dict[str, str]],
     secrets: dict[str, dict[str, str]] | None = None,
+    expects: dict[str, object] | None = None,
 ) -> ResolvedContext:
     return ResolvedContext(
         secrets=secrets or {},
@@ -1021,7 +1022,7 @@ def _policy_wrapper_resolved(
                 "title": "Policy wrapper",
                 "description": "Exercises a protected sink",
                 "display_group": "Testing",
-                "expects": {},
+                "expects": expects or {},
                 "steps": steps,
                 "returns": "done",
             },
@@ -1093,4 +1094,68 @@ async def test_template_step_result_stays_inert_in_redact_parameter(mocker):
     assert persist_resolved.evaluated_args == {
         "case_id": "case-123",
         "content": "Summary: ${{ VARS.runtime.host }}",
+    }
+
+
+@pytest.mark.anyio
+async def test_omitted_template_default_seeds_preserve_provenance(mocker):
+    default_ops = [
+        {
+            "op": "add",
+            "path": "/definition/actions/-",
+            "value": "${{ SECRETS.runtime.TOKEN }}",
+        }
+    ]
+    action_input = _expression_policy_input("testing.policy_wrapper", {})
+    role = _expression_policy_role("tracecat-executor")
+    parent_resolved = _policy_wrapper_resolved(
+        action_input,
+        role,
+        steps=[
+            {
+                "ref": "persist",
+                "action": "core.workflow.edit_workflow",
+                "args": {
+                    "workflow_id": "wf-123",
+                    "patch_ops": "${{ inputs.ops }}",
+                },
+            }
+        ],
+        evaluated_args={},
+        variables={},
+        expects={"ops": {"type": "Any", "default": default_ops}},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(
+                type="udf",
+                action_name="core.workflow.edit_workflow",
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_mint_action_executor_token",
+        return_value="step-token",
+    )
+    backend = mocker.Mock()
+    backend.execute = mocker.AsyncMock(
+        return_value=ExecutorResultSuccess(result={"persisted": True})
+    )
+
+    await executor_service._execute_template_action(
+        backend=backend,
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+        resolved_context=parent_resolved,
+        timeout=30,
+        provenance={},
+    )
+
+    step_resolved = backend.execute.await_args.kwargs["resolved_context"]
+    assert step_resolved.evaluated_args == {
+        "workflow_id": "wf-123",
+        "patch_ops": default_ops,
     }

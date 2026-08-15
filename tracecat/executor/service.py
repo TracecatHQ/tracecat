@@ -500,6 +500,20 @@ async def _execute_template_action(
     else:
         validated_input_args = dict(resolved_context.evaluated_args)
 
+    # Defaults enter the runtime input mapping during validation rather than
+    # through the caller's action arguments. Seed their authored source here so
+    # policy-aware child steps can redact or preserve them like explicit inputs.
+    default_source_args: dict[str, Any] = {
+        parameter: field.default
+        for parameter, field in template_def.expects.items()
+        if parameter not in provenance and field.has_default()
+    }
+    if default_source_args:
+        provenance = {
+            **provenance,
+            **build_provenance(default_source_args, provenance),
+        }
+
     # Build template context for expression evaluation.
     secrets_context = resolved_context.secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
