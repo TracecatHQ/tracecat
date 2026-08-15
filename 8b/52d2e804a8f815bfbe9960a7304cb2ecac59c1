@@ -1,0 +1,19 @@
+frontend/src/app/workspaces/[workspaceId]/skills/layout.tsx
+  s_4597215d7c0827::t_0205cce247ed86 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "8b52d2e804a8f815bfbe9960a7304cb2ecac59c1",
+  "prompts": {},
+  "sessions": {
+    "s_4597215d7c0827": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a001f6-376b-70c3-b5bf-743116fa71e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
