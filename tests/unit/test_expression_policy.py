@@ -435,6 +435,29 @@ def test_whole_tainted_mapping_masks_every_runtime_value() -> None:
     }
 
 
+def test_whole_secret_mapping_keeps_non_sensitive_keys_and_masks_values() -> None:
+    """Mapping keys are metadata; the confidentiality contract covers values."""
+    state = _state(
+        source_args={
+            "context": "${{ FN.deserialize_json(SECRETS.api.JSON) }}",
+        },
+        runtime_inputs={
+            "context": {"metadata-key": "runtime-secret"},
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_case",
+        {"payload": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "payload": {
+            "metadata-key": MASK_VALUE,
+        }
+    }
+
+
 def test_dynamic_authored_key_falls_back_to_conservative_mask() -> None:
     state = _state(
         source_args={
