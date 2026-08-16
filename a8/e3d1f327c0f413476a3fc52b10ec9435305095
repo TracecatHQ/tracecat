@@ -1,0 +1,55 @@
+frontend/src/components/agents/agent-preset-version-history.tsx
+  s_21ea8b73521235::t_4c684bf2c0995e 277,284-309
+  s_21ea8b73521235::t_26d0f0bb63141c 153-157,160
+  s_21ea8b73521235::t_cbf8d48f8448e0 118
+  s_21ea8b73521235::t_fba016fbecc7f2 14
+  s_21ea8b73521235::t_9611b4191b6e7d 94-100
+  s_21ea8b73521235::t_577c924eef4a39 358
+  s_21ea8b73521235::t_68e963ade6c299 5-9
+  s_21ea8b73521235::t_de08d86a217312 369
+  s_21ea8b73521235::t_00207ea033f293 310
+frontend/src/components/version-history/version-history-menu.tsx
+  s_21ea8b73521235::t_95718011f50b0e 54-58
+  s_21ea8b73521235::t_b1d5d1a55bc01b 53,99-162
+  s_21ea8b73521235::t_0d1152476dfec0 89
+  s_21ea8b73521235::t_66eafca17f1ef4 206
+frontend/tests/version-history-menu.test.tsx
+  s_21ea8b73521235::t_fdab303ca80567 103-117
+frontend/tests/agent-preset-version-history.test.tsx
+  s_21ea8b73521235::t_c1af31e4e70499 7
+  s_21ea8b73521235::t_869d8c6195da10 254-350
+  s_21ea8b73521235::t_baa7f47352a6ae 27-30
+  s_21ea8b73521235::t_ee6f19b75abbc9 49
+frontend/src/lib/agent-preset-document.ts
+  s_21ea8b73521235::t_1ec05e32fe44b0 4
+  s_21ea8b73521235::t_86e0bc15fa4c9e 267
+  s_21ea8b73521235::t_3811dc66c031d9 301-303,311-315,322-327,331-332,336-343
+  s_21ea8b73521235::t_c20afc712d0cd5 290
+  s_21ea8b73521235::t_9a7181ff2c401d 416-419
+  s_21ea8b73521235::t_1d7e4a163b8123 114-115
+  s_21ea8b73521235::t_c33e073adb236d 67,219-230,232-238,241,243-256
+  s_21ea8b73521235::t_13493fa6f00800 68-81
+frontend/tests/agent-preset-document.test.ts
+  s_21ea8b73521235::t_05dbe7e2bd41cc 24-47
+  s_21ea8b73521235::t_483ca620585393 3
+  s_21ea8b73521235::t_05e7391ed6a395 152-153,156
+  s_21ea8b73521235::t_835767fd7c8668 291,297,299-316
+  s_21ea8b73521235::t_1e2e03f216160b 116
+  s_21ea8b73521235::t_a787202e8ab871 367-427
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a8e3d1f327c0f413476a3fc52b10ec9435305095",
+  "prompts": {},
+  "sessions": {
+    "s_21ea8b73521235": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e8c15e9c-f5d9-49a2-a852-65a09c9ff761",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
