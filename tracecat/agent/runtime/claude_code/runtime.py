@@ -1493,6 +1493,14 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
+        # Claude Code prepends an attribution header, which LiteLLM calls "billing
+        # metadata", to the start of the first message. Since it includes a content
+        # hash, doing this invalidates the KV Cache, making inference 90% slower
+        # with anything that isn't Anthropic and isn't already stripping it. By
+        # setting this in the environment, Claude Code will skip adding it to the
+        # message altogether.
+        if payload.config.model_provider != "anthropic":
+            env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
         # The CLI disables tool search (deferred tool loading) for
         # non-first-party base URLs — ours is always the socket bridge — unless
         # explicitly enabled. Every leg terminates at the managed LiteLLM or an
