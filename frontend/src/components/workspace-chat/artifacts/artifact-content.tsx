@@ -51,7 +51,6 @@ const AGENT_ARTIFACT_TABS = new Set([
   "skills",
   "channels",
   "structured-output",
-  "versions",
 ])
 
 export interface ArtifactContentProps {

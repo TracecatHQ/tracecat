@@ -36,6 +36,7 @@ import {
   casesGetCase,
   casesUpdateCase,
 } from "@/client"
+import { AgentPresetDetailHeaderActions } from "@/components/agents/agent-preset-detail-actions"
 import {
   AgentsCatalogViewMode,
   AgentsCatalogViewToggle,
@@ -1957,11 +1958,14 @@ function getPageConfig(
           />
         ),
         actions: (
-          <WorkspaceResourceSyncActions
-            label="agents"
-            branchSlug="agents"
-            resources={["agent_preset"]}
-          />
+          <>
+            <WorkspaceResourceSyncActions
+              label="agents"
+              branchSlug="agents"
+              resources={["agent_preset"]}
+            />
+            <AgentPresetDetailHeaderActions />
+          </>
         ),
       }
     }
