@@ -51,6 +51,12 @@ export type VersionHistoryMenuProps = {
   /** True while the version list is being fetched. */
   isLoading: boolean
   /**
+   * True when the version list failed to load. Renders an error notice in the
+   * dropdown instead of the empty state, so a failed request never masquerades
+   * as "no versions yet". The host owns any toast or retry affordance.
+   */
+  loadError?: boolean
+  /**
    * Restores the given version. Resolving closes the dialog; rejecting keeps
    * it open so the host can surface the error and let the user retry.
    */
@@ -80,6 +86,7 @@ export function VersionHistoryMenu({
   entityLabel,
   versions,
   isLoading,
+  loadError,
   onRestore,
   disabled,
   restoreDisabled,
@@ -88,6 +95,70 @@ export function VersionHistoryMenu({
   const [selectedVersion, setSelectedVersion] =
     useState<VersionHistoryEntry | null>(null)
   const [restorePending, setRestorePending] = useState(false)
+
+  /**
+   * Dropdown body: loading, load failure, empty, or the version list. An
+   * if/else chain rather than chained ternaries, and ordered so the empty
+   * state only ever shows on a genuinely successful empty result.
+   */
+  function renderVersionList(): ReactNode {
+    if (isLoading) {
+      return (
+        <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading versions…
+        </div>
+      )
+    }
+    if (loadError) {
+      return (
+        <div className="px-3 py-3 text-sm text-muted-foreground">
+          Couldn't load version history.
+        </div>
+      )
+    }
+    if (versions.length === 0) {
+      return (
+        <div className="px-3 py-3 text-sm text-muted-foreground">
+          No versions yet.
+        </div>
+      )
+    }
+    return (
+      <ScrollArea className="max-h-80">
+        <DropdownMenuGroup className="flex flex-col p-1">
+          {versions.map((version) => {
+            const isCurrent =
+              version.isCurrent ??
+              version.id === documentDescriptor.currentVersionId
+            return (
+              <DropdownMenuItem
+                key={version.id}
+                className="items-start px-3 py-2"
+                disabled={restorePending}
+                onSelect={() => setSelectedVersion(version)}
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{version.label}</span>
+                    {isCurrent ? (
+                      <span className="text-xs text-muted-foreground">
+                        Current
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {version.description ??
+                      new Date(version.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              </DropdownMenuItem>
+            )
+          })}
+        </DropdownMenuGroup>
+      </ScrollArea>
+    )
+  }
 
   async function handleConfirmRestore() {
     if (!selectedVersion) {
@@ -132,49 +203,7 @@ export function VersionHistoryMenu({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="mx-0 my-0" />
-            {isLoading ? (
-              <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Loading versions…
-              </div>
-            ) : versions.length === 0 ? (
-              <div className="px-3 py-3 text-sm text-muted-foreground">
-                No versions yet.
-              </div>
-            ) : (
-              <ScrollArea className="max-h-80">
-                <DropdownMenuGroup className="flex flex-col p-1">
-                  {versions.map((version) => {
-                    const isCurrent =
-                      version.isCurrent ??
-                      version.id === documentDescriptor.currentVersionId
-                    return (
-                      <DropdownMenuItem
-                        key={version.id}
-                        className="items-start px-3 py-2"
-                        disabled={restorePending}
-                        onSelect={() => setSelectedVersion(version)}
-                      >
-                        <div className="flex min-w-0 flex-col gap-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{version.label}</span>
-                            {isCurrent ? (
-                              <span className="text-xs text-muted-foreground">
-                                Current
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-muted-foreground">
-                            {version.description ??
-                              new Date(version.createdAt).toLocaleString()}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    )
-                  })}
-                </DropdownMenuGroup>
-              </ScrollArea>
-            )}
+            {renderVersionList()}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>

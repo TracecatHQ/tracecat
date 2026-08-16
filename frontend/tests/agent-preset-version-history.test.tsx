@@ -4,6 +4,7 @@ import type { AgentPresetCreate, AgentPresetVersionRead } from "@/client"
 import { AgentPresetVersionHistory } from "@/components/agents/agent-preset-version-history"
 import { InlineDiffView } from "@/components/diff/inline-diff-view"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresetVersion,
@@ -21,6 +22,10 @@ jest.mock("@/hooks/use-agent-presets", () => ({
 
 jest.mock("@/hooks/use-skills", () => ({
   useSkills: jest.fn(),
+}))
+
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: jest.fn(),
 }))
 
 // The real InlineDiffView renders prose/unified diff internals that this suite
@@ -41,6 +46,7 @@ const mockUseRestoreAgentPresetVersion =
   useRestoreAgentPresetVersion as jest.Mock
 const mockUseSkills = useSkills as jest.Mock
 const mockInlineDiffView = InlineDiffView as jest.Mock
+const mockToast = toast as jest.Mock
 
 beforeAll(() => {
   if (!HTMLElement.prototype.hasPointerCapture) {
@@ -243,6 +249,103 @@ describe("AgentPresetVersionHistory", () => {
     expect(within(tree).queryByText("Modified")).not.toBeInTheDocument()
     expect(within(tree).queryByText("Added")).not.toBeInTheDocument()
     expect(within(tree).queryByText("Removed")).not.toBeInTheDocument()
+  })
+
+  it("marks config.yaml modified when only the skill version pin differs", async () => {
+    const skillId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    // Head pins the skill at v2; the selected version pinned it at v5. The
+    // draft form tracks only the skill id, so the head bindings must supply
+    // the pin or the restore diff hides a real rollback of skill code.
+    mockUseAgentPreset.mockReturnValue({
+      preset: {
+        name: "Triage agent",
+        skills: [
+          {
+            skill_id: skillId,
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            skill_name: "alpha-skill",
+            skill_version: 2,
+          },
+        ],
+      },
+      presetIsLoading: false,
+      presetError: null,
+      refetchPreset: jest.fn(),
+    })
+    mockUseAgentPresetVersion.mockReturnValue({
+      presetVersion: {
+        ...VERSION_READ,
+        skills: [
+          {
+            skill_id: skillId,
+            skill_version_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            skill_name: "alpha-skill",
+            skill_version: 5,
+          },
+        ],
+      },
+      presetVersionIsLoading: false,
+      presetVersionError: null,
+      refetchPresetVersion: jest.fn(),
+    })
+    mockUseSkills.mockReturnValue({
+      skills: [{ id: skillId, name: "alpha-skill" }],
+      skillsLoading: false,
+      skillsError: null,
+    })
+    const user = userEvent.setup()
+    renderHistory(() => buildDraftPayload({ skills: [{ skill_id: skillId }] }))
+
+    await openVersionOneDialog(user)
+
+    const tree = screen.getByRole("tree")
+    const items = within(tree).getAllByRole("treeitem")
+    expect(items[0]).toHaveTextContent("instructions.md")
+    expect(items[0]).not.toHaveTextContent("Modified")
+    expect(items[1]).toHaveTextContent("config.yaml")
+    expect(items[1]).toHaveTextContent("Modified")
+  })
+
+  it("shows the load-error state and toasts when versions fail to load", async () => {
+    mockUseAgentPresetVersions.mockReturnValue({
+      versions: undefined,
+      versionsIsLoading: false,
+      versionsError: { status: 500 },
+      refetchVersions: jest.fn(),
+    })
+    const user = userEvent.setup()
+    renderHistory(() => buildDraftPayload())
+
+    await user.click(screen.getByRole("button", { name: "Versions" }))
+
+    expect(
+      screen.getByText("Couldn't load version history.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("No versions yet.")).not.toBeInTheDocument()
+    // Once per failure, despite the re-renders from opening the dropdown.
+    expect(mockToast).toHaveBeenCalledTimes(1)
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Couldn't load version history" })
+    )
+  })
+
+  it("shows the empty state without a toast on a successful empty result", async () => {
+    mockUseAgentPresetVersions.mockReturnValue({
+      versions: [],
+      versionsIsLoading: false,
+      versionsError: null,
+      refetchVersions: jest.fn(),
+    })
+    const user = userEvent.setup()
+    renderHistory(() => buildDraftPayload())
+
+    await user.click(screen.getByRole("button", { name: "Versions" }))
+
+    expect(screen.getByText("No versions yet.")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Couldn't load version history.")
+    ).not.toBeInTheDocument()
+    expect(mockToast).not.toHaveBeenCalled()
   })
 
   it("shows the form-error notice and disables restore when the draft cannot serialize", async () => {

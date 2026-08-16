@@ -1,5 +1,6 @@
 import type {
   AgentPresetCreate,
+  AgentPresetSkillBindingRead,
   AgentPresetVersionRead,
   AnyAttachedSubagentRef,
 } from "@/client"
@@ -19,6 +20,30 @@ const SKILL_NAMES: ReadonlyMap<string, string> = new Map([
   [SKILL_ALPHA_ID, "alpha-skill"],
   [SKILL_BETA_ID, "beta-skill"],
 ])
+
+/** The saved version's skill bindings, deliberately unsorted. */
+const VERSION_SKILLS: AgentPresetSkillBindingRead[] = [
+  {
+    skill_id: SKILL_BETA_ID,
+    skill_version_id: "77777777-7777-7777-7777-777777777777",
+    skill_name: "beta-skill",
+    skill_version: 3,
+  },
+  {
+    skill_id: SKILL_ALPHA_ID,
+    skill_version_id: "88888888-8888-8888-8888-888888888888",
+    skill_name: "alpha-skill",
+    skill_version: 1,
+  },
+]
+
+/**
+ * The current preset head's bindings, keyed by skill id. Pins match the saved
+ * version so the round-trip symmetry fixtures agree on both sides.
+ */
+const HEAD_BINDINGS: ReadonlyMap<string, AgentPresetSkillBindingRead> = new Map(
+  VERSION_SKILLS.map((binding) => [binding.skill_id, binding] as const)
+)
 
 /**
  * Single source of truth for the execution fields. Both fixtures below are
@@ -88,20 +113,7 @@ function buildVersion(
   return {
     ...SHARED_EXECUTION,
     agents: { enabled: true, subagents: VERSION_SUBAGENTS },
-    skills: [
-      {
-        skill_id: SKILL_BETA_ID,
-        skill_version_id: "77777777-7777-7777-7777-777777777777",
-        skill_name: "beta-skill",
-        skill_version: 3,
-      },
-      {
-        skill_id: SKILL_ALPHA_ID,
-        skill_version_id: "88888888-8888-8888-8888-888888888888",
-        skill_name: "alpha-skill",
-        skill_version: 1,
-      },
-    ],
+    skills: VERSION_SKILLS,
     id: "version-1",
     preset_id: "preset-1",
     workspace_id: "workspace-1",
@@ -137,10 +149,11 @@ function renderVersion(
 
 function renderPayload(
   payload: AgentPresetCreate,
-  skillNames: ReadonlyMap<string, string> = SKILL_NAMES
+  skillNames: ReadonlyMap<string, string> = SKILL_NAMES,
+  headBindings: ReadonlyMap<string, AgentPresetSkillBindingRead> = HEAD_BINDINGS
 ) {
   return buildAgentPresetVirtualFiles(
-    agentPresetPayloadToDocumentInput(payload, skillNames)
+    agentPresetPayloadToDocumentInput(payload, skillNames, headBindings)
   )
 }
 
@@ -275,15 +288,32 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
     const unknownId = "99999999-9999-9999-9999-999999999999"
     const { config } = renderPayload(
       buildPayload({ skills: [{ skill_id: unknownId }] }),
+      new Map(),
       new Map()
     )
     expect(config).toContain(unknownId)
   })
 
-  it("renders skill names without a version pin", () => {
+  it("renders skill names with their pinned versions, sorted by name", () => {
     const { config } = renderVersion(buildVersion())
-    expect(config).toContain("skills:\n  - alpha-skill\n  - beta-skill\n")
-    expect(config).not.toContain("skill_version")
+    expect(config).toContain(
+      "skills:\n" +
+        "  - name: alpha-skill\n" +
+        "    version: 1\n" +
+        "  - name: beta-skill\n" +
+        "    version: 3\n"
+    )
+  })
+
+  it("renders version null for a draft skill absent from the head bindings", () => {
+    const { config } = renderPayload(
+      buildPayload({ skills: [{ skill_id: SKILL_ALPHA_ID }] }),
+      SKILL_NAMES,
+      new Map()
+    )
+    expect(config).toContain(
+      "skills:\n  - name: alpha-skill\n    version: null\n"
+    )
   })
 
   it("excludes resolved subagent uuids", () => {
@@ -331,6 +361,67 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "",
       ].join("\n")
     )
+  })
+})
+
+describe("buildAgentPresetVirtualFiles skill version pins", () => {
+  /**
+   * Regression: skills used to render as bare names, so a version pinning
+   * `alpha-skill@5` against a head pinned at `alpha-skill@2` produced
+   * byte-identical configs — and the restore dialog claimed nothing would
+   * change while `restore_version` silently rolled the skill back to v5.
+   */
+  it("diffs the same skill pinned at different versions", () => {
+    const fromVersion = renderVersion(
+      buildVersion({
+        skills: [
+          {
+            skill_id: SKILL_ALPHA_ID,
+            skill_version_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            skill_name: "alpha-skill",
+            skill_version: 5,
+          },
+        ],
+      })
+    )
+    const fromPayload = renderPayload(
+      buildPayload({ skills: [{ skill_id: SKILL_ALPHA_ID }] }),
+      SKILL_NAMES,
+      new Map([
+        [
+          SKILL_ALPHA_ID,
+          {
+            skill_id: SKILL_ALPHA_ID,
+            skill_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            skill_name: "alpha-skill",
+            skill_version: 2,
+          },
+        ],
+      ])
+    )
+
+    expect(fromVersion.config).not.toBe(fromPayload.config)
+    expect(fromVersion.config).toContain(
+      "skills:\n  - name: alpha-skill\n    version: 5\n"
+    )
+    expect(fromPayload.config).toContain(
+      "skills:\n  - name: alpha-skill\n    version: 2\n"
+    )
+  })
+
+  it("does not diff a skill renamed since the version was cut", () => {
+    // The workspace now calls alpha-skill something else; the version's
+    // binding still stores the historical name. Both sides must resolve
+    // through the CURRENT name or the rename diffs forever.
+    const renamedNames: ReadonlyMap<string, string> = new Map([
+      [SKILL_ALPHA_ID, "alpha-skill-v2"],
+      [SKILL_BETA_ID, "beta-skill"],
+    ])
+    const fromVersion = renderVersion(buildVersion(), renamedNames)
+    const fromPayload = renderPayload(buildPayload(), renamedNames)
+
+    expect(fromVersion.config).toBe(fromPayload.config)
+    expect(fromVersion.config).toContain("name: alpha-skill-v2")
   })
 })
 

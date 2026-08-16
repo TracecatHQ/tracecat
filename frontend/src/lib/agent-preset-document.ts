@@ -1,6 +1,7 @@
 import { stringify } from "yaml"
 import type {
   AgentPresetCreate,
+  AgentPresetSkillBindingRead,
   AgentPresetVersionRead,
   AnyAttachedSubagentRef,
   OutputType,
@@ -64,6 +65,21 @@ export interface AgentPresetSubagentEntry {
 }
 
 /**
+ * A skill attachment as rendered in the document.
+ *
+ * The version matters: restoring a version copies its exact historical skill
+ * pins back onto the preset head (`_restore_head_skill_bindings_from_version`
+ * on the backend), so two sides pinning the same skill at different versions
+ * must render differently or the diff hides a real change.
+ */
+export interface AgentPresetSkillEntry {
+  /** Skill name, resolved through the current workspace skill names. */
+  name: string
+  /** Pinned skill version, or null when the draft has not pinned one yet. */
+  version: number | null
+}
+
+/**
  * The single normalized intermediate both converters produce.
  *
  * Every field is total — no optionals, no `undefined` — because absent values
@@ -95,8 +111,8 @@ export interface AgentPresetDocumentInput {
   subagentsEnabled: boolean
   /** Attached subagents, sorted by name then preset. Empty when disabled. */
   subagents: AgentPresetSubagentEntry[]
-  /** Attached skill names, sorted. Never version-pinned. */
-  skills: string[]
+  /** Attached skills with their version pins, sorted by name then version. */
+  skills: AgentPresetSkillEntry[]
   /** Retry budget. */
   retries: number
   /** Whether extended thinking is enabled. */
@@ -200,17 +216,44 @@ function normalizeSubagents(
 }
 
 /**
- * Resolves skill ids to names, falling back to the raw UUID when unknown.
+ * A skill attachment before name resolution: the id, the historical name the
+ * binding carried (null when unknown, e.g. a freshly attached draft skill), and
+ * the pinned version (null when not yet pinned).
+ */
+interface RawSkillBinding {
+  skillId: string
+  fallbackName: string | null
+  version: number | null
+}
+
+/**
+ * Resolves skill bindings to `{ name, version }` entries.
  *
- * Names only, never version-pinned: the draft form tracks just `skillId` and the
- * minimal skill type carries no version number, so pinning one side and not the
- * other would create a permanent phantom diff.
+ * Names must resolve identically on both sides of the diff, so every entry
+ * goes through the same chain: the CURRENT workspace name from
+ * `skillNamesById` first, then the binding's stored `skill_name`, then the raw
+ * UUID. Never prefer the historical `skill_name` while the current name is
+ * known — a renamed skill would then diff forever against the draft side.
+ *
+ * Sorted by name, with version as a tiebreak so duplicates are deterministic.
  */
 function normalizeSkills(
-  skillIds: readonly string[],
+  bindings: readonly RawSkillBinding[],
   skillNamesById: ReadonlyMap<string, string>
-): string[] {
-  return sortStrings(skillIds.map((id) => skillNamesById.get(id) ?? id))
+): AgentPresetSkillEntry[] {
+  return bindings
+    .map((binding) => ({
+      name:
+        skillNamesById.get(binding.skillId) ??
+        binding.fallbackName ??
+        binding.skillId,
+      version: binding.version,
+    }))
+    .sort(
+      (left, right) =>
+        left.name.localeCompare(right.name) ||
+        (left.version ?? -1) - (right.version ?? -1)
+    )
 }
 
 /**
@@ -221,7 +264,7 @@ function normalizeSkills(
  */
 function agentPresetExecutionFieldsToDocumentInput(
   fields: AgentPresetExecutionFields,
-  skillIds: readonly string[],
+  skillBindings: readonly RawSkillBinding[],
   skillNamesById: ReadonlyMap<string, string>
 ): AgentPresetDocumentInput {
   const subagentsEnabled = fields.agents?.enabled ?? false
@@ -244,7 +287,7 @@ function agentPresetExecutionFieldsToDocumentInput(
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
     subagentsEnabled,
     subagents,
-    skills: normalizeSkills(skillIds, skillNamesById),
+    skills: normalizeSkills(skillBindings, skillNamesById),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
     // field, so mid-edit it can still be the string "3".
     retries: Number(fields.retries ?? DEFAULT_RETRIES),
@@ -255,6 +298,9 @@ function agentPresetExecutionFieldsToDocumentInput(
 
 /**
  * Normalizes a saved preset version into the shared document input.
+ *
+ * Skill pins come straight from the version's bindings: restoring copies those
+ * exact `skill_version` pins back to the head, so they are part of the diff.
  */
 export function agentPresetVersionToDocumentInput(
   version: AgentPresetVersionRead,
@@ -262,21 +308,39 @@ export function agentPresetVersionToDocumentInput(
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
     version,
-    (version.skills ?? []).map((skill) => skill.skill_id),
+    (version.skills ?? []).map((skill) => ({
+      skillId: skill.skill_id,
+      fallbackName: skill.skill_name,
+      version: skill.skill_version,
+    })),
     skillNamesById
   )
 }
 
 /**
  * Normalizes a draft create/update payload into the shared document input.
+ *
+ * The draft form tracks only `skill_id`, so each skill's pinned version is
+ * resolved from `headBindingsBySkillId` — the CURRENT preset head's bindings,
+ * keyed by `skill_id`. A skill already attached resolves to the version the
+ * backend currently has pinned; a skill the user just attached in the form has
+ * no pin yet and renders as `version: null`.
  */
 export function agentPresetPayloadToDocumentInput(
   payload: AgentPresetCreate,
-  skillNamesById: ReadonlyMap<string, string>
+  skillNamesById: ReadonlyMap<string, string>,
+  headBindingsBySkillId: ReadonlyMap<string, AgentPresetSkillBindingRead>
 ): AgentPresetDocumentInput {
   return agentPresetExecutionFieldsToDocumentInput(
     payload,
-    (payload.skills ?? []).map((skill) => skill.skill_id),
+    (payload.skills ?? []).map((skill) => {
+      const headBinding = headBindingsBySkillId.get(skill.skill_id)
+      return {
+        skillId: skill.skill_id,
+        fallbackName: headBinding?.skill_name ?? null,
+        version: headBinding?.skill_version ?? null,
+      }
+    }),
     skillNamesById
   )
 }
@@ -349,7 +413,10 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
         description: subagent.description,
       })),
     },
-    skills: input.skills,
+    skills: input.skills.map((skill) => ({
+      name: skill.name,
+      version: skill.version,
+    })),
     runtime: {
       retries: input.retries,
       enable_thinking: input.enableThinking,

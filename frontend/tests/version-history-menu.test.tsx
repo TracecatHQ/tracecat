@@ -100,6 +100,21 @@ describe("VersionHistoryMenu", () => {
     await openDropdown(user)
 
     expect(screen.getByText("No versions yet.")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Couldn't load version history.")
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows an error state instead of the empty state when loading failed", async () => {
+    const user = userEvent.setup()
+    renderMenu({ versions: [], loadError: true })
+
+    await openDropdown(user)
+
+    expect(
+      screen.getByText("Couldn't load version history.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("No versions yet.")).not.toBeInTheDocument()
   })
 
   it("lists versions and marks the current one", async () => {

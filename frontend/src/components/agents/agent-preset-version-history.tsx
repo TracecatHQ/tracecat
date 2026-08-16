@@ -2,11 +2,16 @@
 
 import { Loader2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import type { AgentPresetCreate, AgentPresetVersionReadMinimal } from "@/client"
+import type {
+  AgentPresetCreate,
+  AgentPresetSkillBindingRead,
+  AgentPresetVersionReadMinimal,
+} from "@/client"
 import {
   formatAgentPresetVersionLabel,
   getAgentPresetVersionNumber,
 } from "@/components/agents/agent-preset-version-select"
+import { toast } from "@/components/ui/use-toast"
 import type {
   VersionedDocumentDescriptor,
   VersionFileDiffState,
@@ -86,6 +91,13 @@ type AgentPresetVersionDiffContentProps = {
   currentVersionId: string | null
   /** Minimal version list, used only to resolve version numbers for labels. */
   versions: AgentPresetVersionReadMinimal[] | undefined
+  /**
+   * The CURRENT preset head's skill bindings keyed by `skill_id`. The draft
+   * form tracks only skill ids, so the draft side of the diff resolves each
+   * skill's pinned version from here; a skill missing from the map was just
+   * attached in the form and has no pin yet.
+   */
+  headSkillBindings: ReadonlyMap<string, AgentPresetSkillBindingRead>
   getDraftPayload: () => AgentPresetCreate | null
   /** Reports whether the draft snapshot is missing, to gate the Restore action. */
   onDraftMissingChange: (draftMissing: boolean) => void
@@ -103,6 +115,7 @@ function AgentPresetVersionDiffContent({
   versionId,
   currentVersionId,
   versions,
+  headSkillBindings,
   getDraftPayload,
   onDraftMissingChange,
 }: AgentPresetVersionDiffContentProps) {
@@ -137,10 +150,14 @@ function AgentPresetVersionDiffContent({
     () =>
       draftPayload
         ? buildAgentPresetVirtualFiles(
-            agentPresetPayloadToDocumentInput(draftPayload, skillNamesById)
+            agentPresetPayloadToDocumentInput(
+              draftPayload,
+              skillNamesById,
+              headSkillBindings
+            )
           )
         : null,
-    [draftPayload, skillNamesById]
+    [draftPayload, skillNamesById, headSkillBindings]
   )
   const versionFiles = useMemo(
     () =>
@@ -257,12 +274,39 @@ export function AgentPresetVersionHistory({
   disabled,
 }: AgentPresetVersionHistoryProps) {
   const { preset } = useAgentPreset(workspaceId, presetId)
-  const { versions, versionsIsLoading } = useAgentPresetVersions(
+  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
     workspaceId,
     presetId
   )
   const { restoreAgentPresetVersion } =
     useRestoreAgentPresetVersion(workspaceId)
+
+  // Surface a version-list failure once per error instance. Keyed on the error
+  // object so re-renders don't re-toast, but a fresh failure after a refetch
+  // does. Deliberately no throw and no navigation: the dropdown shows its own
+  // inline error state and the rest of the builder stays usable.
+  useEffect(() => {
+    if (!versionsError) {
+      return
+    }
+    toast({
+      title: "Couldn't load version history",
+      description: "Please try again later.",
+      variant: "destructive",
+    })
+  }, [versionsError])
+
+  // The current head's skill bindings, keyed by skill id. The draft side of
+  // the diff resolves its skill version pins from these.
+  const headSkillBindings = useMemo(
+    () =>
+      new Map(
+        (preset?.skills ?? []).map(
+          (binding) => [binding.skill_id, binding] as const
+        )
+      ),
+    [preset?.skills]
+  )
 
   // Whether the last-opened diff found the draft unserializable. Reported by
   // the dialog content on mount — the outer component never calls
@@ -311,6 +355,7 @@ export function AgentPresetVersionHistory({
       entityLabel="agent"
       versions={entries}
       isLoading={versionsIsLoading}
+      loadError={Boolean(versionsError)}
       onRestore={handleRestore}
       disabled={disabled}
       restoreDisabled={restoreDisabled}
@@ -321,6 +366,7 @@ export function AgentPresetVersionHistory({
           versionId={versionId}
           currentVersionId={currentVersionId}
           versions={versions}
+          headSkillBindings={headSkillBindings}
           getDraftPayload={getDraftPayload}
           onDraftMissingChange={setRestoreDisabled}
         />
