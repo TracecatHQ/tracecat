@@ -15,7 +15,6 @@ import {
   type AgentPresetRead,
   type AgentPresetReadMinimal,
   type AgentPresetUpdate,
-  type AgentPresetVersionDiff,
   type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
   type AgentTagRead,
@@ -25,7 +24,6 @@ import {
   agentFoldersListFolders,
   agentFoldersMoveFolder,
   agentFoldersUpdateFolder,
-  agentPresetsCompareAgentPresetVersions,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
@@ -269,56 +267,6 @@ export function useAgentPresetVersion(
     presetVersionIsLoading,
     presetVersionError,
     refetchPresetVersion,
-  }
-}
-
-export function useCompareAgentPresetVersions(
-  workspaceId: string,
-  presetId?: string | null,
-  baseVersionId?: string | null,
-  compareToId?: string | null,
-  { enabled = true }: { enabled?: boolean } = {}
-) {
-  const {
-    data: diff,
-    isLoading: diffIsLoading,
-    error: diffError,
-    refetch: refetchDiff,
-  } = useQuery<AgentPresetVersionDiff, TracecatApiError>({
-    queryKey: [
-      "agent-preset-version-diff",
-      workspaceId,
-      presetId,
-      baseVersionId,
-      compareToId,
-    ],
-    queryFn: async () => {
-      if (!workspaceId || !presetId || !baseVersionId || !compareToId) {
-        throw new Error(
-          "workspaceId, presetId, baseVersionId, and compareToId are required"
-        )
-      }
-      return await agentPresetsCompareAgentPresetVersions({
-        workspaceId,
-        presetId,
-        versionId: baseVersionId,
-        compareTo: compareToId,
-      })
-    },
-    enabled:
-      enabled &&
-      Boolean(workspaceId) &&
-      Boolean(presetId) &&
-      Boolean(baseVersionId) &&
-      Boolean(compareToId),
-    retry: retryHandler,
-  })
-
-  return {
-    diff,
-    diffIsLoading,
-    diffError,
-    refetchDiff,
   }
 }
 

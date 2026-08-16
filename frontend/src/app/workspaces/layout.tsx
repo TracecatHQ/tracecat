@@ -22,6 +22,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
+import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { ScopeProvider } from "@/providers/scopes"
 import { SkillsStudioProvider } from "@/providers/skills-studio"
@@ -61,10 +62,12 @@ export default function WorkspaceLayout({
     workspaceId?: string
     workflowId?: string
     skillId?: string
+    presetId?: string
   }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
   const skillId = params?.skillId
+  const presetId = params?.presetId
   const requestedWorkspaceExists = useMemo(() => {
     if (!workspaceId || !workspaces) {
       return false
@@ -184,6 +187,10 @@ export default function WorkspaceLayout({
           >
             <WorkspaceChildren>{children}</WorkspaceChildren>
           </SkillsStudioProvider>
+        ) : presetId ? (
+          <AgentPresetDetailProvider>
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </AgentPresetDetailProvider>
         ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
