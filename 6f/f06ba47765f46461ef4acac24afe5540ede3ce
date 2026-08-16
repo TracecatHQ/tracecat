@@ -1,0 +1,127 @@
+frontend/src/lib/diff.ts
+  s_21ea8b73521235::t_5be83d12a719fb 1-144,147-234,240-348,353-450
+  s_21ea8b73521235::t_54823c978e5f0c 145-146,349-352
+  s_21ea8b73521235::t_b7f184d19c75f2 235-239
+frontend/tests/inline-diff.test.ts
+  s_21ea8b73521235::t_ed32f23da5464b 1-104,106-257,264-301,303-324,326-373
+  s_21ea8b73521235::t_54823c978e5f0c 105,302,325
+  s_21ea8b73521235::t_001ae4de8d2b6b 258-263
+frontend/src/components/version-history/version-diff-file-tree.tsx
+  s_21ea8b73521235::t_9ec7e59606213e 1-131
+frontend/src/components/diff/prose-diff.tsx
+  s_21ea8b73521235::t_a7db8643d24e0a 1-72
+frontend/src/lib/agent-preset-document.ts
+  s_21ea8b73521235::t_134ff9cf51abe9 285-315
+  s_21ea8b73521235::t_28fe6519da92d0 361-364
+  s_21ea8b73521235::t_922dfb8a0c05f8 1-284,316-360,365-369
+frontend/src/lib/version-diff.ts
+  s_21ea8b73521235::t_3642f26d27ae32 52-55
+  s_21ea8b73521235::t_ccef4510030fc6 1-51,56-61
+frontend/src/components/nav/controls-header.tsx
+  s_21ea8b73521235::t_dccad6d90fbbb7 1961-1968
+  s_21ea8b73521235::t_bb2b2d8bd5a136 39
+frontend/tests/file-tree.test.ts
+  s_21ea8b73521235::t_50a878325b8610 1-65,67-106
+  s_21ea8b73521235::t_3642f26d27ae32 66
+frontend/src/providers/agent-preset-detail.tsx
+  s_21ea8b73521235::t_cdd7c1df87d3ad 1-68
+frontend/src/lib/file-tree.ts
+  s_21ea8b73521235::t_24dcf5bb625bee 1-142
+frontend/tests/agent-preset-version-history.test.tsx
+  s_21ea8b73521235::t_f41e4b8170152d 1-265
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_21ea8b73521235::t_3526b408d2665a 1742,1744-1745,1747-1750,1756-1757,1760-1762,1766-1772,1774,1777-1781,1783-1789,1791-1793
+  s_21ea8b73521235::t_53a43d2ee3b59d 1926,1936,1938-1941
+  s_21ea8b73521235::t_07aa224ca2b704 2825-2846
+  s_21ea8b73521235::t_2566f67d7360c0 2564-2565
+  s_21ea8b73521235::t_633839f7a203bb 1707-1731
+  s_21ea8b73521235::t_0c8c51b8066fb3 1156-1230,1235-1241
+  s_21ea8b73521235::t_d643d5ca1de6e5 1831
+  s_21ea8b73521235::t_7064b80d91e95e 1231-1234
+  s_21ea8b73521235::t_f22cb687566c6a 1733-1741,1743,1746,1751-1753,1758-1759,1763-1765,1773,1775-1776
+  s_21ea8b73521235::t_d23782e9d285b6 1824-1827,1830
+  s_21ea8b73521235::t_eed5bad4c2941b 2554-2563,2566-2579
+  s_21ea8b73521235::t_2adc62ded144ba 1996-1998,2003-2006,2008-2009
+  s_21ea8b73521235::t_335c3e635a4285 168-171
+  s_21ea8b73521235::t_416c452d015b3d 2859-2868
+  s_21ea8b73521235::t_6eeadf9253fab3 2270
+  s_21ea8b73521235::t_9406cb21c09256 1999-2002,2007
+  s_21ea8b73521235::t_68e0e38f621258 1919-1922,1925,1929-1932,1935
+  s_21ea8b73521235::t_76032d17d235a0 152
+  s_21ea8b73521235::t_1d9789f8a69b65 63
+  s_21ea8b73521235::t_d9e98e11b8ffb9 2855-2856
+  s_21ea8b73521235::t_d57862b1406a0d 2883
+  s_21ea8b73521235::t_41bb8396f088fe 1732
+frontend/src/components/version-history/version-history-menu.tsx
+  s_21ea8b73521235::t_05b78173bbedea 200
+  s_21ea8b73521235::t_3a88901b940059 213
+  s_21ea8b73521235::t_22e101db3ee026 1-59,66-84,86-199,201-212,214-229
+  s_21ea8b73521235::t_4d715037542b1b 60-65
+  s_21ea8b73521235::t_104189e770cccd 85
+frontend/jest.config.cjs
+  s_21ea8b73521235::t_8175ec58b71db6 25-27
+frontend/src/styles/globals.scss
+  s_21ea8b73521235::t_e1fac7a3c5e082 114-123
+  s_21ea8b73521235::t_7118a9b7d07b6e 56-65
+frontend/tailwind.config.js
+  s_21ea8b73521235::t_491cdd7ae6c46e 61-80
+frontend/tests/version-history-menu.test.tsx
+  s_21ea8b73521235::t_4ed7e0354c406f 1-224
+frontend/src/app/workspaces/layout.tsx
+  s_21ea8b73521235::t_86a7db90f22a48 190-193
+  s_21ea8b73521235::t_2562244307c0ae 25
+  s_21ea8b73521235::t_512da69039abff 65,70
+frontend/package.json
+  s_21ea8b73521235::t_470c1bcf2eaba7 102
+frontend/tests/version-diff.test.ts
+  s_21ea8b73521235::t_27712003a15d18 1-3,5-95
+  s_21ea8b73521235::t_3642f26d27ae32 4
+frontend/src/components/diff/inline-diff-view.tsx
+  s_21ea8b73521235::t_30068be073523c 1-272
+frontend/src/components/version-history/version-diff-body.tsx
+  s_21ea8b73521235::t_4cc9ec3660d915 1-114
+frontend/src/components/diff/unified-diff.tsx
+  s_21ea8b73521235::t_d13a065a7b7ce7 1-135
+frontend/tests/diff-tokens.test.ts
+  s_21ea8b73521235::t_ce2e013af7aab6 1-106
+frontend/src/components/agents/agent-preset-detail-actions.tsx
+  s_21ea8b73521235::t_26e7bc58d9ec51 1-11,13-78
+  s_21ea8b73521235::t_29a1ef125ac6be 12
+  s_21ea8b73521235::t_d9e970684fb7c3 79-105
+frontend/tests/inline-diff-view.test.tsx
+  s_21ea8b73521235::t_d476937e7c761e 1-92,94-121,127-136,142-224
+  s_21ea8b73521235::t_5818e9c9681b77 93,122-126,137-141
+frontend/tests/agent-presets-builder.test.tsx
+  s_21ea8b73521235::t_3376df66a446f3 2
+  s_21ea8b73521235::t_9a399637f114ab 17-43
+frontend/src/components/agents/agent-preset-version-history.tsx
+  s_21ea8b73521235::t_9642ae8ecc9d71 1-4,6-17,25-263,266-330
+  s_21ea8b73521235::t_7459ebd9d3194f 5,18-24,264-265
+frontend/tests/agent-preset-document.test.ts
+  s_21ea8b73521235::t_fff53b9e2b1a32 336-371,375-377
+  s_21ea8b73521235::t_0074b55a9b6467 1-254,258-335
+  s_21ea8b73521235::t_3642f26d27ae32 255-257
+  s_21ea8b73521235::t_833ae2e42d3393 372-374
+frontend/src/lib/agent-presets.ts
+  s_21ea8b73521235::t_c98a760a7ab68e 10-31
+frontend/src/components/version-history/types.ts
+  s_21ea8b73521235::t_05ff86eb6cb8c3 1-109
+frontend/pnpm-lock.yaml
+  s_21ea8b73521235::t_64f122c53a48ac 267-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6ff06ba47765f46461ef4acac24afe5540ede3ce",
+  "prompts": {},
+  "sessions": {
+    "s_21ea8b73521235": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e8c15e9c-f5d9-49a2-a852-65a09c9ff761",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
