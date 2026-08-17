@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -61,6 +62,7 @@ def test_decode_result_envelope_returns_none_when_file_missing(
     "result_bytes",
     [
         b"not json",
+        b"\xff",
         orjson.dumps([{"success": True}]),
     ],
 )
@@ -85,6 +87,33 @@ def test_decode_result_envelope_rejects_symlinked_result(tmp_path: Path) -> None
     (tmp_path / "result.json").symlink_to(outside)
 
     _assert_invalid_result(_decode(tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        ("NaN", math.nan),
+        ("Infinity", math.inf),
+        ("-Infinity", -math.inf),
+    ],
+)
+def test_decode_result_envelope_preserves_non_finite_numbers(
+    tmp_path: Path,
+    token: str,
+    expected: float,
+) -> None:
+    """Decoder stays compatible with the stdlib JSON emitted by wrappers."""
+    (tmp_path / "result.json").write_text(f'{{"success": true, "output": {token}}}')
+
+    outcome = _decode(tmp_path)
+
+    assert outcome is not None
+    assert outcome.valid_envelope is True
+    assert isinstance(outcome.result.output, float)
+    if math.isnan(expected):
+        assert math.isnan(outcome.result.output)
+    else:
+        assert outcome.result.output == expected
 
 
 @pytest.mark.parametrize("output_key", ["output", "result"])

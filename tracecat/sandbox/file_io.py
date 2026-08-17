@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -11,8 +12,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import orjson
 
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
@@ -254,8 +253,11 @@ def read_json_object_beneath(
     if data is None:
         return None
     try:
-        value = orjson.loads(data)
-    except orjson.JSONDecodeError as exc:
+        # Sandbox wrappers use stdlib json.dumps(), which emits NaN and
+        # +/-Infinity by default. Match that established wire format while the
+        # descriptor-relative read above preserves the safety boundary.
+        value = json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         raise SandboxFileSafetyError("Sandbox result is not valid JSON") from exc
     if not isinstance(value, dict):
         raise SandboxFileSafetyError("Sandbox result is not a JSON object")
