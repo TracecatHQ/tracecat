@@ -1487,6 +1487,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 commit=False,
             )
             await self.session.commit()
+            # Keep server-generated fields loaded for response serialization.
+            await self.session.refresh(workflow)
         return workflow
 
     @require_scope("workflow:create")
