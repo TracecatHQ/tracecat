@@ -121,6 +121,11 @@ class _Direction(StrEnum):
     BACKWARD = "backward"
 
 
+class _Boundary(StrEnum):
+    EXCLUSIVE = "exclusive"
+    INCLUSIVE = "inclusive"
+
+
 class _SortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
@@ -136,6 +141,7 @@ class _CursorPayload(BaseModel):
 
     version: int
     direction: _Direction
+    boundary: _Boundary = _Boundary.EXCLUSIVE
     query_fingerprint: str
     values: list[JsonValue]
 
@@ -423,6 +429,7 @@ def _deserialize_cursor_values(
 def _encode_page_cursor(
     *,
     direction: _Direction,
+    boundary: _Boundary = _Boundary.EXCLUSIVE,
     query_fingerprint: str,
     values: tuple[object, ...],
     ordering: tuple[_OrderKey, ...],
@@ -432,6 +439,7 @@ def _encode_page_cursor(
         _CursorPayload(
             version=_CURSOR_VERSION,
             direction=direction,
+            boundary=boundary,
             query_fingerprint=query_fingerprint,
             values=_serialize_cursor_values(values, ordering),
         )
@@ -454,7 +462,7 @@ def _decode_page_cursor(
     query_fingerprint: str,
     ordering: tuple[_OrderKey, ...],
     secret: bytes,
-) -> tuple[_Direction, tuple[object, ...]]:
+) -> tuple[_Direction, _Boundary, tuple[object, ...]]:
     try:
         if len(cursor) > _MAX_CURSOR_LENGTH:
             raise ValueError("Cursor is too long")
@@ -481,7 +489,11 @@ def _decode_page_cursor(
             "Pagination cursor does not match the current query",
             code=PaginationErrorCode.CURSOR_MISMATCH,
         )
-    return decoded.direction, _deserialize_cursor_values(decoded.values, ordering)
+    return (
+        decoded.direction,
+        decoded.boundary,
+        _deserialize_cursor_values(decoded.values, ordering),
+    )
 
 
 def _strictly_after(key: _OrderKey, value: object) -> ColumnElement[bool]:
@@ -505,8 +517,10 @@ def _strictly_after(key: _OrderKey, value: object) -> ColumnElement[bool]:
 def _seek_predicate(
     ordering: tuple[_OrderKey, ...],
     values: tuple[object, ...],
+    *,
+    boundary: _Boundary,
 ) -> ColumnElement[bool]:
-    """Build a lexicographic predicate strictly after the cursor values."""
+    """Build a lexicographic predicate after the cursor values."""
     if len(ordering) != len(values):
         raise PaginationConfigurationError(
             "Cursor values do not match pagination ordering"
@@ -517,6 +531,8 @@ def _seek_predicate(
     for key, value in zip(ordering, values, strict=True):
         branches.append(sa.and_(*equal_prefix, _strictly_after(key, value)))
         equal_prefix.append(key.expression.is_not_distinct_from(value))
+    if boundary is _Boundary.INCLUSIVE:
+        branches.append(sa.and_(*equal_prefix))
     return sa.or_(*branches)
 
 
@@ -598,9 +614,10 @@ async def paginate[T](
     query_fingerprint = _query_fingerprint(session, statement, ordering)
     secret = get_signing_secret().encode()
     direction = _Direction.FORWARD
+    boundary = _Boundary.EXCLUSIVE
     cursor_values: tuple[object, ...] | None = None
     if page.cursor is not None:
-        direction, cursor_values = _decode_page_cursor(
+        direction, boundary, cursor_values = _decode_page_cursor(
             page.cursor,
             query_fingerprint=query_fingerprint,
             ordering=ordering,
@@ -618,7 +635,13 @@ async def paginate[T](
     )
     query = statement.add_columns(*cursor_columns)
     if cursor_values is not None:
-        query = query.where(_seek_predicate(query_ordering, cursor_values))
+        query = query.where(
+            _seek_predicate(
+                query_ordering,
+                cursor_values,
+                boundary=boundary,
+            )
+        )
     query = query.order_by(*(key.clause() for key in query_ordering)).limit(
         page.limit + 1
     )
@@ -629,9 +652,18 @@ async def paginate[T](
     serialized_cursor_values = [
         _serialize_cursor_values(values, ordering) for values in raw_cursor_values
     ]
-    if any(
-        previous == current for previous, current in pairwise(serialized_cursor_values)
-    ):
+    duplicate_ordering = any(
+        previous_values == current_values or previous_serialized == current_serialized
+        for (previous_values, current_values), (
+            previous_serialized,
+            current_serialized,
+        ) in zip(
+            pairwise(raw_cursor_values),
+            pairwise(serialized_cursor_values),
+            strict=True,
+        )
+    )
+    if duplicate_ordering:
         raise PaginationConfigurationError(
             "Pagination ordering is not unique; add a unique tie-breaker"
         )
@@ -664,7 +696,7 @@ async def paginate[T](
                     ordering=ordering,
                     secret=secret,
                 )
-            if page.cursor is not None:
+            if page.cursor is not None and boundary is _Boundary.EXCLUSIVE:
                 prev_cursor = _encode_page_cursor(
                     direction=_Direction.BACKWARD,
                     query_fingerprint=query_fingerprint,
@@ -673,7 +705,7 @@ async def paginate[T](
                     secret=secret,
                 )
         else:
-            if page.cursor is not None:
+            if page.cursor is not None and boundary is _Boundary.EXCLUSIVE:
                 next_cursor = _encode_page_cursor(
                     direction=_Direction.FORWARD,
                     query_fingerprint=query_fingerprint,
@@ -689,6 +721,28 @@ async def paginate[T](
                     ordering=ordering,
                     secret=secret,
                 )
+    elif cursor_values is not None and boundary is _Boundary.EXCLUSIVE:
+        # Concurrent deletes can empty a page after its cursor was issued. A
+        # one-use inclusive cursor restores the adjacent surviving page without
+        # pointing back toward the page now known to be empty.
+        if direction is _Direction.FORWARD:
+            prev_cursor = _encode_page_cursor(
+                direction=_Direction.BACKWARD,
+                boundary=_Boundary.INCLUSIVE,
+                query_fingerprint=query_fingerprint,
+                values=cursor_values,
+                ordering=ordering,
+                secret=secret,
+            )
+        else:
+            next_cursor = _encode_page_cursor(
+                direction=_Direction.FORWARD,
+                boundary=_Boundary.INCLUSIVE,
+                query_fingerprint=query_fingerprint,
+                values=cursor_values,
+                ordering=ordering,
+                secret=secret,
+            )
 
     return Page(
         items=[row.item for row in page_rows],

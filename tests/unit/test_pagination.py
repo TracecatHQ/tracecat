@@ -464,6 +464,53 @@ class TestPaginate:
         assert seen == expected
 
     @pytest.mark.anyio
+    async def test_database_equal_numeric_values_require_unique_tie_breaker(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        metadata = sa.MetaData()
+        items = sa.Table(
+            "test_numeric_page_items",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("amount", sa.Numeric, nullable=False),
+            prefixes=["TEMPORARY"],
+        )
+        connection = await session.connection()
+        await connection.run_sync(metadata.create_all)
+        await session.execute(items.insert().values(id=1, amount=Decimal("1.0")))
+        await session.execute(items.insert().values(id=2, amount=Decimal("1.00")))
+        statement = sa.select(items.c.id)
+
+        with pytest.raises(
+            PaginationConfigurationError,
+            match="unique tie-breaker",
+        ):
+            await paginate(
+                session,
+                statement,
+                page=PageParams(limit=1),
+                order_by=(items.c.amount.asc(),),
+            )
+
+        first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=1),
+            order_by=(items.c.amount.asc(), items.c.id.asc()),
+        )
+        assert first.items == [1]
+        assert first.next_cursor is not None
+        second = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=1, cursor=first.next_cursor),
+            order_by=(items.c.amount.asc(), items.c.id.asc()),
+        )
+        assert second.items == [2]
+
+    @pytest.mark.anyio
     async def test_non_finite_float_cursor_values_round_trip(
         self,
         session: AsyncSession,
@@ -690,6 +737,96 @@ class TestPaginate:
         )
 
         assert second.items == [3, 4]
+
+    @pytest.mark.anyio
+    async def test_empty_forward_page_can_recover_the_adjacent_surviving_page(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        items = await _create_page_items(session)
+        statement = sa.select(items.c.id)
+        order_by = (items.c.id.asc(),)
+        first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2),
+            order_by=order_by,
+        )
+        assert first.items == [1, 2]
+        assert first.next_cursor is not None
+        await session.execute(sa.delete(items).where(items.c.id > 2))
+
+        empty = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=first.next_cursor),
+            order_by=order_by,
+        )
+        assert empty.items == []
+        assert empty.next_cursor is None
+        assert empty.prev_cursor is not None
+
+        recovered = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=empty.prev_cursor),
+            order_by=order_by,
+        )
+        assert recovered.items == [1, 2]
+        assert recovered.next_cursor is None
+        assert recovered.prev_cursor is None
+
+    @pytest.mark.anyio
+    async def test_empty_backward_page_can_recover_the_adjacent_surviving_page(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        items = await _create_page_items(session)
+        statement = sa.select(items.c.id)
+        order_by = (items.c.id.asc(),)
+        first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2),
+            order_by=order_by,
+        )
+        second = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=first.next_cursor),
+            order_by=order_by,
+        )
+        third = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=second.next_cursor),
+            order_by=order_by,
+        )
+        assert third.items == [5, 6]
+        assert third.prev_cursor is not None
+        await session.execute(sa.delete(items).where(items.c.id < 5))
+
+        empty = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=third.prev_cursor),
+            order_by=order_by,
+        )
+        assert empty.items == []
+        assert empty.next_cursor is not None
+        assert empty.prev_cursor is None
+
+        recovered = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=empty.next_cursor),
+            order_by=order_by,
+        )
+        assert recovered.items == [5, 6]
+        assert recovered.next_cursor is None
+        assert recovered.prev_cursor is None
 
     @pytest.mark.anyio
     async def test_tampered_cursor_is_rejected(
