@@ -37,11 +37,11 @@ pytestmark = pytest.mark.usefixtures("db")
 def stub_case_duration_sync() -> Iterator[None]:
     with (
         patch(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             return_value=None,
         ),
         patch(
-            "tracecat.cases.service.publish_case_event_payload",
+            "tracecat.cases.events.publish_case_event_payload",
             new=AsyncMock(return_value=None),
         ),
     ):
@@ -110,7 +110,7 @@ class TestCaseEventsService:
             enqueue_calls.append(kwargs)
 
         monkeypatch.setattr(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             fake_enqueue,
         )
         event_data = StatusChangedEvent(
@@ -568,7 +568,7 @@ class TestCaseEventsService:
             enqueue_calls.append(kwargs)
 
         monkeypatch.setattr(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             fake_enqueue,
         )
 
@@ -618,7 +618,7 @@ class TestCaseEventsService:
         )
         await case_events_service.session.flush()
         monkeypatch.setattr(
-            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
             fake_enqueue,
         )
 

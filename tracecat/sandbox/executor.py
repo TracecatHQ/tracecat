@@ -18,18 +18,17 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
-from tracecat.sandbox.networking import (
-    pasta_dns_mount_config_lines,
-    pasta_user_net_config_lines,
-    write_pasta_network_files,
-)
+from tracecat.sandbox.networking import resolve_sandbox_network_plan
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
     SandboxResult,
 )
+from tracecat.sandbox.utils import communicate_process_group
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
 """Path visible inside run_python nsjail for executor-owned SDK calls."""
@@ -51,6 +50,7 @@ class ActionSandboxConfig:
         action_gateway_socket: Optional host-side action gateway Unix socket to bind
             into the sandbox for SDK calls.
         action_gateway_socket_mount_path: Socket path visible inside the sandbox.
+        network: Requested outbound capability. None disables networking.
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
     """
@@ -62,6 +62,9 @@ class ActionSandboxConfig:
     action_gateway_socket: Path | None = None
     action_gateway_socket_mount_path: Path = Path(
         "/var/run/tracecat/action-gateway.sock"
+    )
+    network: SandboxNetworkRequest | None = field(
+        default_factory=lambda: SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
     )
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
@@ -97,8 +100,8 @@ _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(r"/dev/net/tun|TUN|tun", re.IGNORECASE),
-        "Userspace networking (pasta) may require /dev/net/tun. Ensure the container/pod "
-        "has the TUN device available and passt/pasta is installed in the image.",
+        "NSTUN userspace networking requires /dev/net/tun. Ensure the container/pod "
+        "has the TUN device available.",
     ),
 ]
 
@@ -214,20 +217,29 @@ class NsjailExecutor:
         _validate_path(self.rootfs, "rootfs")
         for i, python_path_dir in enumerate(config.python_path_dirs):
             _validate_path(python_path_dir, f"python_path_dir_{i}")
+        for i, bind_mount in enumerate(config.bind_mounts):
+            _validate_path(bind_mount.source, f"bind_mount_source_{i}")
+            _validate_path(bind_mount.destination, f"bind_mount_destination_{i}")
+            if not bind_mount.destination.is_absolute():
+                raise SandboxValidationError(
+                    f"Sandbox bind mount destination must be absolute: "
+                    f"{bind_mount.destination}"
+                )
+            if not bind_mount.source.exists():
+                raise SandboxValidationError(
+                    f"Sandbox bind mount source does not exist: {bind_mount.source}"
+                )
         if cache_key:
             _validate_cache_key(cache_key)
         if config.action_gateway_socket is not None:
             _validate_path(config.action_gateway_socket, "action_gateway_socket")
 
-        # Determine if network should be enabled
-        # - Install phase: always enabled for package downloads
-        # - Execute phase: per config.network_enabled
-        network_enabled = phase == "install" or config.network_enabled
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
 
         # Network behavior:
-        # - always isolate network namespace for private loopback
-        # - network enabled: add pasta userspace networking for outbound access
-        # - network disabled: no route out of the isolated namespace
+        # - always isolate the network namespace and its private loopback
+        # - network enabled: NSTUN applies the trusted outbound policy
+        # - network disabled: no user_net backend and no route out
         lines = [
             'name: "python_sandbox"',
             "mode: ONCE",
@@ -243,8 +255,7 @@ class NsjailExecutor:
             "clone_newuts: true",
         ]
 
-        if network_enabled:
-            lines.extend(pasta_user_net_config_lines())
+        lines.extend(network_plan.user_net_lines)
 
         lines.extend(
             [
@@ -277,9 +288,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        if network_enabled:
-            network_files = write_pasta_network_files(job_dir)
-            lines.extend(pasta_dns_mount_config_lines(network_files))
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [
@@ -342,6 +351,13 @@ class NsjailExecutor:
                         "is_bind: true rw: false }",
                     ]
                 )
+
+        for bind_mount in config.bind_mounts:
+            lines.append(
+                f'mount {{ src: "{bind_mount.source}" '
+                f'dst: "{bind_mount.destination}" is_bind: true '
+                f"rw: {str(bind_mount.writable).lower()} }}"
+            )
 
         # Resource limits
         lines.extend(
@@ -466,20 +482,17 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             # Wait with timeout (add buffer for nsjail overhead)
             timeout = config.resources.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            # Kill the process if it times out
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Execution timed out after {config.resources.timeout_seconds}s"
             ) from e
@@ -565,9 +578,9 @@ class NsjailExecutor:
         Returns:
             SandboxResult with installation outcome.
         """
-        # Create config for installation (always with network)
+        # Package installation always uses the deployment-owned install policy.
         config = SandboxConfig(
-            network_enabled=True,
+            network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL),
             resources=ResourceLimits(
                 timeout_seconds=timeout_seconds,
                 memory_mb=2048,  # Same as execution
@@ -612,18 +625,16 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             timeout = timeout_seconds + 30  # Extra buffer for package downloads
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Package installation timed out after {timeout_seconds}s"
             ) from e
@@ -692,6 +703,8 @@ class NsjailExecutor:
                 "action_gateway_socket_mount_path",
             )
 
+        network_plan = resolve_sandbox_network_plan(job_dir, config.network)
+
         lines = [
             'name: "action_sandbox"',
             "mode: ONCE",
@@ -720,7 +733,7 @@ class NsjailExecutor:
             f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
         ]
 
-        lines.extend(pasta_user_net_config_lines())
+        lines.extend(network_plan.user_net_lines)
 
         # Optional mounts - only include if the directories exist in rootfs
         lib64_path = self.rootfs / "lib64"
@@ -735,8 +748,7 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        network_files = write_pasta_network_files(job_dir)
-        lines.extend(pasta_dns_mount_config_lines(network_files))
+        lines.extend(network_plan.dns_mount_lines)
 
         lines.extend(
             [
@@ -879,19 +891,17 @@ class NsjailExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            start_new_session=True,
         )
 
         try:
             # Wait with timeout (add buffer for nsjail overhead)
             timeout = config.timeout_seconds + 10
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+            stdout_bytes, stderr_bytes = await communicate_process_group(
+                process,
                 timeout=timeout,
             )
-
         except TimeoutError as e:
-            process.kill()
-            await process.wait()
             raise SandboxTimeoutError(
                 f"Action execution timed out after {config.timeout_seconds}s"
             ) from e

@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: List global security advisories
+  description: 'List global security advisories. Calls GET /advisories directly. Accepted OAuth scope: repo (default).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_global_security_advisories
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    params:
+      type: dict[str, Any] | None
+      description: API-native query parameters, including pagination and filters.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/advisories
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params: ${{ inputs.params }}
+  returns: ${{ steps.request.result }}

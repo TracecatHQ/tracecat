@@ -100,7 +100,12 @@ from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatAuthorizationError,
+    TracecatException,
+)
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
@@ -402,6 +407,32 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
+def authorization_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle TracecatAuthorizationError exceptions with a 403 Forbidden response.
+
+    Without this, authorization denials fall through to the generic
+    TracecatException handler, which returns 500.
+
+    The body is deliberately fixed. Subtypes such as TracecatRLSViolationError
+    carry internal state (table, operation, org/workspace IDs) on ``detail``,
+    and denial messages may embed identifiers, so nothing derived from the
+    exception is serialized here. Subtypes that need a structured body must
+    register their own handler with an explicitly chosen payload, as
+    ScopeDeniedError does.
+    """
+    logger.warning(
+        "Authorization denied",
+        path=request.url.path,
+        role=ctx_role.get(),
+        exception_type=type(exc).__name__,
+        detail=exc.detail if isinstance(exc, TracecatException) else None,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={"detail": "Forbidden"},
+    )
+
+
 def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
 
@@ -656,6 +687,11 @@ def create_app(**kwargs) -> FastAPI:
         fastapi_users_auth_exception_handler,
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    # Registered before ScopeDeniedError for readability only; Starlette dispatches
+    # on the exception MRO, so the subclass handler still wins.
+    app.add_exception_handler(
+        TracecatAuthorizationError, authorization_exception_handler
+    )
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
 

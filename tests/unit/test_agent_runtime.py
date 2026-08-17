@@ -50,6 +50,9 @@ from tracecat.agent.runtime.claude_code.runtime import (
     ClaudeAgentRuntime,
     _claude_project_dir_name,
 )
+from tracecat.agent.runtime.claude_code.session_lines import (
+    MODEL_CONTEXT_PROMPT_PREFIX,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 
@@ -906,7 +909,17 @@ class TestClaudeAgentRuntimeRun:
                             "name": "local-tools",
                             "command": "npx",
                             "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-                            "env": {"ROOT": "/tmp"},
+                            "env": {
+                                "ROOT": "/tmp",
+                                "UV_CACHE_DIR": "/work/.uv-cache",
+                                "UV_CREDENTIALS_DIR": "/home/agent/.local/uv-auth",
+                                "UV_LINK_MODE": "symlink",
+                                "UV_PYTHON_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_PYTHON_CACHE_DIR": "/home/agent/.cache/python",
+                                "UV_PYTHON_INSTALL_DIR": "/home/agent/.local/python",
+                                "UV_TOOL_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_TOOL_DIR": "/home/agent/.local/tools",
+                            },
                             "timeout": 15,
                         }
                     ]
@@ -947,6 +960,67 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__local-tools__*",
+        }
+        assert options.setting_sources == ["user"]
+
+    @pytest.mark.anyio
+    async def test_root_agent_strips_protected_uvx_options_from_legacy_config(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "legacy-tools",
+                            "command": "uvx",
+                            "args": [
+                                "--from",
+                                "example-distribution",
+                                "--cache-dir=/work/uv-cache",
+                                "--link-mode",
+                                "symlink",
+                                "example-mcp",
+                                "--cache-dir",
+                                "/work/server-cache",
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=_mock_client_ctor,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].mcp_servers["legacy-tools"] == {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "example-distribution",
+                "example-mcp",
+                "--cache-dir",
+                "/work/server-cache",
+            ],
         }
 
     @pytest.mark.anyio
@@ -2786,6 +2860,24 @@ class TestClaudeAgentRuntimeInternalSessionLines:
                         "text": "<command-name>/compact</command-name>",
                     }
                 ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is True
+
+    def test_hides_model_context_prompt(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Integration context remains model-visible without becoming a bubble."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        line_data = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": (f"{MODEL_CONTEXT_PROMPT_PREFIX}private routing context"),
             },
         }
 

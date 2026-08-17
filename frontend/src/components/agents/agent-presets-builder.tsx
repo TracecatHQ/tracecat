@@ -9,21 +9,17 @@ import {
   Brackets,
   Check,
   ChevronsUpDown,
-  CopyPlus,
   Globe,
   Hash,
-  History,
   List,
   ListOrdered,
   ListTodo,
   Loader2,
   type LucideIcon,
   MessageCircle,
-  MoreVertical,
   Percent,
   Plus,
   Pyramid,
-  Save,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -64,12 +60,14 @@ import type {
   MCPIntegrationRead,
   SkillReadMinimal,
 } from "@/client"
-import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
+import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
-import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
-import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
+import {
+  ChatHistoryDropdown,
+  type ChatHistoryScope,
+} from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
@@ -87,13 +85,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Empty,
   EmptyDescription,
@@ -138,7 +129,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,
@@ -146,9 +136,9 @@ import {
   useAgentPresetVersions,
   useAgentPresetVersionsByPresetIds,
   useCreateAgentPreset,
-  useDeleteAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
+import { useAuth } from "@/hooks/use-auth"
 import {
   useCreateChat,
   useGetChatVercel,
@@ -159,9 +149,9 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useSkills } from "@/hooks/use-skills"
 import {
+  AGENT_PRESET_PUBLISHING_FIELDS,
   type AgentPresetFormMode,
   buildAgentPresetUpdatePayload,
-  buildDuplicateAgentPresetPayload,
   buildSkillCommandItemValue,
 } from "@/lib/agent-presets"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
@@ -175,6 +165,10 @@ import {
 } from "@/lib/hooks"
 import { registryActionToSuggestion } from "@/lib/registry"
 import { cn, slugify } from "@/lib/utils"
+import {
+  type AgentPresetDetailActionsState,
+  useAgentPresetDetailContext,
+} from "@/providers/agent-preset-detail"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const DATA_TYPE_OUTPUT_TYPES = [
@@ -478,8 +472,6 @@ export function AgentPresetsBuilder({
     useCreateAgentPreset(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
-  const { deleteAgentPreset, deleteAgentPresetIsPending } =
-    useDeleteAgentPreset(workspaceId)
 
   const handleSetSelectedPresetId = useCallback(
     (nextId: string) => {
@@ -612,7 +604,6 @@ export function AgentPresetsBuilder({
             ? updateAgentPresetIsPending
             : createAgentPresetIsPending
         }
-        isDeleting={deleteAgentPresetIsPending}
         onCreate={async (payload) => {
           const created = await createAgentPreset(payload)
           handleSetSelectedPresetId(created.id)
@@ -626,44 +617,6 @@ export function AgentPresetsBuilder({
           handleSetSelectedPresetId(updated.id)
           return updated
         }}
-        onDuplicate={
-          selectedPreset
-            ? async () => {
-                const existingSlugs =
-                  presets
-                    ?.map((preset) => preset.slug)
-                    .filter(
-                      (slug): slug is string => typeof slug === "string"
-                    ) ?? []
-                const created = await createAgentPreset(
-                  buildDuplicateAgentPresetPayload(
-                    selectedPreset,
-                    existingSlugs
-                  )
-                )
-                handleSetSelectedPresetId(created.id)
-              }
-            : undefined
-        }
-        onDelete={
-          selectedPreset
-            ? async () => {
-                await deleteAgentPreset({
-                  presetId: selectedPreset.id,
-                  presetName: selectedPreset.name,
-                })
-                const remaining =
-                  presets?.filter(
-                    (preset) => preset.id !== selectedPreset.id
-                  ) ?? []
-                if (remaining.length > 0) {
-                  handleSetSelectedPresetId(remaining[0].id)
-                } else {
-                  router.replace(`/workspaces/${workspaceId}/agents`)
-                }
-              }
-            : undefined
-        }
         initialTab={queryTab ?? "live-chat"}
         onTabChange={handleTabChange}
       />
@@ -767,7 +720,6 @@ export function AgentPresetArtifactView({
         })
       }}
       isSaving={updateAgentPresetIsPending}
-      isDeleting={false}
       actionSuggestions={actionSuggestions}
       namespaceSuggestions={namespaceSuggestions}
       enabledModelOptions={enabledModelOptions}
@@ -792,13 +744,16 @@ function AgentPresetChatPane({
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
 }) {
+  const { user } = useAuth()
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
       entityType: "agent_preset",
       entityId: preset?.id,
+      createdBy: historyScope === "mine" ? user?.id : undefined,
     },
     { enabled: Boolean(preset && workspaceId) }
   )
@@ -807,8 +762,14 @@ function AgentPresetChatPane({
     setSelectedChatId(null)
   }, [preset?.id])
 
-  const latestChatId = chats?.[0]?.id
+  const latestChatId =
+    chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   const activeChatId = selectedChatId ?? latestChatId
+
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    setSelectedChatId(null)
+  }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
@@ -893,7 +854,7 @@ function AgentPresetChatPane({
   }
 
   const handlePresetVersionChange = async (nextVersionId: string | null) => {
-    if (!activeChatId) {
+    if (!activeChatId || chat?.is_readonly) {
       return
     }
 
@@ -944,7 +905,12 @@ function AgentPresetChatPane({
       )
     }
 
-    if (enabledModelsLoaded && !selectedModel && !hasLegacyModelConfig) {
+    if (
+      enabledModelsLoaded &&
+      !selectedModel &&
+      !hasLegacyModelConfig &&
+      !chat?.is_readonly
+    ) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
@@ -973,7 +939,13 @@ function AgentPresetChatPane({
       )
     }
 
-    if (!activeChatId || chatLoading || chatsLoading || !chat || !modelInfo) {
+    if (
+      !activeChatId ||
+      chatLoading ||
+      chatsLoading ||
+      !chat ||
+      (!modelInfo && !chat.is_readonly)
+    ) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -1004,7 +976,7 @@ function AgentPresetChatPane({
         entityId={preset.id}
         className="flex-1 min-h-0"
         placeholder={`Talk to ${preset.name}...`}
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
       />
     )
@@ -1021,7 +993,7 @@ function AgentPresetChatPane({
             selectedVersionId={chat?.agent_preset_version_id ?? null}
             currentVersionId={preset.current_version_id ?? null}
             onSelect={handlePresetVersionChange}
-            disabled={!activeChatId || !chat || isUpdating}
+            disabled={!activeChatId || !chat || chat.is_readonly || isUpdating}
             triggerClassName="h-8 w-[10.5rem] text-xs"
           />
           <div className="flex items-center gap-1">
@@ -1031,6 +1003,9 @@ function AgentPresetChatPane({
               error={chatsError}
               selectedChatId={activeChatId ?? undefined}
               onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
               align="end"
             />
             <Button
@@ -1115,7 +1090,6 @@ type AgentPresetSideTab =
   | "skills"
   | "channels"
   | "structured-output"
-  | "versions"
 
 const AGENT_PRESET_SIDE_TABS = new Set<AgentPresetSideTab>([
   "live-chat",
@@ -1125,7 +1099,6 @@ const AGENT_PRESET_SIDE_TABS = new Set<AgentPresetSideTab>([
   "skills",
   "channels",
   "structured-output",
-  "versions",
 ])
 
 function parseAgentPresetSideTab(
@@ -1178,6 +1151,92 @@ function getAgentPresetErrorTab(
     return "live-chat"
   }
   return null
+}
+
+/**
+ * Maps every form field onto the backend preset field it writes through
+ * `formValuesToPayload`. `null` marks fields that only exist in the form.
+ * Used to decide whether an edit will cut a new version.
+ */
+const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
+  keyof AgentPresetFormValues,
+  string | null
+> = {
+  name: "name",
+  slug: "slug",
+  description: "description",
+  instructions: "instructions",
+  source_id: null,
+  catalog_id: "catalog_id",
+  model_provider: "model_provider",
+  model_name: "model_name",
+  base_url: "base_url",
+  outputTypeKind: "output_type",
+  outputTypeDataType: "output_type",
+  outputTypeJson: "output_type",
+  actions: "actions",
+  namespaces: "namespaces",
+  mcpIntegrations: "mcp_integrations",
+  agentsEnabled: "agents",
+  subagents: "agents",
+  skills: "skills",
+  toolApprovals: "tool_approvals",
+  retries: "retries",
+  enableThinking: "enable_thinking",
+  enableInternetAccess: "enable_internet_access",
+}
+
+/**
+ * Skill bindings are versioned outside `EXECUTION_FIELDS` but still cut a new
+ * version, so they count as publishing changes for labelling purposes.
+ */
+const AGENT_PRESET_PUBLISHING_BACKEND_FIELDS: ReadonlySet<string> = new Set([
+  ...AGENT_PRESET_PUBLISHING_FIELDS,
+  "skills",
+])
+
+function isDirtyFormValue(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(isDirtyFormValue)
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).some(isDirtyFormValue)
+  }
+  return value === true
+}
+
+/**
+ * Labels the primary submit button. The backend only cuts a new version when a
+ * publishing field changes, so a metadata-only edit is just a save.
+ */
+function getAgentPresetSubmitLabel({
+  mode,
+  dirtyFields,
+}: {
+  mode: AgentPresetFormMode
+  dirtyFields: Partial<Record<keyof AgentPresetFormValues, unknown>>
+}): string {
+  if (mode === "create") {
+    return "Publish version"
+  }
+
+  for (const [field, value] of Object.entries(dirtyFields)) {
+    if (!isDirtyFormValue(value)) {
+      continue
+    }
+    const backendField =
+      AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD[
+        field as keyof AgentPresetFormValues
+      ]
+    if (
+      backendField &&
+      AGENT_PRESET_PUBLISHING_BACKEND_FIELDS.has(backendField)
+    ) {
+      return "Publish version"
+    }
+  }
+
+  return "Save changes"
 }
 
 type McpIntegrationOption = {
@@ -1386,10 +1445,7 @@ type AgentPresetFormProps = {
     presetId: string,
     payload: AgentPresetUpdate
   ) => Promise<AgentPresetRead>
-  onDuplicate?: () => Promise<void>
-  onDelete?: () => Promise<void>
   isSaving: boolean
-  isDeleting: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
   enabledModelOptions: EnabledModelOption[]
@@ -1409,10 +1465,7 @@ function AgentPresetForm({
   builderPrompt,
   onCreate,
   onUpdate,
-  onDuplicate,
-  onDelete,
   isSaving,
-  isDeleting,
   actionSuggestions,
   namespaceSuggestions,
   enabledModelOptions,
@@ -1423,9 +1476,6 @@ function AgentPresetForm({
   initialTab = "live-chat",
   onTabChange,
 }: AgentPresetFormProps) {
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [isDuplicating, setIsDuplicating] = useState(false)
-  const isDuplicatingRef = useRef(false)
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>(initialTab)
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
@@ -1484,18 +1534,6 @@ function AgentPresetForm({
     },
     [onTabChange]
   )
-
-  const handleConfirmDelete = async () => {
-    if (!onDelete) {
-      return
-    }
-    try {
-      await onDelete()
-      setDeleteDialogOpen(false)
-    } catch (error) {
-      console.error("Failed to delete agent preset", error)
-    }
-  }
 
   const {
     fields: skillFields,
@@ -1666,37 +1704,93 @@ function AgentPresetForm({
         Boolean(form.watch("model_provider")) &&
         Boolean(form.watch("model_name"))))
 
-  const handleDeleteDialogChange = useCallback(
-    (nextOpen: boolean) => {
-      if (isDeleting) {
-        return
-      }
-      setDeleteDialogOpen(nextOpen)
-    },
-    [isDeleting]
+  const getDraftPayload = useCallback((): AgentPresetCreate | null => {
+    try {
+      return formValuesToPayload(
+        form.getValues(),
+        {
+          presetsBySlug: agentPresetsBySlug,
+          versionsByPresetId: subagentVersionsByPresetId,
+        },
+        { forceInternetAccess: hasStdioMcp }
+      )
+    } catch {
+      // `formValuesToPayload` runs `JSON.parse` on the structured-output
+      // schema, which legitimately throws while the user is mid-edit.
+      return null
+    }
+  }, [agentPresetsBySlug, form, hasStdioMcp, subagentVersionsByPresetId])
+
+  // Wording only: the backend cuts a version only when a publishing field
+  // changes, so a metadata-only edit reads as "Save changes". RHF marks array
+  // fields such as `subagents` dirty even after an edit-then-undo, which can
+  // over-report publishing here. It never gates the mutation.
+  const submitLabel = getAgentPresetSubmitLabel({
+    mode,
+    dirtyFields: form.formState.dirtyFields,
+  })
+
+  // Everything registered below must have a stable identity, because the
+  // registration effect writes to provider state and this component consumes
+  // that provider: an unstable dependency re-fires the effect on every render
+  // and loops forever. Two callbacks here are unstable by nature —
+  // `form.handleSubmit(...)` returns a new function each render, and
+  // `getDraftPayload` closes over `subagentVersionsByPresetId`, a fresh Map on
+  // every render because `useQueries` returns a new `results` array. Route
+  // both through refs so the registered object only changes when the values
+  // the header actually renders change.
+  const handleSubmitRef = useRef(handleSubmit)
+  const getDraftPayloadRef = useRef(getDraftPayload)
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit
+    getDraftPayloadRef.current = getDraftPayload
+  })
+  const submit = useCallback(() => {
+    void handleSubmitRef.current()
+  }, [])
+  const getDraftPayloadStable = useCallback(
+    (): AgentPresetCreate | null => getDraftPayloadRef.current(),
+    []
   )
 
-  const handleDuplicate = useCallback(async () => {
-    if (!onDuplicate || isDuplicatingRef.current) {
+  const detail = useAgentPresetDetailContext()
+  const registerDetailActions = detail?.registerActions
+  const presetIdValue = preset?.id ?? null
+  const presetCurrentVersionId = preset?.current_version_id ?? null
+  const detailActions = useMemo<AgentPresetDetailActionsState>(
+    () => ({
+      workspaceId,
+      presetId: presetIdValue,
+      currentVersionId: presetCurrentVersionId,
+      getDraftPayload: getDraftPayloadStable,
+      isSaving,
+      canSubmit,
+      submitLabel,
+      submit,
+    }),
+    [
+      canSubmit,
+      getDraftPayloadStable,
+      isSaving,
+      presetCurrentVersionId,
+      presetIdValue,
+      submit,
+      submitLabel,
+      workspaceId,
+    ]
+  )
+
+  // When `AgentPresetDetailProvider` is mounted (the standalone preset
+  // route), register the actions so the global controls header renders
+  // them; without a provider (case artifact view) the document panel
+  // renders them inline instead.
+  useEffect(() => {
+    if (!registerDetailActions) {
       return
     }
-
-    isDuplicatingRef.current = true
-    setIsDuplicating(true)
-    try {
-      await onDuplicate()
-    } catch (error) {
-      console.error("Failed to duplicate agent preset", error)
-      toast({
-        title: "Duplicate failed",
-        description: "Could not duplicate agent. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      isDuplicatingRef.current = false
-      setIsDuplicating(false)
-    }
-  }, [onDuplicate])
+    registerDetailActions(detailActions)
+    return () => registerDetailActions(null)
+  }, [detailActions, registerDetailActions])
 
   const handleAddToolApproval = useCallback(() => {
     appendToolApproval({
@@ -1727,17 +1821,14 @@ function AgentPresetForm({
   const documentPanel = (
     <AgentPresetDocumentPanel
       form={form}
-      mode={mode}
+      workspaceId={workspaceId}
+      presetId={preset?.id ?? null}
+      currentVersionId={preset?.current_version_id ?? null}
+      getDraftPayload={getDraftPayload}
       isSaving={isSaving}
-      isDeleting={isDeleting}
       canSubmit={canSubmit}
-      presetName={preset?.name ?? ""}
-      onDuplicate={onDuplicate ? handleDuplicate : undefined}
-      isDuplicating={isDuplicating}
-      onDelete={onDelete}
-      deleteDialogOpen={deleteDialogOpen}
-      onDeleteDialogChange={handleDeleteDialogChange}
-      onConfirmDelete={handleConfirmDelete}
+      submitLabel={submitLabel}
+      onPublish={submit}
     />
   )
 
@@ -1825,31 +1916,29 @@ function AgentPresetForm({
 
 function AgentPresetDocumentPanel({
   form,
-  mode,
+  workspaceId,
+  presetId,
+  currentVersionId,
+  getDraftPayload,
   isSaving,
-  isDeleting,
   canSubmit,
-  presetName,
-  onDuplicate,
-  isDuplicating,
-  onDelete,
-  deleteDialogOpen,
-  onDeleteDialogChange,
-  onConfirmDelete,
+  submitLabel,
+  onPublish,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
-  mode: AgentPresetFormMode
+  workspaceId: string
+  presetId: string | null
+  currentVersionId: string | null
+  getDraftPayload: () => AgentPresetCreate | null
   isSaving: boolean
-  isDeleting: boolean
   canSubmit: boolean
-  presetName: string
-  onDuplicate?: () => Promise<void>
-  isDuplicating: boolean
-  onDelete?: () => Promise<void>
-  deleteDialogOpen: boolean
-  onDeleteDialogChange: (nextOpen: boolean) => void
-  onConfirmDelete: () => Promise<void>
+  submitLabel: string
+  onPublish: () => void
 }) {
+  // Context present -> the standalone route's global controls header renders
+  // the detail actions; context absent (case artifact view) -> render them
+  // inline next to the title.
+  const detail = useAgentPresetDetailContext()
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-0 px-10 py-10">
@@ -1904,74 +1993,20 @@ function AgentPresetDocumentPanel({
               )}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              variant="ghost"
-              size="icon"
-              disabled={isSaving || !canSubmit}
-              className={cn(
-                "h-8 w-8 p-1.5 hover:bg-primary hover:text-primary-foreground",
-                canSubmit && !isSaving && "bg-primary text-primary-foreground"
-              )}
-              aria-label="Save agent preset"
-            >
-              {isSaving ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Save className="size-4" />
-              )}
-            </Button>
-            {mode === "edit" && onDelete ? (
-              <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      disabled={isDeleting || isSaving}
-                      className="h-8 w-8 p-1.5"
-                      aria-label="Open agent actions menu"
-                    >
-                      <MoreVertical className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {onDuplicate ? (
-                      <DropdownMenuItem
-                        disabled={isDuplicating}
-                        onSelect={() => {
-                          void onDuplicate()
-                        }}
-                      >
-                        <CopyPlus className="mr-2 size-4" />
-                        {isDuplicating ? "Duplicating..." : "Duplicate agent"}
-                      </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={(event) => {
-                        event.preventDefault()
-                        onDeleteDialogChange(true)
-                      }}
-                    >
-                      <Trash2 className="mr-2 size-4" />
-                      Delete agent
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <AgentPresetDeleteDialog
-                  open={deleteDialogOpen}
-                  onOpenChange={onDeleteDialogChange}
-                  presetName={presetName}
-                  isDeleting={isDeleting}
-                  onConfirm={onConfirmDelete}
-                />
-              </>
-            ) : null}
-          </div>
+          {detail ? null : (
+            <div className="flex items-center gap-2">
+              <AgentPresetDetailActions
+                workspaceId={workspaceId}
+                presetId={presetId}
+                currentVersionId={currentVersionId}
+                getDraftPayload={getDraftPayload}
+                isSaving={isSaving}
+                canSubmit={canSubmit}
+                submitLabel={submitLabel}
+                onPublish={onPublish}
+              />
+            </div>
+          )}
         </div>
         <Separator className="my-5" />
         <section className="space-y-4">
@@ -2109,13 +2144,6 @@ function AgentPresetRightPanel({
                 <Box className="mr-2 size-4" />
                 <span>Output</span>
               </TabsTrigger>
-              <TabsTrigger
-                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                value="versions"
-              >
-                <History className="mr-2 size-4" />
-                <span>Versions</span>
-              </TabsTrigger>
               {channelsEnabled ? (
                 <TabsTrigger
                   className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -2194,13 +2222,6 @@ function AgentPresetRightPanel({
             <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
           </TabsContent>
 
-          <TabsContent value="versions" className="mt-0 h-full">
-            <AgentPresetVersionsPanel
-              workspaceId={workspaceId}
-              preset={preset}
-            />
-          </TabsContent>
-
           {channelsEnabled ? (
             <TabsContent value="channels" className="mt-0 h-full">
               <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
@@ -2246,6 +2267,7 @@ function AgentPresetConfigurationPanel({
   const baseUrl = form.watch("base_url")
   const thinkingEnabled = form.watch("enableThinking")
   const internetAccessEnabled = form.watch("enableInternetAccess")
+  const agentsEnabled = form.watch("agentsEnabled")
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
@@ -2529,6 +2551,32 @@ function AgentPresetConfigurationPanel({
                 />
               )}
             </div>
+            <div className="border-t" />
+            <div className="flex items-start justify-between gap-4 px-4 py-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="enable-subagents"
+                  className="text-sm font-medium leading-none"
+                >
+                  Agent tool
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Allows the agent to call subagents. Must be enabled for
+                  configured subagents to be callable.
+                </p>
+              </div>
+              <Switch
+                id="enable-subagents"
+                checked={agentsEnabled}
+                onCheckedChange={(checked) =>
+                  form.setValue("agentsEnabled", checked, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                disabled={isSaving}
+              />
+            </div>
           </div>
         </section>
 
@@ -2774,63 +2822,50 @@ function AgentPresetSubagentsPanel({
     selectedInternetAccessSubagentAliases,
   })
 
+  let addPresetDisabledReason: string | null = null
+  if (!agentsEnabled) {
+    addPresetDisabledReason =
+      "Turn on the Agent tool in the Tools tab to attach preset subagents."
+  } else if (presetOptions.length === 0) {
+    addPresetDisabledReason =
+      "Create another agent preset first, then attach it here."
+  }
+
+  const addPresetButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={onAddSubagent}
+      disabled={isSaving || !agentsEnabled || presetOptions.length === 0}
+    >
+      <Plus className="mr-2 size-4" />
+      Add preset
+    </Button>
+  )
+
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        <section className="space-y-4">
-          <div className="overflow-hidden rounded-lg border">
-            <div className="flex items-start justify-between gap-4 px-4 py-3">
-              <div className="space-y-1">
-                <label
-                  htmlFor="enable-subagents"
-                  className="text-sm font-medium leading-none"
-                >
-                  Agent tool
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Adds Claude's Agent tool. Dynamic subagents are enabled by
-                  default and inherit this agent's tools, MCP integrations,
-                  approvals, and sandbox policy.
-                </p>
-              </div>
-              <Switch
-                id="enable-subagents"
-                checked={agentsEnabled}
-                onCheckedChange={(checked) =>
-                  form.setValue("agentsEnabled", checked, {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  })
-                }
-                disabled={isSaving}
-              />
-            </div>
-          </div>
-        </section>
-
-        <Separator />
-
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-1">
               <p className="text-sm font-medium">Preset subagents</p>
               <p className="text-xs text-muted-foreground">
-                Attach named preset agents that the parent can invoke with
-                explicit descriptions and turn limits.
+                Attach other presets this agent can call by name, each with its
+                own description and turn limit.
               </p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onAddSubagent}
-              disabled={
-                isSaving || !agentsEnabled || presetOptions.length === 0
-              }
-            >
-              <Plus className="mr-2 size-4" />
-              Add preset
-            </Button>
+            {addPresetDisabledReason ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">{addPresetButton}</span>
+                </TooltipTrigger>
+                <TooltipContent>{addPresetDisabledReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              addPresetButton
+            )}
           </div>
 
           {internetAccessWarningMessage ? (
@@ -2845,8 +2880,7 @@ function AgentPresetSubagentsPanel({
 
           {!agentsEnabled ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              Enable the Agent tool to allow dynamic subagents or attach preset
-              subagents.
+              Turn on the Agent tool in the Tools tab to use subagents.
             </p>
           ) : presetOptions.length === 0 ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
@@ -3534,8 +3568,10 @@ function AgentPresetBuilderChatPane({
   workspaceId: string
   builderPrompt?: string
 }) {
+  const { user } = useAuth()
   const presetId = preset?.id
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
   const [pendingBuilderPrompt, setPendingBuilderPrompt] = useState<
     string | undefined
   >(builderPrompt?.trim() ? builderPrompt.trim() : undefined)
@@ -3552,6 +3588,7 @@ function AgentPresetBuilderChatPane({
       workspaceId,
       entityType: "agent_preset_builder",
       entityId: presetId ?? undefined,
+      createdBy: historyScope === "mine" ? user?.id : undefined,
     },
     { enabled: Boolean(presetId && workspaceId) }
   )
@@ -3566,8 +3603,14 @@ function AgentPresetBuilderChatPane({
     )
   }, [builderPrompt, presetId])
 
-  const latestChatId = chats?.[0]?.id
+  const latestChatId =
+    chats?.find((candidate) => !candidate.is_readonly)?.id ?? chats?.[0]?.id
   const activeChatId = selectedChatId ?? latestChatId
+
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    setSelectedChatId(null)
+  }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
@@ -3632,7 +3675,7 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (!chatReady || !modelInfo) {
+    if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
           <AlertCircle className="size-5 text-amber-500" />
@@ -3687,7 +3730,12 @@ function AgentPresetBuilderChatPane({
       )
     }
 
-    if (chatLoading || chatsLoading || !chat || !modelInfo) {
+    if (
+      chatLoading ||
+      chatsLoading ||
+      !chat ||
+      (!modelInfo && !chat.is_readonly)
+    ) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -3718,7 +3766,7 @@ function AgentPresetBuilderChatPane({
         entityId={presetId}
         className="flex-1 min-h-0"
         placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
         pendingMessage={pendingBuilderPrompt}
         onPendingMessageSent={() => setPendingBuilderPrompt(undefined)}
@@ -3737,6 +3785,9 @@ function AgentPresetBuilderChatPane({
               error={chatsError}
               selectedChatId={activeChatId ?? undefined}
               onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
               align="end"
             />
             <Button

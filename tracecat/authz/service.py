@@ -2,22 +2,176 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from uuid import UUID
 
-from sqlalchemy import and_, delete, func, literal, select
+from sqlalchemy import and_, delete, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
+from tracecat.db.engine import SupportsExecute
+from tracecat.db.models import (
+    GroupMember,
+    GroupRoleAssignment,
+    Membership,
+    RoleScope,
+    Scope,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
 )
+
+
+async def query_effective_scopes(
+    session: SupportsExecute,
+    user_id: UserID,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID | None,
+) -> frozenset[str]:
+    """Read a user's effective scopes from live database state.
+
+    Uncached. Use for authorization decisions that must not act on a stale
+    snapshot, such as scope-ceiling checks on role grants.
+    """
+    user_workspace_condition = (
+        or_(
+            UserRoleAssignment.workspace_id.is_(None),
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+        if workspace_id is not None
+        else UserRoleAssignment.workspace_id.is_(None)
+    )
+
+    group_workspace_condition = (
+        or_(
+            GroupRoleAssignment.workspace_id.is_(None),
+            GroupRoleAssignment.workspace_id == workspace_id,
+        )
+        if workspace_id is not None
+        else GroupRoleAssignment.workspace_id.is_(None)
+    )
+    # Direct user role assignments → Role → RoleScope → Scope
+    user_scopes = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            user_workspace_condition,
+        )
+    )
+
+    # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
+    group_scopes = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
+        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+        .where(
+            GroupMember.user_id == user_id,
+            GroupRoleAssignment.organization_id == organization_id,
+            group_workspace_condition,
+        )
+    )
+
+    # Single atomic query: union both assignment paths
+    combined = user_scopes.union(group_scopes)
+    result = await session.execute(combined)
+    return frozenset(result.scalars().all())
+
+
+async def resolve_granter_scopes(
+    session: AsyncSession, granter: Role
+) -> frozenset[str]:
+    """Read the granter's scopes from live state for a grant decision.
+
+    ``Role.scopes`` is a per-request snapshot backed by a TTL cache, so a
+    just-demoted user can still carry privileged scopes there. Grant ceilings
+    must not be decided from that snapshot.
+    """
+    if granter.user_id is None or granter.organization_id is None:
+        return granter.scopes or frozenset()
+    return await query_effective_scopes(
+        session, granter.user_id, granter.organization_id, granter.workspace_id
+    )
+
+
+async def resolve_grantable_role(
+    session: AsyncSession,
+    granter: Role,
+    organization_id: OrganizationID,
+    role_id: UUID,
+) -> DBRole:
+    """Resolve a role for a durable grant, enforcing the scope ceiling.
+
+    The single entry point for role grants. Validates existence and
+    organization ownership, loads the role's scopes, and rejects grants
+    exceeding the granter's own scopes.
+
+    Raises:
+        TracecatNotFoundError: If the role is missing or owned by another org.
+        TracecatAuthorizationError: If the role carries scopes the granter lacks.
+    """
+    return await _resolve_grantable(
+        session, granter, organization_id, DBRole.id == role_id, "Role not found"
+    )
+
+
+async def resolve_grantable_role_by_slug(
+    session: AsyncSession,
+    granter: Role,
+    organization_id: OrganizationID,
+    slug: str,
+) -> DBRole:
+    """Resolve a preset role by slug for a durable grant, enforcing the ceiling."""
+    return await _resolve_grantable(
+        session,
+        granter,
+        organization_id,
+        DBRole.slug == slug,
+        f"Role not found: {slug}",
+    )
+
+
+async def _resolve_grantable(
+    session: AsyncSession,
+    granter: Role,
+    organization_id: OrganizationID,
+    selector: ColumnElement[bool],
+    not_found_message: str,
+) -> DBRole:
+    """Load a role with its scopes in one query, then apply the ceiling."""
+    stmt = (
+        select(DBRole)
+        .where(DBRole.organization_id == organization_id, selector)
+        .options(selectinload(DBRole.scopes))
+    )
+    role = (await session.execute(stmt)).scalar_one_or_none()
+    if role is None:
+        raise TracecatNotFoundError(not_found_message)
+
+    if not granter.is_platform_superuser:
+        granter_scopes = await resolve_granter_scopes(session, granter)
+        ensure_can_grant_scopes(granter_scopes, [scope.name for scope in role.scopes])
+    return role
 
 
 @dataclass
@@ -139,22 +293,24 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        # Resolve workspace org + default role in one DB read.
-        org_role_stmt = (
-            select(Workspace.organization_id, DBRole.id)
-            .join(
-                DBRole,
-                and_(
-                    DBRole.organization_id == Workspace.organization_id,
-                    DBRole.slug == "workspace-editor",
-                ),
-            )
-            .where(Workspace.id == workspace_id)
-        )
-        org_role_row = (await self.session.execute(org_role_stmt)).first()
-        if org_role_row is None:
+        org_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        organization_id = (await self.session.execute(org_stmt)).scalar_one_or_none()
+        if organization_id is None:
             raise TracecatValidationError("Workspace or default role not found")
-        organization_id, role_id = org_role_row
+
+        # Membership grants the editor role, so it is a role grant: apply the
+        # same scope ceiling as invitations rather than assigning unconditionally.
+        if self.role is None:
+            raise TracecatAuthorizationError(
+                "Operator context is required to grant workspace membership"
+            )
+        try:
+            granted_role = await resolve_grantable_role_by_slug(
+                self.session, self.role, organization_id, "workspace-editor"
+            )
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError("Workspace or default role not found") from e
+        role_id = granted_role.id
 
         # Heal stale direct assignments left behind by prior failed remove flows.
         await self.session.execute(

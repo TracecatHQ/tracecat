@@ -1003,6 +1003,20 @@ class MCPIntegrationTestConnectionResponse(BaseModel):
     error: str | None = None
 
 
+class MCPCatalogConnectRequest(BaseModel):
+    """Request for one-click connecting a platform MCP catalog entry.
+
+    Carries no connection fields, so the recipe cannot be inferred from the
+    payload; the caller names the connection option it offered.
+    """
+
+    connection_option_id: str | None = Field(
+        default=None,
+        max_length=80,
+        description="Platform MCP catalog connection option to connect",
+    )
+
+
 class MCPCatalogConnectResponse(BaseModel):
     """Response for connecting a platform MCP catalog entry."""
 

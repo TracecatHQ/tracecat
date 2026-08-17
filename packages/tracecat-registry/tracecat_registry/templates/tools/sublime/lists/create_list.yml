@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Create list
+  description: Create a Sublime list.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/createlist-1
+  namespace: tools.sublime
+  name: create_list
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native JSON request body.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/lists
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

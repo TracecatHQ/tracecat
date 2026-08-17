@@ -65,6 +65,25 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         if await self.session.scalar(stmt) is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
 
+    async def _require_published_workflow(
+        self, workflow_id: AnyWorkflowID | uuid.UUID
+    ) -> None:
+        """Validate the external create precondition inside the audit boundary."""
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = select(Workflow).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        workflow = await self.session.scalar(stmt)
+        if workflow is None:
+            raise TracecatNotFoundError(
+                "Workflow not found. Please check the workflow ID and try again."
+            )
+        if workflow.version is None:
+            raise TracecatNotFoundError(
+                "Workflow must be saved before creating a schedule."
+            )
+
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None
     ) -> list[Schedule]:
@@ -117,6 +136,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error creating the schedule.
 
         """
+        if commit:
+            await self._require_published_workflow(params.workflow_id)
         return await self._create_schedule_impl(params, commit=commit)
 
     async def _create_schedule_impl(

@@ -12,7 +12,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.alerts.API_TOKEN }}
 
   http-poll-job:
-    title: Poll until complete
+    title: Poll until terminal status
     language: yaml
     code: |
       - ref: wait_for_export
@@ -24,7 +24,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.exports.API_TOKEN }}
           poll_interval: 5
           poll_max_attempts: 24
-          poll_condition: "lambda response: response['data'].get('status') == 'completed'"
+          poll_condition: "lambda response: response['data'].get('status') in ['completed', 'failed', 'cancelled']"
 
   http-paginate-results:
     title: Follow next page links

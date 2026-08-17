@@ -36,6 +36,8 @@ from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
     SandboxResult,
 )
 from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
@@ -368,7 +370,7 @@ async def probe_stdio_mcp_tools_in_sandbox(
                 result = await sandbox.execute(
                     job_dir,
                     SandboxConfig(
-                        network_enabled=True,
+                        network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
                         resources=ResourceLimits(
                             memory_mb=1024,
                             cpu_seconds=hard_timeout_seconds,

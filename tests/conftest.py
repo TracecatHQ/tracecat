@@ -64,7 +64,6 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.backends import ExecutorBackend
@@ -129,21 +128,76 @@ def _install_case_number_allocator(conn: Any) -> None:
                     SET last_case_number = last_case_number + 1
                     WHERE id = NEW.workspace_id
                     RETURNING last_case_number INTO NEW.case_number;
-                ELSE
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while allocating case number',
+                            NEW.workspace_id;
+                    END IF;
+                ELSIF NEW.case_number > 0 THEN
                     UPDATE workspace
-                    SET last_case_number = GREATEST(last_case_number, NEW.case_number)
-                    WHERE id = NEW.workspace_id;
-                END IF;
+                    SET last_case_number = NEW.case_number
+                    WHERE id = NEW.workspace_id
+                      AND last_case_number < NEW.case_number;
 
-                IF NOT FOUND THEN
-                    RAISE EXCEPTION
-                        'Workspace % not found while allocating case number',
-                        NEW.workspace_id;
+                    IF NOT FOUND THEN
+                        PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                        IF NOT FOUND THEN
+                            RAISE EXCEPTION
+                                'Workspace % not found while allocating case number',
+                                NEW.workspace_id;
+                        END IF;
+                    END IF;
+                ELSE
+                    PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while deferring case number allocation',
+                            NEW.workspace_id;
+                    END IF;
                 END IF;
 
                 RETURN NEW;
             END;
             $$;
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION require_assigned_workspace_case_number()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM "case"
+                    WHERE id = NEW.id
+                      AND case_number <= 0
+                ) THEN
+                    RAISE EXCEPTION 'Case number must be assigned before commit'
+                        USING ERRCODE = '23514';
+                END IF;
+
+                RETURN NULL;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text('DROP TRIGGER IF EXISTS trg_case_require_assigned_number ON "case"')
+    )
+    conn.execute(
+        text(
+            """
+            CREATE CONSTRAINT TRIGGER trg_case_require_assigned_number
+            AFTER INSERT OR UPDATE OF case_number ON "case"
+            DEFERRABLE INITIALLY DEFERRED
+            FOR EACH ROW
+            WHEN (NEW.case_number <= 0)
+            EXECUTE FUNCTION require_assigned_workspace_case_number()
             """
         )
     )
@@ -1517,9 +1571,7 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(
-        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
-    )
+    client = loop.run_until_complete(get_temporal_client())
     return client
 
 

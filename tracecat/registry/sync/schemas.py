@@ -43,6 +43,16 @@ class SyncResultError(BaseModel):
     error: str = Field(..., description="Error message from the subprocess.")
 
 
+class RegistryCloneResult(BaseModel):
+    """Validated output from the sandboxed Git clone phase."""
+
+    commit_sha: str = Field(
+        ...,
+        pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+        description="Fully resolved Git object ID for the checked-out commit.",
+    )
+
+
 # Type adapter for parsing the sync result (success or error)
 SyncResultAdapter: TypeAdapter[SyncResultSuccess | SyncResultError] = TypeAdapter(
     SyncResultSuccess | SyncResultError

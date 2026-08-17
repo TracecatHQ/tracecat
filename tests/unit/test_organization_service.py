@@ -16,6 +16,7 @@ from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, generate_managed_api_key
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     AccessToken,
     Group,
@@ -25,6 +26,8 @@ from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
@@ -100,7 +103,12 @@ async def user_in_org1(session: AsyncSession, org1: Organization) -> User:
 
 @pytest.fixture
 async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
-    """Create an admin user that belongs to org1."""
+    """Create an admin user that belongs to org1.
+
+    Backed by a real org-wide admin assignment so grant ceilings, which read
+    the caller's scopes from the database, see a genuine admin rather than an
+    empty scope set.
+    """
     user = User(
         id=uuid.uuid4(),
         email=f"admin-org1-{uuid.uuid4().hex[:8]}@example.com",
@@ -118,6 +126,29 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
         organization_id=org1.id,
     )
     session.add(membership)
+
+    await seed_system_scopes(session)
+    admin_db_role = DBRole(
+        id=uuid.uuid4(),
+        name="Org Admin",
+        slug=None,
+        organization_id=org1.id,
+    )
+    session.add(admin_db_role)
+    await session.flush()
+    scope_result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(ORG_ADMIN_SCOPES)))
+    )
+    for scope in scope_result.scalars().all():
+        session.add(RoleScope(role_id=admin_db_role.id, scope_id=scope.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=org1.id,
+            user_id=user.id,
+            workspace_id=None,
+            role_id=admin_db_role.id,
+        )
+    )
     await session.commit()
     return user
 
@@ -202,7 +233,12 @@ async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBRole:
 
 @pytest.fixture
 async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
-    """Create an RBAC 'organization-owner' role for org1."""
+    """Create an RBAC 'organization-owner' role for org1.
+
+    Carries the real owner scope set: the grant ceiling is enforced from
+    scopes, so an unscoped role would be vacuously grantable.
+    """
+    await seed_system_scopes(session)
     role = DBRole(
         id=uuid.uuid4(),
         name="Organization Owner",
@@ -211,6 +247,36 @@ async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
         organization_id=org1.id,
     )
     session.add(role)
+    await session.flush()
+    scope_result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(ORG_OWNER_SCOPES)))
+    )
+    for scope in scope_result.scalars().all():
+        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    await session.commit()
+    return role
+
+
+@pytest.fixture
+async def org1_privileged_custom_role(
+    session: AsyncSession, org1: Organization
+) -> DBRole:
+    """Create a slug-less custom role carrying an owner-only scope."""
+    await seed_system_scopes(session)
+    scope_result = await session.execute(
+        select(Scope).where(Scope.name == "org:owner:assign")
+    )
+    scope = scope_result.scalars().one()
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Privileged Custom Role",
+        slug=None,
+        description="Custom role with an owner-only scope",
+        organization_id=org1.id,
+    )
+    session.add(role)
+    await session.flush()
+    session.add(RoleScope(role_id=role.id, scope_id=scope.id))
     await session.commit()
     return role
 
@@ -1130,19 +1196,67 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_owner_role: DBRole,
     ):
-        """Test that org admins cannot create OWNER invitations."""
+        """Test that org admins cannot create OWNER invitations.
+
+        Enforced by the scope ceiling rather than a slug check: the owner role
+        carries org:owner:assign, which an admin does not hold.
+        """
         # Org admin (not superuser) should not be able to create OWNER invitations
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="Only organization owners can create owner invitations",
+            match="Cannot grant scopes not held by the caller",
         ):
             await service.create_invitation(
                 email="newowner@example.com",
                 role_id=org1_owner_role.id,
             )
+
+    @pytest.mark.anyio
+    async def test_create_invitation_rejects_unheld_scopes_via_custom_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_privileged_custom_role: DBRole,
+    ):
+        """Test the owner-slug check cannot be bypassed with a custom role.
+
+        A custom role has slug=None, so the slug check alone lets an admin
+        invite an alternate account holding org:owner:assign.
+        """
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_invitation(
+                email="escalated@example.com",
+                role_id=org1_privileged_custom_role.id,
+            )
+
+    @pytest.mark.anyio
+    async def test_superuser_can_create_invitation_with_privileged_custom_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_privileged_custom_role: DBRole,
+    ):
+        """Test the scope ceiling does not block platform superusers."""
+        role = create_superuser_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="newowner@example.com",
+            role_id=org1_privileged_custom_role.id,
+        )
+
+        assert invitation.role_id == org1_privileged_custom_role.id
 
     @pytest.mark.anyio
     async def test_superuser_can_create_owner_invitation(

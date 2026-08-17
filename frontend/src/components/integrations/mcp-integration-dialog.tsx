@@ -13,13 +13,7 @@ import {
 } from "lucide-react"
 import React, { useState } from "react"
 import { type Resolver, useFieldArray, useForm } from "react-hook-form"
-import {
-  integrationsGetIntegration,
-  mcpIntegrationsConnectPlatformMcpCatalog,
-  providersCreateCustomProvider,
-} from "@/client/services.gen"
 import type {
-  MCPCatalogConnectResponse,
   MCPConnectionSpec,
   MCPHttpIntegrationCreate,
   MCPIntegrationRead,
@@ -40,7 +34,6 @@ import {
   MCP_INTEGRATION_FORM_DEFAULTS,
   type MCPIntegrationFormValues,
   missingRequiredOAuthClientCredentials,
-  normalizeOAuthClientKey,
   SERVER_TYPES,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
@@ -125,27 +118,58 @@ function optionIcon(
   return spec?.server_type === "stdio" ? Server : Globe2
 }
 
+/**
+ * Whether a catalog HTTP recipe delegates its server URI to the user.
+ *
+ * Mirrors the backend resolver: a recipe declaring a `server_uri`-targeted
+ * credential (or shipping no URI) accepts any user URI.
+ */
+function serverUriIsUserSupplied(spec: MCPConnectionSpec) {
+  if (spec.server_type !== "http") {
+    return false
+  }
+  if (
+    (spec.credentials ?? []).some(
+      (credential) => credential.target === "server_uri"
+    )
+  ) {
+    return true
+  }
+  return !spec.server_uri
+}
+
+/**
+ * Best-effort catalog option id for a stored integration.
+ *
+ * The option id is not persisted, so edit mode re-derives it with the same
+ * rules the backend resolver applies; an ambiguous row resolves to "" and lets
+ * the backend bind it.
+ */
 function catalogOptionIdForIntegration(
   entry: PlatformMCPCatalogRead | null | undefined,
   integration: MCPIntegrationRead
 ) {
   const options = entry?.connection_options ?? []
-  const match = options.find((option) => {
+  const matches = options.filter((option) => {
     const spec = option.connection_spec
     if (!spec || spec.server_type !== integration.server_type) {
       return false
     }
-    if (spec.server_type === "http") {
-      return (
-        spec.auth_type === integration.auth_type &&
-        (!integration.server_uri ||
-          !("server_uri" in spec) ||
-          spec.server_uri === integration.server_uri)
-      )
+    if (spec.server_type !== "http") {
+      return true
     }
-    return true
+    if (spec.auth_type !== integration.auth_type) {
+      return false
+    }
+    if (!integration.server_uri || serverUriIsUserSupplied(spec)) {
+      return true
+    }
+    return spec.server_uri === integration.server_uri
   })
-  return match?.id ?? ""
+  if (matches.length !== 1) {
+    return ""
+  }
+  return matches[0].id
 }
 
 function catalogSpecForOption(
@@ -173,47 +197,6 @@ function hasOAuthClientConfig(spec: MCPConnectionSpec | null | undefined) {
       (credential) => credential.target === "oauth_client"
     )
   )
-}
-
-function isClientSecretKey(key: string) {
-  const normalized = normalizeOAuthClientKey(key)
-  return (
-    normalized === "client_secret" ||
-    normalized === "oauth_client_secret" ||
-    normalized.endsWith("_client_secret")
-  )
-}
-
-function isClientIdKey(key: string) {
-  const normalized = normalizeOAuthClientKey(key)
-  return (
-    normalized === "client_id" ||
-    normalized === "oauth_client_id" ||
-    normalized.endsWith("_client_id")
-  )
-}
-
-function readOAuthClientCredentials(value: string) {
-  const parsed = JSON.parse(value) as Record<string, string>
-  const entries = Object.entries(parsed)
-  const clientIdEntry =
-    entries.find(([key]) => isClientIdKey(key)) ??
-    entries.find(([key]) => !isClientSecretKey(key))
-  const clientSecretEntry = entries.find(([key]) => isClientSecretKey(key))
-  const clientId = clientIdEntry?.[1]?.trim() ?? ""
-  const clientSecret = clientSecretEntry?.[1]?.trim() ?? ""
-  if (!clientId) {
-    throw new Error("OAuth client ID is required")
-  }
-  return { clientId, clientSecret: clientSecret || undefined }
-}
-
-function catalogMcpProviderId(
-  entry: PlatformMCPCatalogRead,
-  optionId: string | null | undefined
-) {
-  const suffix = optionId ? `-${optionId}` : ""
-  return `custom_mcp_${entry.slug}${suffix}`.replace(/[^a-zA-Z0-9_]+/g, "_")
 }
 
 function CatalogEntrySummary({
@@ -809,7 +792,7 @@ export function MCPIntegrationDialog({
           await createMcpIntegration(params)
           hookHandledError = false
         } else {
-          let params: MCPHttpIntegrationCreate = {
+          const params: MCPHttpIntegrationCreate = {
             ...createBaseParams,
             server_type: "http",
             server_uri: values.server_uri?.trim() ?? "",
@@ -858,59 +841,12 @@ export function MCPIntegrationDialog({
               return
             }
             setCatalogOAuthClientIsPending(true)
-            // Without advertised endpoints, the backend does dynamic registration
-            // from the pasted credentials; otherwise create the OAuth client here.
-            let result: MCPCatalogConnectResponse
-            if (
-              !spec.oauth_authorization_endpoint ||
-              !spec.oauth_token_endpoint
-            ) {
-              hookHandledError = true
-              result = await connectMcpIntegration({
-                ...params,
-                custom_credentials: oauthClientCredentials,
-              })
-              hookHandledError = false
-            } else {
-              const { clientId, clientSecret } = readOAuthClientCredentials(
-                oauthClientCredentials
-              )
-              const provider = await providersCreateCustomProvider({
-                workspaceId,
-                requestBody: {
-                  provider_id: catalogMcpProviderId(
-                    catalogEntry,
-                    values.connection_option_id
-                  ),
-                  name: `${values.name} OAuth`,
-                  description:
-                    values.description?.trim() ||
-                    `OAuth client for ${values.name}`,
-                  grant_type: "authorization_code",
-                  authorization_endpoint: spec.oauth_authorization_endpoint,
-                  token_endpoint: spec.oauth_token_endpoint,
-                  scopes: spec.scopes ?? [],
-                  client_id: clientId,
-                  client_secret: clientSecret,
-                },
-              })
-              const oauthIntegration = await integrationsGetIntegration({
-                workspaceId,
-                providerId: provider.id,
-                grantType: "authorization_code",
-              })
-              params = {
-                ...params,
-                oauth_integration_id: oauthIntegration.id,
-              }
-              hookHandledError = true
-              await createMcpIntegration(params)
-              hookHandledError = false
-              result = await mcpIntegrationsConnectPlatformMcpCatalog({
-                workspaceId,
-                catalogSlug: catalogEntry.slug,
-              })
-            }
+            hookHandledError = true
+            const result = await connectMcpIntegration({
+              ...params,
+              custom_credentials: oauthClientCredentials,
+            })
+            hookHandledError = false
             if (result.auth_url) {
               window.location.href = result.auth_url
               return

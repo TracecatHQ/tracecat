@@ -24,8 +24,15 @@ from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITra
 from claude_agent_sdk._version import __version__
 from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
-from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
-from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_MCP_BRIDGE_PORT,
+    build_agent_runtime_uv_env,
+)
+from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_UV_STATE_DIR,
+    AgentSandboxPathMapping,
+    job_uv_state_dir,
+)
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
     cleanup_spawned_runtime,
@@ -141,6 +148,9 @@ class SandboxedCLITransport(Transport):
             use_jailed_paths=self._use_jailed_paths
         ) as mcp_binding:
             runtime_options = self._options_with_runtime_bridge_port(mcp_binding.port)
+            runtime_options = self._options_with_protected_runtime_settings(
+                runtime_options
+            )
             original_options = self._options
             if runtime_options is not original_options:
                 original_options.mcp_servers = runtime_options.mcp_servers
@@ -439,6 +449,23 @@ class SandboxedCLITransport(Transport):
         if mcp_servers is self._options.mcp_servers and agents is self._options.agents:
             return self._options
         return replace(self._options, mcp_servers=mcp_servers, agents=agents)
+
+    def _options_with_protected_runtime_settings(
+        self,
+        options: ClaudeAgentOptions,
+    ) -> ClaudeAgentOptions:
+        """Pin Tracecat-owned UV settings at the CLI child-exec boundary."""
+        uv_state_dir = (
+            JAILED_AGENT_UV_STATE_DIR
+            if self._use_jailed_paths
+            else job_uv_state_dir(self._job_dir)
+        )
+        protected_env = build_agent_runtime_uv_env(uv_state_dir)
+
+        return replace(
+            options,
+            settings=orjson.dumps({"env": protected_env}).decode("utf-8"),
+        )
 
     @classmethod
     def _prepare_command_for_runtime(

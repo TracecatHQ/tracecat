@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Graymail multiple message groups
+  description: Move multiple Sublime message groups to Graymail.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/graymailmultiplemessagegroups
+  namespace: tools.sublime
+  name: graymail_multiple_message_groups
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native JSON request body.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/move-to-graymail
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

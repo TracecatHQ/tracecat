@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List indexes
-  description: List all indexes in the Elasticsearch cluster.
+  description: List indexes in the Elasticsearch cluster as JSON.
   display_group: Elasticsearch
   doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-cat-indices
   namespace: tools.elasticsearch
@@ -10,6 +10,14 @@ definition:
     - name: elasticsearch
       keys: ["ELASTIC_API_KEY"]
   expects:
+    index:
+      type: str | None
+      description: Optional index name or pattern to filter the response.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: Optional native cat indices query parameters. The format parameter is always set to json.
+      default: null
     base_url:
       type: str | None
       description: Elasticsearch base URL (e.g. https://localhost:9200).
@@ -19,11 +27,32 @@ definition:
       description: Whether to verify SSL certificates.
       default: true
   steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index):
+              if index:
+                  return f"/_cat/indices/{quote(index, safe='*,-_')}"
+              return "/_cat/indices"
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params: ${{ inputs.params }}
+        script: |
+          def main(params):
+              return {**(params or {}), "format": "json"}
     - ref: list_indexes
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/_cat/indices?format=json
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}${{ steps.build_path.result }}
         method: GET
+        params: ${{ steps.build_params.result }}
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}

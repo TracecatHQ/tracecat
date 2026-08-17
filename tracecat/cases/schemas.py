@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
@@ -16,6 +17,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CaseFieldKind,
     CaseFieldReadType,
@@ -23,6 +25,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.tags.schemas import CaseTagRead
@@ -182,6 +185,7 @@ class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
 
     id: str
+    display_name: str
     type: CaseFieldReadType
     description: str
     nullable: bool
@@ -210,8 +214,10 @@ class CaseFieldReadMinimal(Schema):
         kind: CaseFieldKind | None = None
         required_on_closure = False
         options: list[str] | None = None
+        display_name = column["name"]
         if field_schema and (meta := field_schema.get(column["name"])):
             read_type = CaseFieldReadType(meta["type"])
+            display_name = meta.get("display_name") or column["name"]
             options = meta.get("options")
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
@@ -222,6 +228,7 @@ class CaseFieldReadMinimal(Schema):
         return cls.model_validate(
             {
                 "id": column["name"],
+                "display_name": display_name,
                 "type": read_type,
                 "description": column.get("comment") or "",
                 "nullable": column["nullable"],
@@ -237,6 +244,7 @@ class CaseFieldReadMinimal(Schema):
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
@@ -256,6 +264,7 @@ class CaseFieldCreate(CustomFieldCreate):
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     required_on_closure: bool | None = Field(default=None)
 
     @model_validator(mode="before")
@@ -290,6 +299,35 @@ class CaseCommentWorkflowRead(Schema):
     status: CaseCommentWorkflowStatus
 
 
+class CaseCommentAgentInvocationRead(Schema):
+    """Read model for an agent invocation triggered by a comment mention."""
+
+    id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    status: CaseCommentAgentInvocationStatus
+    session_id: uuid.UUID | None = None
+    error: CaseCommentAgentInvocationError | None = None
+
+
+class CaseCommentAgentAttributionRead(Schema):
+    """Read model for agent attribution on a generated comment reply."""
+
+    invocation_id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    session_id: uuid.UUID | None = None
+
+
+class CaseCommentMentionRead(Schema):
+    id: uuid.UUID
+    target_type: MentionTargetType
+    target_id: uuid.UUID
+    label: str
+    created_at: datetime
+    invocation: CaseCommentAgentInvocationRead | None = None
+
+
 class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
@@ -297,10 +335,12 @@ class CaseCommentRead(Schema):
     content: str
     parent_id: uuid.UUID | None = None
     workflow: CaseCommentWorkflowRead | None = None
+    agent: CaseCommentAgentAttributionRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None
     is_deleted: bool = Field(default=False)
+    mentions: list[CaseCommentMentionRead] = Field(default_factory=list)
 
 
 class CaseCommentThreadRead(Schema):
@@ -310,8 +350,11 @@ class CaseCommentThreadRead(Schema):
     last_activity_at: datetime
 
 
+CASE_COMMENT_MAX_LENGTH = 25_000
+
+
 class CaseCommentCreate(Schema):
-    content: str = Field(default=..., min_length=1, max_length=25_000)
+    content: str = Field(default=..., min_length=1, max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
@@ -325,7 +368,9 @@ class CaseCommentCreate(Schema):
 
 
 class CaseCommentUpdate(Schema):
-    content: str | None = Field(default=None, min_length=1, max_length=25_000)
+    content: str | None = Field(
+        default=None, min_length=1, max_length=CASE_COMMENT_MAX_LENGTH
+    )
     parent_id: uuid.UUID | None = Field(default=None)
 
     @field_validator("content")

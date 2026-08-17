@@ -123,6 +123,10 @@ class AgentSessionRead(BaseModel):
     # Metadata
     title: str
     created_by: uuid.UUID | None
+    is_readonly: bool = Field(
+        default=False,
+        description="Whether the requesting actor can modify this session",
+    )
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None

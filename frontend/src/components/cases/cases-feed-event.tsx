@@ -56,7 +56,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
+import { cn, formatFileSize } from "@/lib/utils"
 
 export function EventIcon({
   icon: Icon,
@@ -395,16 +395,6 @@ export function AttachmentCreatedEvent({
   event: AttachmentCreatedEventRead
   actor: User
 }) {
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
-    )
-  }
-
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={PaperclipIcon} />

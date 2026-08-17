@@ -1,8 +1,7 @@
 import re
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
-from functools import partial
+from datetime import UTC, datetime
 from typing import Any, Literal
 from typing import cast as typing_cast
 
@@ -25,29 +24,36 @@ from tracecat.audit.types import AuditMetadata, AuditMetadataValue
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, require_scope
+from tracecat.cases.agent_invocations.queue import (
+    invoke_comment_agent_turns_after_commit,
+)
+from tracecat.cases.agent_invocations.service import (
+    CaseCommentAgentInvocationService,
+)
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
-from tracecat.cases.durations.materialization import sync_case_duration
 from tracecat.cases.durations.schemas import CaseDurationRead
-from tracecat.cases.durations.sync_queue import (
-    enqueue_case_duration_sync_after_commit,
-)
 from tracecat.cases.enums import (
-    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
+from tracecat.cases.events import CaseEventsService
+from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseBatchItemResult,
     CaseBatchResponse,
+    CaseCommentAgentAttributionRead,
+    CaseCommentAgentInvocationRead,
     CaseCommentCreate,
+    CaseCommentMentionRead,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseCommentUpdate,
@@ -63,7 +69,6 @@ from tracecat.cases.schemas import (
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
-    CaseViewedEvent,
     ClosedEvent,
     CommentCreatedEvent,
     CommentDeletedEvent,
@@ -95,17 +100,20 @@ from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
 from tracecat.db.models import (
+    AgentPreset,
     Case,
     CaseComment,
+    CaseCommentAgentInvocation,
+    CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
-    CaseEvent,
     CaseFields,
     CaseTagLink,
     CaseTask,
     User,
     Workflow,
+    Workspace,
     WorkspaceSyncResourceMapping,
 )
 from tracecat.db.session_events import AfterCommitQueue
@@ -208,10 +216,9 @@ def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
         return len(ordered_values)
 
 
-# Treat multiple views inside this window as a single "view" to avoid spam.
-CASE_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
 CASE_BATCH_LOCK_TIMEOUT = "5s"
 CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+PENDING_CASE_NUMBER = 0
 
 
 class CasesService(BaseWorkspaceService):
@@ -851,6 +858,19 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    async def _assign_next_case_number(self, case: Case) -> None:
+        """Assign the next gapless number at the end of case creation."""
+        next_case_number = await self.session.scalar(
+            sa.update(Workspace)
+            .where(Workspace.id == self.workspace_id)
+            .values(last_case_number=Workspace.last_case_number + 1)
+            .returning(Workspace.last_case_number)
+        )
+        if next_case_number is None:
+            raise TracecatNotFoundError("Workspace not found")
+        case.case_number = next_case_number
+        await self.session.flush()
+
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
@@ -864,6 +884,9 @@ class CasesService(BaseWorkspaceService):
             now = datetime.now(UTC)
             case = Case(
                 workspace_id=self.workspace_id,
+                # The trigger recognizes zero as a transaction-local sentinel. The
+                # real number is allocated after all potentially slow related writes.
+                case_number=PENDING_CASE_NUMBER,
                 summary=params.summary,
                 description=params.description,
                 priority=params.priority,
@@ -876,7 +899,8 @@ class CasesService(BaseWorkspaceService):
             )
 
             self.session.add(case)
-            await self.session.flush()  # Generate case ID
+            # Generate the case ID without locking the workspace counter.
+            await self.session.flush()
 
             # Always create the fields row to ensure defaults are applied
             # Pass empty dict if no fields provided to trigger default value application
@@ -896,6 +920,12 @@ class CasesService(BaseWorkspaceService):
                     params.dropdown_values,
                     commit=False,
                 )
+
+            # Flush all related writes before entering the gapless counter's short
+            # critical section. The counter update and case-number assignment remain
+            # in this transaction, so a failed commit rolls both back together.
+            await self.session.flush()
+            await self._assign_next_case_number(case)
 
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
@@ -1513,7 +1543,10 @@ class CaseFieldsService(CustomFieldsService):
         params.nullable = True
         await self.editor.create_column(params)
 
-        field_def: dict[str, Any] = {"type": params.type.value}
+        field_def: dict[str, Any] = {
+            "type": params.type.value,
+            "display_name": params.display_name or params.name,
+        }
 
         if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
             field_def["options"] = normalize_column_options(params.options)
@@ -1709,6 +1742,13 @@ class CaseFieldsService(CustomFieldsService):
 
         if field_type:
             new_field_def: dict[str, Any] = {"type": field_type}
+
+            if isinstance(params, CaseFieldUpdate) and params.display_name is not None:
+                new_field_def["display_name"] = params.display_name
+            else:
+                new_field_def["display_name"] = (
+                    current_field_def.get("display_name") or field_id
+                )
 
             # Update options if provided (even empty list clears options)
             if params.options is not None:
@@ -2226,17 +2266,139 @@ class CaseCommentsService(BaseWorkspaceService):
         comment: CaseComment,
         *,
         user: User | None = None,
+        mentions: Sequence[CaseCommentMentionRead] | None = None,
+        agent: CaseCommentAgentAttributionRead | None = None,
     ) -> CaseCommentRead:
         """Serialize a comment for API responses with tombstone semantics."""
         comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
         comment_data.workflow = self._comment_workflow_data(comment)
+        comment_data.agent = agent
         comment_data.user = (
             UserRead.model_validate(user, from_attributes=True) if user else None
         )
+        comment_data.mentions = list(mentions or ())
         if comment.deleted_at is not None:
             comment_data.content = _COMMENT_TOMBSTONE_CONTENT
             comment_data.is_deleted = True
         return comment_data
+
+    async def _list_mentions_for_comments(
+        self,
+        comment_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, list[CaseCommentMentionRead]]:
+        """Batch-load mentions and their agent invocations by comment ID."""
+        if not comment_ids:
+            return {}
+
+        statement = (
+            select(CaseCommentMention, CaseCommentAgentInvocation)
+            .outerjoin(
+                CaseCommentAgentInvocation,
+                sa.and_(
+                    CaseCommentAgentInvocation.mention_id == CaseCommentMention.id,
+                    CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+                ),
+            )
+            .where(
+                CaseCommentMention.workspace_id == self.workspace_id,
+                CaseCommentMention.comment_id.in_(comment_ids),
+            )
+            .order_by(
+                CaseCommentMention.created_at,
+                CaseCommentMention.surrogate_id,
+            )
+        )
+        result = await self.session.execute(statement)
+        mentions_by_comment_id: dict[uuid.UUID, list[CaseCommentMentionRead]] = {}
+        for mention, invocation in result.tuples().all():
+            invocation_data = (
+                CaseCommentAgentInvocationRead.model_validate(
+                    invocation,
+                    from_attributes=True,
+                )
+                if invocation is not None
+                else None
+            )
+            mention_data = CaseCommentMentionRead.model_validate(
+                mention,
+                from_attributes=True,
+            )
+            mention_data.invocation = invocation_data
+            mentions_by_comment_id.setdefault(mention.comment_id, []).append(
+                mention_data
+            )
+        return mentions_by_comment_id
+
+    async def _list_reply_attributions_for_comments(
+        self,
+        comment_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, CaseCommentAgentAttributionRead]:
+        """Batch-load agent attribution by generated reply comment ID."""
+        if not comment_ids:
+            return {}
+
+        statement = select(
+            CaseCommentAgentInvocation.reply_comment_id,
+            CaseCommentAgentInvocation.id,
+            CaseCommentAgentInvocation.preset_name,
+            CaseCommentAgentInvocation.preset_slug,
+            CaseCommentAgentInvocation.session_id,
+        ).where(
+            CaseCommentAgentInvocation.workspace_id == self.workspace_id,
+            CaseCommentAgentInvocation.reply_comment_id.in_(comment_ids),
+        )
+        result = await self.session.execute(statement)
+        attributions_by_comment_id: dict[
+            uuid.UUID, CaseCommentAgentAttributionRead
+        ] = {}
+        for (
+            reply_comment_id,
+            invocation_id,
+            preset_name,
+            preset_slug,
+            session_id,
+        ) in result.tuples().all():
+            if reply_comment_id is None:
+                continue
+            attributions_by_comment_id[reply_comment_id] = (
+                CaseCommentAgentAttributionRead(
+                    invocation_id=invocation_id,
+                    preset_name=preset_name,
+                    preset_slug=preset_slug,
+                    session_id=session_id,
+                )
+            )
+        return attributions_by_comment_id
+
+    async def _serialize_comment_rows(
+        self,
+        rows: Sequence[tuple[CaseComment, User | None]],
+    ) -> list[CaseCommentRead]:
+        """Serialize comment rows with batch-loaded response metadata."""
+        comment_ids = [comment.id for comment, _ in rows]
+        mentions_by_comment_id = await self._list_mentions_for_comments(comment_ids)
+        attributions_by_comment_id = await self._list_reply_attributions_for_comments(
+            comment_ids
+        )
+        return [
+            self.serialize_comment(
+                comment,
+                user=user,
+                mentions=mentions_by_comment_id.get(comment.id),
+                agent=attributions_by_comment_id.get(comment.id),
+            )
+            for comment, user in rows
+        ]
+
+    async def serialize_comment_with_mentions(
+        self,
+        comment: CaseComment,
+        *,
+        user: User | None = None,
+    ) -> CaseCommentRead:
+        """Serialize one comment with persisted mentions and agent attribution."""
+        serialized = await self._serialize_comment_rows([(comment, user)])
+        return serialized[0]
 
     async def _list_comment_rows(
         self,
@@ -2267,17 +2429,17 @@ class CaseCommentsService(BaseWorkspaceService):
     async def list_comments(self, case: Case) -> list[CaseCommentRead]:
         """List all comments for a case as a flat compatibility view."""
         rows = await self._list_comment_rows(case_id=case.id)
-        return [self.serialize_comment(comment, user=user) for comment, user in rows]
+        return await self._serialize_comment_rows(rows)
 
     async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
         await self._require_replies_entitlement()
         rows = await self._list_comment_rows(case_id=case.id)
+        serialized_comments = await self._serialize_comment_rows(rows)
         threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
         ordered_threads: list[CaseCommentThreadRead] = []
 
-        for comment, user in rows:
-            serialized = self.serialize_comment(comment, user=user)
+        for (comment, _), serialized in zip(rows, serialized_comments, strict=True):
             if comment.parent_id is None:
                 if (thread := threads_by_id.get(comment.id)) is not None:
                     if thread.comment.parent_id is not None:
@@ -2332,12 +2494,13 @@ class CaseCommentsService(BaseWorkspaceService):
         if not rows:
             return None
 
+        serialized_comments = await self._serialize_comment_rows(rows)
+
         thread_comment: CaseCommentRead | None = None
         replies: list[CaseCommentRead] = []
         last_activity_at: datetime | None = None
 
-        for row_comment, user in rows:
-            serialized = self.serialize_comment(row_comment, user=user)
+        for (row_comment, _), serialized in zip(rows, serialized_comments, strict=True):
             if row_comment.id == thread_root_id:
                 thread_comment = serialized
             else:
@@ -2388,6 +2551,72 @@ class CaseCommentsService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return bool(result.scalar())
+
+    async def _persist_comment_mentions(
+        self,
+        *,
+        comment: CaseComment,
+        content: str,
+    ) -> bool:
+        """Persist live agent mentions and report whether any were added."""
+        unique_tokens: list[MentionToken] = []
+        seen_targets: set[tuple[MentionTargetType, uuid.UUID]] = set()
+        for token in parse_mentions(content):
+            target_key = (token.target_type, token.target_id)
+            if target_key in seen_targets:
+                continue
+            seen_targets.add(target_key)
+            unique_tokens.append(token)
+
+        agent_ids: set[uuid.UUID] = {
+            token.target_id
+            for token in unique_tokens
+            if token.target_type == MentionTargetType.AGENT
+        }
+        if not agent_ids:
+            return False
+
+        result = await self.session.execute(
+            select(AgentPreset.id).where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(agent_ids),
+                AgentPreset.deleted_at.is_(None),
+            )
+        )
+        live_agent_ids: set[uuid.UUID] = set(result.scalars().all())
+        persisted_agent_mention = False
+        for token in unique_tokens:
+            if (
+                token.target_type != MentionTargetType.AGENT
+                or token.target_id not in live_agent_ids
+            ):
+                continue
+            self.session.add(
+                CaseCommentMention(
+                    workspace_id=self.workspace_id,
+                    case_id=comment.case_id,
+                    comment_id=comment.id,
+                    target_type=token.target_type,
+                    target_id=token.target_id,
+                    label=token.label,
+                )
+            )
+            persisted_agent_mention = True
+        return persisted_agent_mention
+
+    async def _can_invoke_comment_agents(self) -> bool:
+        """Return whether this actor may turn a persisted mention into a run.
+
+        Mention facts belong to the comment and persist even when execution is
+        unavailable. Entitlements and scopes therefore gate invocation rows,
+        not comment creation.
+        """
+        user_scopes = self.role.scopes or frozenset()
+        return (
+            not get_missing_scopes(user_scopes, {"agent:execute"})
+            and await self.has_entitlement(Entitlement.AGENT_ADDONS)
+            and await self.has_entitlement(Entitlement.CASE_ADDONS)
+        )
 
     @require_scope("case:update")
     async def create_comment(
@@ -2450,6 +2679,22 @@ class CaseCommentsService(BaseWorkspaceService):
             )
 
             self.session.add(comment)
+            has_agent_mention = await self._persist_comment_mentions(
+                comment=comment, content=params.content
+            )
+            await self.session.flush()
+            invocations = (
+                await CaseCommentAgentInvocationService(
+                    session=self.session, role=self.role
+                ).create_pending_for_comment(comment.id)
+                if has_agent_mention and await self._can_invoke_comment_agents()
+                else []
+            )
+            invoke_comment_agent_turns_after_commit(
+                self.session,
+                invocation_ids=[invocation.id for invocation in invocations],
+                role=self.role,
+            )
             db_event = await CaseEventsService(
                 session=self.session, role=self.role
             ).create_event(
@@ -2704,135 +2949,6 @@ class CaseCommentsService(BaseWorkspaceService):
             action="delete",
             comment_id=comment.id,
             data=delete_audit_data,
-        )
-
-
-class CaseEventsService(BaseWorkspaceService):
-    """Service for managing case events."""
-
-    service_name = "case_events"
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-
-    async def list_events(self, case: Case) -> Sequence[CaseEvent]:
-        """List all events for a case."""
-        statement = (
-            select(CaseEvent)
-            .where(CaseEvent.case_id == case.id)
-            # Order by creation time (newest first) and fall back to surrogate_id
-            # to ensure deterministic ordering when timestamps are equal.
-            .order_by(
-                CaseEvent.created_at.desc(),
-                CaseEvent.surrogate_id.desc(),
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
-    async def create_event(
-        self,
-        case: Case,
-        event: CaseEventVariant,
-        *,
-        publish_case_trigger: bool = True,
-        sync_durations: bool = True,
-    ) -> CaseEvent:
-        """Create a new activity record for a case with variant-specific data.
-
-        Note: This method is non-committing. The caller is responsible for
-        wrapping operations in a transaction and committing once at the end
-        to preserve atomicity across multi-step updates.
-
-        Duration sync is queued after commit, with an inline fallback when
-        Redis publication fails.
-        """
-
-        db_event = CaseEvent(
-            workspace_id=self.workspace_id,
-            case_id=case.id,
-            type=event.type,
-            data=event.model_dump(exclude={"type"}, mode="json"),
-            user_id=self.role.user_id,
-        )
-        self.session.add(db_event)
-        # Flush so that generated fields (e.g., id) are available if needed
-        await self.session.flush()
-
-        event_id = str(db_event.id)
-        event_type = (
-            db_event.type.value if hasattr(db_event.type, "value") else db_event.type
-        )
-        created_at = db_event.created_at or datetime.now(UTC)
-        case_id = str(case.id)
-        workspace_id = str(case.workspace_id)
-
-        if publish_case_trigger:
-
-            async def _publish_case_event() -> None:
-                await publish_case_event_payload(
-                    event_id=event_id,
-                    case_id=case_id,
-                    workspace_id=workspace_id,
-                    event_type=event_type,
-                    created_at=created_at,
-                )
-
-            AfterCommitQueue.of(self.session).add(_publish_case_event)
-
-        if sync_durations:
-            enqueue_case_duration_sync_after_commit(
-                self.session,
-                workspace_id=case.workspace_id,
-                case_id=case.id,
-                event_type=event_type,
-                reason="case_event",
-                inline_fallback=partial(
-                    sync_case_duration,
-                    case.workspace_id,
-                    case.id,
-                    event_types={event_type},
-                ),
-            )
-
-        return db_event
-
-    async def create_case_viewed_event(
-        self,
-        case: Case,
-        *,
-        dedupe_window: timedelta = CASE_VIEW_EVENT_DEDUP_WINDOW,
-    ) -> CaseEvent | None:
-        """Record a case viewed event if the current user hasn't viewed recently."""
-        if not self.role.user_id:
-            return None
-
-        now_utc = datetime.now(UTC)
-        stmt = (
-            select(CaseEvent)
-            .where(
-                CaseEvent.workspace_id == self.workspace_id,
-                CaseEvent.case_id == case.id,
-                CaseEvent.type == CaseEventType.CASE_VIEWED,
-                CaseEvent.user_id == self.role.user_id,
-            )
-            .order_by(CaseEvent.created_at.desc())
-            .limit(1)
-        )
-        result = await self.session.execute(stmt)
-        last_event = result.scalars().first()
-        if last_event:
-            last_created_at = last_event.created_at
-            if last_created_at.tzinfo is None:
-                if datetime.now() - last_created_at < dedupe_window:
-                    return None
-            else:
-                if now_utc - last_created_at < dedupe_window:
-                    return None
-
-        return await self.create_event(
-            case=case,
-            event=CaseViewedEvent(),
         )
 
 

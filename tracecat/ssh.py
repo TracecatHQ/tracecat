@@ -51,18 +51,29 @@ class SshEnv:
 
 
 @asynccontextmanager
-async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
-    """Set up a temporary SSH agent and yield the SSH_AUTH_SOCK."""
-    original_ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
+async def temporary_ssh_agent(
+    *, socket_dir: Path | None = None
+) -> AsyncIterator[SshEnv]:
+    """Run a dedicated SSH agent without mutating the worker environment.
+
+    Args:
+        socket_dir: Optional private directory in which to create the agent socket.
+
+    Yields:
+        Connection details for the dedicated agent.
+    """
+    env: SshEnv | None = None
     try:
-        # Start ssh-agent
         logger.debug("Starting ssh-agent")
+        cmd = ["ssh-agent", "-s"]
+        if socket_dir is not None:
+            socket_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            socket_dir.chmod(0o700)
+            cmd.extend(["-a", str(socket_dir / "agent.sock")])
         try:
-            # We're using asyncio.to_thread to run the ssh-agent in a separate thread
-            # because for some reason, asyncio.create_subprocess_exec stalls and times out
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["ssh-agent", "-s"],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -78,32 +89,42 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
             logger.error("Failed to start ssh-agent", stderr=e.stderr)
             raise RuntimeError("Failed to start ssh-agent") from e
 
-        ssh_auth_sock = stdout.split("SSH_AUTH_SOCK=")[1].split(";")[0]
-        ssh_agent_pid = stdout.split("SSH_AGENT_PID=")[1].split(";")[0]
+        try:
+            ssh_auth_sock = stdout.split("SSH_AUTH_SOCK=", maxsplit=1)[1].split(
+                ";", maxsplit=1
+            )[0]
+            ssh_agent_pid = stdout.split("SSH_AGENT_PID=", maxsplit=1)[1].split(
+                ";", maxsplit=1
+            )[0]
+        except IndexError as exc:
+            raise RuntimeError("ssh-agent returned an invalid environment") from exc
 
         logger.debug(
             "Started ssh-agent",
             SSH_AUTH_SOCK=ssh_auth_sock,
             SSH_AGENT_PID=ssh_agent_pid,
         )
-        yield SshEnv(
+        env = SshEnv(
             ssh_auth_sock=ssh_auth_sock,
             ssh_agent_pid=ssh_agent_pid,
         )
+        yield env
     finally:
-        if "SSH_AGENT_PID" in os.environ:
+        if env is not None:
             logger.debug("Killing ssh-agent")
-            await asyncio.create_subprocess_exec("ssh-agent", "-k")
-
-        # Restore original SSH_AUTH_SOCK if it existed
-        if original_ssh_auth_sock is not None:
-            logger.debug(
-                "Restoring original SSH_AUTH_SOCK", SSH_AUTH_SOCK=original_ssh_auth_sock
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["ssh-agent", "-k"],
+                capture_output=True,
+                text=True,
+                env=env.to_dict(),
+                check=False,
+                timeout=10.0,
             )
-            os.environ["SSH_AUTH_SOCK"] = original_ssh_auth_sock
-        else:
-            os.environ.pop("SSH_AUTH_SOCK", None)
-        logger.debug("Killed ssh-agent")
+            if result.returncode != 0:
+                logger.warning("Failed to stop ssh-agent", stderr=result.stderr)
+            else:
+                logger.debug("Killed ssh-agent")
 
 
 def _split_host_port(url: str) -> tuple[str, str | None]:
@@ -222,7 +243,14 @@ async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
     return await asyncio.to_thread(add_host_to_known_hosts_sync, url, env)
 
 
-def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
+def add_ssh_key_to_agent_sync(
+    key_data: str,
+    env: SshEnv,
+    *,
+    lifetime_seconds: int | None = None,
+    destination: str | None = None,
+    known_hosts_path: Path | None = None,
+) -> None:
     """Synchronously add the SSH key to the agent without writing to disk.
 
     Uses stdin to pass the key directly to ssh-add, avoiding any filesystem writes.
@@ -239,9 +267,20 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
         raise
 
     try:
-        # Pass key via stdin using '-' flag - never touches disk
+        cmd = ["ssh-add"]
+        if lifetime_seconds is not None:
+            cmd.extend(["-t", str(lifetime_seconds)])
+        if destination is not None:
+            if known_hosts_path is None:
+                raise ValueError(
+                    "known_hosts_path is required for an SSH destination constraint"
+                )
+            cmd.extend(["-H", str(known_hosts_path), "-h", destination])
+        cmd.append("-")
+
+        # Pass key via stdin using '-' - private key material never touches disk.
         result = subprocess.run(
-            ["ssh-add", "-"],
+            cmd,
             input=key_with_newline,
             capture_output=True,
             text=True,
@@ -259,9 +298,23 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
         raise
 
 
-async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
-    """Asynchronously add the SSH key to the agent then remove it."""
-    return await asyncio.to_thread(add_ssh_key_to_agent_sync, key_data, env)
+async def add_ssh_key_to_agent(
+    key_data: str,
+    env: SshEnv,
+    *,
+    lifetime_seconds: int | None = None,
+    destination: str | None = None,
+    known_hosts_path: Path | None = None,
+) -> None:
+    """Asynchronously add one key to an SSH agent."""
+    return await asyncio.to_thread(
+        add_ssh_key_to_agent_sync,
+        key_data,
+        env,
+        lifetime_seconds=lifetime_seconds,
+        destination=destination,
+        known_hosts_path=known_hosts_path,
+    )
 
 
 async def get_ssh_command(git_url: GitUrl, role: Role, session: AsyncSession) -> str:

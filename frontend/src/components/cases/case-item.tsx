@@ -70,25 +70,9 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
 import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
-import { durationToHumanReadable, parseISODuration } from "@/lib/time"
+import { durationToHumanReadable, formatISODurationCompact } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-function formatCompactDuration(duration: string): string | null {
-  try {
-    const parsed = parseISODuration(duration)
-    if (parsed.years) return `${parsed.years}y`
-    if (parsed.months) return `${parsed.months}mo`
-    if (parsed.weeks) return `${parsed.weeks}w`
-    if (parsed.days) return `${parsed.days}d`
-    if (parsed.hours) return `${parsed.hours}h`
-    if (parsed.minutes) return `${parsed.minutes}m`
-    if (parsed.seconds) return `${parsed.seconds}s`
-    return "0s"
-  } catch {
-    return null
-  }
-}
 
 function withBadgeTooltip(
   badge: ReactNode,
@@ -270,7 +254,9 @@ export function CaseItem({
         continue
       }
 
-      const formattedValue = formatCompactDuration(dur.duration)
+      const formattedValue = formatISODurationCompact(dur.duration, {
+        maxUnits: 1,
+      })
       if (!formattedValue) {
         continue
       }

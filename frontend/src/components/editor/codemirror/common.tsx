@@ -888,8 +888,8 @@ export async function createNodeTooltipForPosition(
   }
 }
 
-// Create tooltip content for a specific token/node
-async function createNodeTooltipContent(
+/** Create tooltip content for a specific expression token. */
+export async function createNodeTooltipContent(
   token: { type: string; value: string; start: number; end: number },
   fullExpression: string,
   workspaceId: string
@@ -908,7 +908,7 @@ async function createNodeTooltipContent(
 
   // Add type-specific information based on value patterns
   if (fullExpression.startsWith("ACTIONS.")) {
-    addActionTooltipInfo(container, tokenValue, workspaceId)
+    addActionTooltipInfo(container, tokenValue)
   } else if (fullExpression.startsWith("FN.")) {
     await addFunctionTooltipInfo(container, tokenValue, workspaceId)
   } else if (fullExpression.startsWith("SECRETS.")) {
@@ -929,7 +929,7 @@ async function createNodeTooltipContent(
   ) {
     // Handle context types even without dot notation
     if (token.type === "ACTIONS") {
-      addActionTooltipInfo(container, tokenValue, workspaceId)
+      addActionTooltipInfo(container, tokenValue)
     } else if (token.type === "FN") {
       await addFunctionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "SECRETS") {
@@ -952,12 +952,25 @@ async function createNodeTooltipContent(
   return container
 }
 
-// Helper functions for type-specific tooltip content
-function addActionTooltipInfo(
+function appendTooltipLine(
   container: HTMLElement,
-  value: string,
-  workspaceId: string
+  className: string,
+  text: string,
+  strongText?: string
 ) {
+  const line = document.createElement("div")
+  line.className = className
+  line.appendChild(document.createTextNode(text))
+  if (strongText !== undefined) {
+    const strong = document.createElement("strong")
+    strong.textContent = strongText
+    line.appendChild(strong)
+  }
+  container.appendChild(line)
+}
+
+// Helper functions for type-specific tooltip content
+function addActionTooltipInfo(container: HTMLElement, value: string) {
   const info = document.createElement("div")
   info.className = "cm-tooltip-action-info"
 
@@ -965,24 +978,28 @@ function addActionTooltipInfo(
   const match = value.match(/ACTIONS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, actionRef, propertyPath] = match
-    info.innerHTML = `
-      <div class="action-ref">Action: <strong>${actionRef}</strong></div>
-      ${propertyPath ? `<div class="action-prop">Property: <strong>${propertyPath}</strong></div>` : ""}
-      <div class="action-desc">References output from action step</div>
-    `
+    appendTooltipLine(info, "action-ref", "Action: ", actionRef)
+    if (propertyPath) {
+      appendTooltipLine(info, "action-prop", "Property: ", propertyPath)
+    }
+    appendTooltipLine(info, "action-desc", "References output from action step")
   } else {
     // Fallback for partial matches or just "ACTIONS"
     const cleanValue = value.replace(/^ACTIONS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="action-ref">Action reference: <strong>${cleanValue}</strong></div>
-        <div class="action-desc">References output from action step</div>
-      `
+      appendTooltipLine(info, "action-ref", "Action reference: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "action-desc",
+        "References output from action step"
+      )
     } else {
-      info.innerHTML = `
-        <div class="action-ref">Action namespace</div>
-        <div class="action-desc">Used to reference outputs from workflow actions</div>
-      `
+      appendTooltipLine(info, "action-ref", "Action namespace")
+      appendTooltipLine(
+        info,
+        "action-desc",
+        "Used to reference outputs from workflow actions"
+      )
     }
   }
 
@@ -1039,24 +1056,32 @@ function addSecretTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/SECRETS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, secretName, key] = match
-    info.innerHTML = `
-      <div class="secret-name">Secret: <strong>${secretName}</strong></div>
-      ${key ? `<div class="secret-key">Key: <strong>${key}</strong></div>` : ""}
-      <div class="secret-desc">References stored secret credential</div>
-    `
+    appendTooltipLine(info, "secret-name", "Secret: ", secretName)
+    if (key) {
+      appendTooltipLine(info, "secret-key", "Key: ", key)
+    }
+    appendTooltipLine(
+      info,
+      "secret-desc",
+      "References stored secret credential"
+    )
   } else {
     // Fallback for partial matches or just "SECRETS"
     const cleanValue = value.replace(/^SECRETS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="secret-name">Secret reference: <strong>${cleanValue}</strong></div>
-        <div class="secret-desc">References stored secret credential</div>
-      `
+      appendTooltipLine(info, "secret-name", "Secret reference: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "secret-desc",
+        "References stored secret credential"
+      )
     } else {
-      info.innerHTML = `
-        <div class="secret-name">Secrets namespace</div>
-        <div class="secret-desc">Used to reference stored secret credentials</div>
-      `
+      appendTooltipLine(info, "secret-name", "Secrets namespace")
+      appendTooltipLine(
+        info,
+        "secret-desc",
+        "Used to reference stored secret credentials"
+      )
     }
   }
 
@@ -1070,24 +1095,24 @@ function addVarsTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/VARS\.(\w+)(?:\.(.+))?/)
   if (match) {
     const [, varName, key] = match
-    info.innerHTML = `
-      <div class="vars-name">Variable: <strong>${varName}</strong></div>
-      ${key ? `<div class="vars-key">Key: <strong>${key}</strong></div>` : ""}
-      <div class="vars-desc">References workspace variable</div>
-    `
+    appendTooltipLine(info, "vars-name", "Variable: ", varName)
+    if (key) {
+      appendTooltipLine(info, "vars-key", "Key: ", key)
+    }
+    appendTooltipLine(info, "vars-desc", "References workspace variable")
   } else {
     // Fallback for partial matches or just "VARS"
     const cleanValue = value.replace(/^VARS\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="vars-name">Variable reference: <strong>${cleanValue}</strong></div>
-        <div class="vars-desc">References workspace variable</div>
-      `
+      appendTooltipLine(info, "vars-name", "Variable reference: ", cleanValue)
+      appendTooltipLine(info, "vars-desc", "References workspace variable")
     } else {
-      info.innerHTML = `
-        <div class="vars-name">Variables namespace</div>
-        <div class="vars-desc">Used to reference workspace variables</div>
-      `
+      appendTooltipLine(info, "vars-name", "Variables namespace")
+      appendTooltipLine(
+        info,
+        "vars-desc",
+        "Used to reference workspace variables"
+      )
     }
   }
 
@@ -1101,23 +1126,29 @@ function addEnvTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/ENV\.(.+)/)
   if (match) {
     const [, envPath] = match
-    info.innerHTML = `
-      <div class="env-path">Path: <strong>${envPath}</strong></div>
-      <div class="env-desc">References environment variable or configuration</div>
-    `
+    appendTooltipLine(info, "env-path", "Path: ", envPath)
+    appendTooltipLine(
+      info,
+      "env-desc",
+      "References environment variable or configuration"
+    )
   } else {
     // Fallback for partial matches or just "ENV"
     const cleanValue = value.replace(/^ENV\.?/, "")
     if (cleanValue) {
-      info.innerHTML = `
-        <div class="env-path">Environment variable: <strong>${cleanValue}</strong></div>
-        <div class="env-desc">References environment variable or configuration</div>
-      `
+      appendTooltipLine(info, "env-path", "Environment variable: ", cleanValue)
+      appendTooltipLine(
+        info,
+        "env-desc",
+        "References environment variable or configuration"
+      )
     } else {
-      info.innerHTML = `
-        <div class="env-path">Environment namespace</div>
-        <div class="env-desc">Used to reference environment variables and configuration</div>
-      `
+      appendTooltipLine(info, "env-path", "Environment namespace")
+      appendTooltipLine(
+        info,
+        "env-desc",
+        "Used to reference environment variables and configuration"
+      )
     }
   }
 
@@ -1131,10 +1162,16 @@ function addTriggerTooltipInfo(container: HTMLElement, value: string) {
   const match = value.match(/TRIGGER(?:\.(.+))?/)
   if (match) {
     const [, triggerPath] = match
-    info.innerHTML = `
-      ${triggerPath ? `<div class="trigger-path">Path: <strong>${triggerPath}</strong></div>` : '<div class="trigger-root">Trigger data</div>'}
-      <div class="trigger-desc">References workflow trigger input data</div>
-    `
+    if (triggerPath) {
+      appendTooltipLine(info, "trigger-path", "Path: ", triggerPath)
+    } else {
+      appendTooltipLine(info, "trigger-root", "Trigger data")
+    }
+    appendTooltipLine(
+      info,
+      "trigger-desc",
+      "References workflow trigger input data"
+    )
   } else {
     info.textContent = "Trigger reference"
   }

@@ -648,7 +648,7 @@ async def create_comment(
         comment = await comments_svc.create_comment(case, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(comment)
+    return await comments_svc.serialize_comment_with_mentions(comment)
 
 
 @router.patch(
@@ -682,7 +682,7 @@ async def update_comment(
         updated_comment = await comments_svc.update_comment(comment, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(updated_comment)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 # Separate router for comment operations that don't require case_id in path
@@ -715,7 +715,7 @@ async def update_comment_by_id(
         updated_comment = await comments_svc.update_comment(comment, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(updated_comment)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 @comments_router.get(

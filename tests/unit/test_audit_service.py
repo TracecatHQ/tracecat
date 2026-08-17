@@ -31,7 +31,7 @@ from tracecat.audit.service import (
     _AuditDelivery,
     _spawn_delivery,
 )
-from tracecat.audit.types import AuditEvent, AuditMetadata
+from tracecat.audit.types import AuditEvent, AuditMetadata, AuditWebhookConfig
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -59,9 +59,9 @@ def audit_service(role: Role) -> AuditService:
 @pytest.fixture(autouse=True)
 def clear_audit_setting_cache() -> Iterator[None]:
     """Isolate the module-level audit-setting TTL cache between tests."""
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
     yield
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
 
 
 class _AuditedService(BaseService):
@@ -307,14 +307,9 @@ async def test_create_event_streams_exact_payload_contract(
         audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
     )
     monkeypatch.setattr(
-        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+        audit_service,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
     mock_user = MagicMock()
     mock_user.email = "actor@example.test"
@@ -881,7 +876,7 @@ async def test_audit_setting_cache_clear_restores_fresh_reads(
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
     assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
 
-    audit_service_module._get_audit_setting_cached.cache_clear()
+    audit_service_module.clear_audit_setting_cache()
 
     assert await audit_service._get_webhook_url() == "https://second.example.com/audit"
     assert fetch.await_count == 2
@@ -894,23 +889,20 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     webhook_url = "https://example.com/audit"
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
-        AsyncMock(return_value={"resource_type": "organization", "custom": "yes"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value=None),
+        "_resolve_config",
+        AsyncMock(
+            return_value=AuditWebhookConfig(
+                webhook_url=webhook_url,
+                custom_headers={"X-Custom-Header": "custom-value"},
+                custom_payload={
+                    "resource_type": "organization",
+                    "resource_id": "not-a-uuid",
+                    "status": "INVALID_STATUS",
+                    "custom": "yes",
+                },
+                verify_ssl=False,
+            )
+        ),
     )
 
     response_mock = MagicMock()
@@ -947,7 +939,9 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     assert args[0] == webhook_url
     assert kwargs["headers"] == {"X-Custom-Header": "custom-value"}
     assert kwargs["json"]["custom"] == "yes"
-    assert kwargs["json"]["resource_type"] == "organization"
+    assert kwargs["json"]["resource_type"] == "workflow"
+    assert kwargs["json"]["resource_id"] == str(event.resource_id)
+    assert kwargs["json"]["status"] == "SUCCESS"
     assert kwargs["json"]["actor_label"] == "user@example.com"
 
 
@@ -958,23 +952,15 @@ async def test_post_event_wraps_payload_when_attribute_configured(
     webhook_url = "https://example.com/audit"
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
-        AsyncMock(return_value={"custom": "yes"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value="event"),
+        "_resolve_config",
+        AsyncMock(
+            return_value=AuditWebhookConfig(
+                webhook_url=webhook_url,
+                custom_headers={"X-Custom-Header": "custom-value"},
+                custom_payload={"custom": "yes"},
+                payload_attribute="event",
+            )
+        ),
     )
 
     response_mock = MagicMock()
@@ -1018,14 +1004,9 @@ async def test_post_event_failure_does_not_log_webhook_url(
 ) -> None:
     webhook_url = "https://secret-host.example.com/audit-hook"
     monkeypatch.setattr(
-        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+        audit_service,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
 
     client_mock = AsyncMock()
@@ -1098,7 +1079,7 @@ async def test_create_event_settings_failure_does_not_raise(
     )
     monkeypatch.setattr(
         audit_service,
-        "_get_custom_headers",
+        "_resolve_config",
         AsyncMock(side_effect=SQLAlchemyError("settings lookup failed")),
     )
     monkeypatch.setattr(audit_service, "_get_actor_label", AsyncMock(return_value=None))
@@ -1120,7 +1101,13 @@ async def test_create_event_settings_failure_does_not_raise(
     assert "secret-host" not in str(logger_mock.warning.call_args_list)
 
 
-def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDelivery:
+def _delivery(
+    tag: str,
+    url: str = "https://example.com/audit",
+    *,
+    organization_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> _AuditDelivery:
     """Build a minimal delivery whose resource_id doubles as an identifying tag."""
     return _AuditDelivery(
         webhook_url=url,
@@ -1129,6 +1116,8 @@ def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDeliver
         verify_ssl=True,
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -1234,6 +1223,8 @@ async def test_deliver_http_status_failures_log_status_without_secrets(
         verify_ssl=True,
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
+        organization_id=None,
+        workspace_id=None,
     )
 
     with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
@@ -1252,6 +1243,109 @@ async def test_deliver_http_status_failures_log_status_without_secrets(
     assert webhook_url not in all_logs
     assert payload_marker not in all_logs
     assert str(status_code) in all_logs  # status is present, only as the field
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_success_logs_outcome_without_secrets(
+    fresh_delivery_tasks: None,
+) -> None:
+    """A successful delivery logs its outcome and discriminators, never secrets.
+
+    The spawn-time debug line only proves a task started, so this info line is
+    the sole confirmation that the sink actually accepted the event.
+    """
+    webhook_url = "https://secret-host.example.com/audit-hook"
+    payload_marker = "payload-secret-marker"
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    respx.post(webhook_url).mock(return_value=httpx.Response(200))
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
+        _spawn_delivery(
+            _delivery(
+                payload_marker,
+                url=webhook_url,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+            )
+        )
+        await flush_audit_deliveries()
+
+    delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
+    assert len(delivered) == 1
+    kwargs = delivered[0]
+    assert kwargs["status_code"] == 200
+    assert kwargs["attempts"] == 1
+    assert kwargs["retried"] is False
+    assert kwargs["resource_type"] == "workflow"
+    assert kwargs["action"] == "update"
+    assert kwargs["organization_id"] == organization_id
+    assert kwargs["workspace_id"] == workspace_id
+    assert isinstance(kwargs["duration_ms"], int)
+    # Same containment guarantee as the failure path.
+    all_logs = repr(infos)
+    assert webhook_url not in all_logs
+    assert "secret-host" not in all_logs
+    assert payload_marker not in all_logs
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_success_after_retry_is_flagged(
+    fresh_delivery_tasks: None,
+) -> None:
+    """A delivery that recovers from a transient failure logs retried=True.
+
+    Without this, a flaky sink is indistinguishable from a healthy one because
+    the eventual success is the only line emitted.
+    """
+    webhook_url = "https://example.com/audit"
+    respx.post(webhook_url).mock(side_effect=[httpx.Response(503), httpx.Response(200)])
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
+        _spawn_delivery(_delivery("retried"))
+        await flush_audit_deliveries()
+
+    delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
+    assert len(delivered) == 1
+    assert delivered[0]["status_code"] == 200
+    assert delivered[0]["attempts"] == 2
+    assert delivered[0]["retried"] is True
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_deliver_exhausted_retries_logs_no_success(
+    fresh_delivery_tasks: None,
+) -> None:
+    """An exhausted delivery must not emit the success line."""
+    webhook_url = "https://example.com/audit"
+    respx.post(webhook_url).mock(return_value=httpx.Response(500))
+
+    infos: list[tuple[str, dict[str, object]]] = []
+
+    def capture_info(msg: str, **kwargs: object) -> None:
+        infos.append((msg, kwargs))
+
+    with (
+        patch("tracecat.audit.service.logger.info", side_effect=capture_info),
+        patch("tracecat.audit.service.logger.warning"),
+    ):
+        _spawn_delivery(_delivery("exhausted"))
+        await flush_audit_deliveries()
+
+    assert [kwargs for m, kwargs in infos if m == "Delivered audit webhook"] == []
 
 
 @pytest.mark.anyio
@@ -1310,14 +1404,9 @@ async def test_decorator_delivers_attempt_and_terminal(
     monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
     monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
     monkeypatch.setattr(
-        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(AuditService, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
+        AuditService,
+        "_resolve_config",
+        AsyncMock(return_value=AuditWebhookConfig(webhook_url=webhook_url)),
     )
 
     service = _AuditedService(AsyncMock(), role)
@@ -1348,7 +1437,9 @@ async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
     async def get_actor_label(_self: AuditService) -> str | None:
         return None
 
-    async def broken_verify_ssl(_self: AuditService) -> bool:
+    async def broken_resolve_config(
+        _self: AuditService, *, webhook_url: str
+    ) -> AuditWebhookConfig:
         raise RuntimeError("settings backend down")
 
     async def deliver(delivery: _AuditDelivery) -> None:
@@ -1356,16 +1447,7 @@ async def test_settings_resolution_failure_is_non_fatal_and_leaks_no_url(
 
     monkeypatch.setattr(AuditService, "_get_webhook_url", get_webhook_url)
     monkeypatch.setattr(AuditService, "_get_actor_label", get_actor_label)
-    monkeypatch.setattr(
-        AuditService, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        AuditService, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(AuditService, "_get_verify_ssl", broken_verify_ssl)
-    monkeypatch.setattr(
-        AuditService, "_get_payload_attribute", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(AuditService, "_resolve_config", broken_resolve_config)
 
     warnings: list[tuple[str, dict[str, object]]] = []
 
@@ -1638,6 +1720,37 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
 
     resource_ids = [call["resource_id"] for call in create_event_calls]
     assert resource_ids == [invitation_id, invitation_id]
+
+
+@pytest.mark.anyio
+async def test_audit_log_extracts_id_from_keyword_object(role: Role) -> None:
+    resource_id = uuid.uuid4()
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="organization_secret", action="update")
+        async def update_secret(self, *, secret: SimpleNamespace) -> None:
+            return None
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.update_secret(secret=SimpleNamespace(id=resource_id))
+    finally:
+        ctx_role.reset(token)
+
+    assert [call["resource_id"] for call in create_event_calls] == [
+        resource_id,
+        resource_id,
+    ]
 
 
 @pytest.mark.anyio

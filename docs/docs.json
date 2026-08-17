@@ -75,6 +75,7 @@
               },
               {
                 "group": "Integrations",
+                "expanded": true,
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
@@ -82,6 +83,7 @@
                 ]
               },
               "automations/cases",
+              "automations/cases/agent-mentions",
               "automations/tables"
             ]
           },
@@ -94,13 +96,6 @@
               "agents/custom-llm-providers",
               "agents/skills",
               "agents/secrets-variables"
-            ]
-          },
-          {
-            "group": "Security",
-            "icon": "shield-check",
-            "pages": [
-              "security/architecture"
             ]
           },
           {
@@ -136,10 +131,14 @@
             ]
           },
           {
-            "group": "Audit logs",
-            "icon": "logs",
+            "group": "Security",
+            "icon": "shield-check",
             "pages": [
-              "audit-logs/organization"
+              "security/architecture",
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
             ]
           }
         ]
@@ -169,7 +168,10 @@
               "tools/emailrep",
               "tools/exa",
               "tools/falconpy",
+              "tools/fleetdm",
+              "tools/freshservice",
               "tools/github",
+              "tools/gitlab",
               "tools/gmail",
               "tools/google_api",
               "tools/google_docs",
@@ -194,16 +196,19 @@
               "tools/microsoft_sentinel",
               "tools/microsoft_teams",
               "tools/minio",
+              "tools/misp",
               "tools/notion",
               "tools/okta",
               "tools/okta_oar",
               "tools/okta_sdk",
+              "tools/opensearch",
               "tools/pagerduty",
               "tools/panther",
               "tools/phishlabs",
               "tools/pymongo",
               "tools/rootly",
               "tools/runreveal",
+              "tools/scanner",
               "tools/sentinel_one",
               "tools/sentry",
               "tools/servicenow",

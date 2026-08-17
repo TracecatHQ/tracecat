@@ -1,0 +1,73 @@
+# Bulk control fixture for the PostgreSQL scatter load test.
+#
+# Writes exactly the same logical rows as workflow_scatter_insert_row.yml, but
+# through a single batch table request made by one action execution. This is
+# the phase 4 batching control.
+#
+# Row building and insertion happen inside one `core.script.run_python` action.
+# Returning the intermediate row list from one action to another would persist
+# that payload in both activity result and input events in Temporal history.
+# The trade-off is that the control pays for one sandboxed Python process; that
+# cost is CPU-side, not database-side, so it does not contaminate the
+# database-time-per-logical-row ratio that phase 4 records. Note it when
+# reporting wall-clock numbers.
+#
+# External workflow definition format: POST as multipart/form-data to
+# `POST /workspaces/{workspace_id}/workflows`, then commit it.
+version: 1
+definition:
+  title: Scatter load - insert_rows bulk control
+  description: >-
+    Bulk control: the same logical rows as the scatter fixture, written by a
+    single batch table request in one action execution.
+  entrypoint:
+    ref: bulk_insert
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      branch_count:
+        type: int
+        description: Number of logical branches (rows) this workflow writes.
+      payload:
+        type: str
+        description: Synthetic payload body written to every row.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: bulk_insert
+      action: core.script.run_python
+      description: Build and insert every row without returning the row bodies.
+      args:
+        timeout_seconds: 60
+        inputs:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branch_count: ${{ TRIGGER.branch_count }}
+          payload: ${{ TRIGGER.payload }}
+        script: |
+          from tracecat_registry import ctx
+
+
+          def main(run_id, workflow_seq, branch_count, payload):
+              rows = [
+                  {
+                      "run_id": run_id,
+                      "workflow_seq": workflow_seq,
+                      "branch_seq": branch_seq,
+                      "payload": payload,
+                      "dedupe_key": f"{run_id}:{workflow_seq}:{branch_seq}",
+                  }
+                  for branch_seq in range(branch_count)
+              ]
+              return ctx.tables.insert_rows(
+                  table="scatter_load_rows",
+                  rows_data=rows,
+              )
+      retry_policy:
+        max_attempts: 1
+  returns: ${{ ACTIONS.bulk_insert.result }}

@@ -6,6 +6,7 @@ import { useState } from "react"
 
 import type { AgentSessionsListSessionsResponse } from "@/client"
 import { ChatLastErrorIndicator } from "@/components/chat/chat-last-error-indicator"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -20,6 +21,23 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { ToggleTabs } from "@/components/ui/toggle-tabs"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
+import { getDisplayName } from "@/lib/auth"
+
+export type ChatHistoryScope = "team" | "mine"
+
+const COMMENT_AGENT_SESSION_BADGE = "From comment"
+
+function isCommentAgentSession(
+  chat: AgentSessionsListSessionsResponse[number]
+): boolean {
+  return (
+    "created_by" in chat &&
+    chat.entity_type === "case" &&
+    chat.channel_context?.session_origin === "case_comment"
+  )
+}
 
 interface ChatHistoryDropdownProps {
   chats: AgentSessionsListSessionsResponse | undefined
@@ -27,6 +45,9 @@ interface ChatHistoryDropdownProps {
   error: unknown
   selectedChatId: string | undefined
   onSelectChat: (chatId: string) => void
+  workspaceId: string
+  scope: ChatHistoryScope
+  onScopeChange: (scope: ChatHistoryScope) => void
   align?: "start" | "center" | "end"
 }
 
@@ -36,9 +57,21 @@ export function ChatHistoryDropdown({
   error,
   selectedChatId,
   onSelectChat,
+  workspaceId,
+  scope,
+  onScopeChange,
   align = "start",
 }: ChatHistoryDropdownProps) {
   const [open, setOpen] = useState(false)
+  const { members } = useWorkspaceMembers(workspaceId, { enabled: open })
+
+  function creatorLabel(createdBy: string | null): string {
+    if (!createdBy) {
+      return "System"
+    }
+    const member = members?.find((candidate) => candidate.user_id === createdBy)
+    return member ? getDisplayName(member) : "Teammate"
+  }
 
   const handleSelect = (chatId: string) => {
     onSelectChat(chatId)
@@ -48,7 +81,7 @@ export function ChatHistoryDropdown({
   // Hide the selector entirely when there is no chat history — an empty
   // dropdown is just noise. Still render while loading or on error so those
   // states aren't silently swallowed.
-  if (!isLoading && !error && (chats?.length ?? 0) === 0) {
+  if (!isLoading && !error && (chats?.length ?? 0) === 0 && scope === "team") {
     return null
   }
 
@@ -67,6 +100,19 @@ export function ChatHistoryDropdown({
         </Button>
       </PopoverTrigger>
       <PopoverContent align={align} className="w-64 p-0">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-xs text-muted-foreground">Show chats</span>
+          <ToggleTabs<ChatHistoryScope>
+            value={scope}
+            onValueChange={onScopeChange}
+            size="sm"
+            showTooltips={false}
+            options={[
+              { value: "team", content: "Team" },
+              { value: "mine", content: "Mine" },
+            ]}
+          />
+        </div>
         {isLoading ? (
           <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -87,7 +133,12 @@ export function ChatHistoryDropdown({
                 return 1
               }
 
-              return `${chat.title} ${chat.id}`
+              const createdBy =
+                "created_by" in chat ? chat.created_by : chat.user_id
+              const origin = isCommentAgentSession(chat)
+                ? COMMENT_AGENT_SESSION_BADGE
+                : ""
+              return `${chat.title} ${chat.id} ${creatorLabel(createdBy)} ${origin}`
                 .toLowerCase()
                 .includes(normalizedSearch)
                 ? 1
@@ -99,7 +150,9 @@ export function ChatHistoryDropdown({
               className="h-8 text-xs"
             />
             <CommandList className="max-h-64 overflow-y-auto">
-              <CommandEmpty className="text-xs">No chats found.</CommandEmpty>
+              <CommandEmpty className="m-1 rounded-sm bg-muted/40 px-3 py-4 text-center text-xs text-muted-foreground">
+                No chats found.
+              </CommandEmpty>
               <CommandGroup>
                 {chats?.map((chat) => (
                   <CommandItem
@@ -114,8 +167,28 @@ export function ChatHistoryDropdown({
                           {chat.title}
                         </span>
                         <ChatLastErrorIndicator session={chat} />
+                        {isCommentAgentSession(chat) ? (
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal"
+                          >
+                            {COMMENT_AGENT_SESSION_BADGE}
+                          </Badge>
+                        ) : null}
+                        {chat.is_readonly ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                          >
+                            Read only
+                          </Badge>
+                        ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">
+                        {creatorLabel(
+                          "created_by" in chat ? chat.created_by : chat.user_id
+                        )}{" "}
+                        ·{" "}
                         {formatDistanceToNow(new Date(chat.created_at), {
                           addSuffix: true,
                         })}

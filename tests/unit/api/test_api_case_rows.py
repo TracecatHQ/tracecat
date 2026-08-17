@@ -13,6 +13,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import internal_router as internal_case_rows_router
 from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
+from tracecat.cases.rows.service import MAX_LINKED_ROWS_PER_CASE
 from tracecat.cases.schemas import CaseReadMinimal
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
@@ -90,12 +91,11 @@ async def test_link_case_row_returns_400_for_value_error(
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
     row_id = uuid.uuid4()
+    expected_error = f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
     with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
         mock_service = AsyncMock()
         mock_service.get_case_or_raise.return_value = MagicMock()
-        mock_service.link_row.side_effect = ValueError(
-            "A case can have at most 200 linked rows"
-        )
+        mock_service.link_row.side_effect = ValueError(expected_error)
         mock_service_cls.return_value = mock_service
 
         with pytest.raises(HTTPException) as exc_info:
@@ -107,7 +107,7 @@ async def test_link_case_row_returns_400_for_value_error(
             )
 
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert exc_info.value.detail == "A case can have at most 200 linked rows"
+    assert exc_info.value.detail == expected_error
 
 
 @pytest.mark.anyio

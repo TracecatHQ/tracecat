@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Run PPL query
+  description: Run an OpenSearch Piped Processing Language query for threat hunting and log analysis.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/search-plugins/sql/sql-ppl-api/
+  namespace: tools.opensearch
+  name: ppl_query
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    query:
+      type: str
+      description: PPL query, such as source=logs-* | where status=401 | head 100.
+    format:
+      type: str
+      description: Response format accepted by the PPL API, such as jdbc, csv, or raw.
+      default: jdbc
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}/_plugins/_ppl
+        method: POST
+        params:
+          format: ${{ inputs.format }}
+        payload:
+          query: ${{ inputs.query }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

@@ -346,6 +346,7 @@ def _extract_resource_id(
     2. The first positional argument with an ``attr`` attribute.
     3. The bound function argument named ``attr``.
     4. The keyword argument named ``attr``.
+    5. The first keyword argument object with an ``attr`` attribute.
 
     Args:
         args: Positional arguments passed to the decorated function.
@@ -377,6 +378,11 @@ def _extract_resource_id(
             raw = bound_arguments.get(attr)
         if raw is None and attr in kwargs:
             raw = kwargs.get(attr)
+        if raw is None:
+            for argument in kwargs.values():
+                if hasattr(argument, attr):
+                    raw = getattr(argument, attr)
+                    break
 
     if raw is None:
         return None

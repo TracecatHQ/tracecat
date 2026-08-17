@@ -102,6 +102,78 @@ def test_evaluate_configuration_accepts_configured_oauth_integration():
 
 
 @pytest.mark.anyio
+async def test_list_sessions_defaults_to_all_workspace_creators(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    captured: dict[str, object] = {}
+
+    async def _list_sessions(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    service = SimpleNamespace(list_sessions=_list_sessions)
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    result = await internal_tools.list_sessions({}, claims)
+
+    assert result == {"sessions": []}
+    assert captured["created_by"] is None
+    assert captured["entity_id"] == preset_id
+
+
+@pytest.mark.anyio
+async def test_list_sessions_accepts_creator_filter(monkeypatch):
+    preset_id = uuid.uuid4()
+    creator_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    captured: dict[str, object] = {}
+
+    async def _list_sessions(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    service = SimpleNamespace(list_sessions=_list_sessions)
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    await internal_tools.list_sessions({"created_by": str(creator_id)}, claims)
+
+    assert captured["created_by"] == creator_id
+
+
+@pytest.mark.anyio
+async def test_get_session_rejects_non_preset_entity(monkeypatch):
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    service = SimpleNamespace(
+        get_session=lambda _session_id: None,
+    )
+
+    async def _get_session(_session_id):
+        return SimpleNamespace(
+            entity_type="agent_preset_builder",
+            entity_id=preset_id,
+        )
+
+    service.get_session = _get_session
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="not found"):
+        await internal_tools.get_session(
+            {"session_id": str(uuid.uuid4())},
+            claims,
+        )
+
+
+@pytest.mark.anyio
 async def test_list_available_tools_includes_configuration_fields(monkeypatch):
     preset_id = uuid.uuid4()
     claims = _build_claims(preset_id)

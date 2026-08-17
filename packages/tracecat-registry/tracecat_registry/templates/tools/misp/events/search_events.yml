@@ -1,0 +1,128 @@
+type: action
+definition:
+  title: Search events
+  description: Search MISP events by indicators, tags, dates, organisation, and publication state.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Events/operation/restSearchEvents
+  namespace: tools.misp
+  name: search_events
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    value:
+      type: str | None
+      description: Indicator value such as an IP address, domain, URL, or hash.
+      default: null
+    type_attribute:
+      type: str | None
+      description: MISP attribute type such as ip-src, domain, url, md5, or sha256.
+      default: null
+    category:
+      type: str | None
+      description: MISP attribute category.
+      default: null
+    org:
+      type: str | None
+      description: Creator organisation name or ID.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Attribute tags to include or exclude.
+      default: null
+    event_tags:
+      type: list[str] | None
+      description: Event-level tags to include or exclude.
+      default: null
+    date_from:
+      type: str | None
+      description: Earliest event date in YYYY-MM-DD format.
+      default: null
+    date_to:
+      type: str | None
+      description: Latest event date in YYYY-MM-DD format.
+      default: null
+    eventid:
+      type: int | list[int] | None
+      description: Event ID or list of event IDs.
+      default: null
+    eventinfo:
+      type: str | None
+      description: Text to match in the event information field.
+      default: null
+    published:
+      type: bool | None
+      description: Filter by event publication state.
+      default: null
+    enforce_warninglist:
+      type: bool | None
+      description: Exclude attributes matching enabled warning lists.
+      default: null
+    to_ids:
+      type: bool | None
+      description: Filter attributes by their IDS flag.
+      default: null
+    include_correlations:
+      type: bool
+      description: Include correlation data.
+      default: false
+    include_sightings:
+      type: bool
+      description: Include sighting data.
+      default: false
+    metadata:
+      type: bool
+      description: Return event metadata without attributes or objects.
+      default: false
+    limit:
+      type: int
+      description: Maximum number of events to return.
+      default: 25
+    page:
+      type: int
+      description: Result page number.
+      default: 1
+    quick_filter:
+      type: str | None
+      description: Quick text search across event and attribute fields.
+      default: null
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/events/restSearch
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          value: ${{ inputs.value }}
+          type: ${{ inputs.type_attribute }}
+          category: ${{ inputs.category }}
+          org: ${{ inputs.org }}
+          tags: ${{ inputs.tags }}
+          event_tags: ${{ inputs.event_tags }}
+          from: ${{ inputs.date_from }}
+          to: ${{ inputs.date_to }}
+          eventid: ${{ inputs.eventid }}
+          eventinfo: ${{ inputs.eventinfo }}
+          published: ${{ inputs.published }}
+          enforceWarninglist: ${{ inputs.enforce_warninglist }}
+          to_ids: ${{ inputs.to_ids }}
+          includeCorrelations: ${{ inputs.include_correlations }}
+          includeSightings: ${{ inputs.include_sightings }}
+          metadata: ${{ inputs.metadata }}
+          limit: ${{ inputs.limit }}
+          page: ${{ inputs.page }}
+          quickFilter: ${{ inputs.quick_filter }}
+  returns: ${{ steps.request.result.data }}

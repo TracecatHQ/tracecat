@@ -33,7 +33,7 @@ from sqlalchemy import (
     update,
     values,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.client import (
     WorkflowUpdateRPCTimeoutOrCancelledError,
@@ -70,8 +70,11 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
+    DISPLAY_ONLY_SESSION_LINE_FLAG,
     is_approval_interrupt_tool_result,
     is_continuation_control_artifact,
+    is_display_only_session_line,
+    is_model_context_session_line,
     session_line_uuid,
 )
 from tracecat.agent.schemas import RunAgentArgs
@@ -90,8 +93,10 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
+    PreparedAgentTurn,
     TurnLifecycle,
     TurnLifecycleResult,
+    is_session_readonly,
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
@@ -104,7 +109,6 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
-from tracecat.cases.service import CasesService
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -156,7 +160,7 @@ from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
 
-    from tracecat.agent.executor.activity import ToolExecutionResult
+    from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
@@ -914,7 +918,14 @@ class AgentSessionService(BaseWorkspaceService):
         items: list[AgentSessionRead | ChatReadMinimal] = []
 
         for s in sessions:
-            items.append(AgentSessionRead.model_validate(s, from_attributes=True))
+            session_read = AgentSessionRead.model_validate(s, from_attributes=True)
+            items.append(
+                session_read.model_copy(
+                    update={
+                        "is_readonly": is_session_readonly(self.role, s.created_by),
+                    }
+                )
+            )
 
         for c in legacy_chats:
             # ChatReadMinimal has is_readonly=True by default
@@ -1277,7 +1288,11 @@ class AgentSessionService(BaseWorkspaceService):
             raw_line = history_content.raw_line
 
             line_uuid = session_line_uuid(content)
-            if entry.kind == MessageKind.INTERNAL.value:
+            if is_display_only_session_line(content):
+                continue
+            if entry.kind == MessageKind.INTERNAL.value and not (
+                is_model_context_session_line(content)
+            ):
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
                 continue
@@ -1867,6 +1882,105 @@ class AgentSessionService(BaseWorkspaceService):
     # =========================================================================
     # Chat / Message Turn Operations
     # =========================================================================
+
+    async def ensure_display_only_user_messages(
+        self,
+        session_id: uuid.UUID,
+        messages: Sequence[str],
+    ) -> None:
+        """Persist idempotent UI-only user messages outside model history.
+
+        These rows let an integration present source material as ordinary chat
+        bubbles without sending each bubble as a separate model turn. Their
+        structural marker keeps them out of Claude SDK resume history.
+
+        Args:
+            session_id: Session receiving the display-only messages.
+            messages: Ordered raw text shown in the user bubbles.
+
+        Raises:
+            TracecatNotFoundError: If the session is unavailable in this workspace.
+        """
+        if not messages:
+            return
+        if await self.get_session(session_id) is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        # Derive stable row and message IDs from their session-relative order so
+        # activity retries reuse the same display history instead of duplicating it.
+        rows = [
+            {
+                "id": uuid.uuid5(session_id, f"display-message:{index}"),
+                "session_id": session_id,
+                "workspace_id": self.workspace_id,
+                "content": {
+                    "type": "user",
+                    "uuid": str(
+                        uuid.uuid5(session_id, f"display-message-line:{index}")
+                    ),
+                    DISPLAY_ONLY_SESSION_LINE_FLAG: True,
+                    "message": {"role": "user", "content": content},
+                },
+                "kind": MessageKind.CHAT_MESSAGE.value,
+                "curr_run_id": None,
+            }
+            for index, content in enumerate(messages)
+        ]
+        statement = (
+            insert(AgentSessionHistory)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=[AgentSessionHistory.id])
+        )
+        await self.session.execute(statement)
+        await self.session.commit()
+
+    async def prepare_new_turn(
+        self,
+        session_id: uuid.UUID,
+        prompt: str,
+    ) -> PreparedAgentTurn:
+        """Prepare a new turn for a caller-owned Temporal workflow.
+
+        This is the non-dispatching counterpart to ``run_turn``. It builds the
+        same session configuration and persists the run pointers, but leaves
+        child-workflow execution to the caller. Reusing persisted pointers makes
+        an activity retry after commit return the same workflow identity.
+        """
+        agent_session = await self.validate_turn_request(
+            session_id,
+            BasicChatRequest(message=prompt),
+        )
+        async with self._build_agent_config(agent_session) as agent_config:
+            if agent_config.tool_approvals:
+                await check_entitlement(
+                    self.session,
+                    self.role,
+                    Entitlement.AGENT_ADDONS,
+                )
+
+            run_id = agent_session.curr_run_id or uuid.uuid4()
+            stream_id = agent_session.active_stream_id or uuid.uuid4()
+            prepared_turn = PreparedAgentTurn(
+                prompt=prompt,
+                session_id=session_id,
+                run_id=run_id,
+                active_stream_id=stream_id,
+                config=agent_config,
+                title=agent_session.title,
+                entity_type=AgentSessionEntity(agent_session.entity_type),
+                entity_id=agent_session.entity_id,
+                tools=agent_session.tools,
+                agent_preset_id=agent_session.agent_preset_id,
+                agent_preset_version_id=agent_session.agent_preset_version_id,
+            )
+
+            agent_session.curr_run_id = run_id
+            agent_session.active_stream_id = stream_id
+            agent_session.last_error = None
+            self.session.add(agent_session)
+            await self.session.commit()
+
+        return prepared_turn
 
     async def run_turn(
         self,
@@ -2782,8 +2896,14 @@ class AgentSessionService(BaseWorkspaceService):
         entity_id = agent_session.entity_id
 
         if entity_type == AgentSessionEntity.CASE:
-            cases_service = CasesService(self.session, self.role)
-            case = await cases_service.get_case(entity_id)
+            # Query directly because CasesService imports the comment invocation
+            # queue, whose workflow dependency imports AgentSessionService.
+            case = await self.session.scalar(
+                select(Case).where(
+                    Case.id == entity_id,
+                    Case.workspace_id == self.workspace_id,
+                )
+            )
             if not case:
                 raise TracecatNotFoundError(f"Case with ID {entity_id} not found")
             return CaseCopilotPrompts(case=case).instructions
