@@ -153,6 +153,10 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
         ("ai.agent.update_preset", "model_provider"),
         ("core.cases.upload_attachment", "file_name"),
         ("core.cases.upload_attachment_from_url", "file_name"),
+        ("core.cases.create_task", "title"),
+        ("core.cases.create_task", "description"),
+        ("core.cases.update_task", "title"),
+        ("core.cases.update_task", "description"),
     ],
 )
 def test_explicit_durable_string_fields_redact_secrets(
@@ -166,6 +170,33 @@ def test_explicit_durable_string_fields_redact_secrets(
     )
 
     assert prepared == {parameter: f"prefix-{MASK_VALUE}"}
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["core.cases.create_task", "core.cases.update_task"],
+)
+def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
+    prepared = _resolve_root(
+        action,
+        {
+            "default_trigger_values": {
+                "safe": "${{ VARS.api.region }}",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        {
+            "SECRETS": {"api": {"TOKEN": "runtime-secret"}},
+            "VARS": {"api": {"region": "us-east-1"}},
+        },
+    )
+
+    assert prepared == {
+        "default_trigger_values": {
+            "safe": "us-east-1",
+            "token": MASK_VALUE,
+        }
+    }
 
 
 def test_redact_secret_expressions_preserves_non_secret_templates() -> None:

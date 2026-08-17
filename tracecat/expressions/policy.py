@@ -88,6 +88,12 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
     "core.cases.create_comment": frozenset({"content"}),
     "core.cases.reply_to_comment": frozenset({"content"}),
     "core.cases.update_comment": frozenset({"content"}),
+    "core.cases.create_task": frozenset(
+        {"title", "description", "default_trigger_values"}
+    ),
+    "core.cases.update_task": frozenset(
+        {"title", "description", "default_trigger_values"}
+    ),
     "core.cases.upload_attachment": frozenset({"file_name"}),
     "core.cases.upload_attachment_from_url": frozenset({"file_name"}),
     "core.table.create_table": frozenset({"name", "columns"}),
