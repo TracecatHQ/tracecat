@@ -80,23 +80,6 @@ export function CustomFieldsTable({
               enableHiding: false,
             },
             {
-              accessorKey: "id",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Reference"
-                />
-              ),
-              cell: ({ row }) => (
-                <div className="font-mono text-xs text-muted-foreground">
-                  {row.getValue<CaseFieldReadMinimal["id"]>("id")}
-                </div>
-              ),
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
               accessorKey: "type",
               header: ({ column }) => (
                 <DataTableColumnHeader
@@ -128,6 +111,23 @@ export function CustomFieldsTable({
                 }
                 return <div className="text-xs">{fieldType}</div>
               },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "id",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Reference"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="font-mono text-xs text-muted-foreground">
+                  {row.getValue<CaseFieldReadMinimal["id"]>("id")}
+                </div>
+              ),
               enableSorting: true,
               enableHiding: false,
             },

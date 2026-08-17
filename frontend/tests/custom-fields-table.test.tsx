@@ -40,6 +40,12 @@ describe("CustomFieldsTable", () => {
     expect(screen.getByText("Analyst verdict")).toBeInTheDocument()
     expect(screen.getByText("analyst_verdict")).toBeInTheDocument()
     expect(
+      screen
+        .getAllByRole("columnheader")
+        .slice(0, 3)
+        .map((header) => header.textContent)
+    ).toEqual(["Field name", "Data type", "Reference"])
+    expect(
       screen.getByPlaceholderText("Filter fields by name...")
     ).toBeInTheDocument()
   })

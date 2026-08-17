@@ -147,11 +147,14 @@ describe("custom field metadata dialogs", () => {
     )
 
     const nameInput = screen.getByRole("textbox", { name: "Name" })
+    const referenceInput = screen.getByRole("textbox", { name: "Reference" })
     expect(nameInput).toHaveValue("Analyst verdict")
+    expect(referenceInput).toHaveValue("analyst_verdict_v2")
     await user.clear(nameInput)
     await user.type(nameInput, "2FA determination")
-    expect(nameInput).toHaveAccessibleDescription(
-      "Reference: analyst_verdict_v2. Changing the name does not change the reference."
+    expect(referenceInput).toHaveValue("analyst_verdict_v2")
+    expect(referenceInput).toHaveAccessibleDescription(
+      "Used in APIs and workflows. Changing it may break existing references."
     )
     await user.click(screen.getByRole("button", { name: "Save changes" }))
 
@@ -167,6 +170,59 @@ describe("custom field metadata dialogs", () => {
     expect(
       mockCasesUpdateField.mock.calls[0][0].requestBody
     ).not.toHaveProperty("name")
+  })
+
+  it("updates the reference independently of the display name", async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(
+      <EditCustomFieldDialog
+        open
+        field={existingField}
+        onOpenChange={jest.fn()}
+      />
+    )
+
+    const referenceInput = screen.getByRole("textbox", { name: "Reference" })
+    await user.clear(referenceInput)
+    await user.type(referenceInput, "final_determination")
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
+      "Analyst verdict"
+    )
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    await waitFor(() => {
+      expect(mockCasesUpdateField).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        fieldId: "analyst_verdict_v2",
+        requestBody: expect.objectContaining({
+          name: "final_determination",
+          display_name: "Analyst verdict",
+        }),
+      })
+    })
+  })
+
+  it("validates an explicitly edited reference", async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(
+      <EditCustomFieldDialog
+        open
+        field={existingField}
+        onOpenChange={jest.fn()}
+      />
+    )
+
+    const referenceInput = screen.getByRole("textbox", { name: "Reference" })
+    await user.clear(referenceInput)
+    await user.type(referenceInput, "2FA determination")
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+    expect(
+      await screen.findByText(
+        "Reference must start with a letter or underscore and contain only letters, numbers, and underscores"
+      )
+    ).toBeInTheDocument()
+    expect(mockCasesUpdateField).not.toHaveBeenCalled()
   })
 
   it("omits the reference when the display name is unchanged", async () => {

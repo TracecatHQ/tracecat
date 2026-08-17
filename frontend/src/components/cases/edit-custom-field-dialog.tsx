@@ -81,6 +81,15 @@ const caseFieldFormSchema = z
       .trim()
       .min(1, "Field name is required")
       .max(255, "Field name must be 255 characters or fewer"),
+    reference: z
+      .string()
+      .trim()
+      .min(1, "Reference is required")
+      .max(100, "Reference must be 100 characters or fewer")
+      .regex(
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+        "Reference must start with a letter or underscore and contain only letters, numbers, and underscores"
+      ),
     type: z.enum(SqlTypeCreatableEnum),
     nullable: z.boolean().default(true),
     default: z.string().nullable().optional(),
@@ -135,6 +144,7 @@ interface EditCustomFieldDialogProps {
 
 const emptyDefaults: CaseFieldFormValues = {
   displayName: "",
+  reference: "",
   type: "TEXT",
   nullable: true,
   default: null,
@@ -149,6 +159,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
   if (safeType === "MULTI_SELECT") {
     return {
       displayName: field.display_name,
+      reference: field.id,
       type: safeType,
       nullable: field.nullable,
       default: "",
@@ -159,6 +170,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
 
   return {
     displayName: field.display_name,
+    reference: field.id,
     type: safeType,
     nullable: field.nullable,
     default: field.default ?? "",
@@ -330,6 +342,7 @@ export function EditCustomFieldDialog({
         workspaceId,
         fieldId: field.id,
         requestBody: {
+          ...(data.reference !== field.id ? { name: data.reference } : {}),
           display_name: data.displayName,
           nullable: data.nullable,
           default: defaultValue,
@@ -358,9 +371,9 @@ export function EditCustomFieldDialog({
       if (error instanceof ApiError) {
         const apiError = error as TracecatApiError
         if (apiError.status === 409) {
-          form.setError("displayName", {
+          form.setError("reference", {
             type: "manual",
-            message: "A field with this name already exists",
+            message: "A field with this reference already exists",
           })
           return
         }
@@ -400,8 +413,25 @@ export function EditCustomFieldDialog({
                     <Input {...fieldInput} />
                   </FormControl>
                   <FormDescription>
-                    Reference: {field.id}. Changing the name does not change the
-                    reference.
+                    Human-readable label shown throughout the product.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="reference"
+              render={({ field: fieldInput }) => (
+                <FormItem>
+                  <FormLabel>Reference</FormLabel>
+                  <FormControl>
+                    <Input {...fieldInput} className="font-mono" />
+                  </FormControl>
+                  <FormDescription>
+                    Used in APIs and workflows. Changing it may break existing
+                    references.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
