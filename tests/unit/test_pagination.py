@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -516,6 +517,52 @@ class TestPaginate:
         assert back_to_first.items == first.items
 
     @pytest.mark.anyio
+    async def test_json_cursor_values_accept_every_json_shape(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        metadata = sa.MetaData()
+        items = sa.Table(
+            "test_json_page_items",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("value", JSONB, nullable=False),
+            prefixes=["TEMPORARY"],
+        )
+        connection = await session.connection()
+        await connection.run_sync(metadata.create_all)
+        await session.execute(
+            items.insert(),
+            [
+                {"id": 1, "value": ["alpha"]},
+                {"id": 2, "value": "bravo"},
+                {"id": 3, "value": 42},
+            ],
+        )
+        statement = sa.select(items.c.id)
+        order_by = (items.c.value.asc(), items.c.id.asc())
+        expected = list(
+            (await session.execute(statement.order_by(*order_by))).scalars().all()
+        )
+
+        seen: list[int] = []
+        cursor: str | None = None
+        while True:
+            page = await paginate(
+                session,
+                statement,
+                page=PageParams(limit=1, cursor=cursor),
+                order_by=order_by,
+            )
+            seen.extend(page.items)
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+
+        assert seen == expected
+
+    @pytest.mark.anyio
     async def test_database_equal_numeric_values_require_unique_tie_breaker(
         self,
         session: AsyncSession,
@@ -678,6 +725,33 @@ class TestPaginate:
             cursor = page.next_cursor
 
         assert seen == [4, 3, 2, 1, 6, 5]
+
+    @pytest.mark.anyio
+    async def test_grouped_aggregate_ordering_round_trips(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        items = await _create_page_items(session)
+        item_count = sa.func.count(items.c.id)
+        statement = sa.select(items.c.score).group_by(items.c.score)
+        order_by = (item_count.desc(), items.c.score.asc().nulls_last())
+
+        seen: list[int | None] = []
+        cursor: str | None = None
+        while True:
+            page = await paginate(
+                session,
+                statement,
+                page=PageParams(limit=1, cursor=cursor),
+                order_by=order_by,
+            )
+            seen.extend(page.items)
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+
+        assert seen == [10, 20, None]
 
     @pytest.mark.anyio
     async def test_cursor_is_bound_to_query_filters(

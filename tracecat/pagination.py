@@ -246,9 +246,12 @@ def _normalize_order(expression: ColumnElement[Any]) -> _OrderKey:
             f"Pagination ordering expression {current!s} has no Python value type"
         ) from exc
     try:
-        adapter = (
-            _BINARY_CURSOR_ADAPTER if value_type is bytes else TypeAdapter(value_type)
-        )
+        if isinstance(current.type, sa.JSON):
+            adapter = _JSON_VALUE_ADAPTER
+        elif value_type is bytes:
+            adapter = _BINARY_CURSOR_ADAPTER
+        else:
+            adapter = TypeAdapter(value_type)
     except (PydanticUserError, TypeError) as exc:
         raise PaginationConfigurationError(
             f"Pagination ordering expression {current!s} has an unsupported value type"
@@ -502,6 +505,16 @@ def _decode_page_cursor(
     )
 
 
+def _bind_cursor_value(key: _OrderKey, value: object) -> ColumnElement[Any]:
+    """Bind a decoded cursor value using its ordering expression's SQL type."""
+    return sa.bindparam(
+        None,
+        value,
+        type_=key.expression.type,
+        unique=True,
+    )
+
+
 def _strictly_after(key: _OrderKey, value: object) -> ColumnElement[bool]:
     """Build the strict comparison after one value in the given ordering."""
     expression = key.expression
@@ -510,10 +523,11 @@ def _strictly_after(key: _OrderKey, value: object) -> ColumnElement[bool]:
             return expression.is_not(None)
         return sa.false()
 
+    bound_value = _bind_cursor_value(key, value)
     comparison = (
-        expression > value
+        expression > bound_value
         if key.direction is _SortDirection.ASC
-        else expression < value
+        else expression < bound_value
     )
     if key.nulls is _NullPlacement.LAST:
         return sa.or_(comparison, expression.is_(None))
@@ -536,10 +550,21 @@ def _seek_predicate(
     equal_prefix: list[ColumnElement[bool]] = []
     for key, value in zip(ordering, values, strict=True):
         branches.append(sa.and_(*equal_prefix, _strictly_after(key, value)))
-        equal_prefix.append(key.expression.is_not_distinct_from(value))
+        equality_value = None if value is None else _bind_cursor_value(key, value)
+        equal_prefix.append(key.expression.is_not_distinct_from(equality_value))
     if boundary is _Boundary.INCLUSIVE:
         branches.append(sa.and_(*equal_prefix))
     return sa.or_(*branches)
+
+
+def _apply_seek_predicate(
+    statement: Select[Any],
+    predicate: ColumnElement[bool],
+) -> Select[Any]:
+    """Apply a cursor predicate at the statement's logical row boundary."""
+    if statement._group_by_clauses:
+        return statement.having(predicate)
+    return statement.where(predicate)
 
 
 @overload
@@ -641,12 +666,13 @@ async def paginate[T](
     )
     query = statement.add_columns(*cursor_columns)
     if cursor_values is not None:
-        query = query.where(
+        query = _apply_seek_predicate(
+            query,
             _seek_predicate(
                 query_ordering,
                 cursor_values,
                 boundary=boundary,
-            )
+            ),
         )
     query = query.order_by(*(key.clause() for key in query_ordering)).limit(
         page.limit + 1
