@@ -28,7 +28,10 @@ with workflow.unsafe.imports_passed_through():
         SandboxAgentConfig,
         SandboxSubagentConfig,
     )
-    from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    from tracecat.agent.constants import (
+        AGENT_APPROVAL_CONTINUATION_MIN_SECONDS,
+        AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+    )
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         AgentExecutorResult,
@@ -177,6 +180,25 @@ def _apply_configured_timeout(
         return executor_input
     return executor_input.model_copy(
         update={"timeout_seconds": configured_timeout_seconds}
+    )
+
+
+def _continuation_budget_seconds(remaining_active_seconds: float) -> int:
+    """Budget for a post-approval continuation slice.
+
+    The floor is deliberate grace: an approved tool always gets a viable slice,
+    even with under 60s of budget left. Turns are charged their actual active
+    seconds and the first non-positive remainder is terminal, so a run can
+    exceed its configured budget by at most one floor — repeated approvals
+    cannot compound it.
+
+    Raises:
+        ValueError: The active runtime budget is exhausted.
+    """
+    if remaining_active_seconds <= 0:
+        raise ValueError("Active runtime budget is exhausted")
+    return max(
+        math.ceil(remaining_active_seconds), AGENT_APPROVAL_CONTINUATION_MIN_SECONDS
     )
 
 
@@ -1670,14 +1692,17 @@ class DurableAgentWorkflow:
                     is_approval_continuation=True,
                 )
                 if configurable_timeout:
-                    remaining_budget = math.ceil(remaining_active_seconds)
-                    if remaining_budget <= 0:
+                    try:
+                        remaining_budget = _continuation_budget_seconds(
+                            remaining_active_seconds
+                        )
+                    except ValueError as exc:
                         raise ApplicationError(
                             "Agent exceeded its maximum active runtime of "
                             f"{timeout_seconds} seconds",
                             type=AGENT_ACTIVE_RUNTIME_EXCEEDED_ERROR,
                             non_retryable=True,
-                        )
+                        ) from exc
                     activity_timeout_seconds = (
                         remaining_budget + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
                     )

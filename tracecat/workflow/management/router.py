@@ -49,6 +49,7 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.settings.service import get_setting
+from tracecat.sync import serializable_validation_errors
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import (
     ValidationDetail,
@@ -310,7 +311,7 @@ async def create_workflow(
                     {
                         "status": "failure",
                         "message": "Error validating external workflow definition",
-                        "errors": e.errors(),
+                        "errors": serializable_validation_errors(e.errors()),
                     },
                     indent=2,
                 ),

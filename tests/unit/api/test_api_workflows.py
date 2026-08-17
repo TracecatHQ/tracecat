@@ -343,6 +343,63 @@ async def test_create_workflow_import_builtin_registry_not_ready_returns_validat
 
 
 @pytest.mark.anyio
+async def test_create_workflow_import_invalid_timeout_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Strict-timeout ValidationErrors carry a live ValueError in ctx; the
+    router must still serialize them to a 400 instead of crashing json.dumps."""
+    from pydantic import ValidationError
+
+    from tracecat.dsl.schemas import STRICT_TIMEOUTS_CONTEXT
+    from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
+
+    payload = {
+        "definition": {
+            "title": "wf",
+            "description": "d",
+            "entrypoint": {"ref": "agent", "expects": {}},
+            "actions": [
+                {
+                    "ref": "agent",
+                    "action": "ai.agent",
+                    "args": {},
+                    "retry_policy": {"timeout": 1},
+                }
+            ],
+        }
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        ExternalWorkflowDefinition.model_validate(
+            payload, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
+
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_workflow_from_external_definition.side_effect = exc_info.value
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={
+                "file": (
+                    "workflow.yaml",
+                    b"definition:\n  title: Imported workflow\n",
+                    "application/yaml",
+                )
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    detail = json.loads(response.json()["detail"])
+    assert detail["status"] == "failure"
+    assert any("timeout" in str(err.get("msg", "")) for err in detail["errors"])
+
+
+@pytest.mark.anyio
 async def test_list_workflows_includes_trigger_summary(
     client: TestClient,
     test_admin_role: Role,

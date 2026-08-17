@@ -37,7 +37,12 @@ from tracecat.dsl.common import (
     edge_components_from_dep,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
+from tracecat.dsl.schemas import (
+    STRICT_TIMEOUTS_CONTEXT,
+    DSLConfig,
+    ExecutionContext,
+    RunContext,
+)
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import (
@@ -899,7 +904,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
-            dsl = DSLInput.model_validate(dsl_data)
+            dsl = DSLInput.model_validate(
+                dsl_data, context=dict(STRICT_TIMEOUTS_CONTEXT)
+            )
             self.logger.info("Creating workflow from database")
         except TracecatValidationError as e:
             self.logger.info("Custom validation error", error=e)
@@ -1420,7 +1427,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         Optionally validate the workflow definition before importing. (Default: False)
         """
 
-        external_defn = ExternalWorkflowDefinition.model_validate(import_data)
+        external_defn = ExternalWorkflowDefinition.model_validate(
+            import_data, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
         # NOTE: We do not support adding invalid workflows
 
         dsl = external_defn.definition

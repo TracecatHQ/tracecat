@@ -152,6 +152,7 @@ from tracecat.db.models import (
     WorkflowDefinition,
 )
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import STRICT_TIMEOUTS_CONTEXT
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -1481,7 +1482,9 @@ def _parse_workflow_yaml_payload(definition_yaml: str) -> WorkflowYamlPayload:
     except yaml.YAMLError as exc:
         raise ToolError(f"Invalid YAML: {exc}") from exc
     normalized = _normalize_workflow_yaml_payload(raw)
-    return WorkflowYamlPayload.model_validate(normalized)
+    return WorkflowYamlPayload.model_validate(
+        normalized, context=dict(STRICT_TIMEOUTS_CONTEXT)
+    )
 
 
 async def _build_workflow_yaml_envelope(
