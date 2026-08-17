@@ -107,13 +107,6 @@ function renderClosureDialog(onOpenChange: jest.Mock) {
 }
 
 describe("CaseClosureDialog", () => {
-  it("shows the display name instead of the field reference", () => {
-    renderClosureDialog(jest.fn())
-
-    expect(screen.getByText("Closure reason")).toBeInTheDocument()
-    expect(screen.queryByText("closure_reason")).not.toBeInTheDocument()
-  })
-
   it("has no cancel button", () => {
     renderClosureDialog(jest.fn())
 

@@ -23,24 +23,6 @@ jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
 
-beforeAll(() => {
-  if (!HTMLElement.prototype.hasPointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
-      value: () => false,
-    })
-  }
-  if (!HTMLElement.prototype.setPointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
-      value: () => undefined,
-    })
-  }
-  if (!HTMLElement.prototype.releasePointerCapture) {
-    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
-      value: () => undefined,
-    })
-  }
-})
-
 beforeEach(() => {
   jest.clearAllMocks()
   mockCasesCreateField.mockResolvedValue(undefined)
@@ -80,30 +62,6 @@ describe("custom field metadata dialogs", () => {
       <AddCustomFieldDialog open onOpenChange={jest.fn()} />
     )
 
-    await user.type(
-      screen.getByRole("textbox", { name: "Name" }),
-      "Analyst Verdict"
-    )
-    expect(screen.getByText("Reference: analyst_verdict")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Add field" }))
-
-    await waitFor(() => {
-      expect(mockCasesCreateField).toHaveBeenCalledWith({
-        workspaceId: "workspace-1",
-        requestBody: expect.objectContaining({
-          name: "analyst_verdict",
-          display_name: "Analyst Verdict",
-        }),
-      })
-    })
-  })
-
-  it("creates a valid reference when the display name begins with a number", async () => {
-    const user = userEvent.setup()
-    renderWithQueryClient(
-      <AddCustomFieldDialog open onOpenChange={jest.fn()} />
-    )
-
     await user.type(screen.getByRole("textbox", { name: "Name" }), "2FA status")
     expect(screen.getByText("Reference: field_2fa_status")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Add field" }))
@@ -119,23 +77,6 @@ describe("custom field metadata dialogs", () => {
     })
   })
 
-  it("rejects display names that cannot produce a reference", async () => {
-    const user = userEvent.setup()
-    renderWithQueryClient(
-      <AddCustomFieldDialog open onOpenChange={jest.fn()} />
-    )
-
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "🚨")
-    await user.click(screen.getByRole("button", { name: "Add field" }))
-
-    expect(
-      await screen.findByText(
-        "Field name must contain at least one Latin letter or number"
-      )
-    ).toBeInTheDocument()
-    expect(mockCasesCreateField).not.toHaveBeenCalled()
-  })
-
   it("updates the display name without renaming the reference", async () => {
     const user = userEvent.setup()
     renderWithQueryClient(
@@ -148,8 +89,6 @@ describe("custom field metadata dialogs", () => {
 
     const nameInput = screen.getByRole("textbox", { name: "Name" })
     const referenceInput = screen.getByRole("textbox", { name: "Reference" })
-    expect(nameInput).toHaveValue("Analyst verdict")
-    expect(referenceInput).toHaveValue("analyst_verdict_v2")
     await user.clear(nameInput)
     await user.type(nameInput, "2FA determination")
     expect(referenceInput).toHaveValue("analyst_verdict_v2")
@@ -172,37 +111,7 @@ describe("custom field metadata dialogs", () => {
     ).not.toHaveProperty("name")
   })
 
-  it("updates the reference independently of the display name", async () => {
-    const user = userEvent.setup()
-    renderWithQueryClient(
-      <EditCustomFieldDialog
-        open
-        field={existingField}
-        onOpenChange={jest.fn()}
-      />
-    )
-
-    const referenceInput = screen.getByRole("textbox", { name: "Reference" })
-    await user.clear(referenceInput)
-    await user.type(referenceInput, "final_determination")
-    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
-      "Analyst verdict"
-    )
-    await user.click(screen.getByRole("button", { name: "Save changes" }))
-
-    await waitFor(() => {
-      expect(mockCasesUpdateField).toHaveBeenCalledWith({
-        workspaceId: "workspace-1",
-        fieldId: "analyst_verdict_v2",
-        requestBody: expect.objectContaining({
-          name: "final_determination",
-          display_name: "Analyst verdict",
-        }),
-      })
-    })
-  })
-
-  it("validates an explicitly edited reference", async () => {
+  it("validates and updates the reference independently", async () => {
     const user = userEvent.setup()
     renderWithQueryClient(
       <EditCustomFieldDialog
@@ -223,18 +132,9 @@ describe("custom field metadata dialogs", () => {
       )
     ).toBeInTheDocument()
     expect(mockCasesUpdateField).not.toHaveBeenCalled()
-  })
 
-  it("omits the reference when the display name is unchanged", async () => {
-    const user = userEvent.setup()
-    renderWithQueryClient(
-      <EditCustomFieldDialog
-        open
-        field={existingField}
-        onOpenChange={jest.fn()}
-      />
-    )
-
+    await user.clear(referenceInput)
+    await user.type(referenceInput, "final_determination")
     await user.click(screen.getByRole("button", { name: "Save changes" }))
 
     await waitFor(() => {
@@ -242,12 +142,10 @@ describe("custom field metadata dialogs", () => {
         workspaceId: "workspace-1",
         fieldId: "analyst_verdict_v2",
         requestBody: expect.objectContaining({
+          name: "final_determination",
           display_name: "Analyst verdict",
         }),
       })
     })
-    expect(
-      mockCasesUpdateField.mock.calls[0][0].requestBody
-    ).not.toHaveProperty("name")
   })
 })

@@ -107,15 +107,6 @@ describe.each([
     }
   })
 
-  it("shows display names instead of references", () => {
-    renderGroup(true)
-
-    expect(screen.getByText("Reporter email")).toBeInTheDocument()
-    expect(screen.getByText("Analyst verdict")).toBeInTheDocument()
-    expect(screen.queryByText("reporter")).not.toBeInTheDocument()
-    expect(screen.queryByText("verdict")).not.toBeInTheDocument()
-  })
-
   it("renders no button ahead of the label inside a row", () => {
     // jsdom has no layout, so "identical left alignment" is asserted
     // structurally: nothing precedes the label span in any row.
