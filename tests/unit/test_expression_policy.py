@@ -152,6 +152,7 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
         ("ai.agent.update_preset", "model_name"),
         ("ai.agent.update_preset", "model_provider"),
         ("core.cases.upload_attachment", "file_name"),
+        ("core.cases.upload_attachment", "content_type"),
         ("core.cases.upload_attachment_from_url", "file_name"),
         ("core.cases.create_task", "title"),
         ("core.cases.create_task", "description"),

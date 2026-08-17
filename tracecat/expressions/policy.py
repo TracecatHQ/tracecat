@@ -95,7 +95,9 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
         {"title", "description", "default_trigger_values"}
     ),
     "core.cases.add_case_tag": frozenset({"tag"}),
-    "core.cases.upload_attachment": frozenset({"file_name", "content_base64"}),
+    "core.cases.upload_attachment": frozenset(
+        {"file_name", "content_base64", "content_type"}
+    ),
     "core.cases.upload_attachment_from_url": frozenset({"file_name"}),
     "core.table.create_table": frozenset({"name", "columns"}),
     "core.table.update_table": frozenset({"new_name"}),
