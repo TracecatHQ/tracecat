@@ -94,7 +94,8 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
     "core.cases.update_task": frozenset(
         {"title", "description", "default_trigger_values"}
     ),
-    "core.cases.upload_attachment": frozenset({"file_name"}),
+    "core.cases.add_case_tag": frozenset({"tag"}),
+    "core.cases.upload_attachment": frozenset({"file_name", "content_base64"}),
     "core.cases.upload_attachment_from_url": frozenset({"file_name"}),
     "core.table.create_table": frozenset({"name", "columns"}),
     "core.table.update_table": frozenset({"new_name"}),
@@ -114,6 +115,8 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
             "model_provider",
             "base_url",
             "output_type",
+            "namespaces",
+            "agents",
         }
     ),
     "ai.agent.update_preset": frozenset(
@@ -126,6 +129,8 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
             "model_provider",
             "base_url",
             "output_type",
+            "namespaces",
+            "agents",
         }
     ),
     "ai.skill.create_skill": frozenset({"name", "description"}),

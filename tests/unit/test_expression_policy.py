@@ -159,6 +159,7 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
         ("core.cases.update_task", "description"),
         ("ai.skill.create_skill", "name"),
         ("ai.skill.create_skill", "description"),
+        ("core.cases.add_case_tag", "tag"),
     ],
 )
 def test_explicit_durable_string_fields_redact_secrets(
@@ -226,6 +227,59 @@ def test_agent_skill_files_redact_nested_secrets() -> None:
                 "content_type": "text/markdown",
             }
         ],
+    }
+
+
+def test_attachment_content_redacts_secrets_before_persistence() -> None:
+    prepared = _resolve_root(
+        "core.cases.upload_attachment",
+        {"content_base64": "${{ SECRETS.api.FILE_BASE64 }}"},
+        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
+    )
+
+    assert prepared == {"content_base64": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["ai.agent.create_preset", "ai.agent.update_preset"],
+)
+def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
+    prepared = _resolve_root(
+        action,
+        {
+            "namespaces": ["core", "${{ SECRETS.api.NAMESPACE }}"],
+            "agents": {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "triage-assistant",
+                        "description": "Uses ${{ SECRETS.api.TOKEN }}",
+                    }
+                ],
+            },
+        },
+        {
+            "SECRETS": {
+                "api": {
+                    "NAMESPACE": "private.namespace",
+                    "TOKEN": "runtime-secret",
+                }
+            }
+        },
+    )
+
+    assert prepared == {
+        "namespaces": ["core", MASK_VALUE],
+        "agents": {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "triage-assistant",
+                    "description": f"Uses {MASK_VALUE}",
+                }
+            ],
+        },
     }
 
 
