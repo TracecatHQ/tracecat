@@ -889,11 +889,6 @@ TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS = os.environ.get(
 )
 """Sensitive JSON object of OTel headers for the platform override."""
 
-TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS") or 10.0
-)
-"""Timeout in seconds for the Agent OTel relay to forward telemetry."""
-
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
 

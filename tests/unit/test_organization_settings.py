@@ -34,6 +34,7 @@ from tracecat.settings.schemas import (
     VersionedResourceResolutionStrategy,
 )
 from tracecat.settings.service import (
+    AgentOtelEndpointNotAllowedError,
     SettingsService,
     get_setting,
     get_setting_override,
@@ -446,9 +447,22 @@ async def test_update_saml_settings(
     assert settings_dict["saml_idp_metadata_url"] == "https://test-idp.com"
 
 
+@pytest.fixture
+def allow_agent_otel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve the example collector to a public address without real DNS."""
+
+    async def _noop(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        settings_service_module, "validate_url_resolves_public_async", _noop
+    )
+
+
 @pytest.mark.anyio
 async def test_update_agent_otel_settings_encrypts_headers(
     settings_service_with_defaults: SettingsService,
+    allow_agent_otel_endpoint: None,
 ) -> None:
     service = settings_service_with_defaults
     await service.update_agent_otel_settings(
@@ -476,6 +490,64 @@ async def test_update_agent_otel_settings_encrypts_headers(
     assert service.get_value(settings_by_key["agent_otel_headers"]) == {
         "Authorization": "Bearer token"
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://127.0.0.1:4318", "http://169.254.169.254"],
+    ids=["loopback", "link-local"],
+)
+async def test_update_agent_otel_settings_rejects_private_endpoint(
+    settings_service_with_defaults: SettingsService,
+    endpoint: str,
+) -> None:
+    """A collector on a private address is rejected and never persisted."""
+    service = settings_service_with_defaults
+
+    with pytest.raises(AgentOtelEndpointNotAllowedError) as exc_info:
+        await service.update_agent_otel_settings(
+            AgentOtelSettingsUpdate(
+                agent_otel_config=AgentOtelConfig(
+                    enabled=True, endpoint=HttpUrl(endpoint)
+                ),
+                agent_otel_headers={"Authorization": "Bearer token"},
+            )
+        )
+
+    # The rejection must not echo the resolved address back to the caller.
+    assert endpoint.split("//")[1] not in str(exc_info.value)
+    settings = await service.list_org_settings(
+        keys={"agent_otel_config", "agent_otel_headers"}
+    )
+    values, _ = service.get_values_with_decryption_fallback(settings)
+    assert values.get("agent_otel_config", {}).get("endpoint") is None
+
+
+@pytest.mark.anyio
+async def test_update_agent_otel_settings_skips_validation_when_disabled(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disabled telemetry never resolves the endpoint host."""
+    calls: list[str] = []
+
+    async def _record(url: str) -> None:
+        calls.append(url)
+
+    monkeypatch.setattr(
+        settings_service_module, "validate_url_resolves_public_async", _record
+    )
+
+    await settings_service_with_defaults.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=False, endpoint=HttpUrl("http://127.0.0.1:4318")
+            )
+        )
+    )
+
+    assert calls == []
 
 
 @pytest.mark.anyio

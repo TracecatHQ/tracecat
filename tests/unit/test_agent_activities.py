@@ -2224,9 +2224,9 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert work_dir.is_dir()
         assert list(work_dir.iterdir()) == []
 
-    def test_build_sandbox_env_injects_relay_bearer_jwt(self) -> None:
+    def test_build_sandbox_env_injects_receiver_bearer_jwt(self) -> None:
         """The host injects OTEL_EXPORTER_OTLP_HEADERS so Claude's exporter
-        attaches the relay JWT for the OtelSocketRelay to verify."""
+        attaches the receiver JWT for the OtelSocketReceiver to verify."""
         from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 
         resolved = ResolvedAgentOtelConfig(
@@ -2238,11 +2238,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             },
         )
         env = SandboxedAgentExecutor._build_sandbox_env(
-            resolved, otel_auth_token="relay-jwt"
+            resolved, otel_auth_token="receiver-jwt"
         )
 
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
-        assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer relay-jwt"
+        assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer receiver-jwt"
         assert env["OTEL_LOGS_EXPORTER"] == "otlp"
 
 

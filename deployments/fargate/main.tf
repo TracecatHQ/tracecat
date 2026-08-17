@@ -167,7 +167,6 @@ module "ecs" {
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
   agent_otel_platform_override_config      = var.agent_otel_platform_override_config
   agent_otel_platform_override_headers_arn = var.agent_otel_platform_override_headers_arn
-  agent_otel_relay_timeout_seconds         = var.agent_otel_relay_timeout_seconds
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds

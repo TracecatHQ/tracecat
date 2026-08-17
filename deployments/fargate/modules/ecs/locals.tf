@@ -216,7 +216,6 @@ locals {
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
         TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG      = var.agent_otel_platform_override_config
-        TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS         = var.agent_otel_relay_timeout_seconds
         TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
