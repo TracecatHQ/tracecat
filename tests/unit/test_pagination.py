@@ -464,6 +464,58 @@ class TestPaginate:
         assert seen == expected
 
     @pytest.mark.anyio
+    async def test_binary_cursor_values_round_trip(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        metadata = sa.MetaData()
+        items = sa.Table(
+            "test_binary_page_items",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("value", sa.LargeBinary, nullable=False),
+            prefixes=["TEMPORARY"],
+        )
+        connection = await session.connection()
+        await connection.run_sync(metadata.create_all)
+        await session.execute(
+            items.insert(),
+            [
+                {"id": 1, "value": b"\xff\x00"},
+                {"id": 2, "value": b"\x00"},
+            ],
+        )
+        statement = sa.select(items.c.id)
+        order_by = (items.c.value.desc(), items.c.id.asc())
+
+        first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=1),
+            order_by=order_by,
+        )
+        assert first.items == [1]
+        assert first.next_cursor is not None
+
+        second = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=1, cursor=first.next_cursor),
+            order_by=order_by,
+        )
+        assert second.items == [2]
+        assert second.prev_cursor is not None
+
+        back_to_first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=1, cursor=second.prev_cursor),
+            order_by=order_by,
+        )
+        assert back_to_first.items == first.items
+
+    @pytest.mark.anyio
     async def test_database_equal_numeric_values_require_unique_tie_breaker(
         self,
         session: AsyncSession,

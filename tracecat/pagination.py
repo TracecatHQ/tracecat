@@ -49,6 +49,10 @@ _CURSOR_VERSION = 1
 _CURSOR_SIGNATURE_CONTEXT = b"tracecat.pagination.cursor.v1\0"
 _MAX_CURSOR_LENGTH = 8192
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
+_BINARY_CURSOR_ADAPTER = TypeAdapter(
+    bytes,
+    config=ConfigDict(ser_json_bytes="base64", val_json_bytes="base64"),
+)
 _FINGERPRINT_JSON_OPTIONS = (
     orjson.OPT_NON_STR_KEYS | orjson.OPT_SORT_KEYS | orjson.OPT_UTC_Z
 )
@@ -242,7 +246,9 @@ def _normalize_order(expression: ColumnElement[Any]) -> _OrderKey:
             f"Pagination ordering expression {current!s} has no Python value type"
         ) from exc
     try:
-        adapter = TypeAdapter(value_type)
+        adapter = (
+            _BINARY_CURSOR_ADAPTER if value_type is bytes else TypeAdapter(value_type)
+        )
     except (PydanticUserError, TypeError) as exc:
         raise PaginationConfigurationError(
             f"Pagination ordering expression {current!s} has an unsupported value type"
