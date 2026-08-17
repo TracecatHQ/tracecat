@@ -249,7 +249,14 @@ def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
     prepared = _resolve_root(
         action,
         {
+            "catalog_id": "${{ SECRETS.api.CATALOG_ID }}",
+            "actions": ["core.cases.create_case", "${{ SECRETS.api.ACTION }}"],
             "namespaces": ["core", "${{ SECRETS.api.NAMESPACE }}"],
+            "tool_approvals": {
+                "core.cases.create_case": False,
+                "core.cases.update_case": "${{ SECRETS.api.APPROVAL }}",
+            },
+            "mcp_integrations": ["${{ SECRETS.api.MCP_INTEGRATION_ID }}"],
             "agents": {
                 "enabled": True,
                 "subagents": [
@@ -259,19 +266,32 @@ def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
                     }
                 ],
             },
+            "skills": [{"skill_id": "${{ SECRETS.api.SKILL_ID }}"}],
         },
         {
             "SECRETS": {
                 "api": {
+                    "CATALOG_ID": "00000000-0000-0000-0000-000000000001",
+                    "ACTION": "core.cases.update_case",
                     "NAMESPACE": "private.namespace",
+                    "APPROVAL": "true",
+                    "MCP_INTEGRATION_ID": "00000000-0000-0000-0000-000000000002",
                     "TOKEN": "runtime-secret",
+                    "SKILL_ID": "triage-assistant",
                 }
             }
         },
     )
 
     assert prepared == {
+        "catalog_id": MASK_VALUE,
+        "actions": ["core.cases.create_case", MASK_VALUE],
         "namespaces": ["core", MASK_VALUE],
+        "tool_approvals": {
+            "core.cases.create_case": False,
+            "core.cases.update_case": MASK_VALUE,
+        },
+        "mcp_integrations": [MASK_VALUE],
         "agents": {
             "enabled": True,
             "subagents": [
@@ -281,6 +301,7 @@ def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
                 }
             ],
         },
+        "skills": [{"skill_id": MASK_VALUE}],
     }
 
 
