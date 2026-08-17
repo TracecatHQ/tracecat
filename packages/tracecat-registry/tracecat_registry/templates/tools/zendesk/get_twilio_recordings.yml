@@ -17,12 +17,16 @@ definition:
       type: str
       description: Call ID
   steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: call_api
       action: core.http_request
       args:
         url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/channels/voice/calls/${{ inputs.call_id }}/twilio/call/recording
         method: GET
         headers:
-          Authorization: Basic ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+          Authorization: Basic ${{ steps.encode_auth.result }}
           Accept: application/json
   returns: ${{ steps.call_api.result.data }}

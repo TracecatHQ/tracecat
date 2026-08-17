@@ -25,6 +25,10 @@ definition:
       description: Number of users per page (max 100)
       default: 100
   steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: build_params
       action: core.script.run_python
       args:
@@ -43,7 +47,7 @@ definition:
         url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/groups/${{ inputs.group_id }}/users.json
         method: GET
         headers:
-          Authorization: Basic ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+          Authorization: Basic ${{ steps.encode_auth.result }}
           Accept: application/json
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}
