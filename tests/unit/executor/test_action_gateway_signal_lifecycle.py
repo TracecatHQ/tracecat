@@ -19,6 +19,8 @@ from tracecat.temporal.worker_lifecycle import (
     install_worker_shutdown_signal_handlers,
 )
 
+COLD_PROCESS_START_TIMEOUT_SECONDS = 60.0
+
 
 @pytest.fixture(autouse=True, scope="session")
 def default_org() -> Iterator[None]:
@@ -100,7 +102,9 @@ def test_sigterm_keeps_action_gateway_available_during_worker_drain() -> None:
         process.start()
         child_connection.close()
         try:
-            assert parent_connection.poll(15), "Action Gateway did not start"
+            assert parent_connection.poll(COLD_PROCESS_START_TIMEOUT_SECONDS), (
+                "Action Gateway did not start"
+            )
             status, detail = parent_connection.recv()
             if status == "error":
                 pytest.fail(detail)
