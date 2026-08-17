@@ -209,7 +209,7 @@ COPY --from=nsjail-builder /usr/local/bin/tracecat-loop-device-sync /usr/local/b
 RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
     setcap cap_sys_admin,cap_dac_override+ep /usr/bin/mount && \
     setcap cap_sys_admin,cap_dac_override+ep /usr/bin/umount && \
-    setcap cap_mknod,cap_dac_override+ep /usr/local/bin/tracecat-loop-device-sync
+    setcap cap_mknod,cap_dac_override,cap_setuid+ep /usr/local/bin/tracecat-loop-device-sync
 
 WORKDIR /app
 

@@ -11,8 +11,10 @@
 #include <string_view>
 #include <system_error>
 
+#include <sys/fsuid.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/types.h>
 
 // Synchronize loop block-device nodes visible to a running executor container.
 //
@@ -25,14 +27,17 @@
 // This helper repairs only that visibility mismatch. It mirrors loop devices
 // already reported by the kernel into /dev; it does not allocate, configure,
 // attach, mount, unmount, or remove loop devices. It is installed with the
-// narrow CAP_MKNOD file capability because the main Python executor runs as an
-// unprivileged user.
+// narrow file capabilities because the main Python executor runs as an
+// unprivileged user. CAP_SETUID is used only to set the filesystem UID to root
+// before publishing nodes, so ordinary UID-1001 action subprocesses cannot open
+// node-global loop devices through owner permissions.
 //
 // Security contract:
 //   * accept no caller-controlled paths or device numbers;
 //   * trust only kernel sysfs entries named loopN with Linux loop major 7;
 //   * reject any existing /dev/loopN path that is not the exact block device;
-//   * create nodes mode 0600, leaving access to the file-capability mount tool;
+//   * create root-owned nodes mode 0600, leaving access only to the
+//     file-capability mount tool;
 //   * fail the entire synchronization on malformed or inconsistent state.
 //
 // stdout is a small machine-readable ABI consumed by registry_artifacts.py:
@@ -62,6 +67,26 @@ struct SyncCounts {
 };
 
 enum class NodeState { kMissing, kExisting };
+
+class ScopedRootFsuid {
+  public:
+    ScopedRootFsuid() : original_fsuid_(::setfsuid(0)) {
+        // setfsuid(2) reports the previous value even when it refuses a change.
+        // Setting the requested value a second time therefore verifies that the
+        // first call actually installed root as the filesystem UID.
+        if (::setfsuid(0) != 0) {
+            throw std::runtime_error("cannot set root filesystem uid");
+        }
+    }
+
+    ScopedRootFsuid(const ScopedRootFsuid&) = delete;
+    ScopedRootFsuid& operator=(const ScopedRootFsuid&) = delete;
+
+    ~ScopedRootFsuid() { static_cast<void>(::setfsuid(original_fsuid_)); }
+
+  private:
+    uid_t original_fsuid_;
+};
 
 std::optional<unsigned int> parse_loop_minor(const fs::path& filename) {
     const std::string name = filename.native();
@@ -204,6 +229,10 @@ int main(int argc, char*[]) {
     }
 
     try {
+        // mknod(2) assigns ownership from the caller's filesystem UID. Publish
+        // nodes as root from birth so there is no UID-1001 ownership window for
+        // a concurrent untrusted action to exploit.
+        const ScopedRootFsuid root_fsuid;
         const SyncCounts counts = synchronize_loop_devices();
         std::cout << counts.kernel_devices << ' ' << counts.created_nodes << ' '
                   << counts.existing_nodes << '\n';

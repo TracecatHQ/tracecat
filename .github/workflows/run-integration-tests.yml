@@ -250,6 +250,8 @@ jobs:
           # Tests run on the host, so Temporal must be reachable via localhost
           TEMPORAL__CLUSTER_URL: "localhost:7233"
           TRACECAT__DISABLE_NSJAIL: "true"
+          # Privileged loop-device regression reuses the exact image built above.
+          TRACECAT__REGISTRY_LOOP_HOTPLUG_IMAGE: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           # Skip pool integration tests for now.
           # Worker-specific task queues in conftest.py ensure isolation

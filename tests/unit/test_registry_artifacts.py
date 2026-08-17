@@ -859,7 +859,7 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_mounts.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
             ) as create_subprocess_exec,
@@ -903,7 +903,7 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+                "tracecat.executor.registry_artifact_mounts.asyncio.create_subprocess_exec",
                 new_callable=AsyncMock,
                 return_value=process,
             ) as create_subprocess_exec,

@@ -10,11 +10,13 @@ The companion regression exercises Tracecat's product mount path against the
 same condition as the real non-root ``apiuser``. It requires the product path
 to synchronize the missing node and successfully mount the second image.
 
-Build the normal executor image once, then run without database-backed parent
-fixtures. The test reuses that image and bind-mounts only this test source::
+Build the normal executor image once, resolve its immutable image ID, then run
+without database-backed parent fixtures::
 
     docker compose -f docker-compose.dev.yml build executor
-    uv run pytest --confcutdir=tests/integration \
+    TRACECAT__REGISTRY_LOOP_HOTPLUG_IMAGE=$(docker compose \
+        -f docker-compose.dev.yml images -q executor) \
+      uv run pytest --confcutdir=tests/integration \
         tests/integration/test_registry_artifact_loop_hotplug.py \
         -m integration -s
 """
@@ -23,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
-import functools
 import json
 import os
 import pwd
@@ -38,6 +39,7 @@ from pathlib import Path
 from typing import Self, cast
 
 _LOOP_HOTPLUG_CHILD_ENV = "TRACECAT__REGISTRY_LOOP_HOTPLUG_CHILD"
+_LOOP_HOTPLUG_IMAGE_ENV = "TRACECAT__REGISTRY_LOOP_HOTPLUG_IMAGE"
 _LOOP_HOTPLUG_FLAG = "--run-registry-loop-hotplug"
 _LOOP_HOTPLUG_RESULT = "TRACECAT_REGISTRY_LOOP_HOTPLUG_RESULT:"
 
@@ -63,6 +65,7 @@ class LoopHotplugPayload:
     product_mount_succeeded: bool
     product_error: str | None
     product_created_device_node: bool
+    product_device_inaccessible_to_apiuser: bool
     product_module_readable: bool
     cleanup_unmounted: bool
 
@@ -106,6 +109,9 @@ class LoopHotplugPayload:
             product_mount_succeeded=required_bool("product_mount_succeeded"),
             product_error=optional_str("product_error"),
             product_created_device_node=required_bool("product_created_device_node"),
+            product_device_inaccessible_to_apiuser=required_bool(
+                "product_device_inaccessible_to_apiuser"
+            ),
             product_module_readable=required_bool("product_module_readable"),
             cleanup_unmounted=required_bool("cleanup_unmounted"),
         )
@@ -123,6 +129,7 @@ def _empty_payload(*, skipped: str | None = None) -> LoopHotplugPayload:
         product_mount_succeeded=False,
         product_error=None,
         product_created_device_node=False,
+        product_device_inaccessible_to_apiuser=False,
         product_module_readable=False,
         cleanup_unmounted=False,
     )
@@ -147,78 +154,74 @@ def _run_loop_hotplug_in_docker_or_skip() -> LoopHotplugPayload:
         raise unittest.SkipTest("Docker daemon unavailable for registry loop hotplug")
 
     repo_root = Path(__file__).resolve().parents[2]
-    compose_env = os.environ.copy()
-    compose_env.setdefault(
-        "TRACECAT__LOCAL_REPOSITORY_PATH",
-        str(repo_root / "packages"),
+    configured_image = os.environ.get(_LOOP_HOTPLUG_IMAGE_ENV)
+    if not configured_image:
+        raise unittest.SkipTest(
+            f"{_LOOP_HOTPLUG_IMAGE_ENV} must name the prebuilt executor image"
+        )
+    inspect_result = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", configured_image],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
     )
-    compose_env.setdefault("PUBLIC_APP_PORT", "80")
-    compose_env.setdefault("BASE_DOMAIN", ":80")
-    compose_env.setdefault("ADDRESS", "0.0.0.0")
-    compose_env["LOG_LEVEL"] = "INFO"
-    compose_env["TRACECAT__APP_ENV"] = "development"
-    compose_env["TRACECAT__SERVICE_KEY"] = "test-service-key"
-    compose_env["TRACECAT__LOCAL_REPOSITORY_ENABLED"] = "false"
-    compose_env[_LOOP_HOTPLUG_CHILD_ENV] = "1"
-    compose_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if inspect_result.returncode != 0:
+        raise AssertionError(
+            f"Configured loop hotplug image is unavailable: {configured_image!r}"
+            f"\n\nstderr:\n{inspect_result.stderr}"
+        )
+    image_id = inspect_result.stdout.strip()
+    if not image_id.startswith("sha256:"):
+        raise AssertionError(f"Docker returned an invalid image ID: {image_id!r}")
 
-    override_fd, override_name = tempfile.mkstemp(
-        prefix="tracecat-registry-loop-hotplug-",
-        suffix=".yml",
+    child_env = os.environ.copy()
+    child_env["LOG_LEVEL"] = "INFO"
+    child_env["TRACECAT__APP_ENV"] = "development"
+    child_env["TRACECAT__SERVICE_KEY"] = "test-service-key"
+    child_env["TRACECAT__LOCAL_REPOSITORY_ENABLED"] = "false"
+    child_env[_LOOP_HOTPLUG_CHILD_ENV] = "1"
+    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    forwarded_env = (
+        "LOG_LEVEL",
+        "TRACECAT__APP_ENV",
+        "TRACECAT__SERVICE_KEY",
+        "TRACECAT__LOCAL_REPOSITORY_ENABLED",
+        _LOOP_HOTPLUG_CHILD_ENV,
+        "PYTHONDONTWRITEBYTECODE",
     )
-    os.close(override_fd)
-    override_path = Path(override_name)
-    override_path.write_text(
-        "\n".join(
-            [
-                "services:",
-                "  executor:",
-                "    privileged: true",
-                '    user: "0:0"',
-                "    security_opt:",
-                "      - seccomp:unconfined",
-                "      - systempaths=unconfined",
-                "    volumes:",
-                f"      - {repo_root / 'tests'}:/app/tests:ro",
-                "    environment:",
-                f"      - {_LOOP_HOTPLUG_CHILD_ENV}",
-                "      - TRACECAT__APP_ENV",
-                "      - TRACECAT__SERVICE_KEY",
-                "      - TRACECAT__LOCAL_REPOSITORY_ENABLED",
-                "      - PYTHONDONTWRITEBYTECODE",
-                "",
-            ]
-        )
+    docker_env_args = [argument for key in forwarded_env for argument in ("--env", key)]
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--pull=never",
+            "--privileged",
+            "--user",
+            "0:0",
+            "--security-opt",
+            "seccomp=unconfined",
+            "--security-opt",
+            "systempaths=unconfined",
+            "--volume",
+            f"{repo_root / 'tests'}:/app/tests:ro",
+            *docker_env_args,
+            "--entrypoint",
+            "/app/.venv/bin/python",
+            image_id,
+            "-m",
+            "tests.integration.test_registry_artifact_loop_hotplug",
+            _LOOP_HOTPLUG_FLAG,
+        ],
+        cwd=repo_root,
+        env=child_env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
     )
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(repo_root / "docker-compose.dev.yml"),
-                "-f",
-                str(override_path),
-                "run",
-                "--rm",
-                "--no-deps",
-                "-T",
-                "--entrypoint",
-                "/app/.venv/bin/python",
-                "executor",
-                "-m",
-                "tests.integration.test_registry_artifact_loop_hotplug",
-                _LOOP_HOTPLUG_FLAG,
-            ],
-            cwd=repo_root,
-            env=compose_env,
-            capture_output=True,
-            text=True,
-            timeout=900,
-            check=False,
-        )
-    finally:
-        override_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
         raise AssertionError(
@@ -237,15 +240,9 @@ def _run_loop_hotplug_in_docker_or_skip() -> LoopHotplugPayload:
     )
 
 
-@functools.cache
-def _loop_hotplug_payload() -> LoopHotplugPayload:
-    """Run the isolated privileged-container scenario once."""
-    return _run_loop_hotplug_in_docker_or_skip()
-
-
-def test_legacy_mount_reproduces_missing_loop_device_node() -> None:
-    """Reproduce the production ``failed to setup loop device`` condition."""
-    payload = _loop_hotplug_payload()
+def test_registry_loop_hotplug_recovery() -> None:
+    """Reproduce the legacy failure and require secure product recovery."""
+    payload = _run_loop_hotplug_in_docker_or_skip()
     if payload.skipped:
         raise unittest.SkipTest(payload.skipped)
 
@@ -253,17 +250,10 @@ def test_legacy_mount_reproduces_missing_loop_device_node() -> None:
     assert payload.legacy_probe_failed is True
     assert "failed to setup loop device" in payload.legacy_error
     assert payload.kernel_device_exists_without_container_node is True
-
-
-def test_product_mount_synchronizes_missing_loop_device_node() -> None:
-    """Require Tracecat's non-root mount path to recover from stale ``/dev``."""
-    payload = _loop_hotplug_payload()
-    if payload.skipped:
-        raise unittest.SkipTest(payload.skipped)
-
     assert payload.product_ran_as_apiuser is True
     assert payload.product_mount_succeeded is True, payload.product_error
     assert payload.product_created_device_node is True
+    assert payload.product_device_inaccessible_to_apiuser is True
     assert payload.product_module_readable is True
     assert payload.cleanup_unmounted is True
 
@@ -311,6 +301,17 @@ def _create_local_loop_node(minor: int) -> Path:
         os.makedev(_LOOP_BLOCK_MAJOR, minor),
     )
     return path
+
+
+def _device_is_read_protected(path: Path) -> bool:
+    """Return whether the current unprivileged user cannot open a block node."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    except PermissionError:
+        return True
+    else:
+        os.close(descriptor)
+        return False
 
 
 def _build_squashfs_image(source_dir: Path, image_path: Path) -> None:
@@ -409,6 +410,7 @@ async def _run_loop_hotplug_child() -> None:
     product_mount_succeeded = False
     product_error: str | None = None
     product_created_device_node = False
+    product_device_inaccessible_to_apiuser = False
     product_module_readable = False
     cleanup_unmounted = False
 
@@ -473,6 +475,11 @@ async def _run_loop_hotplug_child() -> None:
                     and os.major(probe_stat.st_rdev) == _LOOP_BLOCK_MAJOR
                     and os.minor(probe_stat.st_rdev) == probe_minor
                 )
+                product_device_inaccessible_to_apiuser = (
+                    probe_stat.st_uid == 0
+                    and stat.S_IMODE(probe_stat.st_mode) == 0o600
+                    and _device_is_read_protected(probe_device)
+                )
             product_module_readable = (
                 product_mount_succeeded
                 and (probe_target / "probe.py").read_text() == "VALUE = 1\n"
@@ -496,6 +503,7 @@ async def _run_loop_hotplug_child() -> None:
         product_mount_succeeded=product_mount_succeeded,
         product_error=product_error,
         product_created_device_node=product_created_device_node,
+        product_device_inaccessible_to_apiuser=(product_device_inaccessible_to_apiuser),
         product_module_readable=product_module_readable,
         cleanup_unmounted=cleanup_unmounted,
     )
