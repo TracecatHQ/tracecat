@@ -1406,6 +1406,53 @@ class TestTableRows:
         assert final_page.has_more is False
         assert final_page.next_cursor is None
 
+    async def test_search_rows_multi_select_cursor_round_trip(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="multi_select_cursor_table",
+                columns=[
+                    TableColumnCreate(
+                        name="tags",
+                        type=SqlType.MULTI_SELECT,
+                        options=["alpha", "beta", "gamma"],
+                    )
+                ],
+            )
+        )
+        for tags in (["gamma"], ["alpha"], ["beta"]):
+            await tables_service.insert_row(
+                table,
+                TableRowInsert(data={"tags": tags}),
+            )
+
+        all_rows = await tables_service.search_rows(
+            table,
+            limit=3,
+            order_by="tags",
+            sort="asc",
+        )
+        first = await tables_service.search_rows(
+            table,
+            limit=1,
+            order_by="tags",
+            sort="asc",
+        )
+        assert first.next_cursor is not None
+        second = await tables_service.search_rows(
+            table,
+            limit=1,
+            cursor=first.next_cursor,
+            order_by="tags",
+            sort="asc",
+        )
+
+        assert [row["id"] for row in first.items + second.items] == [
+            row["id"] for row in all_rows.items[:2]
+        ]
+
     async def test_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table
     ) -> None:
