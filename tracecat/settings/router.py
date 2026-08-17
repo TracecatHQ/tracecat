@@ -30,7 +30,10 @@ from tracecat.settings.schemas import (
     SAMLSettingsRead,
     SAMLSettingsUpdate,
 )
-from tracecat.settings.service import SettingsService
+from tracecat.settings.service import (
+    AgentOtelEndpointNotAllowedError,
+    SettingsService,
+)
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -312,4 +315,10 @@ async def update_agent_otel_settings(
     params: AgentOtelSettingsUpdate,
 ) -> None:
     service = SettingsService(session, role)
-    await service.update_agent_otel_settings(params)
+    try:
+        await service.update_agent_otel_settings(params)
+    except AgentOtelEndpointNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Agent OTel endpoint is not allowed",
+        ) from exc

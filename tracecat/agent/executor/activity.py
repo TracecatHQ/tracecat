@@ -60,9 +60,9 @@ from tracecat.agent.mcp.stdio_probe_types import (
     sanitize_stdio_probe_error,
 )
 from tracecat.agent.otel_config import (
+    AgentOtelConfig,
     ResolvedAgentOtelConfig,
     load_agent_otel_platform_override,
-    load_org_agent_otel_inputs,
     resolve_agent_otel_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -79,7 +79,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketRelay
+from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
@@ -96,6 +96,7 @@ from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
 from .schemas import (
@@ -106,6 +107,39 @@ from .schemas import (
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOtelInputs:
+    """Org-saved Agent OTel config plus its decrypted exporter headers."""
+
+    config: AgentOtelConfig | None
+    headers: dict[str, str] | None
+
+
+async def load_org_agent_otel_inputs(*, role: Role) -> AgentOtelInputs:
+    """Load the org's saved Agent OTel config and decrypted headers.
+
+    Both fields are ``None`` when the org has no settings rows yet so the
+    resolver can fall back to its defaults.
+    """
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(
+            keys={"agent_otel_config", "agent_otel_headers"}
+        )
+        values, _ = service.get_values_with_decryption_fallback(settings)
+
+    raw_config = values.get("agent_otel_config")
+    config_value: AgentOtelConfig | None = None
+    if isinstance(raw_config, dict):
+        config_value = AgentOtelConfig.model_validate(raw_config)
+
+    raw_headers = values.get("agent_otel_headers")
+    headers_value: dict[str, str] | None = None
+    if isinstance(raw_headers, dict):
+        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
+
+    return AgentOtelInputs(config=config_value, headers=headers_value)
 
 
 class AgentExecutorInput(BaseModel):
@@ -258,7 +292,9 @@ class SandboxedAgentExecutor:
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
-    _otel_relay: OtelSocketRelay | None = field(default=None, init=False, repr=False)
+    _otel_receiver: OtelSocketReceiver | None = field(
+        default=None, init=False, repr=False
+    )
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
@@ -415,24 +451,19 @@ class SandboxedAgentExecutor:
         execution.
         """
         try:
-            org_config, org_headers = await load_org_agent_otel_inputs(
-                role=self.input.role
-            )
+            org_inputs = await load_org_agent_otel_inputs(role=self.input.role)
             platform_override = load_agent_otel_platform_override()
             return resolve_agent_otel_config(
-                org_config=org_config,
-                org_headers=org_headers,
+                org_config=org_inputs.config,
+                org_headers=org_inputs.headers,
                 platform_override=platform_override,
-                # Sentinel; the shim overwrites with its bridge URL. The
-                # resolver uses any non-None value to strip per-signal
-                # endpoints/protocols from sandbox_env.
-                relay_endpoint="http://127.0.0.1",
             )
         except Exception as exc:
+            # No error text: a validation error echoes the input, which can
+            # include a credential-bearing collector endpoint.
             logger.warning(
                 "Failed to resolve Agent OTel config; running without telemetry",
                 error_type=type(exc).__name__,
-                error=str(exc),
             )
             return ResolvedAgentOtelConfig(enabled=False)
 
@@ -444,14 +475,11 @@ class SandboxedAgentExecutor:
     ) -> dict[str, str]:
         """Build the sandbox-side OTel env.
 
-        Strips the placeholder collector endpoint (the shim sets the real
-        bridge URL after starting its bridge) and injects the relay's
-        bearer JWT as ``OTEL_EXPORTER_OTLP_HEADERS`` so the Claude OTel
-        exporter attaches it to outbound OTLP requests for the host-side
-        relay to verify.
+        Injects the receiver's bearer JWT as ``OTEL_EXPORTER_OTLP_HEADERS`` so
+        the Claude OTel exporter attaches it to outbound OTLP requests for the
+        host-side socket receiver to verify.
         """
         sandbox_env = dict(resolved.sandbox_env)
-        sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
         )
@@ -525,11 +553,10 @@ class SandboxedAgentExecutor:
                         otel_auth_token=self.input.agent_otel_auth_token,
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
-                    self._otel_relay = OtelSocketRelay(
+                    self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
                         collector_env=resolved_otel.collector_env,
                         headers=resolved_otel.headers,
-                        timeout_seconds=resolved_otel.relay_timeout_seconds,
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
@@ -674,16 +701,16 @@ class SandboxedAgentExecutor:
         )
         self._log_benchmark_phase("broker_llm_proxy_ready")
 
-        if self._otel_relay is not None:
+        if self._otel_receiver is not None:
             try:
-                await self._otel_relay.start()
+                await self._otel_receiver.start()
             except Exception as e:
                 logger.warning(
-                    "Failed to start OTel relay; running without telemetry",
+                    "Failed to start OTel receiver; running without telemetry",
                     error_type=type(e).__name__,
                     error=str(e),
                 )
-                self._otel_relay = None
+                self._otel_receiver = None
                 otel_socket_path = None
                 init_payload.agent_otel_sandbox_env = None
             else:
@@ -1134,13 +1161,13 @@ class SandboxedAgentExecutor:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
 
-        # Stop Agent OTel relay
-        if self._otel_relay:
+        # Stop Agent OTel ingress; admitted deliveries outlive this receiver.
+        if self._otel_receiver:
             try:
-                await self._otel_relay.stop()
+                await self._otel_receiver.stop()
             except Exception as e:
-                logger.warning("Failed to stop OTel relay", error=str(e))
-            self._otel_relay = None
+                logger.warning("Failed to stop OTel receiver", error=str(e))
+            self._otel_receiver = None
 
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():

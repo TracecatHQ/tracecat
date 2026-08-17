@@ -133,7 +133,7 @@ class AgentOtelConfig(BaseModel):
         env: dict[str, str] = {}
         _set_env(env, "OTEL_EXPORTER_OTLP_ENDPOINT", self.endpoint)
 
-        # OTLP via the relay is the only egress from the sandbox; pull-based and
+        # OTLP via the socket receiver is the only egress from the sandbox; pull-based and
         # console exporters are not supported.
         env["OTEL_METRICS_EXPORTER"] = "otlp" if self.metrics_enabled else "none"
         env["OTEL_LOGS_EXPORTER"] = "otlp" if self.logs_enabled else "none"
@@ -186,7 +186,6 @@ class ResolvedAgentOtelConfig(BaseModel):
     collector_env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, SecretStr] = Field(default_factory=dict)
     source: Literal["org", "platform"] = Field(default="org")
-    relay_timeout_seconds: float = Field(default=10.0)
 
 
 def resolve_agent_otel_config(
@@ -194,14 +193,12 @@ def resolve_agent_otel_config(
     org_config: AgentOtelConfig | None,
     org_headers: Mapping[str, str] | None,
     platform_override: AgentOtelPlatformOverride | None,
-    relay_endpoint: str | None = None,
-    relay_timeout_seconds: float = config.TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS,
 ) -> ResolvedAgentOtelConfig:
     """Resolve platform and org OTel inputs into one runtime config.
 
-    Platform override wins wholesale when present. When a relay endpoint is
-    supplied, sandbox traffic is redirected to the local relay and the original
-    collector details are kept in `collector_env`.
+    Platform override wins wholesale when present. `sandbox_env` never carries
+    a collector endpoint: the in-sandbox shim points the exporter at its local
+    bridge, and the collector details stay host-side in `collector_env`.
     """
     if platform_override is not None:
         source: Literal["org", "platform"] = "platform"
@@ -213,14 +210,10 @@ def resolve_agent_otel_config(
         headers = secret_otel_headers(org_headers)
 
     if not config_value.enabled:
-        return ResolvedAgentOtelConfig(
-            enabled=False,
-            source=source,
-            relay_timeout_seconds=relay_timeout_seconds,
-        )
+        return ResolvedAgentOtelConfig(enabled=False, source=source)
 
     collector_env = config_value.to_env()
-    sandbox_env = _build_sandbox_env(collector_env, relay_endpoint=relay_endpoint)
+    sandbox_env = _build_sandbox_env(collector_env)
     sandbox_env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
     return ResolvedAgentOtelConfig(
         enabled=True,
@@ -228,38 +221,7 @@ def resolve_agent_otel_config(
         collector_env=collector_env,
         headers=headers,
         source=source,
-        relay_timeout_seconds=relay_timeout_seconds,
     )
-
-
-async def load_org_agent_otel_inputs(
-    *,
-    role: Any,
-) -> tuple[AgentOtelConfig | None, dict[str, str] | None]:
-    """Load the org's saved Agent OTel config and decrypted headers.
-
-    Returns ``(None, None)`` when the org has no settings rows yet so the
-    resolver can fall back to its defaults.
-    """
-    from tracecat.settings.service import SettingsService
-
-    async with SettingsService.with_session(role=role) as service:
-        settings = await service.list_org_settings(
-            keys={"agent_otel_config", "agent_otel_headers"}
-        )
-        values, _ = service.get_values_with_decryption_fallback(settings)
-
-    raw_config = values.get("agent_otel_config")
-    config_value: AgentOtelConfig | None = None
-    if isinstance(raw_config, dict):
-        config_value = AgentOtelConfig.model_validate(raw_config)
-
-    raw_headers = values.get("agent_otel_headers")
-    headers_value: dict[str, str] | None = None
-    if isinstance(raw_headers, dict):
-        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
-
-    return config_value, headers_value
 
 
 def load_agent_otel_platform_override(
@@ -267,7 +229,11 @@ def load_agent_otel_platform_override(
     config_json: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG,
     headers: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS,
 ) -> AgentOtelPlatformOverride | None:
-    """Load the optional platform override through the typed OTel contract."""
+    """Load the optional platform override through the typed OTel contract.
+
+    No SSRF check on this endpoint: it is operator-set deployment config, and
+    self-hosted operators legitimately point it at an in-cluster collector.
+    """
     if config_json is None or not config_json.strip():
         return None
 
@@ -304,14 +270,11 @@ def secret_otel_headers(
     }
 
 
-def _build_sandbox_env(
-    env: dict[str, str], *, relay_endpoint: str | None
-) -> dict[str, str]:
+def _build_sandbox_env(env: dict[str, str]) -> dict[str, str]:
+    # The shim is the endpoint's single writer: it sets the exporter endpoint
+    # to its in-sandbox bridge after the bridge binds.
     sandbox_env = dict(env)
-    if relay_endpoint is None:
-        return sandbox_env
-
-    sandbox_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = relay_endpoint
+    sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
     return sandbox_env
 

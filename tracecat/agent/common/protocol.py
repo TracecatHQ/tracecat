@@ -52,8 +52,8 @@ class RuntimeInitPayload:
 
     # Sandbox-safe Claude OTel env (exporters, protocols, intervals, content
     # gates, resource attrs, and the OTEL_EXPORTER_OTLP_HEADERS bearer for
-    # the host-side relay). Tenant collector endpoint and tenant headers are
-    # excluded; the host-side OtelSocketRelay holds those. The shim sets
+    # the host-side receiver). Tenant collector endpoint and tenant headers are
+    # excluded; the host-side OtelSocketReceiver holds those. The shim sets
     # OTEL_EXPORTER_OTLP_ENDPOINT after starting its bridge.
     agent_otel_sandbox_env: dict[str, str] | None = None
 
