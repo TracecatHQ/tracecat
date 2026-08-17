@@ -76,14 +76,11 @@ const parseMultiSelectDefault = (value: string | null): string[] => {
 
 const caseFieldFormSchema = z
   .object({
-    name: z
+    displayName: z
       .string()
+      .trim()
       .min(1, "Field name is required")
-      .max(100, "Field name must be less than 100 characters")
-      .refine(
-        (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
-        "Field name must start with a letter and contain only letters, numbers, and underscores"
-      ),
+      .max(255, "Field name must be 255 characters or fewer"),
     type: z.enum(SqlTypeCreatableEnum),
     nullable: z.boolean().default(true),
     default: z.string().nullable().optional(),
@@ -137,7 +134,7 @@ interface EditCustomFieldDialogProps {
 }
 
 const emptyDefaults: CaseFieldFormValues = {
-  name: "",
+  displayName: "",
   type: "TEXT",
   nullable: true,
   default: null,
@@ -151,7 +148,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
 
   if (safeType === "MULTI_SELECT") {
     return {
-      name: field.id,
+      displayName: field.display_name,
       type: safeType,
       nullable: field.nullable,
       default: "",
@@ -161,7 +158,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
   }
 
   return {
-    name: field.id,
+    displayName: field.display_name,
     type: safeType,
     nullable: field.nullable,
     default: field.default ?? "",
@@ -333,7 +330,7 @@ export function EditCustomFieldDialog({
         workspaceId,
         fieldId: field.id,
         requestBody: {
-          name: data.name,
+          display_name: data.displayName,
           nullable: data.nullable,
           default: defaultValue,
           options: isSelectableColumnType(data.type)
@@ -342,9 +339,13 @@ export function EditCustomFieldDialog({
         },
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ["case-fields", workspaceId],
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["case-fields", workspaceId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["case"] }),
+        queryClient.invalidateQueries({ queryKey: ["cases"] }),
+      ])
 
       toast({
         title: "Field updated",
@@ -357,7 +358,7 @@ export function EditCustomFieldDialog({
       if (error instanceof ApiError) {
         const apiError = error as TracecatApiError
         if (apiError.status === 409) {
-          form.setError("name", {
+          form.setError("displayName", {
             type: "manual",
             message: "A field with this name already exists",
           })
@@ -391,16 +392,16 @@ export function EditCustomFieldDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="name"
+              name="displayName"
               render={({ field: fieldInput }) => (
                 <FormItem>
-                  <FormLabel>Identifier / Slug</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
                     <Input {...fieldInput} />
                   </FormControl>
                   <FormDescription>
-                    A human readable ID of the field. Use snake_case for best
-                    compatibility.
+                    Reference: {field.id}. Changing the name does not change the
+                    reference.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

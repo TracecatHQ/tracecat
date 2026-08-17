@@ -402,7 +402,7 @@ export function CaseDurationDialog({
       .filter((f) => !f.reserved)
       .map((f) => ({
         value: f.id,
-        label: f.id,
+        label: f.display_name,
       }))
   }, [caseFields])
 

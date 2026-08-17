@@ -70,7 +70,7 @@ beforeEach(() => {
 const requiredFields: CaseFieldReadMinimal[] = [
   {
     id: "closure_reason",
-    display_name: "closure_reason",
+    display_name: "Closure reason",
     type: "TEXT",
     description: "Why the case was closed",
     nullable: true,
@@ -107,6 +107,13 @@ function renderClosureDialog(onOpenChange: jest.Mock) {
 }
 
 describe("CaseClosureDialog", () => {
+  it("shows the display name instead of the field reference", () => {
+    renderClosureDialog(jest.fn())
+
+    expect(screen.getByText("Closure reason")).toBeInTheDocument()
+    expect(screen.queryByText("closure_reason")).not.toBeInTheDocument()
+  })
+
   it("has no cancel button", () => {
     renderClosureDialog(jest.fn())
 

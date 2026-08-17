@@ -337,14 +337,20 @@ export function CasesLayout({
   useEffect(() => () => resetSelection(), [resetSelection])
 
   const selectedCaseIdsSet = useMemo(() => selectedCaseIds, [selectedCaseIds])
-  const fieldTypesById = useMemo<
-    ReadonlyMap<string, CaseFieldReadMinimal["type"]> | undefined
+  const fieldMetadataById = useMemo<
+    | ReadonlyMap<string, Pick<CaseFieldReadMinimal, "display_name" | "type">>
+    | undefined
   >(() => {
     if (!fieldDefinitions) {
       return undefined
     }
 
-    return new Map(fieldDefinitions.map((field) => [field.id, field.type]))
+    return new Map(
+      fieldDefinitions.map((field) => [
+        field.id,
+        { display_name: field.display_name, type: field.type },
+      ])
+    )
   }, [fieldDefinitions])
   const durationNamesById = useMemo<
     ReadonlyMap<CaseDurationDefinitionRead["id"], string> | undefined
@@ -480,7 +486,7 @@ export function CasesLayout({
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
-            fieldTypesById={fieldTypesById}
+            fieldMetadataById={fieldMetadataById}
             durationNamesById={durationNamesById}
             visibleColumnIds={visibleColumnIds}
             prioritySortDirection={filters.prioritySortDirection}

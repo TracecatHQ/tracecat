@@ -8,6 +8,7 @@ import type {
   CommentCreatedEventRead,
   CommentReplyDeletedEventRead,
   CommentReplyUpdatedEventRead,
+  FieldChangedEventRead,
 } from "@/client"
 import { CASE_EVENT_SUGGESTIONS } from "@/components/builder/panel/case-event-suggestions"
 import {
@@ -18,6 +19,7 @@ import {
   CommentCreatedEvent,
   CommentReplyDeletedEvent,
   CommentReplyUpdatedEvent,
+  FieldsChangedEvent,
 } from "@/components/cases/cases-feed-event"
 import { User } from "@/lib/auth"
 
@@ -107,5 +109,42 @@ describe("case feed comment events", () => {
     expect(getCaseEventOption("comment_reply_updated").label).toBe(
       "Comment Reply Updated"
     )
+  })
+})
+
+describe("case feed field events", () => {
+  it("shows display names while retaining stable references in event data", () => {
+    const event: FieldChangedEventRead = {
+      type: "fields_changed",
+      changes: [
+        {
+          field: "analyst_verdict_v2",
+          old: "Investigating",
+          new: "Resolved",
+        },
+        {
+          field: "deleted_field",
+          old: null,
+          new: "Still readable",
+        },
+      ],
+      created_at: "2026-03-08T00:00:00Z",
+      user_id: "user-1",
+      wf_exec_id: null,
+    }
+
+    render(
+      <FieldsChangedEvent
+        event={event}
+        actor={actor}
+        caseFieldDisplayNameById={
+          new Map([["analyst_verdict_v2", "Final determination"]])
+        }
+      />
+    )
+
+    expect(screen.getByText("Final determination")).toBeInTheDocument()
+    expect(screen.queryByText("analyst_verdict_v2")).not.toBeInTheDocument()
+    expect(screen.getByText("deleted_field")).toBeInTheDocument()
   })
 })

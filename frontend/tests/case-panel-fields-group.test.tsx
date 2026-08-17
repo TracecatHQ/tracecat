@@ -44,9 +44,15 @@ function makeField(
 // One plain field plus one dropdown-backed field with a value, so the
 // alignment assertions have something that could plausibly lead a row.
 const FIELDS: CaseFieldRead[] = [
-  makeField({ id: "reporter", type: "TEXT", value: "analyst@example.com" }),
+  makeField({
+    id: "reporter",
+    display_name: "Reporter email",
+    type: "TEXT",
+    value: "analyst@example.com",
+  }),
   makeField({
     id: "verdict",
+    display_name: "Analyst verdict",
     type: "SELECT",
     value: "malicious",
     options: ["malicious", "benign"],
@@ -99,6 +105,15 @@ describe.each([
       expect(first?.tagName).toBe("SPAN")
       expect(first).toHaveClass(LABEL_CLASS)
     }
+  })
+
+  it("shows display names instead of references", () => {
+    renderGroup(true)
+
+    expect(screen.getByText("Reporter email")).toBeInTheDocument()
+    expect(screen.getByText("Analyst verdict")).toBeInTheDocument()
+    expect(screen.queryByText("reporter")).not.toBeInTheDocument()
+    expect(screen.queryByText("verdict")).not.toBeInTheDocument()
   })
 
   it("renders no button ahead of the label inside a row", () => {

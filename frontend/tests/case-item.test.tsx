@@ -84,7 +84,14 @@ function renderCaseItem() {
           "field:priority_reason",
           "duration:duration-1",
         ]}
-        fieldTypesById={new Map([["priority_reason", "TEXT"]])}
+        fieldMetadataById={
+          new Map([
+            [
+              "priority_reason",
+              { display_name: "Why this matters", type: "TEXT" },
+            ],
+          ])
+        }
         durationNamesById={new Map([["duration-1", "Time to resolve"]])}
       />
     </QueryClientProvider>
@@ -120,6 +127,6 @@ describe("CaseItem", () => {
     expect(screen.getByText(/Started:/)).toBeInTheDocument()
     expect(screen.getByText(/Ended:/)).toBeInTheDocument()
     expect(screen.getByText("Analyst verdict")).toBeInTheDocument()
-    expect(screen.getByText("Priority reason")).toBeInTheDocument()
+    expect(screen.getByText("Why this matters")).toBeInTheDocument()
   })
 })

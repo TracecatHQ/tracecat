@@ -1,4 +1,6 @@
 import {
+  createCaseFieldDisplayNameMap,
+  createCaseFieldReference,
   formatCaseFieldDisplayLabel,
   formatCaseFieldNumericDisplayValue,
   getCaseFieldEditorValue,
@@ -6,7 +8,37 @@ import {
   orderCustomFieldsForDisplay,
 } from "@/lib/case-field-display"
 
+describe("case field references", () => {
+  it("derives a snake_case reference from a display name", () => {
+    expect(createCaseFieldReference("Analyst Verdict")).toBe("analyst_verdict")
+    expect(createCaseFieldReference("Résumé / Outcome")).toBe("resume_outcome")
+  })
+
+  it("prefixes references derived from names that begin with a number", () => {
+    expect(createCaseFieldReference("2FA status")).toBe("field_2fa_status")
+    expect(createCaseFieldReference("2026")).toBe("field_2026")
+  })
+
+  it("returns an empty reference when no characters can be normalized", () => {
+    expect(createCaseFieldReference("处理结果 🚨")).toBe("")
+  })
+
+  it("caps references at the API's column-name limit", () => {
+    expect(createCaseFieldReference("a".repeat(120))).toHaveLength(100)
+    expect(createCaseFieldReference(`2${"a".repeat(120)}`)).toHaveLength(100)
+  })
+})
+
 describe("case field display formatting", () => {
+  it("indexes friendly names by stable field reference", () => {
+    const displayNames = createCaseFieldDisplayNameMap([
+      { id: "analyst_verdict_v2", display_name: "Final determination" },
+    ])
+
+    expect(displayNames.get("analyst_verdict_v2")).toBe("Final determination")
+    expect(displayNames.has("unknown_reference")).toBe(false)
+  })
+
   it("rounds numeric values for display without float artifacts", () => {
     expect(
       formatCaseFieldNumericDisplayValue("123.299999999999997157829056")

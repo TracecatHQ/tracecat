@@ -61,16 +61,35 @@ export function CustomFieldsTable({
           data={fields.filter((field) => !field.reserved)}
           columns={[
             {
+              accessorKey: "display_name",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Field name"
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="text-xs text-foreground/80">
+                  {row.getValue<CaseFieldReadMinimal["display_name"]>(
+                    "display_name"
+                  )}
+                </div>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
               accessorKey: "id",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Field ID"
+                  title="Reference"
                 />
               ),
               cell: ({ row }) => (
-                <div className="text-xs text-foreground/80">
+                <div className="font-mono text-xs text-muted-foreground">
                   {row.getValue<CaseFieldReadMinimal["id"]>("id")}
                 </div>
               ),
@@ -206,7 +225,7 @@ export function CustomFieldsTable({
                             navigator.clipboard.writeText(row.original.id)
                           }
                         >
-                          Copy field ID
+                          Copy reference
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
@@ -239,9 +258,9 @@ export function CustomFieldsTable({
             <AlertDialogTitle>Delete Field</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete the field{" "}
-              <strong>{selectedField?.id}</strong>? This action cannot be undone
-              and will delete all existing values for this field across all
-              cases.
+              <strong>{selectedField?.display_name}</strong>? This action cannot
+              be undone and will delete all existing values for this field
+              across all cases.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -281,7 +300,7 @@ export function CustomFieldsTable({
 
 const defaultToolbarProps: DataTableToolbarProps<CaseFieldReadMinimal> = {
   filterProps: {
-    placeholder: "Filter fields by ID...",
-    column: "id",
+    placeholder: "Filter fields by name...",
+    column: "display_name",
   },
 }

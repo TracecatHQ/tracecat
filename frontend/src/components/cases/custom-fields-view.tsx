@@ -34,10 +34,14 @@ export function CustomFieldsView() {
           fieldId,
         })
       },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        })
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["case-fields", workspaceId],
+          }),
+          queryClient.invalidateQueries({ queryKey: ["case"] }),
+          queryClient.invalidateQueries({ queryKey: ["cases"] }),
+        ])
         toast({
           title: "Field deleted",
           description: "The case field was deleted successfully.",

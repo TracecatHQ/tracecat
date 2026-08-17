@@ -217,7 +217,7 @@ export function ClosureRequirementsView() {
     ...customFields.map(
       (f): ClosureRow => ({
         id: f.id,
-        name: f.id,
+        name: f.display_name,
         type: f.kind ?? f.type,
         kind: "field",
         required_on_closure: f.required_on_closure ?? false,
