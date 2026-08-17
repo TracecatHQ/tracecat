@@ -157,6 +157,8 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
         ("core.cases.create_task", "description"),
         ("core.cases.update_task", "title"),
         ("core.cases.update_task", "description"),
+        ("ai.skill.create_skill", "name"),
+        ("ai.skill.create_skill", "description"),
     ],
 )
 def test_explicit_durable_string_fields_redact_secrets(
@@ -196,6 +198,34 @@ def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
             "safe": "us-east-1",
             "token": MASK_VALUE,
         }
+    }
+
+
+def test_agent_skill_files_redact_nested_secrets() -> None:
+    prepared = _resolve_root(
+        "ai.skill.publish_skill_version",
+        {
+            "skill_id": "triage-assistant",
+            "files": [
+                {
+                    "path": "SKILL.md",
+                    "content_base64": "${{ SECRETS.api.FILE_BASE64 }}",
+                    "content_type": "text/markdown",
+                }
+            ],
+        },
+        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
+    )
+
+    assert prepared == {
+        "skill_id": "triage-assistant",
+        "files": [
+            {
+                "path": "SKILL.md",
+                "content_base64": MASK_VALUE,
+                "content_type": "text/markdown",
+            }
+        ],
     }
 
 

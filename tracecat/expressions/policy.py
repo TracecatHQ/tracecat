@@ -128,6 +128,8 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
             "output_type",
         }
     ),
+    "ai.skill.create_skill": frozenset({"name", "description"}),
+    "ai.skill.publish_skill_version": frozenset({"files"}),
 }
 
 
