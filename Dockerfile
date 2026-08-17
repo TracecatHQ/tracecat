@@ -23,6 +23,15 @@ RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
     rm -rf /tmp/nsjail
 
+COPY docker/loop-device-sync.cc /tmp/loop-device-sync.cc
+
+RUN g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wformat=2 \
+        -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -pie \
+        -Wl,-z,relro,-z,now \
+        /tmp/loop-device-sync.cc -o /usr/local/bin/tracecat-loop-device-sync && \
+    strip /usr/local/bin/tracecat-loop-device-sync && \
+    rm /tmp/loop-device-sync.cc
+
 # ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
@@ -137,13 +146,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # extensions from this directory instead of autoinstalling over the network.
 ENV TRACECAT__DUCKDB_EXTENSION_DIRECTORY=/usr/local/lib/duckdb/extensions
 
-# Allow the non-root executor process to invoke mount/umount when the container
-# runtime grants the needed bounding capabilities. Without these file caps,
-# privileged Docker containers still run apiuser with no effective capabilities.
-RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
-    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/mount && \
-    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/umount
-
 # Copy sandbox rootfs
 COPY --from=sandbox-rootfs /usr /var/lib/tracecat/sandbox-rootfs/usr
 
@@ -198,6 +200,16 @@ RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
 
 # Create MCP socket directory for apiuser
 RUN mkdir -p /var/run/tracecat && chown 1001:1001 /var/run/tracecat
+
+# Allow the non-root executor process to invoke mount/umount and synchronize
+# kernel-confirmed loop nodes when the runtime grants the needed bounding
+# capabilities. The fixed-purpose sync helper cannot create arbitrary devices.
+COPY --from=nsjail-builder /usr/local/bin/tracecat-loop-device-sync /usr/local/bin/tracecat-loop-device-sync
+
+RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
+    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/mount && \
+    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/umount && \
+    setcap cap_mknod,cap_dac_override+ep /usr/local/bin/tracecat-loop-device-sync
 
 WORKDIR /app
 
