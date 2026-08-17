@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from tracecat.agent.constants import (
     AGENT_TIMEOUT_SECONDS_DEFAULT,
@@ -12,10 +13,15 @@ from tracecat.agent.constants import (
 )
 from tracecat.auth.types import Role
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
-from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
+from tracecat.dsl.schemas import (
+    STRICT_TIMEOUTS_CONTEXT,
+    ActionRetryPolicy,
+    ActionStatement,
+)
 from tracecat.identifiers import WorkflowUUID
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionCreate
 from tracecat.workflow.actions.service import WorkflowActionService
+from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
 
 def _task(
@@ -154,6 +160,152 @@ def test_action_write_api_rejects_out_of_bounds_agent_timeout() -> None:
         ActionControlFlow.model_validate({"retry_policy": {"max_attempts": 3}}),
     )
     _validate_agent_timeout_bounds("ai.agent", None)
+
+
+def _agent_action(timeout: int) -> dict[str, object]:
+    return {
+        "ref": "agent",
+        "action": "ai.agent",
+        "args": {},
+        "retry_policy": {"timeout": timeout},
+    }
+
+
+def _dsl_payload(action: dict[str, object]) -> dict[str, object]:
+    return {
+        "title": "wf",
+        "description": "d",
+        "entrypoint": {"ref": action["ref"], "expects": {}},
+        "actions": [action],
+    }
+
+
+@pytest.mark.parametrize("timeout", [1, 100_000])
+def test_strict_context_rejects_out_of_bounds_agent_timeout(timeout: int) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        ActionStatement.model_validate(
+            _agent_action(timeout), context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
+    assert (
+        f"between {AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX}"
+        in str(exc_info.value)
+    )
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [(1, AGENT_TIMEOUT_SECONDS_MIN), (100_000, AGENT_TIMEOUT_SECONDS_MAX)],
+)
+def test_lenient_parse_still_normalizes_stored_values(
+    timeout: int, expected: int
+) -> None:
+    stmt = ActionStatement.model_validate(_agent_action(timeout))
+    assert stmt.retry_policy.timeout == expected
+
+
+@pytest.mark.parametrize("context", [None, dict(STRICT_TIMEOUTS_CONTEXT)])
+def test_non_agent_actions_are_unaffected_in_both_modes(
+    context: dict[str, object] | None,
+) -> None:
+    stmt = ActionStatement.model_validate(
+        {
+            "ref": "http",
+            "action": "core.http_request",
+            "args": {},
+            "retry_policy": {"timeout": 100_000},
+        },
+        context=context,
+    )
+    assert stmt.retry_policy.timeout == 100_000
+
+
+def test_strict_context_still_applies_the_default_when_timeout_is_unset() -> None:
+    stmt = ActionStatement.model_validate(
+        {"ref": "agent", "action": "ai.agent", "args": {}},
+        context=dict(STRICT_TIMEOUTS_CONTEXT),
+    )
+    assert stmt.retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+
+
+@pytest.mark.parametrize("timeout", [1, 100_000])
+def test_external_workflow_definition_upload_rejects_out_of_bounds(
+    timeout: int,
+) -> None:
+    """YAML/JSON upload, MCP create, and internal create all funnel here."""
+    payload = {"definition": _dsl_payload(_agent_action(timeout))}
+    with pytest.raises(ValidationError):
+        ExternalWorkflowDefinition.model_validate(
+            payload, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
+    lenient = ExternalWorkflowDefinition.model_validate(payload)
+    assert lenient.definition.actions[0].retry_policy.timeout in (
+        AGENT_TIMEOUT_SECONDS_MIN,
+        AGENT_TIMEOUT_SECONDS_MAX,
+    )
+
+
+def test_mcp_workflow_yaml_payload_rejects_out_of_bounds() -> None:
+    """MCP update_workflow inline definition_yaml boundary."""
+    from tracecat.mcp.schemas import WorkflowYamlPayload
+
+    payload = {"definition": _dsl_payload(_agent_action(100_000))}
+    with pytest.raises(ValidationError):
+        WorkflowYamlPayload.model_validate(
+            payload, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
+    lenient = WorkflowYamlPayload.model_validate(payload)
+    assert lenient.definition is not None
+    assert lenient.definition.actions[0].retry_policy.timeout == (
+        AGENT_TIMEOUT_SECONDS_MAX
+    )
+
+
+def test_workflow_edit_document_patch_rejects_out_of_bounds() -> None:
+    """edit_workflow JSON-Patch boundary (validate_workflow_patch_payload)."""
+    from tracecat.mcp.schemas import WorkflowEditDocument
+
+    payload = {
+        "metadata": {"title": "workflow", "description": "d", "status": "offline"},
+        "definition": {
+            "entrypoint": {"ref": "agent"},
+            "actions": [_agent_action(100_000)],
+            "config": {},
+        },
+    }
+    with pytest.raises(ValidationError):
+        WorkflowEditDocument.model_validate(
+            payload, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
+    assert (
+        WorkflowEditDocument.model_validate(payload)
+        .definition.actions[0]
+        .retry_policy.timeout
+        == AGENT_TIMEOUT_SECONDS_MAX
+    )
+
+
+def test_git_sync_parse_reports_out_of_bounds_as_a_diagnostic() -> None:
+    """Git-sync import must return a clean PullDiagnostic, never a 500."""
+    import yaml as yaml_lib
+
+    from tracecat.workspace_sync.workflow import parse_workflow_spec
+
+    content = yaml_lib.safe_dump(
+        {
+            "type": "workflow",
+            "version": 1,
+            "id": "my_workflow",
+            "definition": _dsl_payload(_agent_action(100_000)),
+        }
+    )
+    spec, diagnostic = parse_workflow_spec("workflows/my_workflow.yml", content)
+    assert spec is None
+    assert diagnostic is not None
+    assert diagnostic.error_type == "validation"
+    assert (
+        f"between {AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX}"
+        in diagnostic.message
+    )
 
 
 def test_executor_result_active_seconds_defaults_for_legacy_results() -> None:

@@ -26,6 +26,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.schemas import STRICT_TIMEOUTS_CONTEXT
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
@@ -378,7 +379,9 @@ def parse_workflow_spec(
         if raw.get("type") == "workflow" and raw.get("version") == 1:
             if "id" not in raw and source_id is not None:
                 raw = {**raw, "id": source_id}
-            spec = WorkflowResourceSpec.model_validate(raw)
+            spec = WorkflowResourceSpec.model_validate(
+                raw, context=dict(STRICT_TIMEOUTS_CONTEXT)
+            )
             if source_id is not None and spec.id != source_id:
                 return None, PullDiagnostic(
                     workflow_path=path,
@@ -389,7 +392,9 @@ def parse_workflow_spec(
                 )
             return spec, None
 
-        legacy = RemoteWorkflowDefinition.model_validate(raw)
+        legacy = RemoteWorkflowDefinition.model_validate(
+            raw, context=dict(STRICT_TIMEOUTS_CONTEXT)
+        )
         return workflow_spec_from_legacy(legacy, source_id=source_id), None
     except yaml.YAMLError as e:
         return None, PullDiagnostic(

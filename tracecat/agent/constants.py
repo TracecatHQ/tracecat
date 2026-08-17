@@ -11,3 +11,7 @@ AGENT_TIMEOUT_SECONDS_MAX = 3600
 
 AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS = 60
 """Extra infrastructure time for cancellation and terminal result persistence."""
+
+AGENT_APPROVAL_CONTINUATION_MIN_SECONDS = 60
+"""Floor for a post-approval continuation slice: session resume plus one model
+round-trip. Distinct from the cleanup buffer, which is cancellation slack."""

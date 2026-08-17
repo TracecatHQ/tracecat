@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Literal, NotRequired, Self, TypedDict
 from pydantic import (
     BaseModel,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -36,6 +37,13 @@ from tracecat.storage.object import InlineObject, StoredObject
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
+
+STRICT_TIMEOUTS_CONTEXT_KEY = "strict_timeouts"
+"""Validation-context key that makes out-of-bounds agent timeouts an error.
+Set it only when parsing fresh external input, never on stored or replayed data."""
+
+STRICT_TIMEOUTS_CONTEXT: Mapping[str, Any] = {STRICT_TIMEOUTS_CONTEXT_KEY: True}
+"""Validation context for external write boundaries."""
 
 TriggerInputs = Any
 """Trigger inputs JSON type."""
@@ -397,19 +405,27 @@ class ActionStatement(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def apply_agent_timeout_policy(self) -> Self:
-        # Agent turns get a 30-minute budget unless the action sets one. New
-        # writes are bounds-checked at the action API; stored values outside
-        # the sandbox budget are normalized here so the parsed statement is
-        # exactly what executes.
-        if PlatformAction.is_agent(self.action):
-            if "timeout" not in self.retry_policy.model_fields_set:
-                self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
-            else:
-                self.retry_policy.timeout = min(
-                    max(self.retry_policy.timeout, AGENT_TIMEOUT_SECONDS_MIN),
-                    AGENT_TIMEOUT_SECONDS_MAX,
-                )
+    def apply_agent_timeout_policy(self, info: ValidationInfo) -> Self:
+        # Agent turns get a 30-minute budget unless the action sets one.
+        # External writes pass strict_timeouts and reject out-of-bounds values;
+        # stored rows and Temporal replay predate the bounds, so they normalize.
+        if not PlatformAction.is_agent(self.action):
+            return self
+        if "timeout" not in self.retry_policy.model_fields_set:
+            self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
+            return self
+        timeout = self.retry_policy.timeout
+        if AGENT_TIMEOUT_SECONDS_MIN <= timeout <= AGENT_TIMEOUT_SECONDS_MAX:
+            return self
+        if (info.context or {}).get(STRICT_TIMEOUTS_CONTEXT_KEY):
+            raise ValueError(
+                "Agent action timeout must be between "
+                f"{AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX} "
+                f"seconds, got {timeout}."
+            )
+        self.retry_policy.timeout = min(
+            max(timeout, AGENT_TIMEOUT_SECONDS_MIN), AGENT_TIMEOUT_SECONDS_MAX
+        )
         return self
 
 

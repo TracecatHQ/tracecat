@@ -62,7 +62,10 @@ from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_MAX
+from tracecat.agent.constants import (
+    AGENT_APPROVAL_CONTINUATION_MIN_SECONDS,
+    AGENT_TIMEOUT_SECONDS_MAX,
+)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -858,7 +861,9 @@ async def test_agent_workflow_max_active_runtime_leaves_minimum_continuation(
                 ],
             )
 
-        assert input.timeout_seconds == 5
+        # A sub-minute remainder is floored so the continuation payload clears
+        # AgentExecutorInput's minimum instead of failing to decode.
+        assert input.timeout_seconds == AGENT_APPROVAL_CONTINUATION_MIN_SECONDS
         return AgentExecutorResult(
             success=True,
             active_seconds=4.8,
@@ -929,7 +934,10 @@ async def test_agent_workflow_max_active_runtime_leaves_minimum_continuation(
         result = await handle.result()
 
     assert result.output == {"status": "completed-with-minimum-remainder"}
-    assert [item.timeout_seconds for item in executor_inputs] == [3600, 5]
+    assert [item.timeout_seconds for item in executor_inputs] == [
+        3600,
+        AGENT_APPROVAL_CONTINUATION_MIN_SECONDS,
+    ]
 
 
 @pytest.mark.anyio
