@@ -88,6 +88,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminTestAuditWebhookData,
+  AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
@@ -693,6 +695,8 @@ import type {
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsTestAuditWebhookData,
+  SettingsTestAuditWebhookResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -6609,6 +6613,7 @@ export const agentSessionsCreateSession = (
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
+ * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
  * @param data.limit Maximum number of sessions to return
@@ -6627,6 +6632,7 @@ export const agentSessionsListSessions = (
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
+      created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
       parent_session_id: data.parentSessionId,
       limit: data.limit,
@@ -7588,6 +7594,28 @@ export const adminUpdateAuditSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/admin/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Audit Webhook
+ * Probe the submitted platform audit webhook configuration.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const adminTestAuditWebhook = (
+  data: AdminTestAuditWebhookData
+): CancelablePromise<AdminTestAuditWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/settings/audit/test",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -8865,6 +8893,28 @@ export const settingsUpdateAuditSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Audit Webhook
+ * Probe the submitted audit webhook configuration with a marked test event.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuditWebhookTestResult Successful Response
+ * @throws ApiError
+ */
+export const settingsTestAuditWebhook = (
+  data: SettingsTestAuditWebhookData
+): CancelablePromise<SettingsTestAuditWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/settings/audit/test",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -11075,7 +11125,7 @@ export const caseDurationsDeleteCaseDurationDefinition = (
 
 /**
  * List Case Durations
- * Sync and list case durations for the provided case.
+ * List materialized case durations for the provided case.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
@@ -11797,6 +11847,7 @@ export const mcpIntegrationsListPlatformMcpCatalog = (
  * @param data The data for the request.
  * @param data.catalogSlug
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns MCPCatalogConnectResponse Successful Response
  * @throws ApiError
  */
@@ -11810,6 +11861,8 @@ export const mcpIntegrationsConnectPlatformMcpCatalog = (
       catalog_slug: data.catalogSlug,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

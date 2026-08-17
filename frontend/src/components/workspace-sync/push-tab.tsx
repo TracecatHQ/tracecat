@@ -1,17 +1,24 @@
 "use client"
 
-import { ArrowUpIcon, GitPullRequestIcon, Loader2Icon } from "lucide-react"
+import {
+  ArrowUpIcon,
+  ExternalLinkIcon,
+  GitPullRequestIcon,
+  Loader2Icon,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import type { GitBranchInfo, VcsProvider } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
 import {
+  getReviewRequestAbbreviation,
   getReviewRequestLabel,
   getWorkspaceSyncPushButtonLabel,
   getWorkspaceSyncPushOutcome,
@@ -130,8 +137,23 @@ export function WorkspaceSyncPushTab({
         title: result.commit.pr_url
           ? `${reviewRequestTitle} ready`
           : "Workspace config pushed",
-        description:
-          result.commit.pr_url ?? result.commit.sha ?? result.commit.message,
+        description: result.commit.message ?? result.commit.sha ?? undefined,
+        action: result.commit.pr_url ? (
+          <ToastAction
+            asChild
+            altText={`Open ${getReviewRequestLabel(provider)}`}
+            className="gap-1.5"
+          >
+            <a
+              href={result.commit.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View {getReviewRequestAbbreviation(provider)}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+          </ToastAction>
+        ) : undefined,
       })
     } catch (error) {
       toast({

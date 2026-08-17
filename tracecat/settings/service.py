@@ -1,5 +1,5 @@
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import orjson
@@ -12,12 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    SupportsExecute,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
@@ -40,6 +44,20 @@ from tracecat.settings.schemas import (
 VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING = (
     "app_versioned_resource_resolution_strategy"
 )
+AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
+
+
+def _deserialize_setting_value(
+    setting: OrganizationSetting, *, encryption_key: SecretStr | None = None
+) -> Any:
+    value_bytes = setting.value
+    if setting.is_encrypted:
+        encryption_key = encryption_key or SecretStr(get_db_encryption_key())
+        value_bytes = decrypt_value(
+            value_bytes,
+            key=encryption_key.get_secret_value(),
+        )
+    return orjson.loads(value_bytes)
 
 
 class SettingsService(BaseOrgService):
@@ -67,9 +85,6 @@ class SettingsService(BaseOrgService):
             value, default=to_jsonable_python, option=orjson.OPT_SORT_KEYS
         )
 
-    def _deserialize_value_bytes(self, value: bytes) -> Any:
-        return orjson.loads(value)
-
     def _system_keys(self) -> set[str]:
         """The set of keys that are reserved for system settings."""
         return {key for cls in self.groups for key in cls.keys()}
@@ -91,12 +106,10 @@ class SettingsService(BaseOrgService):
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:
-        value_bytes = setting.value
-        if setting.is_encrypted:
-            value_bytes = decrypt_value(
-                value_bytes, key=self._encryption_key.get_secret_value()
-            )
-        return self._deserialize_value_bytes(value_bytes)
+        return _deserialize_setting_value(
+            setting,
+            encryption_key=self._encryption_key,
+        )
 
     def get_values_with_decryption_fallback(
         self,
@@ -128,7 +141,7 @@ class SettingsService(BaseOrgService):
     async def list_org_settings(
         self,
         *,
-        keys: set[str] | None = None,
+        keys: Collection[str] | None = None,
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
@@ -204,6 +217,8 @@ class SettingsService(BaseOrgService):
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
         await self.session.commit()
+        if params.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         return setting
 
     async def _update_setting(
@@ -248,6 +263,8 @@ class SettingsService(BaseOrgService):
         updated_setting = await self._update_setting(setting, params)
         self.session.add(updated_setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         await self.session.refresh(updated_setting)
         return updated_setting
 
@@ -262,6 +279,8 @@ class SettingsService(BaseOrgService):
             return
         await self.session.delete(setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
 
     # Grouped settings
 
@@ -303,8 +322,9 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
-        audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
+        audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
+        clear_audit_setting_cache()
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
@@ -317,6 +337,55 @@ class SettingsService(BaseOrgService):
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
+
+
+def _resolve_setting_override(key: str) -> Any:
+    if override_val := get_setting_override(key):
+        logger.warning(
+            "Using environment override for setting. "
+            "This is not recommended for production environments.",
+            key=key,
+            override=override_val,
+        )
+        match override_val.lower():
+            case "true" | "1":
+                return True
+            case "false" | "0":
+                return False
+            case _:
+                return override_val
+    return UNSET
+
+
+async def get_setting_from_bypass_session(
+    key: str,
+    *,
+    organization_id: OrganizationID,
+    session: SupportsExecute,
+    default: Any = UNSET,
+) -> Any | None:
+    """Read an org setting through a caller-owned RLS-bypass session.
+
+    This helper neither changes RLS context nor acquires a database connection.
+    Callers must supply an already-authorized bypass session and an explicit
+    organization ID.
+    """
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
+
+    statement = select(OrganizationSetting).where(
+        OrganizationSetting.organization_id == organization_id,
+        OrganizationSetting.key == key,
+    )
+    result = await session.execute(statement)
+    setting = result.scalar_one_or_none()
+    no_default_val = _deserialize_setting_value(setting) if setting else None
+
+    if no_default_val is None and default is not UNSET:
+        logger.debug("Setting not found, using default value", key=key)
+        return default
+    return no_default_val
 
 
 async def get_setting(
@@ -333,21 +402,9 @@ async def get_setting(
     if role is None:
         return default if default is not UNSET else None
 
-    # If we have an environment override, use it
-    if override_val := get_setting_override(key):
-        logger.warning(
-            "Using environment override for setting. "
-            "This is not recommended for production environments.",
-            key=key,
-            override=override_val,
-        )
-        match override_val.lower():
-            case "true" | "1":
-                return True
-            case "false" | "0":
-                return False
-            case _:
-                return override_val
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
 
     # If role has no organization_id, fetch the default org
     if role is not None and role.organization_id is None:

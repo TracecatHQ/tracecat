@@ -31,7 +31,12 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.file_io import copy_tree_without_following_symlinks
-from tracecat.sandbox.types import ResourceLimits, SandboxConfig
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxConfig,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
@@ -497,7 +502,11 @@ class SandboxService:
 
             # Phase 2: Execute script
             config = SandboxConfig(
-                network_enabled=allow_network,
+                network=(
+                    SandboxNetworkRequest(SandboxNetworkPurpose.SCRIPT)
+                    if allow_network
+                    else None
+                ),
                 resources=ResourceLimits(
                     timeout_seconds=timeout_seconds,
                     memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,

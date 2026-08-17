@@ -83,7 +83,7 @@ class ExecutorActivities:
         This activity runs on 'shared-action-queue' and handles:
         - Rate limit retries (tenacity)
         - for_each loop execution (via dispatch_action)
-        - Sandboxed pool execution
+        - Sandboxed action execution
 
         This replaces the HTTP-based run_action_activity from dsl/action.py.
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).

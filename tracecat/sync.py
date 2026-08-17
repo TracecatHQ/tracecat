@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
+from uuid import UUID
 
 
 class PushStatus(StrEnum):
@@ -33,6 +34,12 @@ class PullOptions:
 
     dry_run: bool = False
     """Validate only, don't perform actual import"""
+
+    catalog_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target catalog choices for ambiguous model references."""
+
+    mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
+    """Explicit source-to-target MCP integration choices for unresolved references."""
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,113 @@ class PullDiagnostic:
 
     details: dict[str, Any]
     """Additional error details for debugging"""
+
+
+@dataclass(frozen=True)
+class CatalogMappingCandidate:
+    """Target catalog model the user can choose for an imported source model."""
+
+    catalog_id: UUID
+    model_provider: str
+    model_name: str
+    provider_name: str
+    model_display_name: str | None
+    endpoint_hostname: str | None
+    origin: Literal["platform", "organization", "custom_provider"]
+
+
+@dataclass(frozen=True)
+class CatalogMappingAffectedPreset:
+    """Preset version whose source catalog id needs the same target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+@dataclass(frozen=True)
+class CatalogMappingAffectedWorkflow:
+    """Workflow action whose source catalog id needs the same target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
+type CatalogMappingRequirementReason = Literal[
+    "ambiguous",
+    "invalid_selection",
+]
+
+
+@dataclass(frozen=True)
+class CatalogMappingRequirement:
+    """Explicit catalog choice required before a workspace pull can proceed."""
+
+    source_catalog_id: UUID
+    model_provider: str
+    model_name: str
+    reason: CatalogMappingRequirementReason
+    message: str
+    candidates: list[CatalogMappingCandidate]
+    affected_presets: list[CatalogMappingAffectedPreset]
+    affected_workflows: list[CatalogMappingAffectedWorkflow]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingCandidate:
+    """Local MCP integration the user can choose for an imported source reference."""
+
+    mcp_integration_id: UUID
+    slug: str
+    name: str
+    server_type: str
+    auth_type: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedPreset:
+    """Preset version whose source MCP integration id needs a target choice."""
+
+    preset_slug: str
+    preset_name: str
+    version: int
+    path: str
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingAffectedWorkflow:
+    """Workflow action whose source MCP integration id needs a target choice."""
+
+    workflow_source_id: str
+    workflow_path: str
+    workflow_title: str
+    action_ref: str
+
+
+type McpIntegrationMappingRequirementReason = Literal[
+    "unresolved",
+    "invalid_selection",
+    "conflicting_metadata",
+]
+
+
+@dataclass(frozen=True)
+class McpIntegrationMappingRequirement:
+    """Explicit MCP integration choice required before a workspace pull proceeds."""
+
+    source_mcp_integration_id: UUID
+    slug: str | None
+    name: str | None
+    server_type: str | None
+    auth_type: str | None
+    reason: McpIntegrationMappingRequirementReason
+    message: str
+    candidates: list[McpIntegrationMappingCandidate]
+    affected_presets: list[McpIntegrationMappingAffectedPreset]
+    affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
 
 
 def serializable_validation_errors(
@@ -210,3 +324,11 @@ class PullResult:
 
     resources: list[SyncPreviewResource] | None = None
     """Optional displayable resources included in a pull preview."""
+
+    catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
+    """Target model choices required before this pull can be previewed or applied."""
+
+    mcp_integration_mapping_requirements: (
+        list[McpIntegrationMappingRequirement] | None
+    ) = None
+    """MCP integration choices required before this pull can be previewed or applied."""

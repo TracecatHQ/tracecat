@@ -224,11 +224,13 @@ export function useListChats(
     workspaceId,
     entityType,
     entityId,
+    createdBy,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
+    createdBy?: string
     limit?: number
   },
   options?: { enabled?: boolean }
@@ -247,12 +249,13 @@ export function useListChats(
     error: chatsError,
     refetch,
   } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
-    queryKey: ["chats", workspaceId, entityType, entityId, limit],
+    queryKey: ["chats", workspaceId, entityType, entityId, createdBy, limit],
     queryFn: () =>
       agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
+        createdBy: createdBy || null,
         limit,
       }),
     enabled: options?.enabled ?? true,
@@ -573,7 +576,7 @@ export function useVercelChat({
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
-  modelInfo: ModelInfo
+  modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to

@@ -293,6 +293,18 @@ variable "db_pool_recycle" {
   default     = "300"
 }
 
+variable "db_auth_max_overflow" {
+  type        = string
+  description = "The maximum number of connections to allow in the auth DB pool"
+  default     = "5"
+}
+
+variable "db_auth_pool_size" {
+  type        = string
+  description = "The size of the auth database connection pool"
+  default     = "5"
+}
+
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"
@@ -534,6 +546,17 @@ variable "agent_worker_desired_count" {
   default     = 2
 }
 
+variable "agent_worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per agent-worker task (TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.agent_worker_max_concurrent_activities > 0 && floor(var.agent_worker_max_concurrent_activities) == var.agent_worker_max_concurrent_activities
+    error_message = "agent_worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
 variable "agent_queue" {
   type        = string
   description = "Task queue for agent-worker workflows"
@@ -567,10 +590,59 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
-variable "executor_worker_pool_size" {
-  type        = string
-  description = "Executor worker pool size (optional; auto when null)"
-  default     = null
+variable "executor_registry_cache_max_entries" {
+  type        = number
+  description = "Maximum number of entries in the executor-local registry artifact cache (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES). Set to 0 to disable entry-count eviction."
+  default     = 64
+
+  validation {
+    condition     = var.executor_registry_cache_max_entries >= 0 && floor(var.executor_registry_cache_max_entries) == var.executor_registry_cache_max_entries
+    error_message = "executor_registry_cache_max_entries must be a non-negative integer."
+  }
+}
+
+variable "executor_registry_cache_max_bytes" {
+  type        = number
+  description = "Maximum executor-local registry artifact cache size in bytes (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES). Set to 0 to disable size-based limits."
+  default     = 10737418240
+
+  validation {
+    condition     = var.executor_registry_cache_max_bytes >= 0 && floor(var.executor_registry_cache_max_bytes) == var.executor_registry_cache_max_bytes
+    error_message = "executor_registry_cache_max_bytes must be a non-negative integer."
+  }
+}
+
+variable "executor_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 16
+
+  validation {
+    condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities
+    error_message = "executor_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "executor_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per executor task (TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 16
+
+  validation {
+    condition     = var.executor_threadpool_max_workers > 0 && floor(var.executor_threadpool_max_workers) == var.executor_threadpool_max_workers
+    error_message = "executor_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "executor_for_each_max_concurrency" {
+  type        = number
+  description = "Max concurrent iterations within a single action's for_each loop (TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)."
+  default     = 4
+
+  validation {
+    condition     = var.executor_for_each_max_concurrency > 0 && floor(var.executor_for_each_max_concurrency) == var.executor_for_each_max_concurrency
+    error_message = "executor_for_each_max_concurrency must be a positive integer."
+  }
 }
 
 variable "agent_executor_cpu" {
@@ -599,12 +671,6 @@ variable "agent_executor_max_concurrent_activities" {
   type        = number
   description = "Maximum concurrent activities per agent-executor task"
   default     = 3
-}
-
-variable "agent_executor_worker_pool_size" {
-  type        = string
-  description = "Agent executor worker pool size (optional; auto when null)"
-  default     = null
 }
 
 variable "llm_proxy_read_timeout" {

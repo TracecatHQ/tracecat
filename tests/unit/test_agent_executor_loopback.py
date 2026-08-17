@@ -30,6 +30,7 @@ from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
+from tracecat.db.models import AgentSessionHistory
 
 
 class _FakeStream:
@@ -65,6 +66,16 @@ class _FakeSessionContext:
 class _FakeArtifactPersistenceSession:
     def __init__(self, organization_id: UUID | None) -> None:
         self.scalar = AsyncMock(return_value=organization_id)
+
+
+class _FakeHistoryPersistenceSession:
+    def __init__(self) -> None:
+        self.entries: list[AgentSessionHistory] = []
+        self.commit = AsyncMock()
+
+    def add(self, entry: object) -> None:
+        assert isinstance(entry, AgentSessionHistory)
+        self.entries.append(entry)
 
 
 def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
@@ -164,7 +175,7 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
         stream_id=loopback_input.active_stream_id,
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
-    fake_stream.done.assert_awaited_once()
+    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -195,7 +206,7 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     assert failed_event.type == StreamEventType.COMPACTION
     assert failed_event.metadata == {"phase": "failed"}
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
-    fake_stream.done.assert_awaited_once()
+    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -215,14 +226,43 @@ async def test_prepare_initializes_stream_sink_once(
     initialize_stream_sink.assert_awaited_once()
 
 
-def _make_handler(*, defer_done_on_approval: bool = False) -> LoopbackHandler:
+def _make_handler() -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
-            defer_done_on_approval=defer_done_on_approval,
         )
     )
+
+
+@pytest.mark.anyio
+async def test_persist_session_line_preserves_raw_nul_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = _make_handler()
+    handler._sdk_session_id = "sdk-session"
+    session = _FakeHistoryPersistenceSession()
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
+        lambda: _FakeSessionContext(session),
+    )
+    raw_line = (
+        r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
+        r'"content":"left\u0000right"}}'
+    )
+
+    await handler._persist_session_line("sdk-session", raw_line)
+
+    assert len(session.entries) == 1
+    [entry] = session.entries
+    assert entry.content["message"]["content"] == r"left\u0000right"
+    assert entry.raw_session_line == raw_line.encode()
+    assert entry.raw_session_line is not None
+    assert orjson.loads(entry.raw_session_line)["message"]["content"] == (
+        "left\x00right"
+    )
+    assert handler._persisted_line_uuids == {"line-uuid"}
+    session.commit.assert_awaited_once()
 
 
 def test_should_suppress_pending_approval_tool_result() -> None:
@@ -477,37 +517,81 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("defer_done", "approval_requested", "expect_done"),
-    [
-        (False, True, True),
-        (True, True, False),
-        (True, False, True),
-    ],
-    ids=["legacy-approval", "deferred-approval", "deferred-normal-turn"],
-)
-async def test_emit_stream_done_policy(
-    defer_done: bool,
-    approval_requested: bool,
-    expect_done: bool,
-) -> None:
-    handler = _make_handler(defer_done_on_approval=defer_done)
+async def test_close_external_stream_leaves_redis_open() -> None:
+    handler = _make_handler()
     stream = _FakeStream()
     handler._stream_sink = stream
-    handler._result.approval_requested = approval_requested
 
-    await handler._emit_stream_done()
+    await handler._close_external_stream()
 
-    if expect_done:
-        stream.done.assert_awaited_once()
-    else:
-        stream.done.assert_not_awaited()
-    assert handler._stream_done_emitted is expect_done
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_emit_stream_done_closes_external_sink_on_approval_pause() -> None:
-    handler = _make_handler(defer_done_on_approval=True)
+async def test_terminal_success_closes_only_external_sink() -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+
+    await handler.send_result(output={"status": "done"})
+    await handler.send_done()
+    await handler.send_done()
+
+    assert handler.build_result().success is True
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
+async def test_terminal_error_streams_error_and_closes_only_external_sink() -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+
+    await handler.send_error("runtime failed")
+
+    redis_stream.error.assert_awaited_once_with("runtime failed")
+    external_stream.error.assert_awaited_once_with("runtime failed")
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
+async def test_terminal_error_leaves_redis_open_for_workflow() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    event_order: list[str] = []
+
+    async def record_error(error: str) -> None:
+        assert error == "runtime failed"
+        event_order.append("error")
+
+    stream.error.side_effect = record_error
+    handler._stream_sink = stream
+
+    await handler.send_error("runtime failed")
+
+    assert event_order == ["error"]
+    stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_close_external_stream_is_deduplicated_on_approval_pause() -> None:
+    handler = _make_handler()
     redis_stream = _FakeStream()
     external_stream = _FakeExternalSink()
     handler._stream_sink = FanoutStreamSink(
@@ -518,12 +602,11 @@ async def test_emit_stream_done_closes_external_sink_on_approval_pause() -> None
     )
     handler._result.approval_requested = True
 
-    await handler._emit_stream_done()
-    await handler._emit_stream_done()
+    await handler._close_external_stream()
+    await handler._close_external_stream()
 
     redis_stream.done.assert_not_awaited()
     external_stream.done.assert_awaited_once()
-    assert handler._stream_done_emitted is False
     assert handler._external_stream_done_emitted is True
 
 
@@ -559,7 +642,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
         {"phase": "failed"},
     ]
     stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -592,7 +675,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_done_without_bo
         {"phase": "failed"},
     ]
     stream.error.assert_not_awaited()
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -606,7 +689,7 @@ async def test_process_runtime_events_fails_when_done_arrives_without_result() -
 
     assert handler._result.error == "Runtime completed without final result"
     stream.error.assert_awaited_once_with("Runtime completed without final result")
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -650,7 +733,7 @@ async def test_send_done_preserves_existing_error_state() -> None:
     assert handler._result.success is False
     assert handler._result.error == "runtime failed"
     stream.error.assert_not_awaited()
-    stream.done.assert_awaited_once()
+    stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio

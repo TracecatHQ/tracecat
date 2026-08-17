@@ -45,6 +45,8 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.publish",
     "core.workflow.run",
     "core.workflow.execute",
+    "core.workflow.list_executions",
+    "core.workflow.get_status",
 ]
 
 WORKSPACE_CHAT_DEFAULT_TOOLS = [

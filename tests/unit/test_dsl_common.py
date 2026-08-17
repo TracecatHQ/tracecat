@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -16,8 +15,12 @@ from tracecat.dsl.view import (
     UDFNode,
     UDFNodeData,
 )
-from tracecat.expressions.expectations import create_expectation_model
-from tracecat.registry.actions.schemas import TemplateAction
+from tracecat.expressions.expectations import ExpectedField, create_expectation_model
+from tracecat.registry.actions.schemas import (
+    ActionStep,
+    TemplateAction,
+    TemplateActionDefinition,
+)
 
 
 def _make_trigger_node(trigger_id: str | None = None) -> TriggerNode:
@@ -134,28 +137,41 @@ class TestRFGraphNormalizeActionIds:
         assert node_ids == {action1_uuid, action2_uuid}
 
 
-def test_build_action_statements_preserves_sentinel_date_like_api_version() -> None:
+def test_build_action_statements_preserves_date_like_string_input() -> None:
     """Date-like string inputs should stay strings for template arg validation."""
-    template = TemplateAction.from_yaml(
-        Path(
-            "packages/tracecat-registry/tracecat_registry/templates/tools/"
-            "microsoft_sentinel/incidents/get_incident.yml"
-        )
+    template = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Date-like string input",
+            description="Synthetic template for input parsing regression coverage.",
+            name="date_like_string",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "api_version": ExpectedField(
+                    type="str",
+                    description="A string that YAML can parse as a date.",
+                ),
+            },
+            steps=[
+                ActionStep(
+                    ref="identity",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.api_version }}"},
+                )
+            ],
+            returns="${{ steps.identity.result }}",
+        ),
     )
     expectation_model = create_expectation_model(template.definition.expects)
     action = cast(
         Any,
         SimpleNamespace(
             id=uuid.uuid4(),
-            ref="get_incident",
+            ref="date_like_string",
             type=template.definition.action,
             inputs="""
-subscription_id: sub-123
-resource_group_name: rg
-workspace_name: workspace
-incident_id: incident-123
 api_version: 2025-09-01
-base_url: https://management.azure.com
 """,
             control_flow={},
             upstream_edges=[],

@@ -7,12 +7,18 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import selectinload as sa_selectinload
+from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
@@ -47,7 +53,7 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseComment, Workspace
+from tracecat.db.models import Case, CaseComment, Organization, Workspace
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -61,9 +67,19 @@ pytestmark = pytest.mark.usefixtures("db")
 
 @pytest.fixture(autouse=True)
 def stub_case_duration_sync() -> Iterator[None]:
-    with patch(
-        "tracecat.cases.service.CaseDurationService.sync_case_durations",
-        new=AsyncMock(return_value=None),
+    with (
+        patch(
+            "tracecat.cases.events.sync_case_duration",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 
@@ -187,9 +203,9 @@ def _assert_batch_audit_calls(
     terminal_status: AuditEventStatus = AuditEventStatus.SUCCESS,
 ) -> None:
     base_data = {
-        "batch": True,
+        "is_batch": True,
         "case_ids": [str(case_id) for case_id in case_ids],
-        "count": len(case_ids),
+        "case_count": len(case_ids),
     }
     assert mock_create_event.await_args_list == [
         call(
@@ -204,7 +220,7 @@ def _assert_batch_audit_calls(
             action=action,
             resource_id=None,
             status=terminal_status,
-            data={**base_data, "succeeded": succeeded, "failed": failed},
+            data={**base_data, "succeeded_count": succeeded, "failed_count": failed},
         ),
     ]
 
@@ -426,7 +442,7 @@ class TestCasesService:
         svc_role: Role,
         svc_workspace: Workspace,
     ) -> None:
-        """Concurrent creates should serialize on the workspace counter row."""
+        """Concurrent creates should allocate unique workspace-local numbers."""
         await cases_service.fields._ensure_schema_ready()
         await cases_service.session.commit()
         assert session.bind is not None
@@ -473,6 +489,192 @@ class TestCasesService:
                 )
             ).scalars()
             assert sorted(stored_case_numbers.all()) == [1, 2, 3, 4, 5]
+
+    async def test_slow_related_writes_do_not_hold_case_number_counter_lock(
+        self,
+    ) -> None:
+        """A stalled case should not block another case before final allocation."""
+        organization_id = uuid.uuid4()
+        workspace_id = uuid.uuid4()
+        role = Role(
+            type="service",
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
+        )
+        concurrent_engine = create_async_engine(
+            TEST_DB_CONFIG.test_url,
+            poolclass=NullPool,
+        )
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+        slow_write_started = asyncio.Event()
+        release_slow_write = asyncio.Event()
+        original_upsert = CaseFieldsService.upsert_field_values
+        backend_pids: set[int] = set()
+
+        async def pause_slow_case(
+            fields_service: CaseFieldsService,
+            case: Case,
+            fields: dict[str, Any],
+        ) -> dict[str, Any]:
+            if case.summary == "Slow case":
+                slow_write_started.set()
+                await release_slow_write.wait()
+            return await original_upsert(fields_service, case, fields)
+
+        async def create_case(summary: str) -> int:
+            async with session_factory() as concurrent_session:
+                backend_pid = await concurrent_session.scalar(
+                    text("SELECT pg_backend_pid()")
+                )
+                assert backend_pid is not None
+                backend_pids.add(backend_pid)
+                service = CasesService(
+                    session=concurrent_session,
+                    role=role.model_copy(deep=True),
+                )
+                case = await service.create_case(
+                    CaseCreate(
+                        summary=summary,
+                        description=summary,
+                        status=CaseStatus.NEW,
+                        priority=CasePriority.MEDIUM,
+                        severity=CaseSeverity.LOW,
+                    )
+                )
+                return case.case_number
+
+        slow_task: asyncio.Task[int] | None = None
+        try:
+            async with session_factory() as seed_session:
+                seed_session.add_all(
+                    [
+                        Organization(
+                            id=organization_id,
+                            name="Case contention test organization",
+                            slug=f"case-contention-{organization_id.hex[:8]}",
+                            is_active=True,
+                        ),
+                        Workspace(
+                            id=workspace_id,
+                            name=f"case-contention-{workspace_id.hex[:8]}",
+                            organization_id=organization_id,
+                        ),
+                    ]
+                )
+                await seed_session.commit()
+                seed_service = CasesService(session=seed_session, role=role)
+                await seed_service.fields._ensure_schema_ready()
+                await seed_session.commit()
+
+            with (
+                patch.object(
+                    CaseFieldsService,
+                    "_ensure_schema_ready",
+                    new=AsyncMock(return_value=None),
+                ),
+                patch.object(
+                    CaseFieldsService,
+                    "upsert_field_values",
+                    new=pause_slow_case,
+                ),
+            ):
+                slow_task = asyncio.create_task(create_case("Slow case"))
+                await asyncio.wait_for(slow_write_started.wait(), timeout=5)
+                fast_case_number = await asyncio.wait_for(
+                    create_case("Fast case"), timeout=5
+                )
+                release_slow_write.set()
+                slow_case_number = await asyncio.wait_for(slow_task, timeout=5)
+        finally:
+            release_slow_write.set()
+            if slow_task is not None:
+                if not slow_task.done():
+                    slow_task.cancel()
+                await asyncio.gather(slow_task, return_exceptions=True)
+            async with session_factory() as cleanup_session:
+                await cleanup_session.execute(
+                    delete(Workspace).where(Workspace.id == workspace_id)
+                )
+                await cleanup_session.execute(
+                    delete(Organization).where(Organization.id == organization_id)
+                )
+                await cleanup_session.commit()
+            await concurrent_engine.dispose()
+
+        assert len(backend_pids) == 2
+        assert fast_case_number == 1
+        assert slow_case_number == 2
+
+    async def test_failed_case_creation_rolls_back_allocated_number(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+    ) -> None:
+        """The counter remains gapless when failure occurs after allocation."""
+        workspace_id = cases_service.workspace_id
+        original_assign = cases_service._assign_next_case_number
+
+        async def fail_after_counter_update(case: Case) -> None:
+            await original_assign(case)
+            raise RuntimeError("Synthetic failure after case-number allocation")
+
+        with (
+            patch.object(
+                cases_service,
+                "_assign_next_case_number",
+                new=fail_after_counter_update,
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary="Failed case",
+                    description="Failed case",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+
+        workspace = await session.scalar(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        assert workspace is not None
+        assert workspace.last_case_number == 0
+        stored_cases = (
+            await session.execute(select(Case).where(Case.workspace_id == workspace_id))
+        ).scalars()
+        assert stored_cases.all() == []
+
+    async def test_pending_case_number_cannot_be_committed(
+        self,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+    ) -> None:
+        """The deferred database invariant rejects a persisted sentinel."""
+        session.add(
+            Case(
+                workspace_id=svc_workspace.id,
+                case_number=0,
+                summary="Pending case",
+                description="Pending case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        await session.flush()
+        # The session fixture wraps each test in an outer transaction, so force
+        # deferred triggers to run instead of relying on session.commit().
+        with pytest.raises(DBAPIError):
+            await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        await session.rollback()
 
     async def test_list_cases_with_limit(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -745,7 +947,7 @@ class TestCasesService:
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(
@@ -968,7 +1170,7 @@ class TestCasesService:
                 AuditService, "create_event", new_callable=AsyncMock
             ) as mock_audit,
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(
@@ -1196,7 +1398,7 @@ class TestCasesService:
         with (
             patch.object(AuditService, "create_event", new_callable=AsyncMock),
             patch(
-                "tracecat.cases.service.publish_case_event_payload",
+                "tracecat.cases.events.publish_case_event_payload",
                 new=mock_publish,
             ),
             patch.object(
@@ -1270,9 +1472,9 @@ class TestCasesService:
 
         mock_rollback.assert_awaited_once()
         base_data = {
-            "batch": True,
+            "is_batch": True,
             "case_ids": [str(case_id) for case_id in case_ids],
-            "count": 2,
+            "case_count": 2,
         }
         assert mock_audit.await_args_list == [
             call(
@@ -1287,7 +1489,7 @@ class TestCasesService:
                 action="update",
                 resource_id=None,
                 status=AuditEventStatus.FAILURE,
-                data={**base_data, "succeeded": 0, "failed": 2},
+                data={**base_data, "succeeded_count": 0, "failed_count": 2},
             ),
         ]
 

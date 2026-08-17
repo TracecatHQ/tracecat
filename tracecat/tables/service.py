@@ -75,6 +75,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+_TABLE_ROW_READ_BATCH_SIZE = 5_000
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
@@ -865,6 +866,37 @@ class BaseTablesService(BaseWorkspaceService):
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
         return dict(row)
+
+    async def get_rows(
+        self, table: Table, row_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Get rows by ID, keyed by row ID."""
+        if not row_ids:
+            return {}
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        conn = await self.session.connection()
+        rows_by_id: dict[UUID, dict[str, Any]] = {}
+        unique_row_ids = list(dict.fromkeys(row_ids))
+
+        for start in range(0, len(unique_row_ids), _TABLE_ROW_READ_BATCH_SIZE):
+            batch = unique_row_ids[start : start + _TABLE_ROW_READ_BATCH_SIZE]
+            stmt = (
+                sa.select(*self._visible_columns(table))
+                .select_from(table_clause)
+                .where(sa.column("id").in_(batch))
+            )
+            result = await conn.execute(stmt)
+            for row in result.mappings():
+                row_data: dict[str, Any] = dict(row)
+                row_id = row_data.get("id")
+                if not isinstance(row_id, UUID):
+                    raise TypeError("Table row ID must be a UUID")
+                rows_by_id[row_id] = row_data
+
+        return rows_by_id
 
     async def insert_row(
         self,

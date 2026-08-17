@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -42,7 +43,8 @@ export function ActionMultiselect<T extends FieldValues>({
   const suggestions = useMemo(() => {
     return (
       registryActions
-        ?.map((action) => ({
+        ?.filter((action) => isAgentToolSelectable(action.action))
+        .map((action) => ({
           id: action.action,
           label: action.default_title || action.action,
           value: action.action,
@@ -165,7 +167,7 @@ export function ActionMultiselect<T extends FieldValues>({
                         field.onChange(nextSelections)
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-1 border-input"
+                      className="mt-1"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-1">

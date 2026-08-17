@@ -89,6 +89,8 @@ module "ecs" {
   db_pool_size             = var.db_pool_size
   db_pool_timeout          = var.db_pool_timeout
   db_pool_recycle          = var.db_pool_recycle
+  db_auth_max_overflow     = var.db_auth_max_overflow
+  db_auth_pool_size        = var.db_auth_pool_size
   db_max_overflow_executor = var.db_max_overflow_executor
   db_pool_size_executor    = var.db_pool_size_executor
 
@@ -146,19 +148,23 @@ module "ecs" {
   agent_worker_cpu                         = var.agent_worker_cpu
   agent_worker_memory                      = var.agent_worker_memory
   agent_worker_desired_count               = var.agent_worker_desired_count
+  agent_worker_max_concurrent_activities   = var.agent_worker_max_concurrent_activities
   agent_queue                              = var.agent_queue
   executor_cpu                             = var.executor_cpu
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
   executor_queue                           = var.executor_queue
-  executor_worker_pool_size                = var.executor_worker_pool_size
+  executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
+  executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
+  executor_max_concurrent_activities       = var.executor_max_concurrent_activities
+  executor_threadpool_max_workers          = var.executor_threadpool_max_workers
+  executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds

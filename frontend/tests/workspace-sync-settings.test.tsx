@@ -5,15 +5,19 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type {
+  CatalogMappingRequirement,
   GitBranchInfo,
   GitCommitInfo,
   GitHubAppRepository,
+  McpIntegrationMappingRequirement,
   PullResult,
   VcsProvider,
   WorkspaceRead,
   WorkspaceSyncExportPreview,
 } from "@/client"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
+import { Toast, ToastProvider, ToastViewport } from "@/components/ui/toast"
+import { toast } from "@/components/ui/use-toast"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -39,6 +43,10 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkflowSync: jest.fn(),
   useWorkspaceSyncExport: jest.fn(),
   useWorkspaceSyncExportPreview: jest.fn(),
+}))
+
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: jest.fn(),
 }))
 
 beforeAll(() => {
@@ -101,6 +109,58 @@ const workspace = {
     effective_allowed_attachment_mime_types: [],
   },
 } satisfies WorkspaceRead
+
+function createCatalogMappingRequirement(
+  sourceCatalogId: string,
+  targetCatalogId: string
+): CatalogMappingRequirement {
+  return {
+    source_catalog_id: sourceCatalogId,
+    model_provider: "custom-model-provider",
+    model_name: "shared-model",
+    reason: "ambiguous",
+    message: "Choose the target model before applying this pull.",
+    candidates: [
+      {
+        catalog_id: targetCatalogId,
+        model_provider: "custom-model-provider",
+        model_name: "shared-model",
+        provider_name: "Provider East",
+        model_display_name: null,
+        endpoint_hostname: "east.models.example.com",
+        origin: "custom_provider",
+      },
+    ],
+    affected_presets: [],
+    affected_workflows: [],
+  }
+}
+
+function createMcpMappingRequirement(
+  sourceMcpIntegrationId: string,
+  targetMcpIntegrationId: string
+): McpIntegrationMappingRequirement {
+  return {
+    source_mcp_integration_id: sourceMcpIntegrationId,
+    slug: "shared-mcp",
+    name: "Shared MCP",
+    server_type: "http",
+    auth_type: "oauth",
+    reason: "unresolved",
+    message: "Choose the target MCP integration before applying this pull.",
+    candidates: [
+      {
+        mcp_integration_id: targetMcpIntegrationId,
+        slug: "shared-mcp",
+        name: "Shared MCP",
+        server_type: "http",
+        auth_type: "oauth",
+      },
+    ],
+    affected_presets: [],
+    affected_workflows: [],
+  }
+}
 
 function setupHooks({
   gitRepoUrl = null,
@@ -525,24 +585,87 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
   })
 
+  it("renders the workspace push review request as an external link", async () => {
+    const user = userEvent.setup()
+    const prUrl = "https://github.com/test-org/repo-a/pull/42"
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+    })
+    mockExportWorkspace.mockResolvedValue({
+      commit: {
+        status: "committed",
+        sha: "a".repeat(40),
+        ref: "sync/workspace-test",
+        base_ref: "main",
+        pr_url: prUrl,
+        message: "Export workspace config",
+      },
+      files: ["tracecat.json"],
+    })
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("button", { name: "Push & open PR" }))
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pull request ready",
+          description: "Export workspace config",
+          action: expect.anything(),
+        })
+      )
+    })
+
+    const toastOptions = jest.mocked(toast).mock.calls[0][0]
+    render(
+      <ToastProvider>
+        <Toast open>{toastOptions.action}</Toast>
+        <ToastViewport />
+      </ToastProvider>
+    )
+
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "href",
+      prUrl
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "target",
+      "_blank"
+    )
+    expect(screen.getByRole("link", { name: "View PR" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer"
+    )
+  })
+
   it("keeps pull actions available after previewing changes", async () => {
     const user = userEvent.setup()
     const commitSha = "a".repeat(40)
+    const resourceDiffs = Array.from({ length: 25 }, (_, index) => ({
+      resource_type: "workflow" as const,
+      source_id: `workflow-${index}`,
+      source_path: `workflows/workflow-${index}/definition.yml`,
+      change_type: "modified" as const,
+      title: `Workflow ${index}`,
+      diff: "@@ -1 +1 @@\n-old\n+new",
+    }))
     const preview: PullResult = {
       success: true,
       commit_sha: commitSha,
-      workflows_found: 1,
+      workflows_found: resourceDiffs.length,
       workflows_imported: 0,
       diagnostics: [],
-      message: "Dry run completed - 1 resource change(s) detected",
+      message: `Dry run completed - ${resourceDiffs.length} resource change(s) detected`,
       resource_counts: {
-        workflow: { found: 1, imported: 0 },
+        workflow: { found: resourceDiffs.length, imported: 0 },
         table: { found: 1, imported: 0 },
       },
       files: [
         "tracecat.json",
-        "workflows/root/definition.yml",
         "tables/indicators/table.yml",
+        ...resourceDiffs.map((diff) => diff.source_path),
       ],
       resources: [
         {
@@ -558,16 +681,7 @@ describe("WorkspaceSyncSettings", () => {
           path: "tables/indicators/table.yml",
         },
       ],
-      resource_diffs: [
-        {
-          resource_type: "workflow",
-          source_id: "root",
-          source_path: "workflows/root/definition.yml",
-          change_type: "modified",
-          title: "Root workflow",
-          diff: "@@ -1 +1 @@\n-old\n+new",
-        },
-      ],
+      resource_diffs: resourceDiffs,
     }
     const connectedWorkspace = setupHooks({
       gitRepoUrl: repositories[0].git_url,
@@ -596,15 +710,29 @@ describe("WorkspaceSyncSettings", () => {
         commit_sha: commitSha,
         dry_run: true,
         sync_schedules: false,
+        catalog_mappings: [],
+        mcp_integration_mappings: [],
       })
     })
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
-    expect(screen.getByText("3 files")).toBeInTheDocument()
+    expect(
+      screen.getByText(`${resourceDiffs.length + 2} files`)
+    ).toBeInTheDocument()
     expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
     expect(screen.getByText("Indicators")).toBeInTheDocument()
-    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(screen.getAllByLabelText("Modified")).toHaveLength(
+      resourceDiffs.length
+    )
     expect(container.firstElementChild).toHaveClass("min-w-0")
 
+    expect(screen.getByRole("group", { name: "Pull actions" })).toHaveClass(
+      "sticky",
+      "bottom-0",
+      "z-10",
+      "bg-background",
+      "after:h-8",
+      "after:bg-background"
+    )
     const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
     expect(applyPullButton).toBeEnabled()
 
@@ -614,8 +742,639 @@ describe("WorkspaceSyncSettings", () => {
       expect(mockPullWorkflows).toHaveBeenLastCalledWith({
         commit_sha: commitSha,
         sync_schedules: false,
+        catalog_mappings: [],
+        mcp_integration_mappings: [],
       })
     })
+  })
+
+  it("requires an ambiguous target model choice and re-previews it", async () => {
+    const user = userEvent.setup()
+    const commitSha = "b".repeat(40)
+    const sourceCatalogId = "11111111-1111-1111-1111-111111111111"
+    const targetCatalogId = "22222222-2222-2222-2222-222222222222"
+    const replacementCatalogId = "33333333-3333-3333-3333-333333333333"
+    const ambiguousPreview: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [
+        {
+          workflow_path: "agent_presets/triage/versions/1.yml",
+          workflow_title: "Triage",
+          error_type: "dependency",
+          message: "Choose the target model before applying this pull.",
+          details: { code: "catalog_mapping_required" },
+        },
+      ],
+      message: "Import failed: 1 validation error(s) found",
+      resource_diffs: [],
+      catalog_mapping_requirements: [
+        {
+          source_catalog_id: sourceCatalogId,
+          model_provider: "custom-model-provider",
+          model_name: "shared-model",
+          reason: "ambiguous",
+          message: "Choose the target model before applying this pull.",
+          candidates: [
+            {
+              catalog_id: targetCatalogId,
+              model_provider: "custom-model-provider",
+              model_name: "shared-model",
+              provider_name: "Provider East",
+              model_display_name: null,
+              endpoint_hostname: "east.models.example.com",
+              origin: "custom_provider",
+            },
+            {
+              catalog_id: replacementCatalogId,
+              model_provider: "custom-model-provider",
+              model_name: "shared-model",
+              provider_name: "Provider West",
+              model_display_name: null,
+              endpoint_hostname: "west.models.example.com",
+              origin: "custom_provider",
+            },
+          ],
+          affected_presets: [
+            {
+              preset_slug: "triage",
+              preset_name: "Triage",
+              version: 1,
+              path: "agent_presets/triage/versions/1.yml",
+            },
+            {
+              preset_slug: "investigate",
+              preset_name: "Investigate",
+              version: 2,
+              path: "agent_presets/investigate/versions/2.yml",
+            },
+          ],
+          affected_workflows: [
+            {
+              workflow_source_id: "triage-alert",
+              workflow_path: "workflows/triage-alert/definition.yml",
+              workflow_title: "Triage alert",
+              action_ref: "run_triage_agent",
+            },
+          ],
+        },
+      ],
+    }
+    const resolvedPreview: PullResult = {
+      ...ambiguousPreview,
+      success: true,
+      diagnostics: [],
+      message: "Dry run completed - 1 resource change(s) detected",
+      catalog_mapping_requirements: [],
+    }
+    const appliedResult: PullResult = {
+      ...resolvedPreview,
+      workflows_imported: 0,
+      message: "Successfully imported workspace resources",
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared model",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-07-24T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(ambiguousPreview)
+      .mockResolvedValueOnce(resolvedPreview)
+      .mockResolvedValueOnce(appliedResult)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
+    expect(applyPullButton).toBeDisabled()
+    expect(screen.getByText("Choose target models")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Triage version 1, Investigate version 2, Triage alert action run_triage_agent/
+      )
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText("Target model for shared-model"))
+    await user.click(
+      screen.getByRole("option", {
+        name: "Provider East · east.models.example.com",
+      })
+    )
+
+    expect(
+      screen.getByText(
+        "Preview changes again to validate these choices before applying."
+      )
+    ).toBeInTheDocument()
+    expect(applyPullButton).toBeDisabled()
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(2, {
+        commit_sha: commitSha,
+        dry_run: true,
+        sync_schedules: false,
+        catalog_mappings: [
+          {
+            source_catalog_id: sourceCatalogId,
+            target_catalog_id: targetCatalogId,
+          },
+        ],
+        mcp_integration_mappings: [],
+      })
+    })
+    expect(applyPullButton).toBeEnabled()
+    expect(
+      screen.queryByLabelText("Target model for shared-model")
+    ).not.toBeInTheDocument()
+
+    await user.click(applyPullButton)
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(3, {
+        commit_sha: commitSha,
+        sync_schedules: false,
+        catalog_mappings: [
+          {
+            source_catalog_id: sourceCatalogId,
+            target_catalog_id: targetCatalogId,
+          },
+        ],
+        mcp_integration_mappings: [],
+      })
+    })
+  })
+
+  it("clears obsolete model choices when a later preview has no candidates", async () => {
+    const user = userEvent.setup()
+    const commitSha = "c".repeat(40)
+    const sourceCatalogId = "11111111-1111-1111-1111-111111111111"
+    const targetCatalogId = "22222222-2222-2222-2222-222222222222"
+    const requirement = createCatalogMappingRequirement(
+      sourceCatalogId,
+      targetCatalogId
+    )
+    const ambiguousPreview: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Choose the target model before applying this pull.",
+      resource_diffs: [],
+      catalog_mapping_requirements: [requirement],
+    }
+    const unavailablePreview: PullResult = {
+      ...ambiguousPreview,
+      message: "No matching catalogs are available.",
+      catalog_mapping_requirements: [],
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared model",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-07-24T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(ambiguousPreview)
+      .mockResolvedValueOnce(unavailablePreview)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(
+      screen.getByLabelText("Target model for shared-model")
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("Target model for shared-model")
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("clears obsolete model choices when an apply failure omits requirements", async () => {
+    const user = userEvent.setup()
+    const commitSha = "d".repeat(40)
+    const sourceCatalogId = "11111111-1111-1111-1111-111111111111"
+    const targetCatalogId = "22222222-2222-2222-2222-222222222222"
+    const requirement = createCatalogMappingRequirement(
+      sourceCatalogId,
+      targetCatalogId
+    )
+    const successfulPreview: PullResult = {
+      success: true,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed",
+      resource_diffs: [],
+      catalog_mapping_requirements: [requirement],
+    }
+    const failedApply: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "No matching catalogs are available.",
+      resource_diffs: [],
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared model",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-07-24T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(successfulPreview)
+      .mockResolvedValueOnce(failedApply)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Apply pull" })).toBeEnabled()
+    expect(
+      screen.getByLabelText("Target model for shared-model")
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Apply pull" }))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("Target model for shared-model")
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("requires an unresolved MCP integration choice and re-previews it", async () => {
+    const user = userEvent.setup()
+    const commitSha = "e".repeat(40)
+    const sourceMcpId = "44444444-4444-4444-4444-444444444444"
+    const targetMcpId = "55555555-5555-5555-5555-555555555555"
+    const replacementMcpId = "66666666-6666-6666-6666-666666666666"
+    const unresolvedPreview: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [
+        {
+          workflow_path: "agent_presets/triage/versions/1.yml",
+          workflow_title: "Triage",
+          error_type: "dependency",
+          message:
+            "Choose the target MCP integration before applying this pull.",
+          details: { code: "mcp_integration_mapping_required" },
+        },
+      ],
+      message: "Import failed: 1 validation error(s) found",
+      resource_diffs: [],
+      mcp_integration_mapping_requirements: [
+        {
+          source_mcp_integration_id: sourceMcpId,
+          slug: "shared-mcp",
+          name: "Shared MCP",
+          server_type: "http",
+          auth_type: "oauth",
+          reason: "unresolved",
+          message:
+            "Choose the target MCP integration before applying this pull.",
+          candidates: [
+            {
+              mcp_integration_id: targetMcpId,
+              slug: "shared-mcp-east",
+              name: "Shared MCP East",
+              server_type: "http",
+              auth_type: "oauth",
+            },
+            {
+              mcp_integration_id: replacementMcpId,
+              slug: "shared-mcp-west",
+              name: "Shared MCP West",
+              server_type: "sse",
+              auth_type: "api_key",
+            },
+          ],
+          affected_presets: [
+            {
+              preset_slug: "triage",
+              preset_name: "Triage",
+              version: 1,
+              path: "agent_presets/triage/versions/1.yml",
+            },
+          ],
+          affected_workflows: [
+            {
+              workflow_source_id: "triage-alert",
+              workflow_path: "workflows/triage-alert/definition.yml",
+              workflow_title: "Triage alert",
+              action_ref: "run_triage_agent",
+            },
+          ],
+        },
+      ],
+    }
+    const resolvedPreview: PullResult = {
+      ...unresolvedPreview,
+      success: true,
+      diagnostics: [],
+      message: "Dry run completed - 1 resource change(s) detected",
+      mcp_integration_mapping_requirements: [],
+    }
+    const appliedResult: PullResult = {
+      ...resolvedPreview,
+      message: "Successfully imported workspace resources",
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared MCP integration",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-08-11T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(unresolvedPreview)
+      .mockResolvedValueOnce(resolvedPreview)
+      .mockResolvedValueOnce(appliedResult)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
+    expect(applyPullButton).toBeDisabled()
+    expect(
+      screen.getByText("Choose target MCP integrations")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Triage version 1, Triage alert action run_triage_agent/)
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByLabelText("Target MCP integration for shared-mcp")
+    )
+    await user.click(
+      screen.getByRole("option", { name: "Shared MCP East (http · oauth)" })
+    )
+
+    expect(
+      screen.getByText(
+        "Preview changes again to validate these choices before applying."
+      )
+    ).toBeInTheDocument()
+    expect(applyPullButton).toBeDisabled()
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(2, {
+        commit_sha: commitSha,
+        dry_run: true,
+        sync_schedules: false,
+        catalog_mappings: [],
+        mcp_integration_mappings: [
+          {
+            source_mcp_integration_id: sourceMcpId,
+            target_mcp_integration_id: targetMcpId,
+          },
+        ],
+      })
+    })
+    expect(applyPullButton).toBeEnabled()
+    expect(
+      screen.queryByLabelText("Target MCP integration for shared-mcp")
+    ).not.toBeInTheDocument()
+
+    await user.click(applyPullButton)
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(3, {
+        commit_sha: commitSha,
+        sync_schedules: false,
+        catalog_mappings: [],
+        mcp_integration_mappings: [
+          {
+            source_mcp_integration_id: sourceMcpId,
+            target_mcp_integration_id: targetMcpId,
+          },
+        ],
+      })
+    })
+  })
+
+  it("clears obsolete MCP integration choices when a later preview has no candidates", async () => {
+    const user = userEvent.setup()
+    const commitSha = "f".repeat(40)
+    const requirement = createMcpMappingRequirement(
+      "44444444-4444-4444-4444-444444444444",
+      "55555555-5555-5555-5555-555555555555"
+    )
+    const unresolvedPreview: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Choose the target MCP integration before applying this pull.",
+      resource_diffs: [],
+      mcp_integration_mapping_requirements: [requirement],
+    }
+    const unavailablePreview: PullResult = {
+      ...unresolvedPreview,
+      message: "No matching MCP integrations are available.",
+      mcp_integration_mapping_requirements: [],
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared MCP integration",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-08-11T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(unresolvedPreview)
+      .mockResolvedValueOnce(unavailablePreview)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(
+      screen.getByLabelText("Target MCP integration for shared-mcp")
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("Target MCP integration for shared-mcp")
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it("disables apply when an MCP choice changes after a catalog and MCP preview", async () => {
+    const user = userEvent.setup()
+    const commitSha = "0".repeat(40)
+    const sourceCatalogId = "11111111-1111-1111-1111-111111111111"
+    const targetCatalogId = "22222222-2222-2222-2222-222222222222"
+    const sourceMcpId = "44444444-4444-4444-4444-444444444444"
+    const targetMcpId = "55555555-5555-5555-5555-555555555555"
+    const replacementMcpId = "66666666-6666-6666-6666-666666666666"
+    const mcpRequirement: McpIntegrationMappingRequirement = {
+      ...createMcpMappingRequirement(sourceMcpId, targetMcpId),
+      candidates: [
+        {
+          mcp_integration_id: targetMcpId,
+          slug: "shared-mcp-east",
+          name: "Shared MCP East",
+          server_type: "http",
+          auth_type: "oauth",
+        },
+        {
+          mcp_integration_id: replacementMcpId,
+          slug: "shared-mcp-west",
+          name: "Shared MCP West",
+          server_type: "sse",
+          auth_type: "api_key",
+        },
+      ],
+    }
+    const blockedPreview: PullResult = {
+      success: false,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Choose targets before applying this pull.",
+      resource_diffs: [],
+      catalog_mapping_requirements: [
+        createCatalogMappingRequirement(sourceCatalogId, targetCatalogId),
+      ],
+      mcp_integration_mapping_requirements: [mcpRequirement],
+    }
+    // Requirements persist so the selects stay mounted after a valid preview.
+    const resolvedPreview: PullResult = {
+      ...blockedPreview,
+      success: true,
+      message: "Dry run completed - 1 resource change(s) detected",
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Import shared references",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-08-11T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows
+      .mockResolvedValueOnce(blockedPreview)
+      .mockResolvedValueOnce(resolvedPreview)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    const applyPullButton = screen.getByRole("button", { name: "Apply pull" })
+    expect(applyPullButton).toBeDisabled()
+
+    await user.click(screen.getByLabelText("Target model for shared-model"))
+    await user.click(
+      screen.getByRole("option", {
+        name: "Provider East · east.models.example.com",
+      })
+    )
+    await user.click(
+      screen.getByLabelText("Target MCP integration for shared-mcp")
+    )
+    await user.click(
+      screen.getByRole("option", { name: "Shared MCP East (http · oauth)" })
+    )
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(2, {
+        commit_sha: commitSha,
+        dry_run: true,
+        sync_schedules: false,
+        catalog_mappings: [
+          {
+            source_catalog_id: sourceCatalogId,
+            target_catalog_id: targetCatalogId,
+          },
+        ],
+        mcp_integration_mappings: [
+          {
+            source_mcp_integration_id: sourceMcpId,
+            target_mcp_integration_id: targetMcpId,
+          },
+        ],
+      })
+    })
+    expect(applyPullButton).toBeEnabled()
+
+    // Changing only the MCP selection must invalidate the validated preview.
+    await user.click(
+      screen.getByLabelText("Target MCP integration for shared-mcp")
+    )
+    await user.click(
+      screen.getByRole("option", { name: "Shared MCP West (sse · api_key)" })
+    )
+
+    expect(applyPullButton).toBeDisabled()
+    // Both the catalog and MCP sections render this warning once each.
+    expect(
+      screen.getAllByText(
+        "Preview changes again to validate these choices before applying."
+      )
+    ).toHaveLength(2)
   })
 
   it("disables the repository selector while repositories are loading", () => {

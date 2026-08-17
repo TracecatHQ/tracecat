@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
@@ -1179,3 +1180,43 @@ class WorkflowExecutionBulkResetResponse(BaseModel):
 
 class ReceiveInteractionResponse(BaseModel):
     message: str
+
+
+class WorkflowExecutionSummaryResponse(BaseModel):
+    """Canonical execution summary projection shared by MCP and internal surfaces."""
+
+    id: WorkflowExecutionID
+    run_id: uuid.UUID | str
+    status: str | None = None
+    start_time: str
+    close_time: str | None = None
+    trigger_type: str | None = None
+    execution_type: str | None = None
+
+
+class WorkflowExecutionEventError(BaseModel):
+    """Action-level workflow execution error payload."""
+
+    message: str
+    cause: Any | None = None
+
+
+class WorkflowExecutionEventResponse(BaseModel):
+    """Canonical compact execution event projection."""
+
+    action_ref: str | None = None
+    action_name: str | None = None
+    status: str
+    schedule_time: str
+    start_time: str | None = None
+    close_time: str | None = None
+    error: WorkflowExecutionEventError | None = None
+    result: Any | None = None
+    result_truncated: str | None = None
+
+
+class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
+    """Canonical execution detail projection: summary plus the event timeline."""
+
+    history_length: int
+    events: list[WorkflowExecutionEventResponse] = Field(default_factory=list)

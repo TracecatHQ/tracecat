@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 
@@ -134,6 +135,8 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.workflow.publish",
       "core.workflow.run",
       "core.workflow.execute",
+      "core.workflow.list_executions",
+      "core.workflow.get_status",
     ],
   },
   {
@@ -225,6 +228,7 @@ export function ChatToolsPicker({
   const toolOptions = useMemo<ToolOption[]>(
     () =>
       registryActions
+        .filter((action) => isAgentToolSelectable(action.action))
         .map((action) => ({
           value: action.action,
           label: action.default_title || action.action,

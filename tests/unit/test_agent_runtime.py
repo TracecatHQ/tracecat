@@ -50,6 +50,9 @@ from tracecat.agent.runtime.claude_code.runtime import (
     ClaudeAgentRuntime,
     _claude_project_dir_name,
 )
+from tracecat.agent.runtime.claude_code.session_lines import (
+    MODEL_CONTEXT_PROMPT_PREFIX,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
@@ -227,6 +230,7 @@ def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
             "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         ),
         ("azure_openai", "my-deployment", False, "azure/my-deployment"),
+        ("mistral", "mistral-large-latest", False, "mistral/mistral-large-latest"),
         ("custom-model-provider", "custom", False, "custom"),
         ("custom-model-provider", "customer-alias", True, "customer-alias"),
         ("openai", "openai/gpt-5", False, "openai/gpt-5"),
@@ -260,7 +264,7 @@ class TestClaudeAgentRuntimeRun:
             "Accept-Encoding": "identity",
         }
 
-    def test_system_prompt_documents_duckdb_cli(
+    def test_system_prompt_documents_command_line_tools(
         self, mock_socket_writer: MagicMock
     ) -> None:
         """Runtime prompt should document local CLI tools available in shell."""
@@ -271,6 +275,9 @@ class TestClaudeAgentRuntimeRun:
         prompt = runtime._build_system_prompt("Preset instructions.")
 
         assert "<CommandLineTools>" in prompt
+        assert "`python3`" in prompt
+        assert "Python 3 is installed in the runtime environment" in prompt
+        assert "Use it through Bash" in prompt
         assert "`duckdb`" in prompt
         assert "DuckDB CLI" in prompt
         assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
@@ -903,7 +910,17 @@ class TestClaudeAgentRuntimeRun:
                             "name": "local-tools",
                             "command": "npx",
                             "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-                            "env": {"ROOT": "/tmp"},
+                            "env": {
+                                "ROOT": "/tmp",
+                                "UV_CACHE_DIR": "/work/.uv-cache",
+                                "UV_CREDENTIALS_DIR": "/home/agent/.local/uv-auth",
+                                "UV_LINK_MODE": "symlink",
+                                "UV_PYTHON_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_PYTHON_CACHE_DIR": "/home/agent/.cache/python",
+                                "UV_PYTHON_INSTALL_DIR": "/home/agent/.local/python",
+                                "UV_TOOL_BIN_DIR": "/home/agent/.local/bin",
+                                "UV_TOOL_DIR": "/home/agent/.local/tools",
+                            },
                             "timeout": 15,
                         }
                     ]
@@ -944,6 +961,67 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {
             "mcp__tracecat-registry__core__http_request",
             "mcp__local-tools__*",
+        }
+        assert options.setting_sources == ["user"]
+
+    @pytest.mark.anyio
+    async def test_root_agent_strips_protected_uvx_options_from_legacy_config(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "legacy-tools",
+                            "command": "uvx",
+                            "args": [
+                                "--from",
+                                "example-distribution",
+                                "--cache-dir=/work/uv-cache",
+                                "--link-mode",
+                                "symlink",
+                                "example-mcp",
+                                "--cache-dir",
+                                "/work/server-cache",
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with patch(
+            "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+            side_effect=_mock_client_ctor,
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].mcp_servers["legacy-tools"] == {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "example-distribution",
+                "example-mcp",
+                "--cache-dir",
+                "/work/server-cache",
+            ],
         }
 
     @pytest.mark.anyio
@@ -1221,22 +1299,15 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
 
-    def test_disables_experimental_betas_when_subagent_uses_passthrough(
+    def test_enables_tool_search(
         self,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        child = SandboxSubagentConfig(
-            alias="analyst",
-            description="Use for enrichment analysis.",
-            prompt="Analyze enrichment data.",
-            config=sample_init_payload.config.model_copy(update={"passthrough": True}),
-            mcp_auth_token="child-mcp-token",
-        )
-        payload = replace(sample_init_payload, subagents=[child])
+        # Always on: the CLI would otherwise disable deferred tool loading
+        # because the socket bridge is not a first-party Anthropic host.
+        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
 
-        env = ClaudeAgentRuntime._sdk_env(payload)
-
-        assert env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] == "1"
+        assert env["ENABLE_TOOL_SEARCH"] == "true"
 
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
@@ -2790,6 +2861,24 @@ class TestClaudeAgentRuntimeInternalSessionLines:
                         "text": "<command-name>/compact</command-name>",
                     }
                 ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is True
+
+    def test_hides_model_context_prompt(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Integration context remains model-visible without becoming a bubble."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        line_data = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": (f"{MODEL_CONTEXT_PROMPT_PREFIX}private routing context"),
             },
         }
 

@@ -15,7 +15,11 @@ from tracecat.agent.mcp.stdio_probe import (
     sanitize_stdio_probe_error,
 )
 from tracecat.sandbox.exceptions import SandboxTimeoutError
-from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
+from tracecat.sandbox.types import (
+    SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxResult,
+)
 
 FAKE_MCP_SERVER = '''
 from fastmcp import FastMCP
@@ -205,6 +209,10 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     assert result.success is True
     assert [tool.name for tool in result.tools] == ["list_alerts"]
     executor.execute.assert_awaited_once()
+    config = executor.execute.await_args.args[1]
+    assert config.network is not None
+    assert config.network.purpose is SandboxNetworkPurpose.AGENT
+    assert config.network.policy is None
 
 
 @pytest.mark.anyio

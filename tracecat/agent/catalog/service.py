@@ -1,23 +1,27 @@
 """Service for managing agent model catalog."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import and_, exists, select
+from sqlalchemy import Select, and_, exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.types import ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, AgentModelAccess
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+from tracecat.sync import CatalogMappingCandidate
 
 
 class _CatalogRowValues(TypedDict):
@@ -42,6 +46,16 @@ class PlatformCatalogEntry:
     model_provider: str
     model_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def _safe_hostname(base_url: str | None) -> str | None:
+    """Return a display-safe hostname without URL userinfo or path data."""
+    if not base_url:
+        return None
+    try:
+        return urlsplit(base_url).hostname
+    except ValueError:
+        return None
 
 
 class AgentCatalogService(BaseService):
@@ -115,38 +129,47 @@ class AgentCatalogService(BaseService):
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
 
-    async def _enabled_catalog_ids_subquery(
+    def _enabled_catalog_ids_subquery(
         self,
         *,
         org_id: UUID,
         workspace_id: UUID | None,
-    ) -> Any:
+    ) -> Select[tuple[UUID]]:
         """Subquery of catalog ids enabled for the importing workspace.
 
         Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
         override the org-level set; otherwise the org-level (``workspace_id IS
-        NULL``) set applies.
+        NULL``) set applies. The override existence check is embedded as an
+        uncorrelated EXISTS so it rides along in the caller's query.
         """
-        effective_workspace_id: UUID | None = None
-        if workspace_id is not None:
-            override_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        AgentModelAccess.organization_id == org_id,
-                        AgentModelAccess.workspace_id == workspace_id,
-                    )
-                )
-            )
-            if override_exists:
-                effective_workspace_id = workspace_id
-        access_workspace_condition = (
-            AgentModelAccess.workspace_id == effective_workspace_id
-            if effective_workspace_id is not None
-            else AgentModelAccess.workspace_id.is_(None)
+        access = select(AgentModelAccess.catalog_id).where(
+            AgentModelAccess.organization_id == org_id
         )
-        return select(AgentModelAccess.catalog_id).where(
-            AgentModelAccess.organization_id == org_id,
-            access_workspace_condition,
+        if workspace_id is None:
+            return access.where(AgentModelAccess.workspace_id.is_(None))
+
+        # Alias so the EXISTS keeps its own FROM instead of auto-correlating
+        # to the enclosing AgentModelAccess select.
+        override = aliased(AgentModelAccess)
+        override_exists = (
+            select(override.catalog_id)
+            .where(
+                override.organization_id == org_id,
+                override.workspace_id == workspace_id,
+            )
+            .exists()
+        )
+        return access.where(
+            sa.or_(
+                sa.and_(
+                    override_exists,
+                    AgentModelAccess.workspace_id == workspace_id,
+                ),
+                sa.and_(
+                    ~override_exists,
+                    AgentModelAccess.workspace_id.is_(None),
+                ),
+            )
         )
 
     async def is_catalog_id_enabled(
@@ -164,7 +187,7 @@ class AgentCatalogService(BaseService):
         not rewrite the user's selected row to another enabled row that happens
         to win the ``(provider, name)`` tuple resolver's ordering.
         """
-        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
             org_id=org_id, workspace_id=workspace_id
         )
         stmt = select(
@@ -178,6 +201,146 @@ class AgentCatalogService(BaseService):
             )
         )
         return bool(await self.session.scalar(stmt))
+
+    async def enabled_catalog_models(
+        self,
+        *,
+        org_id: UUID,
+        catalog_ids: Collection[UUID],
+        workspace_id: UUID | None = None,
+    ) -> dict[UUID, ModelKey]:
+        """Return visible, enabled input ids and their local model identities.
+
+        Workspace-sync correlation needs the tuple as well as the enabled state
+        so an incoming deployment-local UUID can only be preserved when its
+        manifest model identity matches the local catalog row.
+        """
+        if not catalog_ids:
+            return {}
+
+        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = (
+            select(
+                AgentCatalog.id,
+                AgentCatalog.model_provider,
+                AgentCatalog.model_name,
+            )
+            .where(
+                AgentCatalog.id.in_(catalog_ids),
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            .order_by(AgentCatalog.id.asc())
+        )
+        return {
+            catalog_id: ModelKey(model_provider, model_name)
+            for catalog_id, model_provider, model_name in (
+                await self.session.execute(stmt)
+            ).tuples()
+        }
+
+    async def catalog_candidates_by_models(
+        self,
+        *,
+        org_id: UUID,
+        models: Collection[ModelKey],
+        workspace_id: UUID | None = None,
+    ) -> dict[ModelKey, list[CatalogMappingCandidate]]:
+        """Return every visible, enabled local candidate for each model tuple.
+
+        Unlike the best-effort tuple resolvers, this method preserves duplicate
+        candidates so callers at an interactive trust boundary can require an
+        explicit choice instead of silently selecting an arbitrary provider.
+        """
+        if not models:
+            return {}
+
+        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = (
+            select(
+                AgentCatalog.model_provider,
+                AgentCatalog.model_name,
+                AgentCatalog.id,
+                AgentCatalog.organization_id,
+                AgentCatalog.custom_provider_id,
+                AgentCatalog.model_metadata,
+                AgentCustomProvider.display_name,
+                AgentCustomProvider.base_url,
+            )
+            .outerjoin(
+                AgentCustomProvider,
+                and_(
+                    AgentCustomProvider.organization_id == AgentCatalog.organization_id,
+                    AgentCustomProvider.id == AgentCatalog.custom_provider_id,
+                ),
+            )
+            .where(
+                tuple_(
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                ).in_(models),
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            .order_by(
+                AgentCatalog.model_provider.asc(),
+                AgentCatalog.model_name.asc(),
+                AgentCatalog.organization_id.desc().nulls_last(),
+                AgentCatalog.id.asc(),
+            )
+        )
+
+        candidates: dict[ModelKey, list[CatalogMappingCandidate]] = {}
+        for (
+            model_provider,
+            model_name,
+            catalog_id,
+            organization_id,
+            custom_provider_id,
+            model_metadata,
+            custom_provider_name,
+            custom_provider_base_url,
+        ) in (await self.session.execute(stmt)).tuples():
+            model_display_name = None
+            if model_metadata and isinstance(
+                raw_display_name := model_metadata.get("display_name"), str
+            ):
+                model_display_name = raw_display_name
+
+            if custom_provider_id is not None:
+                origin: Literal["platform", "organization", "custom_provider"] = (
+                    "custom_provider"
+                )
+                provider_name = custom_provider_name or "Custom provider"
+            elif organization_id is not None:
+                origin = "organization"
+                provider_name = "Organization catalog"
+            else:
+                origin = "platform"
+                provider_name = "Tracecat catalog"
+
+            candidates.setdefault(ModelKey(model_provider, model_name), []).append(
+                CatalogMappingCandidate(
+                    catalog_id=catalog_id,
+                    model_provider=model_provider,
+                    model_name=model_name,
+                    provider_name=provider_name,
+                    model_display_name=model_display_name,
+                    endpoint_hostname=_safe_hostname(custom_provider_base_url),
+                    origin=origin,
+                )
+            )
+        return candidates
 
     async def resolve_catalog_id_by_model(
         self,
@@ -216,7 +379,7 @@ class AgentCatalogService(BaseService):
         deterministically rather than skip; an imported agent resolving to a
         plausible enabled model beats leaving it dangling.
         """
-        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
             org_id=org_id, workspace_id=workspace_id
         )
 

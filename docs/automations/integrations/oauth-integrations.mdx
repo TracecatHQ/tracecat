@@ -3,7 +3,7 @@ title: "OAuth"
 description: "Connect OAuth providers to Tracecat and reference managed OAuth tokens in expressions: configure scopes, refresh credentials, and call APIs from actions and agents."
 ---
 
-import RegistrySecretsAndOAuth from "/snippets/registry-secrets-and-oauth.mdx";
+import OAuthTokenExpressions from "/snippets/oauth-token-expressions.mdx";
 
 ## Overview
 
@@ -34,11 +34,11 @@ After you save a custom provider, connect it (complete the OAuth flow) when usin
 
 ## Use OAuth tokens in expressions
 
-<RegistrySecretsAndOAuth />
+<OAuthTokenExpressions />
 
 ## OAuth and actions
 
-Registry actions reference OAuth integrations but do not create them. Configure a built-in or custom provider in Integrations first, then declare `RegistryOAuthSecret` (Python) or `type: oauth` (YAML) so the action requires that integration at runtime. Syntax and examples are in [Use OAuth tokens in expressions](#use-oauth-tokens-in-expressions) above.
+Registry actions reference OAuth integrations but do not create them. Configure a built-in or custom provider in Integrations first, then declare `RegistryOAuthSecret` (Python) or `type: oauth` (YAML) so the action requires that integration at runtime. See the OAuth declaration syntax and examples for [Python UDFs](/custom-actions/python-udf#python-udfs) and [YAML templates](/custom-actions/yaml-template#secrets).
 
 ## OAuth and MCP
 
@@ -51,10 +51,6 @@ Remote MCP integrations can use an existing OAuth integration. For custom remote
 ## FAQ
 
 <AccordionGroup>
-  <Accordion title="Why is my custom OAuth provider_id prefixed with custom_?">
-    When you save a custom provider, Tracecat derives a provider ID from the display name or the ID you enter (slugified). If that value does not already start with `custom_`, the server prepends `custom_` so it does not collide with [built-in providers](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py). If the ID is already taken, a numeric suffix is added.
-  </Accordion>
-
   <Accordion title="Can my custom action create an OAuth integration?">
     No. `RegistryOAuthSecret` and YAML `type: oauth` entries declare that the action *requires* an existing OAuth integration — they do not register one. Create the integration from [Configure a provider](#configure-a-provider) (or [contribute a built-in provider](#how-do-i-contribute-a-built-in-oauth-provider)). Once it exists, your action can reference its tokens via `${{ SECRETS.<provider_id>_oauth... }}`.
   </Accordion>

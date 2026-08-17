@@ -155,7 +155,14 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Key",
                 type="password",
                 description="Your OpenAI API key from the provider's dashboard.",
-            )
+            ),
+            ProviderCredentialField(
+                key="OPENAI_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for OpenAI-compatible endpoints.",
+                required=False,
+            ),
         ],
     ),
     "anthropic": ProviderCredentialConfig(
@@ -167,7 +174,14 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Key",
                 type="password",
                 description="Your Anthropic API key from the provider's dashboard.",
-            )
+            ),
+            ProviderCredentialField(
+                key="ANTHROPIC_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for Anthropic-compatible endpoints.",
+                required=False,
+            ),
         ],
     ),
     "bedrock": ProviderCredentialConfig(
@@ -227,6 +241,25 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 type="password",
                 description="Your Gemini API key from Google AI Studio.",
             )
+        ],
+    ),
+    "mistral": ProviderCredentialConfig(
+        provider="mistral",
+        label="Mistral AI",
+        fields=[
+            ProviderCredentialField(
+                key="MISTRAL_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Mistral API key from the La Plateforme console.",
+            ),
+            ProviderCredentialField(
+                key="MISTRAL_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for Mistral-compatible endpoints.",
+                required=False,
+            ),
         ],
     ),
     "vertex_ai": ProviderCredentialConfig(

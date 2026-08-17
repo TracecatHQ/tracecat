@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Get document
+  description: Get an OpenSearch document by index and document ID.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/api-reference/document-apis/get-documents/
+  namespace: tools.opensearch
+  name: get_document
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    index:
+      type: str
+      description: Index name.
+    document_id:
+      type: str
+      description: Document ID.
+    params:
+      type: dict[str, Any] | None
+      description: Optional native get document query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}/${{ FN.url_encode(inputs.index) }}/_doc/${{ FN.url_encode(inputs.document_id) }}
+        method: GET
+        params: ${{ inputs.params }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+  returns: ${{ steps.request.result.data }}

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Schedule, Workflow
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.schedules import bridge
@@ -79,6 +82,43 @@ async def test_create_schedule_acquires_workflow_lock(
     assert schedule.workflow_id == workflow.id
     assert schedule.status == "offline"
     assert locked_workflow_ids == [WorkflowUUID.new(workflow.id)]
+
+
+@pytest.mark.anyio
+async def test_create_schedule_unpublished_workflow_emits_failure(
+    session: AsyncSession, svc_role, monkeypatch
+):
+    workflow = Workflow(
+        title="Unpublished Schedule",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+    service = WorkflowSchedulesService(session, role=svc_role)
+
+    with pytest.raises(
+        TracecatNotFoundError,
+        match="Workflow must be saved before creating a schedule",
+    ):
+        await service.create_schedule(
+            ScheduleCreate(
+                workflow_id=WorkflowUUID.new(workflow.id),
+                every=timedelta(hours=1),
+                inputs={},
+                status="offline",
+                timeout=0,
+            )
+        )
+
+    assert [call.kwargs["status"] for call in create_event.await_args_list] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.FAILURE,
+    ]
 
 
 @pytest.mark.anyio

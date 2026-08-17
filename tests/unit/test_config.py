@@ -8,17 +8,40 @@ from pathlib import Path
 import pytest
 
 import tracecat.config as tracecat_config
-from tracecat.config import bound_env, env_bool
+from tracecat.config import bound_env, env_bool, env_networks, env_ports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
-COMPOSE_ENV_FILES = (
+SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
+# The sandbox Compose file is an override and inherits policy variables from a base.
+COMPOSE_ENV_FILES = (
+    *SANDBOX_POLICY_COMPOSE_ENV_FILES,
+    REPO_ROOT / "docker-compose.sandbox.yml",
+)
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+SANDBOX_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS",
+}
+REGISTRY_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+}
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -95,6 +118,99 @@ def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ValueError, match="TEST_BOOL_ENV must be a boolean"):
         env_bool("TEST_BOOL_ENV", default=True)
+
+
+def test_env_networks_parses_ipv4_and_ipv6_cidrs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TEST_NETWORKS_ENV",
+        "10.42.0.0/16, 203.0.113.10, 2001:db8::/48",
+    )
+
+    networks = env_networks("TEST_NETWORKS_ENV")
+
+    assert tuple(str(network) for network in networks) == (
+        "10.42.0.0/16",
+        "203.0.113.10/32",
+        "2001:db8::/48",
+    )
+
+
+def test_env_networks_rejects_invalid_cidr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_NETWORKS_ENV", "10.42.0.0/16,not-a-cidr")
+
+    with pytest.raises(ValueError, match="TEST_NETWORKS_ENV contains an invalid CIDR"):
+        env_networks("TEST_NETWORKS_ENV")
+
+
+def test_env_ports_parses_and_deduplicates_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", "443, 8443,443")
+
+    assert env_ports("TEST_PORTS_ENV", default=(80,)) == (443, 8443)
+
+
+@pytest.mark.parametrize("raw_value", ["not-a-port", "0", "65536"])
+def test_env_ports_rejects_invalid_ports(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    with pytest.raises(ValueError, match="TEST_PORTS_ENV contains an invalid port"):
+        env_ports("TEST_PORTS_ENV", default=(443,))
+
+
+@pytest.mark.parametrize("raw_value", [None, "", "   "])
+def test_env_ports_uses_default_when_unset_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("TEST_PORTS_ENV", raising=False)
+    else:
+        monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    assert env_ports("TEST_PORTS_ENV", default=(80, 443)) == (80, 443)
+
+
+def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
+    missing_by_file = {
+        str(path.relative_to(REPO_ROOT)): sorted(
+            name for name in SANDBOX_POLICY_ENV_VARS if name not in path.read_text()
+        )
+        for path in SANDBOX_POLICY_COMPOSE_ENV_FILES
+    }
+    missing_by_file = {
+        path: missing for path, missing in missing_by_file.items() if missing
+    }
+
+    assert not missing_by_file
+
+
+def test_registry_policy_env_vars_are_regular_executor_only() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        executor_match = re.search(
+            r"(?ms)^  executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        agent_executor_match = re.search(
+            r"(?ms)^  agent-executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert executor_match is not None
+        assert agent_executor_match is not None
+
+        executor_source = executor_match.group("body")
+        agent_executor_source = agent_executor_match.group("body")
+        for name in REGISTRY_POLICY_ENV_VARS:
+            assert name in executor_source
+            assert name not in agent_executor_source
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:
@@ -216,6 +332,22 @@ def test_action_gateway_socket_uses_default_for_empty_string(
                 reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
                 == "/var/run/tracecat/action-gateway.sock"
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_executor_concurrency_uses_bounded_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.delenv("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", raising=False)
+            env.delenv("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS", raising=False)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES == 16
+            assert reloaded_config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS == 16
     finally:
         importlib.reload(tracecat_config)
 

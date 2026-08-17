@@ -24,7 +24,8 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import require_scope
+from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
     Group,
@@ -39,7 +40,6 @@ from tracecat.db.models import (
     UserRoleAssignment,
     Workspace,
 )
-from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -524,26 +524,14 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
-        # Validate role_id exists and belongs to this organization
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
+        try:
+            await resolve_grantable_role(
+                self.session, self.role, self.organization_id, role_id
             )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
-
-        # Prevent privilege escalation: only owners (via scope) or superusers
-        # can assign the organization-owner role
-        if role_obj.slug == "organization-owner":
-            if not self.role.is_superuser and not has_scope(
-                self.role.scopes or frozenset(), "org:owner:assign"
-            ):
-                raise TracecatAuthorizationError(
-                    "Only organization owners can create owner invitations"
-                )
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (

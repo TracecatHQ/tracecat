@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
+from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -524,6 +525,7 @@ def test_non_git_org_settings_routes_remain_user_only() -> None:
         settings_router.update_app_settings,
         settings_router.get_audit_settings,
         settings_router.update_audit_settings,
+        settings_router.test_audit_webhook,
         settings_router.get_agent_settings,
         settings_router.update_agent_settings,
     ]
@@ -555,6 +557,29 @@ def test_org_agent_routes_remain_user_only() -> None:
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
     assert workspace_status_role == WorkspaceActorRouteRole
+
+
+def test_agent_catalog_read_routes_accept_org_actors() -> None:
+    endpoints = [
+        agent_catalog_router.list_catalog,
+        agent_catalog_router.get_catalog_entry,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == agent_catalog_router.OrgActorRole
+
+
+def test_agent_catalog_mutation_routes_remain_user_only() -> None:
+    endpoints = [
+        agent_catalog_router.create_catalog_entry,
+        agent_catalog_router.update_catalog_entry,
+        agent_catalog_router.delete_catalog_entry,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == agent_catalog_router.OrgUserRole
 
 
 def test_github_manifest_flow_routes_remain_user_only() -> None:

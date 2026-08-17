@@ -29,7 +29,6 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
-from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -46,6 +45,10 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
+from tracecat.sandbox.utils import (
+    communicate_process_group,
+    terminate_supervised_process,
+)
 from tracecat.secrets.common import apply_masks, apply_masks_object
 
 if TYPE_CHECKING:
@@ -109,20 +112,23 @@ def _is_sandbox_available() -> bool:
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
-    """Build the direct action subprocess command with new privileges disabled."""
+    """Build a contained direct-action command with privileges disabled."""
     runner_command = [sys.executable, str(minimal_runner_path)]
-    if sys.platform != "linux":
-        return runner_command
-
     setpriv = shutil.which("setpriv")
     if setpriv is None:
         raise RuntimeError("setpriv is required for direct action subprocess isolation")
 
+    supervisor_path = Path(__file__).with_name("process_supervisor.py")
     return [
         setpriv,
         "--no-new-privs",
         "--inh-caps=-all",
         "--ambient-caps=-all",
+        sys.executable,
+        # Keep registry-controlled PYTHONPATH out of the supervisor interpreter.
+        # Isolated mode leaves the environment intact for the nested action.
+        "-I",
+        str(supervisor_path),
         *runner_command,
     ]
 
@@ -141,40 +147,6 @@ class ActionRunner:
         self.cache_dir = cache_dir or Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
-
-    async def ensure_registry_environment(self, artifact_uri: str | None) -> list[Path]:
-        """Ensure the registry environment is set up and return PYTHONPATH entries.
-
-        This is the public API for pool workers to get the paths to add to PYTHONPATH.
-
-        Args:
-            artifact_uri: S3 URI to the registry execution artifact.
-
-        Returns:
-            Paths to add to PYTHONPATH (empty if no artifact is available).
-        """
-        return await self.registry_artifacts.ensure_environment(artifact_uri)
-
-    async def resolve_registry_paths(
-        self, artifact_uris: list[str] | None = None
-    ) -> list[Path]:
-        """Materialize registry artifacts and return importable Python paths."""
-        registry_paths: list[Path] = []
-        if artifact_uris:
-            for artifact_uri in artifact_uris:
-                registry_paths.extend(
-                    await self.ensure_registry_environment(artifact_uri)
-                )
-            logger.info(
-                "Using registry artifact environments",
-                count=len(registry_paths),
-            )
-            return registry_paths
-
-        base_dir = self.cache_dir / "base"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("No registry artifact URIs provided, using base PYTHONPATH")
-        return [base_dir]
 
     async def execute_action(
         self,
@@ -206,39 +178,43 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Materialize each registry artifact, collect paths in deterministic order.
-        registry_paths = await self.resolve_registry_paths(artifact_uris)
-
-        # Check if sandbox execution is enabled and available
-        # force_sandbox=True overrides config (used by ephemeral backend)
+        # Direct subprocesses receive host paths and can modify extracted
+        # artifacts. NsJail exposes the same paths through read-only bind mounts.
         use_sandbox = force_sandbox or (
             config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
         )
-        logger.debug(
-            "Using sandbox execution",
-            use_sandbox=use_sandbox,
-            force_sandbox=force_sandbox,
-        )
 
-        secret_projection = resolved_context.secret_projection
-        if secret_projection is None:
-            secret_projection = await project_secret_env(
-                secrets=resolved_context.secrets,
-                role=role,
-                run_context=input.run_context,
+        # Materialize each registry artifact, collect paths in deterministic order.
+        # The lease is held for the whole subprocess execution so cache eviction
+        # cannot delete a directory the subprocess is still importing from.
+        async with self.registry_artifacts.lease(
+            artifact_uris,
+            paths_may_be_modified=not use_sandbox,
+        ) as registry_paths:
+            logger.debug(
+                "Using sandbox execution",
+                use_sandbox=use_sandbox,
+                force_sandbox=force_sandbox,
             )
 
-        if use_sandbox:
-            return await self._execute_sandboxed(
-                input=input,
-                role=role,
-                registry_paths=registry_paths,
-                secret_projection=secret_projection,
-                env_vars=env_vars,
-                timeout=timeout,
-                resolved_context=resolved_context,
-            )
-        else:
+            secret_projection = resolved_context.secret_projection
+            if secret_projection is None:
+                secret_projection = await project_secret_env(
+                    secrets=resolved_context.secrets,
+                    role=role,
+                    run_context=input.run_context,
+                )
+
+            if use_sandbox:
+                return await self._execute_sandboxed(
+                    input=input,
+                    role=role,
+                    registry_paths=registry_paths,
+                    secret_projection=secret_projection,
+                    env_vars=env_vars,
+                    timeout=timeout,
+                    resolved_context=resolved_context,
+                )
             return await self._execute_direct(
                 input=input,
                 role=role,
@@ -318,17 +294,8 @@ class ActionRunner:
                 ACTION_GATEWAY_SANDBOX_SOCKET
             )
 
-            # Mint an executor token for SDK calls
-            if role.workspace_id is None:
-                raise ValueError("workspace_id is required for sandbox execution")
-            executor_token = mint_executor_token(
-                workspace_id=role.workspace_id,
-                user_id=role.user_id,
-                service_id=role.service_id,
-                wf_id=str(input.run_context.wf_id),
-                wf_exec_id=str(input.run_context.wf_run_id),
-            )
-            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
+            # Preserve the signed execution provenance from the service boundary.
+            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
 
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",
@@ -412,7 +379,11 @@ class ActionRunner:
         timeout: float | None = None,
         resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
-        """Execute an action in a direct subprocess (no sandbox)."""
+        """Execute an action in a direct subprocess (no sandbox).
+
+        Every exit kills lingering descendants before the registry-path lease
+        protecting their imports can unwind.
+        """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Prepare input JSON for subprocess
@@ -444,6 +415,7 @@ class ActionRunner:
         if existing_pythonpath:
             pythonpath_parts.append(existing_pythonpath)
         env["PYTHONPATH"] = ":".join(pythonpath_parts) if pythonpath_parts else ""
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         # Get path to minimal_runner.py for subprocess execution
         from tracecat.executor import minimal_runner as minimal_runner_module
@@ -474,12 +446,15 @@ class ActionRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            start_new_session=True,
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=input_json),
+            stdout, stderr = await communicate_process_group(
+                proc,
+                input=input_json,
                 timeout=timeout,
+                terminate=terminate_supervised_process,
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(
@@ -494,8 +469,6 @@ class ActionRunner:
                 action=input.task.action,
                 timeout=timeout,
             )
-            proc.kill()
-            await proc.wait()
             return ExecutorActionErrorInfo(
                 type="TimeoutError",
                 message=f"Action execution timed out after {timeout}s",
@@ -503,7 +476,6 @@ class ActionRunner:
                 filename="<subprocess>",
                 function="execute_action",
             )
-
         # Check for subprocess crash
         if proc.returncode != 0:
             stderr_text = apply_masks(

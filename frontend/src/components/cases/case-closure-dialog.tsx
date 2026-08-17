@@ -7,7 +7,7 @@ import { bracketMatching } from "@codemirror/language"
 import { linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
-import { AlertTriangle, Check } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
@@ -19,6 +19,7 @@ import { CaseDescriptionEditor } from "@/components/cases/case-description-edito
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -34,6 +35,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  nonDismissableDialogProps,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -53,7 +55,6 @@ import {
   isValidSqlIntegerInput,
   isValidSqlNumericInput,
 } from "@/lib/sql-value-validation"
-import { cn } from "@/lib/utils"
 
 interface CaseClosureDialogProps {
   open: boolean
@@ -180,7 +181,7 @@ export function CaseClosureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" {...nonDismissableDialogProps}>
         <DialogHeader>
           <DialogTitle>{statusLabel} case</DialogTitle>
           <DialogDescription>
@@ -254,9 +255,6 @@ export function CaseClosureDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
           <Button
             variant="outline"
             disabled={!isValid || isSubmitting}
@@ -447,6 +445,7 @@ function LongTextField({
       <Label className="text-sm">{label}</Label>
       <div className="min-h-[100px] rounded-md border">
         <CaseDescriptionEditor
+          className="case-description-editor--boxed"
           initialContent={typeof value === "string" ? value : ""}
           onChange={onChange}
         />
@@ -561,20 +560,19 @@ function MultiSelectField({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0" align="start">
+        <PopoverContent className="w-[200px] p-0" align="start" portal={true}>
           <Command>
             <CommandInput placeholder="Search..." />
             <CommandList>
               <CommandEmpty>No options.</CommandEmpty>
               <CommandGroup>
                 {field.options?.map((opt) => (
-                  <CommandItem key={opt} onSelect={() => toggleOption(opt)}>
-                    <Check
-                      className={cn(
-                        "mr-2 size-4",
-                        selected.includes(opt) ? "opacity-100" : "opacity-0"
-                      )}
-                    />
+                  <CommandItem
+                    key={opt}
+                    className="group"
+                    onSelect={() => toggleOption(opt)}
+                  >
+                    <CheckIndicator checked={selected.includes(opt)} />
                     {opt}
                   </CommandItem>
                 ))}

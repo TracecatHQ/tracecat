@@ -11,7 +11,7 @@ from tracecat.sandbox.executor import (
     _validate_env_key,
     _validate_path,
 )
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import SandboxBindMount, SandboxConfig
 
 
 class TestValidateEnvKey:
@@ -143,6 +143,43 @@ class TestValidatePath:
         with pytest.raises(SandboxValidationError) as exc_info:
             _validate_path(Path('/tmp/bad"path'), "my_special_path")
         assert "my_special_path" in str(exc_info.value)
+
+
+class TestBindMountValidation:
+    """Tests for explicit phase-scoped sandbox mounts."""
+
+    def test_bind_mount_destination_must_be_absolute(self, tmp_path: Path) -> None:
+        source = tmp_path / "source"
+        source.touch()
+
+        with pytest.raises(SandboxValidationError, match="must be absolute"):
+            NsjailExecutor()._build_config(
+                job_dir=tmp_path / "job",
+                phase="execute",
+                config=SandboxConfig(
+                    bind_mounts=[
+                        SandboxBindMount(
+                            source=source,
+                            destination=Path("relative/path"),
+                        )
+                    ]
+                ),
+            )
+
+    def test_bind_mount_source_must_exist(self, tmp_path: Path) -> None:
+        with pytest.raises(SandboxValidationError, match="source does not exist"):
+            NsjailExecutor()._build_config(
+                job_dir=tmp_path / "job",
+                phase="execute",
+                config=SandboxConfig(
+                    bind_mounts=[
+                        SandboxBindMount(
+                            source=tmp_path / "missing",
+                            destination=Path("/run/capability"),
+                        )
+                    ]
+                ),
+            )
 
 
 class TestEnvMap:

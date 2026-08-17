@@ -24,6 +24,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AuditWebhookTestResult,
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
@@ -237,6 +238,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsTestAuditWebhookData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -257,6 +259,7 @@ import {
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsTestAuditWebhook,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -354,6 +357,7 @@ import {
   type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
+  type WorkflowsUpdateWorkflowData,
   type WorkspaceCreate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
@@ -369,6 +373,7 @@ import {
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
+  workflowsUpdateWorkflow,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
@@ -383,9 +388,20 @@ import {
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
   listCaseDurationDefinitions,
   listCaseDurations,
 } from "@/lib/case-durations"
+import {
+  CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS,
+  caseCommentQueryKeys,
+  hasActiveCaseCommentInvocations,
+  hasActiveCaseCommentThreadInvocations,
+  invalidateCaseCommentQueries,
+} from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
@@ -919,6 +935,45 @@ export function useWorkflowManager(
     },
   })
 
+  // Update workflow
+  const { mutateAsync: updateWorkflow, isPending: updateWorkflowIsPending } =
+    useMutation({
+      mutationFn: async (params: WorkflowsUpdateWorkflowData) =>
+        await workflowsUpdateWorkflow(params),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["workflows"] })
+        queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+        // Keep an already-loaded builder view in step with a dashboard rename.
+        queryClient.invalidateQueries({ queryKey: ["workflow"] })
+      },
+      onError: (error: TracecatApiError) => {
+        // Transport failures rethrow a raw error with no `body`, so read the
+        // detail defensively; dereferencing it here would throw before the
+        // toast renders and leave the user with no feedback at all.
+        const detail = getApiErrorDetail(error)
+        switch (error.status) {
+          case 409:
+            // The API returns a specific conflict reason (alias collision vs.
+            // a duplicate workflow), so surface it rather than assuming one.
+            toast({
+              title: "Cannot update workflow",
+              description: detail ?? "The workflow was modified elsewhere.",
+              variant: "destructive",
+            })
+            break
+          default:
+            console.error("Failed to update workflow:", error)
+            toast({
+              title: "Error updating workflow",
+              description: detail
+                ? `${detail}. Please try again.`
+                : "Could not reach the server. Please try again.",
+              variant: "destructive",
+            })
+        }
+      },
+    })
+
   return {
     workflows,
     workflowsLoading,
@@ -928,6 +983,8 @@ export function useWorkflowManager(
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
+    updateWorkflow,
+    updateWorkflowIsPending,
   }
 }
 
@@ -3075,6 +3132,38 @@ export function useOrgAuditSettings() {
     },
   })
 
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      SettingsTestAuditWebhookData
+    >({
+      mutationFn: settingsTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Failed to test audit webhook", error)
+            toast({
+              title: "Failed to test audit webhook",
+              description: getApiErrorDetail(error) ?? "Unknown error",
+            })
+        }
+      },
+    })
+
   return {
     // Get
     auditSettings,
@@ -3084,6 +3173,9 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    // Test
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 
@@ -3988,6 +4080,10 @@ export function useCaseDurations({
     queryKey: ["case-durations", caseId, workspaceId],
     queryFn: async () => await listCaseDurations(workspaceId, caseId),
     enabled: Boolean(caseId && workspaceId) && enabled,
+    // Durations materialize asynchronously (Redis consumer), so a mutation's
+    // one-shot invalidation can read before the worker finishes. Poll while
+    // the case is open so the recomputed values eventually appear.
+    refetchInterval: 5000,
   })
 
   return {
@@ -4049,9 +4145,13 @@ export function useCaseComments({
     isLoading: caseCommentsIsLoading,
     error: caseCommentsError,
   } = useQuery<CaseCommentRead[], TracecatApiError>({
-    queryKey: ["case-comments", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.comments(caseId, workspaceId),
     queryFn: async () => await casesListComments({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4071,9 +4171,13 @@ export function useCaseCommentThreads({
     isLoading: caseCommentThreadsIsLoading,
     error: caseCommentThreadsError,
   } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.threads(caseId, workspaceId),
     queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentThreadInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4081,19 +4185,6 @@ export function useCaseCommentThreads({
     caseCommentThreadsIsLoading,
     caseCommentThreadsError,
   }
-}
-
-function invalidateCaseCommentQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
-  caseId: string,
-  workspaceId: string
-) {
-  queryClient.invalidateQueries({
-    queryKey: ["case-comments", caseId, workspaceId],
-  })
-  queryClient.invalidateQueries({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
-  })
 }
 
 export function useCreateCaseComment({
@@ -4218,7 +4309,11 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+export function useCaseTasks({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListTasksData & { enabled?: boolean }) {
   const {
     data: caseTasks,
     isLoading: caseTasksIsLoading,
@@ -4227,6 +4322,10 @@ export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+    // Tasks are gated behind the `case_addons` entitlement; callers outside
+    // the gate (the switcher's progress ring) must pass `enabled` so
+    // non-entitled orgs never fire the request.
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {

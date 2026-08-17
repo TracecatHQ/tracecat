@@ -1,12 +1,4 @@
-"""Fixtures for integration tests that require real infrastructure.
-
-These fixtures support tests that spin up real WorkerPool instances
-and test multi-tenant isolation under load.
-
-The tests run with TRACECAT__DISABLE_NSJAIL=true, which uses direct subprocess
-workers instead of nsjail sandboxing. This allows tests to run anywhere without
-requiring Linux namespaces or CAP_SYS_ADMIN.
-"""
+"""Fixtures for integration tests that require real infrastructure."""
 
 from __future__ import annotations
 
@@ -25,7 +17,7 @@ from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 
 # =============================================================================
-# Environment Setup for Pool Tests
+# Environment Setup for Integration Tests
 # =============================================================================
 
 
@@ -50,100 +42,13 @@ def monkeypatch_session():
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_nsjail_for_tests(monkeypatch_session):
-    """Disable nsjail sandbox and enable test mode for integration tests.
-
-    This allows the WorkerPool to spawn workers as direct subprocesses
-    instead of using nsjail, making tests runnable on any platform.
-
-    Test mode makes pool workers return mock success without database access,
-    allowing us to test pool mechanics (spawning, IPC, recycling) in isolation.
-    """
+    """Disable nsjail sandbox for integration tests."""
     monkeypatch_session.setenv("TRACECAT__DISABLE_NSJAIL", "true")
-    monkeypatch_session.setenv("TRACECAT__POOL_WORKER_TEST_MODE", "true")
 
     # Reload config to pick up the new value
     from tracecat import config as tracecat_config
 
     importlib.reload(tracecat_config)
-
-
-# =============================================================================
-# Pool Lifecycle Fixtures
-# =============================================================================
-
-
-@pytest.fixture(scope="class")
-async def worker_pool():
-    """Create and manage a real WorkerPool for integration tests.
-
-    This fixture:
-    1. Creates a pool with small size (2 workers) for testing
-    2. Starts the pool before tests
-    3. Shuts it down after all tests in the class complete
-
-    Workers run as direct subprocesses (TRACECAT__DISABLE_NSJAIL=true).
-    """
-    from tracecat.executor.backends.pool import WorkerPool
-
-    pool = WorkerPool(
-        size=2,
-        max_concurrent_per_worker=4,
-        max_tasks_per_worker=50,  # Lower for faster recycle testing
-        startup_timeout=60.0,
-    )
-
-    await pool.start()
-    try:
-        yield pool
-    finally:
-        await pool.shutdown()
-
-
-@pytest.fixture
-async def small_recycle_pool():
-    """Pool with very small recycle limit for testing worker recycling.
-
-    This pool uses:
-    - size=1: Single worker to ensure same worker handles all tasks
-    - max_tasks_per_worker=5: Recycle after just 5 tasks
-    """
-    from tracecat.executor.backends.pool import WorkerPool
-
-    pool = WorkerPool(
-        size=1,
-        max_concurrent_per_worker=2,
-        max_tasks_per_worker=5,  # Recycle after 5 tasks
-        startup_timeout=60.0,
-    )
-
-    await pool.start()
-    try:
-        yield pool
-    finally:
-        await pool.shutdown()
-
-
-@pytest.fixture
-async def single_worker_pool():
-    """Pool with single worker for testing worker reuse across tenants.
-
-    Forces all requests to go through the same worker, useful for
-    verifying PYTHONPATH switching per-request.
-    """
-    from tracecat.executor.backends.pool import WorkerPool
-
-    pool = WorkerPool(
-        size=1,
-        max_concurrent_per_worker=4,
-        max_tasks_per_worker=1000,  # Normal recycling
-        startup_timeout=60.0,
-    )
-
-    await pool.start()
-    try:
-        yield pool
-    finally:
-        await pool.shutdown()
 
 
 # =============================================================================
@@ -275,8 +180,8 @@ def staged_cache_dirs(
     Returns tuple of (path_a, path_b) where each path contains the
     extracted mock modules for that workspace.
     """
-    path_a = temp_registry_cache / "tarball-workspace-a"
-    path_b = temp_registry_cache / "tarball-workspace-b"
+    path_a = temp_registry_cache / "entries" / "workspace-a" / "tarball"
+    path_b = temp_registry_cache / "entries" / "workspace-b" / "tarball"
 
     shutil.copytree(mock_modules_dir / "workspace_a", path_a)
     shutil.copytree(mock_modules_dir / "workspace_b", path_b)
@@ -332,18 +237,13 @@ def run_action_input_factory():
 
 
 # =============================================================================
-# ResolvedContext Factory for Pool Tests
+# ResolvedContext Factory
 # =============================================================================
 
 
 @pytest.fixture
 def resolved_context_factory():
-    """Factory for creating mock ResolvedContext objects for testing.
-
-    In test mode (TRACECAT__POOL_WORKER_TEST_MODE=true), workers return mock
-    success without using the resolved context. This fixture provides a minimal
-    valid ResolvedContext for satisfying the execute() signature.
-    """
+    """Create minimal mock ResolvedContext objects for integration tests."""
 
     def _create(
         role: Role,

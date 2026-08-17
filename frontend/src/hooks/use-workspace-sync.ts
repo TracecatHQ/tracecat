@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
+  type CatalogMappingSelection,
   type GitBranchInfo,
   type GitCommitInfo,
+  type McpIntegrationMappingSelection,
   type PullResult,
   type ResourceRef,
   type VcsProvider,
@@ -21,6 +23,8 @@ interface WorkflowPullOptions {
   commit_sha: string
   dry_run?: boolean
   sync_schedules?: boolean
+  catalog_mappings?: CatalogMappingSelection[]
+  mcp_integration_mappings?: McpIntegrationMappingSelection[]
 }
 
 /**
@@ -40,6 +44,12 @@ export function useWorkflowSync(workspaceId: string) {
         commit_sha: options.commit_sha,
         dry_run: options.dry_run ?? false,
         sync_schedules: options.sync_schedules ?? false,
+        ...(options.catalog_mappings?.length
+          ? { catalog_mappings: options.catalog_mappings }
+          : {}),
+        ...(options.mcp_integration_mappings?.length
+          ? { mcp_integration_mappings: options.mcp_integration_mappings }
+          : {}),
       }
 
       const response = await workflowsPullWorkflows({

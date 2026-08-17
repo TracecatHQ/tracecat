@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -166,8 +166,9 @@ class AuditSettingsUpdate(BaseSettingsGroup):
     audit_webhook_custom_payload: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Custom JSON payload merged into streamed audit event payloads. "
-            "Custom keys override default audit event keys."
+            "Custom JSON fields merged into streamed audit event payloads. "
+            "Canonical audit event fields take precedence; conflicting custom "
+            "keys are ignored."
         ),
     )
     audit_webhook_payload_attribute: str | None = Field(
@@ -184,6 +185,21 @@ class AuditSettingsUpdate(BaseSettingsGroup):
             "Disable only for trusted on-prem/self-signed endpoints."
         ),
     )
+
+
+AuditWebhookTestErrorCategory = Literal[
+    "receiver_error",
+    "timeout",
+    "request_error",
+]
+
+
+class AuditWebhookTestResult(BaseModel):
+    """Result of a synchronous audit webhook test-fire request."""
+
+    ok: bool
+    receiver_status_code: int | None = None
+    error_category: AuditWebhookTestErrorCategory | None = None
 
 
 class AgentSettingsRead(BaseSettingsGroup):

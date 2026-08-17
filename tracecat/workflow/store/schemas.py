@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -77,6 +78,20 @@ class WorkflowDslPublishResult(BaseModel):
     message: str
 
 
+class CatalogMappingSelection(BaseModel):
+    """User-selected target catalog row for one source catalog reference."""
+
+    source_catalog_id: UUID
+    target_catalog_id: UUID
+
+
+class McpIntegrationMappingSelection(BaseModel):
+    """User-selected local MCP integration for one source integration reference."""
+
+    source_mcp_integration_id: UUID
+    target_mcp_integration_id: UUID
+
+
 class WorkflowSyncPullRequest(BaseModel):
     """Request model for pulling workflows from a Git repository."""
 
@@ -96,6 +111,38 @@ class WorkflowSyncPullRequest(BaseModel):
         default=False,
         description="Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
     )
+
+    catalog_mappings: list[CatalogMappingSelection] = Field(
+        default_factory=list,
+        description="Explicit source-to-target model choices from the pull preview.",
+    )
+
+    mcp_integration_mappings: list[McpIntegrationMappingSelection] = Field(
+        default_factory=list,
+        description="Explicit source-to-target MCP integration choices from the pull preview.",
+    )
+
+    @model_validator(mode="after")
+    def _catalog_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
+        source_ids = [mapping.source_catalog_id for mapping in self.catalog_mappings]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError(
+                "catalog_mappings contains duplicate source_catalog_id values"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _mcp_integration_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
+        source_ids = [
+            mapping.source_mcp_integration_id
+            for mapping in self.mcp_integration_mappings
+        ]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError(
+                "mcp_integration_mappings contains duplicate "
+                "source_mcp_integration_id values"
+            )
+        return self
 
 
 _SER_DSL_KEY_ORDER = (

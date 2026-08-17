@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat_registry import types
+from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
 
 if TYPE_CHECKING:
@@ -482,11 +484,21 @@ class WorkflowsClient:
             poll_interval=poll_interval,
         )
 
-    async def get_status(self, workflow_execution_id: str) -> dict[str, Any]:
+    async def get_status(
+        self,
+        workflow_execution_id: WorkflowExecutionID,
+        *,
+        include_events: bool = False,
+    ) -> types.WorkflowExecutionStatusRead:
         """Get the status of a workflow execution.
 
         Args:
-            workflow_execution_id: The workflow execution ID.
+            workflow_execution_id: The workflow execution ID (``wf_.../exec_...``).
+            include_events: When true, populate ``trigger_type``,
+                ``execution_type``, ``history_length``, and ``events`` (per-action
+                status, timing, results, and errors); otherwise those fields are
+                null. Oversized action results are returned as a truncated string
+                in ``result_truncated``.
 
         Returns:
             dict containing:
@@ -495,13 +507,51 @@ class WorkflowsClient:
                 - start_time: When execution started (ISO format or None)
                 - close_time: When execution completed (ISO format or None)
                 - result: Workflow result (if completed successfully)
+                - the event-timeline fields above when ``include_events=True``
 
         Raises:
             TracecatNotFoundError: If execution not found.
             TracecatAPIError: For other API errors.
         """
         # Server uses {execution_id:path} to handle '/' in the ID
+        if include_events:
+            return await self._client.get(
+                f"/workflows/executions/{workflow_execution_id}",
+                params={"include_events": True},
+            )
         return await self._client.get(f"/workflows/executions/{workflow_execution_id}")
+
+    async def list_executions(
+        self,
+        *,
+        workflow_id: str,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> types.WorkflowExecutionPageRead:
+        """List recent executions for a workflow, newest first.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            limit: Maximum number of executions to return (clamped to 1-100).
+            cursor: Opaque ``next_cursor`` from a previous page.
+
+        Returns:
+            dict with ``items`` (each with ``id``, ``run_id``, ``status``,
+            ``start_time``, ``close_time``, ``trigger_type``,
+            ``execution_type``), plus ``next_cursor``, ``prev_cursor``,
+            ``has_more``, and ``has_previous``.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._client.get(
+            f"/workflows/{workflow_id}/executions",
+            params=params,
+        )
 
     async def _poll_until_complete(
         self,

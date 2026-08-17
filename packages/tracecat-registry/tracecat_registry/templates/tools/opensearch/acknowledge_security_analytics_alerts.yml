@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Acknowledge Security Analytics alerts
+  description: Acknowledge one or more OpenSearch Security Analytics alerts for a detector.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/security-analytics/api-tools/alert-finding-api/
+  namespace: tools.opensearch
+  name: acknowledge_security_analytics_alerts
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    detector_id:
+      type: str
+      description: Security Analytics detector ID.
+    alert_ids:
+      type: list[str]
+      description: Alert IDs to acknowledge.
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}/_plugins/_security_analytics/detectors/${{ FN.url_encode(inputs.detector_id) }}/_acknowledge/alerts
+        method: POST
+        payload:
+          alerts: ${{ inputs.alert_ids }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

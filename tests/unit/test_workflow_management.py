@@ -55,7 +55,9 @@ class _FakeWorkflowGraphService:
     def __init__(self, _session: Any, *, role: Role):
         self.role = role
 
-    async def apply_operations(self, **_kwargs: Any) -> None:
+    async def apply_operations_to_locked_workflow(
+        self, *_args: Any, **_kwargs: Any
+    ) -> None:
         return None
 
 
@@ -335,7 +337,12 @@ async def test_external_import_publishes_before_online_case_trigger(
         alias="imported-case-trigger",
         registry_lock=registry_lock,
     )
-    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock(), commit=AsyncMock())
+    session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+        refresh=AsyncMock(),
+    )
     service = WorkflowsManagementService(cast(Any, session), role=role)
     dsl = DSLInput(
         **{
@@ -443,6 +450,7 @@ async def test_external_import_publishes_before_online_case_trigger(
     session.add.assert_called_once_with(workflow)
     session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(workflow)
     assert len(case_trigger_calls) == 1
     assert case_trigger_calls[0]["workflow_id"] == workflow.id
     assert case_trigger_calls[0]["params"].status == "online"
@@ -482,7 +490,7 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
 ) -> None:
     """An online case trigger on an unpublished workflow becomes WorkflowEditError.
 
-    ``CaseTriggersService.upsert_case_trigger`` raises ``TracecatValidationError``
+    ``CaseTriggersService`` raises ``TracecatValidationError``
     for correctable authoring mistakes (e.g. enabling a case trigger before the
     workflow is published). ``persist_workflow_edit_document`` must convert that
     into a transport-neutral ``WorkflowEditError`` so the internal edit route

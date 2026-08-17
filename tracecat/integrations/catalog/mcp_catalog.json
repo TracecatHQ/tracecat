@@ -51,6 +51,13 @@
       "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
     },
     {
+      "slug": "google-security-command-center-mcp",
+      "name": "Google Security Command Center",
+      "description": "Triage vulnerability findings and fetch remediation guidance from Google Security Command Center",
+      "category": "Cloud",
+      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
+    },
+    {
       "slug": "sumo-logic-mcp",
       "name": "Sumo Logic",
       "description": "Search logs and triage incidents on Sumo Logic Cloud SIEM and SOAR",
@@ -147,6 +154,13 @@
       "description": "Look up file, URL, IP, and domain reputation via Google Threat Intelligence",
       "category": "Threat Intelligence",
       "icon": "https://cdn.simpleicons.org/virustotal"
+    },
+    {
+      "slug": "misp-mcp",
+      "name": "MISP",
+      "description": "Search events, indicators, objects, tags, galaxies, and feeds in MISP",
+      "category": "Threat Intelligence",
+      "icon": "https://raw.githubusercontent.com/MISP/MISP/2.5/INSTALL/logos/misp-logo.svg"
     },
     {
       "slug": "microsoft-entra-id-mcp",

@@ -46,6 +46,7 @@ from tracecat.agent.tags.definitions_router import (
 from tracecat.agent.tags.router import router as agent_preset_tags_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
+    auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
@@ -80,6 +81,7 @@ from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
+from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
@@ -94,10 +96,16 @@ from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatAuthorizationError,
+    TracecatException,
+)
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
@@ -222,6 +230,12 @@ async def lifespan(app: FastAPI):
         )
         logger.debug("Spawned background task for case trigger consumer")
 
+    case_duration_sync_task = asyncio.create_task(
+        start_case_duration_sync_consumer(),
+        name="case_duration_sync_consumer",
+    )
+    logger.debug("Spawned background task for case duration sync consumer")
+
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -291,6 +305,14 @@ async def lifespan(app: FastAPI):
             logger.debug("Case trigger consumer task cancelled")
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
+
+    case_duration_sync_task.cancel()
+    try:
+        await case_duration_sync_task
+    except asyncio.CancelledError:
+        logger.debug("Case duration sync consumer task cancelled")
+    except Exception as e:
+        logger.warning("Case duration sync consumer stopped with error", error=e)
 
     await close_storage_client_cache()
 
@@ -382,6 +404,32 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
             "message": str(exc),
             "detail": exc.detail,
         },
+    )
+
+
+def authorization_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle TracecatAuthorizationError exceptions with a 403 Forbidden response.
+
+    Without this, authorization denials fall through to the generic
+    TracecatException handler, which returns 500.
+
+    The body is deliberately fixed. Subtypes such as TracecatRLSViolationError
+    carry internal state (table, operation, org/workspace IDs) on ``detail``,
+    and denial messages may embed identifiers, so nothing derived from the
+    exception is serialized here. Subtypes that need a structured body must
+    register their own handler with an explicitly chosen payload, as
+    ScopeDeniedError does.
+    """
+    logger.warning(
+        "Authorization denied",
+        path=request.url.path,
+        role=ctx_role.get(),
+        exception_type=type(exc).__name__,
+        detail=exc.detail if isinstance(exc, TracecatException) else None,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={"detail": "Forbidden"},
     )
 
 
@@ -628,6 +676,10 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(
+        AuthPoolExhaustedError,
+        auth_pool_exhausted_exception_handler,
+    )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
@@ -635,6 +687,11 @@ def create_app(**kwargs) -> FastAPI:
         fastapi_users_auth_exception_handler,
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    # Registered before ScopeDeniedError for readability only; Starlette dispatches
+    # on the exception MRO, so the subclass handler still wins.
+    app.add_exception_handler(
+        TracecatAuthorizationError, authorization_exception_handler
+    )
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
 

@@ -108,8 +108,30 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     executed_stmt = session.execute.await_args.args[0]
     assert "agent_session.created_by IS NULL" in str(executed_stmt)
     assert results == [
-        AgentSessionRead.model_validate(session_row, from_attributes=True)
+        AgentSessionRead.model_validate(session_row, from_attributes=True).model_copy(
+            update={"is_readonly": True}
+        )
     ]
+
+
+@pytest.mark.anyio
+async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    teammate_session = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=uuid.uuid4(),
+        parent_session_id=uuid.uuid4(),
+    )
+    session.execute.return_value = _mock_scalar_result([teammate_session])
+
+    results = await service.list_sessions(
+        parent_session_id=teammate_session.parent_session_id,
+        limit=1,
+    )
+
+    assert len(results) == 1
+    assert results[0].is_readonly is True
 
 
 @pytest.mark.anyio

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { agentSessionsListSessions } from "@/client"
+import { useAuth } from "@/hooks/use-auth"
 import type { InboxSessionItem } from "@/lib/agents"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import { InboxDetail } from "./inbox-detail"
@@ -12,6 +13,7 @@ interface InboxChatProps {
 
 export function InboxChat({ session }: InboxChatProps) {
   const workspaceId = useWorkspaceId()
+  const { user } = useAuth()
 
   // Track the forked session ID and pending message
   const [forkedState, setForkedState] = useState<{
@@ -33,6 +35,7 @@ export function InboxChat({ session }: InboxChatProps) {
         const childSessions = await agentSessionsListSessions({
           workspaceId,
           parentSessionId: session.id,
+          createdBy: user?.id,
           limit: 1,
         })
         // Only update state if this effect hasn't been superseded
@@ -60,7 +63,7 @@ export function InboxChat({ session }: InboxChatProps) {
     return () => {
       isCurrent = false
     }
-  }, [session?.id, workspaceId])
+  }, [session?.id, user?.id, workspaceId])
 
   const activeForkedState =
     forkedState?.parentSessionId === session.id ? forkedState : null

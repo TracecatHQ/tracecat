@@ -6,6 +6,7 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import (
+    ensure_can_grant_scopes,
     get_missing_scopes,
     has_all_scopes,
     has_any_scope,
@@ -27,7 +28,7 @@ from tracecat.authz.scopes import (
     WORKSPACE_OPERATIONAL_SCOPES,
 )
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 
 
 @pytest.fixture(autouse=True)
@@ -242,6 +243,34 @@ class TestGetMissingScopes:
         scopes = frozenset({"workflow:*"})
         missing = get_missing_scopes(scopes, {"workflow:read", "workflow:execute"})
         assert missing == set()
+
+
+class TestEnsureCanGrantScopes:
+    """Tests for the scope-ceiling check, including wildcard semantics.
+
+    Wildcard matching is inherited from ``has_scope``; these pin the ceiling
+    behavior on both sides of the wildcard so a change to ``has_scope``
+    semantics cannot silently open an escalation path.
+    """
+
+    def test_exact_match_allowed(self):
+        ensure_can_grant_scopes(frozenset({"org:member:read"}), ["org:member:read"])
+
+    def test_wildcard_granter_covers_concrete_scope(self):
+        ensure_can_grant_scopes(frozenset({"org:*"}), ["org:owner:assign"])
+
+    def test_concrete_granter_cannot_grant_wildcard_scope(self):
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match=r"Cannot grant scopes not held by the caller: org:\*",
+        ):
+            ensure_can_grant_scopes(
+                frozenset({"org:read", "org:owner:assign"}), ["org:*"]
+            )
+
+    def test_empty_granter_denied(self):
+        with pytest.raises(TracecatAuthorizationError):
+            ensure_can_grant_scopes(frozenset(), ["org:member:read"])
 
 
 class TestSystemRoleScopes:

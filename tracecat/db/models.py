@@ -52,8 +52,10 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CasePriority,
     CaseSeverity,
@@ -2170,7 +2172,8 @@ class CaseDurationDefinition(WorkspaceModel):
         "CaseDuration",
         back_populates="definition",
         cascade="all, delete",
-        lazy="selectin",
+        lazy="raise",
+        passive_deletes=True,
     )
 
 
@@ -2224,12 +2227,12 @@ class CaseDuration(WorkspaceModel):
     case: Mapped[Case] = relationship(
         "Case",
         back_populates="durations",
-        lazy="selectin",
+        lazy="raise",
     )
     definition: Mapped[CaseDurationDefinition] = relationship(
         "CaseDurationDefinition",
         back_populates="case_durations",
-        lazy="selectin",
+        lazy="raise",
     )
 
 
@@ -2281,6 +2284,8 @@ class Case(WorkspaceModel):
             "workspace_id",
             "case_number",
             name="uq_case_workspace_case_number",
+            deferrable=True,
+            initially="DEFERRED",
         ),
         Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
     )
@@ -2296,7 +2301,7 @@ class Case(WorkspaceModel):
         Integer,
         server_default=FetchedValue(),
         nullable=False,
-        doc="Server-generated workspace-scoped case number for human readable IDs like CASE-1234",
+        doc="Workspace-scoped case number for human-readable IDs like CASE-1234",
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
@@ -2338,7 +2343,8 @@ class Case(WorkspaceModel):
         "CaseDuration",
         back_populates="case",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="raise",
+        passive_deletes=True,
     )
     attachments: Mapped[list[CaseAttachment]] = relationship(
         "CaseAttachment",
@@ -2473,6 +2479,107 @@ class CaseComment(WorkspaceModel):
     def is_deleted(self) -> bool:
         """Check if comment is soft deleted."""
         return self.deleted_at is not None
+
+
+class CaseCommentMention(WorkspaceModel):
+    """A parsed @mention target extracted from a case comment.
+
+    Immutable event-record semantics: rows are written once at comment
+    creation time and never mutated by comment edits.
+    """
+
+    __tablename__ = "case_comment_mention"
+    __table_args__ = (UniqueConstraint("comment_id", "target_type", "target_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_comment.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc='Polymorphic target kind, e.g. "agent". Currently only "agent" is supported.',
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Polymorphic target identifier; no FK since target_type varies.",
+    )
+    label: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Display label snapshot captured at write time.",
+    )
+
+
+class CaseCommentAgentInvocation(WorkspaceModel):
+    """Lifecycle record for an agent invoked from a case-comment mention."""
+
+    __tablename__ = "case_comment_agent_invocation"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    mention_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_comment_mention.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        doc="Mention that triggered this invocation.",
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Agent session created for this invocation.",
+    )
+    reply_comment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("case_comment.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Case comment containing the agent's final reply.",
+    )
+    preset_name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        doc="Agent preset name captured when the invocation was created.",
+    )
+    preset_slug: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        doc="Agent preset slug captured when the invocation was created.",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default=CaseCommentAgentInvocationStatus.PENDING.value,
+        nullable=False,
+        index=True,
+    )
+    error: Mapped[CaseCommentAgentInvocationError | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
 
 class CaseEvent(WorkspaceModel):
@@ -3014,6 +3121,11 @@ class AgentSessionHistory(WorkspaceModel):
         JSONB,
         nullable=False,
         doc="Harness-specific message content",
+    )
+    raw_session_line: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Exact JSONL bytes retained when content requires a JSONB-safe projection",
     )
     kind: Mapped[str] = mapped_column(
         String(50),

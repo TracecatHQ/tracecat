@@ -1,0 +1,2077 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tracecat load-test benchmarks</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --wash: rgba(11, 11, 11, 0.04);
+  --critical-wash: rgba(208, 59, 59, 0.08);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --radius: 10px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --wash: rgba(255, 255, 255, 0.05);
+    --critical-wash: rgba(230, 103, 103, 0.13);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+
+.masthead {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.masthead-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.masthead h1 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.masthead .root {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+main {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px 24px 72px;
+}
+
+/* --- controls ------------------------------------------------------- */
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+select, input[type="search"] {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+  min-width: 168px;
+}
+.checkfield {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding-bottom: 7px;
+}
+button {
+  font: inherit;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+button:hover { background: var(--wash); }
+button.linkish {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.linkish:hover { background: none; color: var(--text-primary); }
+
+/* --- table ---------------------------------------------------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td {
+  text-align: left;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+th {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--wash); }
+tbody tr.flagged td { background: var(--critical-wash); }
+.scroll-x { overflow-x: auto; }
+.caption { font-size: 11.5px; color: var(--text-muted); margin-top: 8px; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.good { background: var(--good); }
+.dot.warning { background: var(--warning); }
+.dot.critical { background: var(--critical); }
+.dot.muted { background: var(--text-muted); }
+.bad { color: var(--critical); font-weight: 600; }
+.muted { color: var(--text-muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* --- detail --------------------------------------------------------- */
+.crumb { margin-bottom: 14px; font-size: 13px; }
+.run-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.run-head h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.run-head .meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+section { margin-bottom: 34px; }
+section > h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 10px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.tile .k {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.tile .v {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.tile .s { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; }
+.tile.alert .v { color: var(--critical); }
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kv > div {
+  padding: 9px 13px;
+  border-right: 1px solid var(--grid);
+  border-bottom: 1px solid var(--grid);
+}
+.kv .k { font-size: 11px; color: var(--text-muted); }
+.kv .v {
+  font-size: 13px;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+/* Env-var keys are the canonical identifiers the matrix CSV uses, so they are
+   rendered verbatim and need a wider column than a humanized label. */
+.kv.env { grid-template-columns: repeat(auto-fill, minmax(304px, 1fr)); }
+.kv.env .k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  word-break: break-all;
+}
+
+.subhead {
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.tuning { display: grid; gap: 12px; }
+.tuning-name { font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
+
+details.disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-top: 12px;
+  overflow: hidden;
+}
+details.disclosure > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  list-style: none;
+}
+details.disclosure > summary::-webkit-details-marker { display: none; }
+details.disclosure > summary::before { content: "▸ "; color: var(--text-muted); }
+details.disclosure[open] > summary::before { content: "▾ "; }
+details.disclosure .body { border-top: 1px solid var(--grid); max-height: 420px; overflow: auto; }
+details.disclosure .body.tall { max-height: 28rem; }
+pre.verbatim {
+  margin: 0;
+  padding: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* --- charts --------------------------------------------------------- */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+}
+.chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 14px 10px;
+  position: relative;
+  min-width: 0;
+}
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+.chart-title { font-size: 13.5px; font-weight: 600; }
+.chart-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 9px 0 2px;
+}
+.legend button {
+  border: none;
+  background: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.legend button:hover { background: none; color: var(--text-primary); }
+.legend button[aria-pressed="false"] { opacity: 0.38; }
+.legend .key { width: 14px; height: 3px; border-radius: 2px; flex: none; }
+.chart svg { display: block; width: 100%; }
+.chart .tabular { display: none; max-height: 260px; overflow: auto; border-top: 1px solid var(--grid); margin-top: 8px; }
+.chart.show-table .tabular { display: block; }
+.chart.show-table .plot { display: none; }
+.chart .tabular table { font-size: 12px; }
+.chart .tabular th, .chart .tabular td { padding: 5px 10px; }
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  padding: 8px 10px;
+  font-size: 12px;
+  min-width: 132px;
+  z-index: 8;
+  opacity: 0;
+  transition: opacity 90ms linear;
+}
+.tooltip.on { opacity: 1; }
+.tooltip .t { color: var(--text-muted); font-size: 11px; margin-bottom: 5px; }
+.tooltip .row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: space-between;
+  padding: 1px 0;
+}
+.tooltip .row .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+.tooltip .row .name span.key { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.tooltip .row .val {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <h1>Tracecat load-test benchmarks</h1>
+    <span class="root" id="artifact-root"></span>
+  </div>
+</header>
+<main id="view"><div class="empty">Loading…</div></main>
+
+<script>
+"use strict";
+
+/* ===================================================================== *
+ * Formatting
+ * ===================================================================== */
+
+const SLOT_COUNT = 8;
+
+function slotVar(index) {
+  // Categorical hues are assigned in fixed slot order and never cycled.
+  return "var(--series-" + ((index % SLOT_COUNT) + 1) + ")";
+}
+
+function isNum(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function fmtCount(value) {
+  if (!isNum(value)) return "—";
+  if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(2) + "B";
+  if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(2) + "M";
+  if (Math.abs(value) >= 10000) return (value / 1000).toFixed(1) + "K";
+  return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+function fmtNum(value, digits) {
+  if (!isNum(value)) return "—";
+  const d = digits === undefined ? 2 : digits;
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  });
+}
+
+function fmtSeconds(value) {
+  if (!isNum(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs >= 100) return fmtNum(value, 1) + "s";
+  if (abs >= 1) return fmtNum(value, 2) + "s";
+  return fmtNum(value, 3) + "s";
+}
+
+function fmtBytes(value) {
+  if (!isNum(value)) return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let v = value;
+  let i = 0;
+  while (Math.abs(v) >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
+}
+
+function fmtPercent(value) {
+  return isNum(value) ? fmtNum(value, 1) + "%" : "—";
+}
+
+function fmtClock(iso) {
+  if (typeof iso !== "string" || iso === "") return "—";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function humanize(key) {
+  return key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+function shortHash(value) {
+  if (typeof value !== "string") return "—";
+  const bare = value.startsWith("sha256:") ? value.slice(7) : value;
+  return bare.length > 12 ? bare.slice(0, 12) : bare;
+}
+
+/* ===================================================================== *
+ * DOM helpers — all text goes in via textContent (artifact data is
+ * untrusted input as far as the DOM is concerned).
+ * ===================================================================== */
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined) continue;
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = String(v);
+      else if (k === "style") node.setAttribute("style", v);
+      else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, String(v));
+    }
+  }
+  for (const child of children || []) {
+    if (child === null || child === undefined) continue;
+    node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined) continue;
+    if (k === "style") node.setAttribute("style", v);
+    else if (k === "text") node.textContent = String(v);
+    else node.setAttribute(k, String(v));
+  }
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+/* ===================================================================== *
+ * Line chart — hand-rolled SVG, shared crosshair, legend toggles, and a
+ * table-view twin for every chart.
+ * ===================================================================== */
+
+const MARGIN = { top: 24, right: 62, bottom: 30, left: 58 };
+const PLOT_HEIGHT = 210;
+const liveCharts = [];
+
+function niceTicks(min, max, count) {
+  if (!(max > min)) return [min];
+  const raw = (max - min) / Math.max(1, count);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag;
+  const ticks = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-6; t += step) {
+    ticks.push(Math.abs(t) < step * 1e-6 ? 0 : t);
+  }
+  return ticks;
+}
+
+function nearestIndex(points, x) {
+  if (points.length === 0) return -1;
+  let lo = 0;
+  let hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].x < x) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(points[lo - 1].x - x) <= Math.abs(points[lo].x - x)) return lo - 1;
+  return lo;
+}
+
+/**
+ * spec: {
+ *   title, subtitle, yLabel, xDomain: [min, max],
+ *   format: (v) => string,
+ *   series: [{ id, label, color, points: [{x, y}] }],
+ *   reference: { value, label } | null,
+ *   markers: [{ x, label }] | null,
+ * }
+ */
+function createChart(spec) {
+  const hidden = new Set();
+  const card = el("div", { class: "chart" });
+  const head = el("div", { class: "chart-head" }, [
+    el("div", {}, [
+      el("div", { class: "chart-title", text: spec.title }),
+      spec.subtitle ? el("div", { class: "chart-sub", text: spec.subtitle }) : null,
+    ]),
+  ]);
+  const tableToggle = el("button", {
+    type: "button",
+    text: "Table",
+    "aria-pressed": "false",
+    onclick: () => {
+      const on = card.classList.toggle("show-table");
+      tableToggle.setAttribute("aria-pressed", on ? "true" : "false");
+    },
+  });
+  head.appendChild(tableToggle);
+  card.appendChild(head);
+
+  const legend = el("div", { class: "legend" });
+  if (spec.series.length >= 2) {
+    for (const s of spec.series) {
+      const key = el("span", { class: "key", style: "background:" + s.color });
+      const btn = el("button", { type: "button", "aria-pressed": "true" }, [
+        key,
+        document.createTextNode(s.label),
+      ]);
+      btn.addEventListener("click", () => {
+        if (hidden.has(s.id)) hidden.delete(s.id);
+        else hidden.add(s.id);
+        btn.setAttribute("aria-pressed", hidden.has(s.id) ? "false" : "true");
+        render();
+      });
+      legend.appendChild(btn);
+    }
+    card.appendChild(legend);
+  }
+
+  const plot = el("div", { class: "plot" });
+  const svg = svgEl("svg", { role: "img", "aria-label": spec.title });
+  plot.appendChild(svg);
+  card.appendChild(plot);
+
+  const tooltip = el("div", { class: "tooltip" });
+  card.appendChild(tooltip);
+
+  const tabular = el("div", { class: "tabular" });
+  card.appendChild(tabular);
+
+  let geometry = null;
+
+  function visibleSeries() {
+    return spec.series.filter((s) => !hidden.has(s.id) && s.points.length > 0);
+  }
+
+  function render() {
+    const width = Math.max(320, card.clientWidth - 28);
+    const height = PLOT_HEIGHT + MARGIN.top + MARGIN.bottom;
+    clear(svg);
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("height", String(height));
+
+    const shown = visibleSeries();
+    const [x0, x1] = spec.xDomain;
+    const xSpan = x1 - x0 || 1;
+
+    let yMin = 0;
+    let yMax = 0;
+    let seen = false;
+    for (const s of shown) {
+      for (const p of s.points) {
+        if (!isNum(p.y)) continue;
+        if (!seen) {
+          yMin = p.y;
+          yMax = p.y;
+          seen = true;
+        } else {
+          if (p.y < yMin) yMin = p.y;
+          if (p.y > yMax) yMax = p.y;
+        }
+      }
+    }
+    if (spec.reference && isNum(spec.reference.value)) {
+      if (!seen) {
+        yMin = 0;
+        yMax = spec.reference.value;
+        seen = true;
+      } else if (spec.reference.value > yMax) {
+        yMax = spec.reference.value;
+      }
+    }
+    if (!seen) {
+      yMin = 0;
+      yMax = 1;
+    }
+    if (yMin > 0) yMin = 0;
+    if (yMax === yMin) yMax = yMin + 1;
+    yMax += (yMax - yMin) * 0.08;
+
+    const plotW = width - MARGIN.left - MARGIN.right;
+    const plotH = PLOT_HEIGHT;
+    const sx = (x) => MARGIN.left + ((x - x0) / xSpan) * plotW;
+    const sy = (y) => MARGIN.top + plotH - ((y - yMin) / (yMax - yMin)) * plotH;
+    geometry = { sx, sy, x0, x1, plotW, plotH, width };
+
+    // Gridlines: solid hairlines, one step off the surface. Ticks whose label
+    // repeats the previous one (a near-flat series rounded to the same value)
+    // are dropped rather than stacked.
+    const yTicks = niceTicks(yMin, yMax, 4);
+    const yLabels = yTicks.map(spec.format);
+    yTicks.forEach((t, i) => {
+      const label = yLabels[i];
+      const y = sy(t);
+      svg.appendChild(
+        svgEl("line", {
+          x1: MARGIN.left, x2: width - MARGIN.right, y1: y, y2: y,
+          style: "stroke:var(--grid);stroke-width:1",
+        })
+      );
+      // Keep the highest tick of a repeated label so the label stays truthful.
+      if (i + 1 < yTicks.length && yLabels[i + 1] === label) return;
+      svg.appendChild(
+        svgEl("text", {
+          x: MARGIN.left - 8, y: y + 3.5, "text-anchor": "end",
+          style: "fill:var(--text-muted);font-size:10.5px;font-variant-numeric:tabular-nums",
+          text: label,
+        })
+      );
+    });
+
+    // Baseline + x ticks.
+    svg.appendChild(
+      svgEl("line", {
+        x1: MARGIN.left, x2: width - MARGIN.right,
+        y1: MARGIN.top + plotH, y2: MARGIN.top + plotH,
+        style: "stroke:var(--axis);stroke-width:1",
+      })
+    );
+    for (const t of niceTicks(x0, x1, 5)) {
+      if (t < x0 || t > x1) continue;
+      svg.appendChild(
+        svgEl("text", {
+          x: sx(t), y: MARGIN.top + plotH + 15, "text-anchor": "middle",
+          style: "fill:var(--text-muted);font-size:10.5px;font-variant-numeric:tabular-nums",
+          text: fmtNum(t, 0),
+        })
+      );
+    }
+    svg.appendChild(
+      svgEl("text", {
+        x: MARGIN.left, y: height - 2,
+        style: "fill:var(--text-muted);font-size:10px",
+        text: "seconds since first sample",
+      })
+    );
+    if (spec.yLabel) {
+      svg.appendChild(
+        svgEl("text", {
+          x: 0, y: 10,
+          style: "fill:var(--text-muted);font-size:10px",
+          text: spec.yLabel,
+        })
+      );
+    }
+
+    // Phase / event annotations.
+    for (const marker of spec.markers || []) {
+      if (marker.x < x0 || marker.x > x1) continue;
+      const x = sx(marker.x);
+      svg.appendChild(
+        svgEl("line", {
+          x1: x, x2: x, y1: MARGIN.top, y2: MARGIN.top + plotH,
+          style: "stroke:var(--axis);stroke-width:1",
+        })
+      );
+      svg.appendChild(
+        svgEl("text", {
+          x: x + 4, y: MARGIN.top + 10,
+          style: "fill:var(--text-muted);font-size:10px",
+          text: marker.label,
+        })
+      );
+    }
+
+    // Reference line (a threshold, not a series).
+    if (spec.reference && isNum(spec.reference.value)) {
+      const y = sy(spec.reference.value);
+      svg.appendChild(
+        svgEl("line", {
+          x1: MARGIN.left, x2: width - MARGIN.right, y1: y, y2: y,
+          style: "stroke:var(--text-muted);stroke-width:1",
+        })
+      );
+      svg.appendChild(
+        svgEl("text", {
+          x: width - MARGIN.right - 2, y: y - 4, "text-anchor": "end",
+          style: "fill:var(--text-muted);font-size:10px",
+          text: spec.reference.label,
+        })
+      );
+    }
+
+    // Series paths.
+    const ends = [];
+    for (const s of shown) {
+      let d = "";
+      let open = false;
+      for (const p of s.points) {
+        if (!isNum(p.y)) { open = false; continue; }
+        d += (open ? "L" : "M") + sx(p.x).toFixed(1) + " " + sy(p.y).toFixed(1) + " ";
+        open = true;
+      }
+      if (d === "") continue;
+      svg.appendChild(
+        svgEl("path", {
+          d: d.trim(), fill: "none",
+          style: "stroke:" + s.color + ";stroke-width:2;stroke-linejoin:round;stroke-linecap:round",
+        })
+      );
+      let last = null;
+      for (let i = s.points.length - 1; i >= 0; i -= 1) {
+        if (isNum(s.points[i].y)) { last = s.points[i]; break; }
+      }
+      if (last) ends.push({ series: s, point: last });
+    }
+
+    // End markers: 8px dot with a 2px surface ring so overlaps stay legible.
+    for (const end of ends) {
+      svg.appendChild(
+        svgEl("circle", {
+          cx: sx(end.point.x), cy: sy(end.point.y), r: 4,
+          style: "fill:" + end.series.color + ";stroke:var(--surface);stroke-width:2",
+        })
+      );
+    }
+
+    // Direct labels, but only when they demonstrably do not collide.
+    if (ends.length > 0 && ends.length <= 3) {
+      const sorted = ends.slice().sort((a, b) => sy(a.point.y) - sy(b.point.y));
+      let ok = true;
+      for (let i = 1; i < sorted.length; i += 1) {
+        if (Math.abs(sy(sorted[i].point.y) - sy(sorted[i - 1].point.y)) < 14) ok = false;
+      }
+      if (ok) {
+        for (const end of ends) {
+          svg.appendChild(
+            svgEl("text", {
+              x: sx(end.point.x) + 7, y: sy(end.point.y) + 3.5,
+              style: "fill:var(--text-secondary);font-size:10.5px;font-variant-numeric:tabular-nums",
+              text: spec.format(end.point.y),
+            })
+          );
+        }
+      }
+    }
+
+    crosshair = svgEl("line", {
+      x1: 0, x2: 0, y1: MARGIN.top, y2: MARGIN.top + plotH,
+      style: "stroke:var(--text-muted);stroke-width:1;opacity:0",
+    });
+    svg.appendChild(crosshair);
+    crossDots = svgEl("g", {});
+    svg.appendChild(crossDots);
+
+    renderTable(shown);
+  }
+
+  let crosshair = null;
+  let crossDots = null;
+
+  function renderTable(shown) {
+    clear(tabular);
+    if (shown.length === 0) {
+      tabular.appendChild(el("div", { class: "empty", text: "No samples recorded." }));
+      return;
+    }
+    const base = shown.reduce((a, b) => (a.points.length >= b.points.length ? a : b));
+    const stride = Math.max(1, Math.ceil(base.points.length / 60));
+    const head = el("tr", {}, [el("th", { class: "num", text: "t (s)" })]);
+    for (const s of shown) head.appendChild(el("th", { class: "num", text: s.label }));
+    const body = el("tbody", {});
+    for (let i = 0; i < base.points.length; i += stride) {
+      const x = base.points[i].x;
+      const row = el("tr", {}, [el("td", { class: "num", text: fmtNum(x, 1) })]);
+      for (const s of shown) {
+        const j = nearestIndex(s.points, x);
+        const v = j >= 0 ? s.points[j].y : null;
+        row.appendChild(el("td", { class: "num", text: isNum(v) ? spec.format(v) : "—" }));
+      }
+      body.appendChild(row);
+    }
+    tabular.appendChild(
+      el("table", {}, [el("thead", {}, [head]), body])
+    );
+  }
+
+  function setCrosshair(x) {
+    if (!geometry || !crosshair) return;
+    clear(crossDots);
+    if (x === null || x < geometry.x0 || x > geometry.x1) {
+      crosshair.setAttribute("style", "stroke:var(--text-muted);stroke-width:1;opacity:0");
+      return;
+    }
+    const px = geometry.sx(x);
+    crosshair.setAttribute("x1", String(px));
+    crosshair.setAttribute("x2", String(px));
+    crosshair.setAttribute("style", "stroke:var(--text-muted);stroke-width:1;opacity:0.6");
+    for (const s of visibleSeries()) {
+      const i = nearestIndex(s.points, x);
+      if (i < 0 || !isNum(s.points[i].y)) continue;
+      crossDots.appendChild(
+        svgEl("circle", {
+          cx: geometry.sx(s.points[i].x), cy: geometry.sy(s.points[i].y), r: 4,
+          style: "fill:" + s.color + ";stroke:var(--surface);stroke-width:2",
+        })
+      );
+    }
+  }
+
+  function showTooltip(x, clientX) {
+    const shown = visibleSeries();
+    if (shown.length === 0) return;
+    clear(tooltip);
+    tooltip.appendChild(
+      el("div", { class: "t", text: fmtNum(x, 1) + "s since first sample" })
+    );
+    for (const s of shown) {
+      const i = nearestIndex(s.points, x);
+      const v = i >= 0 ? s.points[i].y : null;
+      tooltip.appendChild(
+        el("div", { class: "row" }, [
+          el("span", { class: "name" }, [
+            el("span", { class: "key", style: "background:" + s.color }),
+            document.createTextNode(s.label),
+          ]),
+          el("span", { class: "val", text: isNum(v) ? spec.format(v) : "—" }),
+        ])
+      );
+    }
+    const bounds = card.getBoundingClientRect();
+    let left = clientX - bounds.left + 14;
+    if (left + 190 > bounds.width) left = clientX - bounds.left - 190;
+    tooltip.style.left = Math.max(6, left) + "px";
+    tooltip.style.top = MARGIN.top + 10 + "px";
+    tooltip.classList.add("on");
+  }
+
+  plot.addEventListener("pointermove", (event) => {
+    if (!geometry) return;
+    const rect = svg.getBoundingClientRect();
+    const scale = geometry.width / rect.width;
+    const px = (event.clientX - rect.left) * scale;
+    const ratio = (px - MARGIN.left) / geometry.plotW;
+    if (ratio < -0.02 || ratio > 1.02) return;
+    const x = geometry.x0 + Math.min(1, Math.max(0, ratio)) * (geometry.x1 - geometry.x0);
+    for (const chart of liveCharts) chart.setCrosshair(x);
+    showTooltip(x, event.clientX);
+  });
+  plot.addEventListener("pointerleave", () => {
+    tooltip.classList.remove("on");
+    for (const chart of liveCharts) chart.setCrosshair(null);
+  });
+
+  const api = { el: card, render, setCrosshair };
+  liveCharts.push(api);
+  return api;
+}
+
+let resizeQueued = false;
+window.addEventListener("resize", () => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    for (const chart of liveCharts) chart.render();
+  });
+});
+
+function resetCharts() {
+  liveCharts.length = 0;
+}
+
+/* ===================================================================== *
+ * API
+ * ===================================================================== */
+
+async function getJson(path) {
+  const response = await fetch(path, { headers: { accept: "application/json" } });
+  if (!response.ok) throw new Error("request failed: " + response.status);
+  return response.json();
+}
+
+async function getText(path) {
+  const response = await fetch(path, { headers: { accept: "text/plain" } });
+  if (!response.ok) throw new Error("request failed: " + response.status);
+  return response.text();
+}
+
+/* ===================================================================== *
+ * Run list
+ * ===================================================================== */
+
+const state = { list: null, filterMatrix: "", filterLoadType: "" };
+
+function statusPill(status) {
+  const tone =
+    status === "completed" ? "good"
+    : status === "aborted" ? "warning"
+    : status === "observability_failed" ? "critical"
+    : "muted";
+  return el("span", { class: "pill" }, [
+    el("span", { class: "dot " + tone }),
+    document.createTextNode(status || "incomplete"),
+  ]);
+}
+
+async function renderList(view) {
+  resetCharts();
+  if (state.list === null) state.list = await getJson("/api/runs");
+  const payload = state.list;
+  document.getElementById("artifact-root").textContent = payload.artifact_root;
+
+  clear(view);
+
+  const matrixSelect = el("select", {
+    onchange: (e) => { state.filterMatrix = e.target.value; renderList(view); },
+  }, [el("option", { value: "", text: "All matrices" })]);
+  for (const m of payload.matrices) {
+    matrixSelect.appendChild(
+      el("option", { value: m, text: m, selected: state.filterMatrix === m ? "selected" : null })
+    );
+  }
+  const typeSelect = el("select", {
+    onchange: (e) => { state.filterLoadType = e.target.value; renderList(view); },
+  }, [el("option", { value: "", text: "All load types" })]);
+  for (const t of payload.load_types) {
+    typeSelect.appendChild(
+      el("option", { value: t, text: t, selected: state.filterLoadType === t ? "selected" : null })
+    );
+  }
+
+  view.appendChild(
+    el("div", { class: "filters" }, [
+      el("div", { class: "field" }, [el("label", { text: "Matrix" }), matrixSelect]),
+      el("div", { class: "field" }, [el("label", { text: "Load type" }), typeSelect]),
+      el("div", { class: "checkfield" }, [
+        el("span", {
+          class: "muted",
+          text: payload.runs.length + " run" + (payload.runs.length === 1 ? "" : "s") + " indexed",
+        }),
+      ]),
+    ])
+  );
+
+  const rows = payload.runs.filter(
+    (run) =>
+      (state.filterMatrix === "" || run.matrix === state.filterMatrix) &&
+      (state.filterLoadType === "" || run.load_type === state.filterLoadType)
+  );
+
+  if (rows.length === 0) {
+    view.appendChild(el("div", { class: "card" }, [
+      el("div", { class: "empty", text: "No runs match these filters." }),
+    ]));
+    return;
+  }
+
+  const head = el("tr", {}, [
+    el("th", { text: "Started" }),
+    el("th", { text: "Test" }),
+    el("th", { text: "Matrix" }),
+    el("th", { text: "Load type" }),
+    el("th", { class: "num", text: "wf × branch" }),
+    el("th", { text: "Mode" }),
+    el("th", { text: "Status" }),
+    el("th", { class: "num", text: "Submitted" }),
+    el("th", { class: "num", text: "Completed" }),
+    el("th", { class: "num", text: "Failed" }),
+    el("th", { class: "num", text: "wf/s" }),
+    el("th", { class: "num", text: "actions/s" }),
+    el("th", { class: "num", text: "p95 latency" }),
+  ]);
+  const body = el("tbody", {});
+  for (const run of rows) {
+    const failed = isNum(run.failed) ? run.failed : null;
+    const tr = el("tr", {
+      class: "clickable",
+      tabindex: "0",
+      onclick: () => { location.hash = "#/run/" + encodeURIComponent(run.run_id); },
+      onkeydown: (e) => {
+        if (e.key === "Enter") location.hash = "#/run/" + encodeURIComponent(run.run_id);
+      },
+    }, [
+      el("td", { text: fmtClock(run.started_at) }),
+      el("td", { class: "mono", text: run.case_id || shortHash(run.run_id) }),
+      el("td", { class: "mono", text: run.matrix ? run.matrix.slice(7) : "—" }),
+      el("td", { text: run.load_type || "—" }),
+      el("td", {
+        class: "num",
+        text: isNum(run.workflow_count) && isNum(run.branch_count)
+          ? run.workflow_count + " × " + run.branch_count
+          : "—",
+      }),
+      el("td", { text: run.one_shot === null ? "—" : run.one_shot ? "one-shot" : "sustained" }),
+      el("td", {}, [statusPill(run.status)]),
+      el("td", { class: "num", text: fmtCount(run.submitted) }),
+      el("td", { class: "num", text: fmtCount(run.completed) }),
+      el("td", { class: "num " + (failed ? "bad" : ""), text: fmtCount(run.failed) }),
+      el("td", { class: "num", text: isNum(run.throughput_workflows_per_second) ? fmtNum(run.throughput_workflows_per_second, 3) : "—" }),
+      el("td", { class: "num", text: isNum(run.throughput_actions_per_second) ? fmtNum(run.throughput_actions_per_second, 3) : "—" }),
+      el("td", { class: "num", text: fmtSeconds(run.latency_p95_seconds) }),
+    ]);
+    body.appendChild(tr);
+  }
+  view.appendChild(
+    el("div", { class: "card scroll-x" }, [el("table", {}, [el("thead", {}, [head]), body])])
+  );
+}
+
+/* ===================================================================== *
+ * Run detail — series derivation
+ * ===================================================================== */
+
+function baseMonotonic(ts) {
+  let base = Infinity;
+  for (const s of ts.pg_activity) if (isNum(s.monotonic)) base = Math.min(base, s.monotonic);
+  for (const s of ts.resource_usage) if (isNum(s.monotonic)) base = Math.min(base, s.monotonic);
+  for (const s of ts.temporal_backlog) if (isNum(s.monotonic)) base = Math.min(base, s.monotonic);
+  for (const e of ts.executions) if (isNum(e.submitted_at)) base = Math.min(base, e.submitted_at);
+  return Number.isFinite(base) ? base : 0;
+}
+
+function xDomainOf(ts, base) {
+  let max = 0;
+  const bump = (v) => { if (isNum(v)) max = Math.max(max, v - base); };
+  for (const s of ts.pg_activity) bump(s.monotonic);
+  for (const s of ts.resource_usage) bump(s.monotonic);
+  for (const s of ts.temporal_backlog) bump(s.monotonic);
+  for (const e of ts.executions) { bump(e.submitted_at); bump(e.terminal_at); }
+  return [0, max > 0 ? max : 1];
+}
+
+function pgSeries(samples, base, field) {
+  const points = [];
+  for (const s of samples) {
+    if (!isNum(s.monotonic)) continue;
+    points.push({ x: s.monotonic - base, y: isNum(s[field]) ? s[field] : null });
+  }
+  return points;
+}
+
+function pgRateSeries(samples, base, field) {
+  const points = [];
+  for (let i = 1; i < samples.length; i += 1) {
+    const prev = samples[i - 1];
+    const cur = samples[i];
+    if (!isNum(cur.monotonic) || !isNum(prev.monotonic)) continue;
+    const dt = cur.monotonic - prev.monotonic;
+    const delta = cur[field];
+    points.push({
+      x: cur.monotonic - base,
+      y: dt > 0 && isNum(delta) ? delta / dt : null,
+    });
+  }
+  return points;
+}
+
+function queueLabels(samples) {
+  // Queue names are sha256 fingerprints; give them short, stable labels.
+  const workflow = [];
+  const activity = [];
+  for (const s of samples) {
+    for (const fp of Object.keys(s.workflow_task_queues || {})) {
+      if (!workflow.includes(fp)) workflow.push(fp);
+    }
+    for (const fp of Object.keys(s.activity_task_queues || {})) {
+      if (!activity.includes(fp)) activity.push(fp);
+    }
+  }
+  const queues = [];
+  workflow.forEach((fp, i) => {
+    queues.push({
+      key: "workflow:" + fp,
+      role: "workflow_task_queues",
+      fingerprint: fp,
+      label: workflow.length > 1 ? "workflow queue " + (i + 1) : "workflow queue",
+    });
+  });
+  activity.forEach((fp, i) => {
+    queues.push({
+      key: "activity:" + fp,
+      role: "activity_task_queues",
+      fingerprint: fp,
+      label: activity.length > 1 ? "activity queue " + (i + 1) : "activity queue",
+    });
+  });
+  return queues;
+}
+
+function backlogSeries(samples, base, queue, field) {
+  const points = [];
+  for (const s of samples) {
+    if (!isNum(s.monotonic)) continue;
+    const stats = (s[queue.role] || {})[queue.fingerprint];
+    const v = stats ? stats[field] : null;
+    points.push({ x: s.monotonic - base, y: isNum(v) ? v : null });
+  }
+  return points;
+}
+
+function containerPeaks(samples, field) {
+  const peaks = new Map();
+  for (const s of samples) {
+    for (const c of s.containers || []) {
+      if (!isNum(c[field])) continue;
+      const current = peaks.get(c.service);
+      if (current === undefined || c[field] > current) peaks.set(c.service, c[field]);
+    }
+  }
+  return peaks;
+}
+
+function containerSeries(samples, base, service, field) {
+  const points = [];
+  for (const s of samples) {
+    if (!isNum(s.monotonic)) continue;
+    let value = null;
+    for (const c of s.containers || []) {
+      if (c.service === service && isNum(c[field])) { value = c[field]; break; }
+    }
+    points.push({ x: s.monotonic - base, y: value });
+  }
+  return points;
+}
+
+function hostSeries(samples, base, field) {
+  const points = [];
+  for (const s of samples) {
+    if (!isNum(s.monotonic)) continue;
+    const v = s.host ? s.host[field] : null;
+    points.push({ x: s.monotonic - base, y: isNum(v) ? v : null });
+  }
+  return points;
+}
+
+function cumulativeSeries(times, base, xMax) {
+  const sorted = times.filter(isNum).sort((a, b) => a - b);
+  const points = [{ x: 0, y: 0 }];
+  sorted.forEach((t, i) => {
+    points.push({ x: t - base, y: i });
+    points.push({ x: t - base, y: i + 1 });
+  });
+  points.push({ x: xMax, y: sorted.length });
+  return points;
+}
+
+function peakOf(points) {
+  let peak = null;
+  for (const p of points) {
+    if (!isNum(p.y)) continue;
+    if (peak === null || p.y > peak) peak = p.y;
+  }
+  return peak;
+}
+
+/* ===================================================================== *
+ * Run detail — view
+ * ===================================================================== */
+
+function tile(label, value, sub, alert) {
+  return el("div", { class: "tile" + (alert ? " alert" : "") }, [
+    el("div", { class: "k", text: label }),
+    el("div", { class: "v", text: value }),
+    sub ? el("div", { class: "s", text: sub }) : null,
+  ]);
+}
+
+function configSection(detail) {
+  const scenario = detail.scenario || {};
+  const grid = el("div", { class: "kv" });
+  for (const key of Object.keys(scenario).sort()) {
+    const value = scenario[key];
+    grid.appendChild(
+      el("div", {}, [
+        el("div", { class: "k", text: humanize(key) }),
+        el("div", {
+          class: "v",
+          text: value === null ? "null" : typeof value === "object" ? JSON.stringify(value) : String(value),
+        }),
+      ])
+    );
+  }
+  const section = el("section", {}, [
+    el("h3", { text: "Scenario configuration" }),
+    Object.keys(scenario).length ? grid : el("div", { class: "card" }, [
+      el("div", { class: "empty", text: "scenario.json is missing for this run." }),
+    ]),
+  ]);
+
+  const settings = detail.pg_settings;
+  if (Array.isArray(settings) && settings.length > 0) {
+    const body = el("tbody", {});
+    for (const row of settings) {
+      body.appendChild(
+        el("tr", {}, [
+          el("td", { class: "mono", text: String(row.name) }),
+          el("td", { class: "mono", text: String(row.setting) }),
+          el("td", { text: row.unit === null || row.unit === undefined ? "—" : String(row.unit) }),
+          el("td", { text: String(row.source) }),
+          el("td", { class: "mono", text: row.boot_val === undefined ? "—" : String(row.boot_val) }),
+        ])
+      );
+    }
+    section.appendChild(
+      el("details", { class: "disclosure" }, [
+        el("summary", { text: "Measured PostgreSQL settings (" + settings.length + ")" }),
+        el("div", { class: "body scroll-x" }, [
+          el("table", {}, [
+            el("thead", {}, [
+              el("tr", {}, [
+                el("th", { text: "Name" }),
+                el("th", { text: "Setting" }),
+                el("th", { text: "Unit" }),
+                el("th", { text: "Source" }),
+                el("th", { text: "Boot value" }),
+              ]),
+            ]),
+            body,
+          ]),
+        ]),
+      ])
+    );
+  }
+  return section;
+}
+
+/**
+ * A service carries an explicit limit when docker inspect reports a non-zero
+ * CPU, memory, or pid cap. Those are the services the benchmark matrix varies,
+ * so they sort to the top of the infrastructure table.
+ */
+function hasResourceLimit(container) {
+  return (
+    (isNum(container.nano_cpus) && container.nano_cpus > 0) ||
+    (isNum(container.memory_limit_bytes) && container.memory_limit_bytes > 0) ||
+    (isNum(container.pids_limit) && container.pids_limit > 0)
+  );
+}
+
+function limitCell(value, format) {
+  const set = isNum(value) && value > 0;
+  return el("td", {
+    class: set ? "num" : "num muted",
+    text: set ? format(value) : "unlimited",
+  });
+}
+
+/**
+ * Scheduling and concurrency knobs lifted out of the resolved Compose model by
+ * the API. The matrix varies the worker and the executor, so those two lead.
+ */
+const TUNING_LEAD_SERVICES = ["worker", "executor"];
+
+function tuningRank(service) {
+  const index = TUNING_LEAD_SERVICES.indexOf(service);
+  return index === -1 ? TUNING_LEAD_SERVICES.length : index;
+}
+
+function serviceTuningBlock(detail) {
+  const tuning = detail.service_tuning;
+  if (tuning === null || typeof tuning !== "object") return null;
+  const services = Object.keys(tuning).sort((a, b) => {
+    const byRank = tuningRank(a) - tuningRank(b);
+    return byRank !== 0 ? byRank : a.localeCompare(b);
+  });
+  if (services.length === 0) return null;
+
+  const wrap = el("div", { class: "tuning" });
+  for (const service of services) {
+    const knobs = tuning[service] || {};
+    const grid = el("div", { class: "kv env" });
+    for (const key of Object.keys(knobs)) {
+      // An empty value is a variable Compose resolved to nothing, which the
+      // backend reads as its own default — say so rather than showing a blank.
+      const value = knobs[key];
+      const unset = value === null || value === "";
+      grid.appendChild(
+        el("div", {}, [
+          el("div", { class: "k", text: key }),
+          el("div", {
+            class: unset ? "v muted" : "v",
+            text: unset ? "backend default" : String(value),
+          }),
+        ])
+      );
+    }
+    wrap.appendChild(
+      el("div", {}, [el("div", { class: "tuning-name", text: service }), grid])
+    );
+  }
+  return el("div", {}, [el("div", { class: "subhead", text: "Service tuning" }), wrap]);
+}
+
+/** compose_config.yml is ~900 lines, so it is fetched only once, on expand. */
+function composeDisclosure(runId) {
+  const pre = el("pre", { class: "verbatim", text: "Loading…" });
+  const disclosure = el("details", { class: "disclosure" }, [
+    el("summary", { text: "Resolved Compose config (compose_config.yml)" }),
+    el("div", { class: "body tall" }, [pre]),
+  ]);
+  let loaded = false;
+  disclosure.addEventListener("toggle", async () => {
+    if (!disclosure.open || loaded) return;
+    loaded = true;
+    try {
+      pre.textContent = await getText("/api/runs/" + encodeURIComponent(runId) + "/compose");
+    } catch (error) {
+      loaded = false;
+      pre.textContent = "Could not load compose_config.yml: " + error.message;
+    }
+  });
+  return disclosure;
+}
+
+function infrastructureSection(detail, runId) {
+  const containers = Array.isArray(detail.containers) ? detail.containers : [];
+  const section = el("section", {}, [el("h3", { text: "Infrastructure" })]);
+  const tuning = serviceTuningBlock(detail);
+
+  if (containers.length === 0) {
+    section.appendChild(
+      el("div", { class: "card" }, [
+        el("div", { class: "empty", text: "containers.json is missing for this run." }),
+      ])
+    );
+    if (tuning !== null) section.appendChild(tuning);
+    section.appendChild(composeDisclosure(runId));
+    return section;
+  }
+
+  const ordered = containers.slice().sort((a, b) => {
+    const byLimit = (hasResourceLimit(b) ? 1 : 0) - (hasResourceLimit(a) ? 1 : 0);
+    if (byLimit !== 0) return byLimit;
+    return String(a.service).localeCompare(String(b.service));
+  });
+
+  const body = el("tbody", {});
+  for (const c of ordered) {
+    const restarts = isNum(c.restart_count) ? c.restart_count : 0;
+    const oom = c.oom_killed === true;
+    body.appendChild(
+      el("tr", { class: oom || restarts > 0 ? "flagged" : null }, [
+        el("td", { text: String(c.service) }),
+        limitCell(c.nano_cpus, (v) => fmtNum(v / 1e9, 2)),
+        limitCell(c.memory_limit_bytes, fmtBytes),
+        limitCell(c.pids_limit, (v) => fmtNum(v, 0)),
+        el("td", { text: String(c.status) }),
+        el("td", { class: "num " + (restarts > 0 ? "bad" : ""), text: fmtCount(restarts) }),
+        el("td", { class: oom ? "bad" : "muted", text: oom ? "yes" : "no" }),
+      ])
+    );
+  }
+
+  section.appendChild(
+    el("div", { class: "card scroll-x" }, [
+      el("table", {}, [
+        el("thead", {}, [
+          el("tr", {}, [
+            el("th", { text: "Service" }),
+            el("th", { class: "num", text: "CPUs" }),
+            el("th", { class: "num", text: "Memory limit" }),
+            el("th", { class: "num", text: "PIDs limit" }),
+            el("th", { text: "Status" }),
+            el("th", { class: "num", text: "Restarts" }),
+            el("th", { text: "OOM killed" }),
+          ]),
+        ]),
+        body,
+      ]),
+    ])
+  );
+  section.appendChild(
+    el("div", {
+      class: "caption",
+      text:
+        "Limits read back from docker inspect of the applied Compose model; " +
+        "capped services are listed first.",
+    })
+  );
+  if (tuning !== null) section.appendChild(tuning);
+  section.appendChild(composeDisclosure(runId));
+  return section;
+}
+
+function summarySection(detail) {
+  const summary = detail.summary;
+  const section = el("section", {}, [el("h3", { text: "Runner summary" })]);
+  if (!summary) {
+    section.appendChild(
+      el("div", { class: "card" }, [
+        el("div", {
+          class: "empty",
+          text: "No summary record — the runner did not finish this run.",
+        }),
+      ])
+    );
+    return section;
+  }
+  const latency = summary.latency || {};
+  const activityMetrics = detail.activity_metrics || {};
+  const rows = detail.row_correctness;
+  const tiles = el("div", { class: "tiles" }, [
+    tile("Submitted", fmtCount(summary.submitted)),
+    tile("Accepted", fmtCount(summary.accepted)),
+    tile("Completed", fmtCount(summary.completed)),
+    tile("Failed", fmtCount(summary.failed), null, isNum(summary.failed) && summary.failed > 0),
+    tile("Timed out", fmtCount(summary.timed_out), null, isNum(summary.timed_out) && summary.timed_out > 0),
+    tile("Aborted", fmtCount(summary.aborted), null, isNum(summary.aborted) && summary.aborted > 0),
+    tile("Wall clock", fmtSeconds(summary.wall_clock_seconds)),
+    tile("Throughput", fmtNum(summary.throughput_workflows_per_second, 3), "workflows/s"),
+    tile("Action throughput", isNum(activityMetrics.completed_tracecat_actions_per_second) ? fmtNum(activityMetrics.completed_tracecat_actions_per_second, 3) : "—", "actions/s"),
+    tile("Latency p50", fmtSeconds(latency.p50)),
+    tile("Latency p95", fmtSeconds(latency.p95)),
+    tile("Latency p99", fmtSeconds(latency.p99)),
+    tile("Latency min / max", fmtSeconds(latency.minimum) + " / " + fmtSeconds(latency.maximum)),
+    tile(
+      "Rows expected",
+      fmtCount(summary.expected_rows),
+      "target " + fmtCount(summary.submitted_row_target)
+    ),
+    rows
+      ? tile(
+          "Rows actual",
+          fmtCount(rows.rows_for_run),
+          isNum(rows.duplicate_dedupe_keys) && rows.duplicate_dedupe_keys > 0
+            ? fmtCount(rows.duplicate_dedupe_keys) + " duplicate keys"
+            : "distinct " + fmtCount(rows.distinct_dedupe_keys_for_run),
+          isNum(summary.expected_rows) && rows.rows_for_run !== summary.expected_rows
+        )
+      : tile("Rows actual", "—", "row_correctness.json missing"),
+  ]);
+  section.appendChild(tiles);
+
+  if (typeof detail.summary_text === "string" && detail.summary_text !== "") {
+    section.appendChild(
+      el("details", { class: "disclosure" }, [
+        el("summary", { text: "summary.txt" }),
+        el("div", { class: "body" }, [
+          el("pre", { class: "verbatim", text: detail.summary_text }),
+        ]),
+      ])
+    );
+  }
+  return section;
+}
+
+function activitySection(detail) {
+  const metrics = detail.activity_metrics;
+  const section = el("section", {}, [el("h3", { text: "Activity metrics" })]);
+  if (!metrics || !Array.isArray(metrics.groups) || metrics.groups.length === 0) {
+    section.appendChild(
+      el("div", { class: "card" }, [
+        el("div", { class: "empty", text: "activity_metrics.json is not available for this run." }),
+      ])
+    );
+    return section;
+  }
+  section.appendChild(
+    el("div", { class: "tiles" }, [
+      tile("Tracecat actions", fmtCount(metrics.completed_tracecat_actions), fmtNum(metrics.completed_tracecat_actions_per_second, 3) + " /s"),
+      tile("Temporal activities", fmtCount(metrics.completed_activities), fmtNum(metrics.completed_activities_per_second, 3) + " /s"),
+      tile("Measurement window", fmtSeconds(metrics.measurement_window_seconds)),
+    ])
+  );
+  const body = el("tbody", {});
+  for (const group of metrics.groups) {
+    const sts = group.schedule_to_start || {};
+    const stc = group.start_to_close || {};
+    const scc = group.schedule_to_close || {};
+    body.appendChild(
+      el("tr", {}, [
+        el("td", { text: group.action_name || group.activity_type || "—" }),
+        el("td", { class: "muted", text: group.queue_role || "—" }),
+        el("td", { class: "num", text: fmtCount(group.completed) }),
+        el("td", { class: "num " + (isNum(group.failed) && group.failed > 0 ? "bad" : ""), text: fmtCount(group.failed) }),
+        el("td", { class: "num", text: fmtCount(group.retries) }),
+        el("td", { class: "num", text: fmtNum(group.completed_per_second, 3) }),
+        el("td", { class: "num", text: fmtSeconds(sts.p50_seconds) }),
+        el("td", { class: "num", text: fmtSeconds(sts.p95_seconds) }),
+        el("td", { class: "num", text: fmtSeconds(stc.p50_seconds) }),
+        el("td", { class: "num", text: fmtSeconds(stc.p95_seconds) }),
+        el("td", { class: "num", text: fmtSeconds(scc.p50_seconds) }),
+        el("td", { class: "num", text: fmtSeconds(scc.p95_seconds) }),
+      ])
+    );
+  }
+  section.appendChild(
+    el("div", { class: "card scroll-x", style: "margin-top:10px" }, [
+      el("table", {}, [
+        el("thead", {}, [
+          el("tr", {}, [
+            el("th", { text: "Action / activity" }),
+            el("th", { text: "Queue" }),
+            el("th", { class: "num", text: "Completed" }),
+            el("th", { class: "num", text: "Failed" }),
+            el("th", { class: "num", text: "Retries" }),
+            el("th", { class: "num", text: "Completed/s" }),
+            el("th", { class: "num", text: "S→S p50" }),
+            el("th", { class: "num", text: "S→S p95" }),
+            el("th", { class: "num", text: "S→C p50" }),
+            el("th", { class: "num", text: "S→C p95" }),
+            el("th", { class: "num", text: "Sch→C p50" }),
+            el("th", { class: "num", text: "Sch→C p95" }),
+          ]),
+        ]),
+        body,
+      ]),
+    ])
+  );
+  return section;
+}
+
+function environmentSection(detail) {
+  const drift = detail.table_drift;
+  const sdk = detail.temporal_sdk_metrics;
+  const section = el("section", {}, [
+    el("h3", { text: "Table drift and Temporal SDK counters" }),
+  ]);
+  const wrap = el("div", {});
+
+  if (drift) {
+    wrap.appendChild(
+      el("div", { class: "tiles" }, [
+        tile("Table size", fmtBytes(drift.table_bytes)),
+        tile("Index size", fmtBytes(drift.indexes_bytes)),
+        tile("Live tuples", fmtCount(drift.live_tuples)),
+        tile("Dead tuples", fmtCount(drift.dead_tuples), null, isNum(drift.dead_tuples) && drift.dead_tuples > 0),
+        tile("Autovacuums", fmtCount(drift.autovacuum_count)),
+        tile("Autoanalyzes", fmtCount(drift.autoanalyze_count)),
+      ])
+    );
+  }
+
+  if (sdk && Array.isArray(sdk.counters) && sdk.counters.length > 0) {
+    const body = el("tbody", {});
+    for (const counter of sdk.counters) {
+      const labels = Object.entries(counter.labels || {})
+        .map(([k, v]) => k + "=" + v)
+        .join(" ");
+      body.appendChild(
+        el("tr", {}, [
+          el("td", { class: "mono", text: String(counter.metric) }),
+          el("td", { class: "muted", text: String(counter.service || "—") }),
+          el("td", { class: "mono muted", text: labels || "—" }),
+          el("td", { class: "num", text: fmtCount(counter.count) }),
+          el("td", { class: "num", text: fmtNum(counter.rate_per_second, 3) }),
+        ])
+      );
+    }
+    wrap.appendChild(
+      el("details", { class: "disclosure" }, [
+        el("summary", { text: "Temporal SDK counter deltas (" + sdk.counters.length + ")" }),
+        el("div", { class: "body scroll-x" }, [
+          el("table", {}, [
+            el("thead", {}, [
+              el("tr", {}, [
+                el("th", { text: "Metric" }),
+                el("th", { text: "Service" }),
+                el("th", { text: "Labels" }),
+                el("th", { class: "num", text: "Count" }),
+                el("th", { class: "num", text: "Per second" }),
+              ]),
+            ]),
+            body,
+          ]),
+        ]),
+      ])
+    );
+  }
+
+  if (wrap.childElementCount === 0) return null;
+  section.appendChild(wrap);
+  return section;
+}
+
+function buildCharts(ts, includeWarmup) {
+  const base = baseMonotonic(ts);
+  const domain = xDomainOf(ts, base);
+  const pg = ts.pg_activity;
+  const res = ts.resource_usage;
+  const backlog = ts.temporal_backlog;
+  const charts = [];
+  const peaks = [];
+
+  if (pg.length > 0) {
+    const total = pgSeries(pg, base, "total_connections");
+    const active = pgSeries(pg, base, "active");
+    const waiting = pgSeries(pg, base, "waiting");
+    let maxConnections = null;
+    for (const s of pg) if (isNum(s.max_connections)) maxConnections = s.max_connections;
+    charts.push(
+      createChart({
+        title: "PostgreSQL connections",
+        subtitle: "pg_stat_activity, sampled with the collector interval",
+        yLabel: "connections",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        reference: maxConnections === null ? null : { value: maxConnections, label: "max_connections " + maxConnections },
+        series: [
+          { id: "total", label: "total", color: slotVar(0), points: total },
+          { id: "active", label: "active", color: slotVar(1), points: active },
+          { id: "idle", label: "idle", color: slotVar(2), points: pgSeries(pg, base, "idle") },
+          { id: "iit", label: "idle in transaction", color: slotVar(3), points: pgSeries(pg, base, "idle_in_transaction") },
+          { id: "waiting", label: "waiting", color: slotVar(4), points: waiting },
+        ],
+      })
+    );
+    peaks.push(["Peak connections", fmtCount(peakOf(total)), maxConnections === null ? null : "of " + maxConnections]);
+    peaks.push(["Peak active", fmtCount(peakOf(active)), null]);
+    peaks.push(["Peak waiting", fmtCount(peakOf(waiting)), null]);
+
+    charts.push(
+      createChart({
+        title: "PostgreSQL transaction rate",
+        subtitle: "per-sample deltas divided by the sample interval",
+        yLabel: "xact/s",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        series: [
+          { id: "commit", label: "commits", color: slotVar(0), points: pgRateSeries(pg, base, "xact_commit_delta") },
+          { id: "rollback", label: "rollbacks", color: slotVar(1), points: pgRateSeries(pg, base, "xact_rollback_delta") },
+        ],
+      })
+    );
+
+    const longestQuery = pgSeries(pg, base, "longest_query_seconds");
+    charts.push(
+      createChart({
+        title: "Longest running query and transaction",
+        subtitle: "age of the oldest in-flight statement and transaction",
+        yLabel: "seconds",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 1),
+        series: [
+          { id: "query", label: "longest query", color: slotVar(0), points: longestQuery },
+          { id: "xact", label: "longest transaction", color: slotVar(1), points: pgSeries(pg, base, "longest_transaction_seconds") },
+        ],
+      })
+    );
+    peaks.push(["Longest query", fmtSeconds(peakOf(longestQuery)), null]);
+  }
+
+  if (backlog.length > 0) {
+    const queues = queueLabels(backlog);
+    const countSeries = queues.map((q, i) => ({
+      id: q.key, label: q.label, color: slotVar(i),
+      points: backlogSeries(backlog, base, q, "approximate_backlog_count"),
+    }));
+    const ageSeries = queues.map((q, i) => ({
+      id: q.key + ":age", label: q.label, color: slotVar(i),
+      points: backlogSeries(backlog, base, q, "approximate_backlog_age_seconds"),
+    }));
+    charts.push(
+      createChart({
+        title: "Temporal task-queue backlog",
+        subtitle: "approximate backlog count per task queue",
+        yLabel: "tasks",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        series: countSeries,
+      })
+    );
+    charts.push(
+      createChart({
+        title: "Temporal backlog age",
+        subtitle: "approximate age of the oldest queued task",
+        yLabel: "seconds",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 1),
+        series: ageSeries,
+      })
+    );
+    const rateSeries = [];
+    queues.forEach((q, i) => {
+      rateSeries.push({
+        id: q.key + ":add", label: q.label + " add", color: slotVar(i * 2),
+        points: backlogSeries(backlog, base, q, "tasks_add_rate"),
+      });
+      rateSeries.push({
+        id: q.key + ":dispatch", label: q.label + " dispatch", color: slotVar(i * 2 + 1),
+        points: backlogSeries(backlog, base, q, "tasks_dispatch_rate"),
+      });
+    });
+    charts.push(
+      createChart({
+        title: "Temporal task add and dispatch rate",
+        subtitle: "tasks entering versus leaving each queue",
+        yLabel: "tasks/s",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 1),
+        series: rateSeries.slice(0, SLOT_COUNT),
+      })
+    );
+    let peakCount = null;
+    let peakAge = null;
+    for (const s of countSeries) {
+      const p = peakOf(s.points);
+      if (p !== null && (peakCount === null || p > peakCount)) peakCount = p;
+    }
+    for (const s of ageSeries) {
+      const p = peakOf(s.points);
+      if (p !== null && (peakAge === null || p > peakAge)) peakAge = p;
+    }
+    peaks.push(["Peak backlog", fmtCount(peakCount), "tasks"]);
+    peaks.push(["Peak backlog age", fmtSeconds(peakAge), null]);
+  }
+
+  if (res.length > 0) {
+    const cpuPeaks = containerPeaks(res, "cpu_percent");
+    const memPeaks = containerPeaks(res, "memory_usage_bytes");
+    const cpuRanked = [...cpuPeaks.entries()].sort((a, b) => b[1] - a[1]);
+    const memRanked = [...memPeaks.entries()].sort((a, b) => b[1] - a[1]);
+    const cpuTop = cpuRanked.slice(0, SLOT_COUNT);
+    const memTop = memRanked.slice(0, SLOT_COUNT);
+
+    charts.push(
+      createChart({
+        title: "Container CPU",
+        subtitle:
+          cpuRanked.length > cpuTop.length
+            ? "top " + cpuTop.length + " of " + cpuRanked.length + " services by peak"
+            : "per Compose service",
+        yLabel: "% of one core",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        series: cpuTop.map(([service], i) => ({
+          id: "cpu:" + service, label: service, color: slotVar(i),
+          points: containerSeries(res, base, service, "cpu_percent"),
+        })),
+      })
+    );
+    charts.push(
+      createChart({
+        title: "Container memory",
+        subtitle:
+          memRanked.length > memTop.length
+            ? "top " + memTop.length + " of " + memRanked.length + " services by peak"
+            : "per Compose service",
+        yLabel: "bytes",
+        xDomain: domain,
+        format: fmtBytes,
+        series: memTop.map(([service], i) => ({
+          id: "mem:" + service, label: service, color: slotVar(i),
+          points: containerSeries(res, base, service, "memory_usage_bytes"),
+        })),
+      })
+    );
+
+    const load = hostSeries(res, base, "load_average_1m");
+    let cpuCount = null;
+    for (const s of res) if (s.host && isNum(s.host.logical_cpu_count)) cpuCount = s.host.logical_cpu_count;
+    charts.push(
+      createChart({
+        title: "Host load average (1m)",
+        subtitle: "runnable threads averaged over one minute",
+        yLabel: "load",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 1),
+        reference: cpuCount === null ? null : { value: cpuCount, label: cpuCount + " logical CPUs" },
+        series: [{ id: "load1m", label: "load average 1m", color: slotVar(0), points: load }],
+      })
+    );
+    const memory = hostSeries(res, base, "memory_used_percent");
+    charts.push(
+      createChart({
+        title: "Host memory used",
+        subtitle: "share of physical memory in use",
+        yLabel: "%",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        series: [{ id: "hostmem", label: "memory used", color: slotVar(0), points: memory }],
+      })
+    );
+
+    if (cpuTop.length > 0) peaks.push(["Peak container CPU", fmtPercent(cpuTop[0][1]), cpuTop[0][0]]);
+    if (memTop.length > 0) peaks.push(["Peak container memory", fmtBytes(memTop[0][1]), memTop[0][0]]);
+    peaks.push(["Peak host load 1m", fmtNum(peakOf(load), 2), cpuCount === null ? null : "of " + cpuCount + " CPUs"]);
+  }
+
+  const executions = ts.executions.filter((e) => includeWarmup || e.phase !== "warmup");
+  if (executions.length > 0) {
+    const markers = [];
+    for (const phase of ["warmup", "ramp", "sustain"]) {
+      let first = null;
+      for (const e of executions) {
+        if (e.phase !== phase || !isNum(e.submitted_at)) continue;
+        if (first === null || e.submitted_at < first) first = e.submitted_at;
+      }
+      if (first !== null) markers.push({ x: first - base, label: phase });
+    }
+    const submitted = cumulativeSeries(executions.map((e) => e.submitted_at), base, domain[1]);
+    const completed = cumulativeSeries(
+      executions.filter((e) => e.terminal_status === "COMPLETED").map((e) => e.terminal_at),
+      base,
+      domain[1]
+    );
+    const failedTimes = executions
+      .filter((e) => e.terminal_status !== undefined && e.terminal_status !== null && e.terminal_status !== "COMPLETED")
+      .map((e) => e.terminal_at);
+    const series = [
+      { id: "submitted", label: "submitted", color: slotVar(0), points: submitted },
+      { id: "completed", label: "completed", color: slotVar(2), points: completed },
+    ];
+    if (failedTimes.filter(isNum).length > 0) {
+      series.push({
+        id: "failed", label: "failed", color: slotVar(7),
+        points: cumulativeSeries(failedTimes, base, domain[1]),
+      });
+    }
+    charts.push(
+      createChart({
+        title: "Workflow progress",
+        subtitle: "cumulative submissions and terminal completions" + (includeWarmup ? ", warm-up included" : ""),
+        yLabel: "workflows",
+        xDomain: domain,
+        format: (v) => fmtNum(v, 0),
+        series,
+        markers,
+      })
+    );
+  }
+
+  return { charts, peaks };
+}
+
+async function renderDetail(view, runId) {
+  resetCharts();
+  clear(view);
+  view.appendChild(el("div", { class: "empty", text: "Loading run…" }));
+
+  const [detail, ts] = await Promise.all([
+    getJson("/api/runs/" + encodeURIComponent(runId)),
+    getJson("/api/runs/" + encodeURIComponent(runId) + "/timeseries"),
+  ]);
+
+  document.getElementById("artifact-root").textContent = detail.artifact_root || "";
+
+  clear(view);
+  view.appendChild(
+    el("div", { class: "crumb" }, [
+      el("button", {
+        class: "linkish",
+        type: "button",
+        text: "← All runs",
+        onclick: () => { location.hash = "#/"; },
+      }),
+    ])
+  );
+
+  const manifest = detail.manifest || {};
+  const scenario = detail.scenario || {};
+  const copyButton = el("button", {
+    type: "button",
+    text: "Copy run id",
+    onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(runId);
+        copyButton.textContent = "Copied";
+        setTimeout(() => { copyButton.textContent = "Copy run id"; }, 1400);
+      } catch (error) {
+        copyButton.textContent = "Copy failed";
+      }
+    },
+  });
+  view.appendChild(
+    el("div", { class: "run-head" }, [
+      el("div", {}, [
+        el("h2", { text: (scenario.case_id || manifest.case_id || scenario.load_type || "run") + " · " + shortHash(runId) }),
+        el("div", { class: "meta" }, [
+          statusPill(manifest.status || null),
+          el("span", { text: scenario.load_type || "unknown load type" }),
+          el("span", { text: fmtClock(manifest.started_at || scenario.started_at) }),
+          el("span", { class: "mono", text: "commit " + shortHash(manifest.tracecat_commit || scenario.tracecat_commit) + (manifest.tracecat_commit_dirty ? " (dirty)" : "") }),
+          el("span", { text: detail.matrix ? "matrix " + detail.matrix.slice(7) : "standalone run" }),
+        ]),
+      ]),
+      copyButton,
+    ])
+  );
+
+  view.appendChild(summarySection(detail));
+
+  const includeWarmup = { value: false };
+  const chartsSection = el("section", {}, [el("h3", { text: "Time series" })]);
+  const peaksSection = el("section", {}, [el("h3", { text: "Peak metrics" })]);
+  const chartGrid = el("div", { class: "chart-grid" });
+  const peakTiles = el("div", { class: "tiles" });
+  const warmupToggle = el("input", {
+    type: "checkbox",
+    id: "warmup-toggle",
+    onchange: (e) => { includeWarmup.value = e.target.checked; draw(); },
+  });
+
+  function draw() {
+    resetCharts();
+    clear(chartGrid);
+    clear(peakTiles);
+    const { charts, peaks } = buildCharts(ts, includeWarmup.value);
+    peaksSection.hidden = peaks.length === 0;
+    if (charts.length === 0) {
+      chartGrid.appendChild(
+        el("div", { class: "card" }, [
+          el("div", { class: "empty", text: "No samples were recorded for this run." }),
+        ])
+      );
+      return;
+    }
+    for (const chart of charts) chartGrid.appendChild(chart.el);
+    for (const [label, value, sub] of peaks) peakTiles.appendChild(tile(label, value, sub));
+    for (const chart of charts) chart.render();
+  }
+
+  peaksSection.appendChild(peakTiles);
+  view.appendChild(peaksSection);
+  chartsSection.appendChild(
+    el("div", { class: "filters" }, [
+      el("div", { class: "checkfield" }, [
+        warmupToggle,
+        el("label", { for: "warmup-toggle", text: "Include warm-up submissions", style: "text-transform:none;letter-spacing:0;font-size:13px;color:var(--text-secondary)" }),
+      ]),
+    ])
+  );
+  chartsSection.appendChild(chartGrid);
+  view.appendChild(chartsSection);
+  draw();
+
+  view.appendChild(activitySection(detail));
+  view.appendChild(configSection(detail));
+  view.appendChild(infrastructureSection(detail, runId));
+  const environment = environmentSection(detail);
+  if (environment !== null) view.appendChild(environment);
+}
+
+/* ===================================================================== *
+ * Router
+ * ===================================================================== */
+
+async function route() {
+  const view = document.getElementById("view");
+  const hash = location.hash || "#/";
+  try {
+    const match = /^#\/run\/(.+)$/.exec(hash);
+    if (match) {
+      await renderDetail(view, decodeURIComponent(match[1]));
+    } else {
+      await renderList(view);
+    }
+  } catch (error) {
+    clear(view);
+    view.appendChild(
+      el("div", { class: "card" }, [
+        el("div", { class: "empty", text: "Could not load this view: " + error.message }),
+      ])
+    );
+  }
+}
+
+window.addEventListener("hashchange", () => { window.scrollTo(0, 0); route(); });
+route();
+</script>
+</body>
+</html>

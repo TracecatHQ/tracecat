@@ -3613,6 +3613,12 @@ export const $AgentSessionRead = {
       ],
       title: "Created By",
     },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -3806,6 +3812,12 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -4008,6 +4020,12 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Created By",
+    },
+    is_readonly: {
+      type: "boolean",
+      title: "Is Readonly",
+      description: "Whether the requesting actor can modify this session",
+      default: false,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -5483,7 +5501,7 @@ export const $AuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [
@@ -5509,6 +5527,42 @@ export const $AuditSettingsUpdate = {
   type: "object",
   title: "AuditSettingsUpdate",
   description: "Settings for audit logging.",
+} as const
+
+export const $AuditWebhookTestResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    receiver_status_code: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Receiver Status Code",
+    },
+    error_category: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["receiver_error", "timeout", "request_error"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Category",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "AuditWebhookTestResult",
+  description: "Result of a synchronous audit webhook test-fire request.",
 } as const
 
 export const $AuthDiscoverRequest = {
@@ -6410,6 +6464,118 @@ export const $CaseBatchUpdate = {
   description: "Request body for updating multiple cases.",
 } as const
 
+export const $CaseCommentAgentAttributionRead = {
+  properties: {
+    invocation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invocation Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["invocation_id", "preset_name", "preset_slug"],
+  title: "CaseCommentAgentAttributionRead",
+  description: "Read model for agent attribution on a generated comment reply.",
+} as const
+
+export const $CaseCommentAgentInvocationError = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationErrorKind",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["kind", "message"],
+  title: "CaseCommentAgentInvocationError",
+  description:
+    "Structured terminal failure persisted for a comment agent invocation.",
+} as const
+
+export const $CaseCommentAgentInvocationErrorKind = {
+  type: "string",
+  enum: ["startup", "preparation", "agent_turn", "completion", "cancelled"],
+} as const
+
+export const $CaseCommentAgentInvocationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseCommentAgentInvocationStatus",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+    error: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationError",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "preset_name", "preset_slug", "status"],
+  title: "CaseCommentAgentInvocationRead",
+  description:
+    "Read model for an agent invocation triggered by a comment mention.",
+} as const
+
+export const $CaseCommentAgentInvocationStatus = {
+  type: "string",
+  enum: ["pending", "running", "succeeded", "failed"],
+  title: "CaseCommentAgentInvocationStatus",
+  description:
+    "Lifecycle state for an agent invoked from a case-comment mention.",
+} as const
+
 export const $CaseCommentCreate = {
   properties: {
     content: {
@@ -6457,6 +6623,46 @@ export const $CaseCommentDeleteMode = {
   enum: ["soft", "hard"],
 } as const
 
+export const $CaseCommentMentionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_type: {
+      $ref: "#/components/schemas/MentionTargetType",
+    },
+    target_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Id",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    invocation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentInvocationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "target_type", "target_id", "label", "created_at"],
+  title: "CaseCommentMentionRead",
+} as const
+
 export const $CaseCommentRead = {
   properties: {
     id: {
@@ -6494,6 +6700,16 @@ export const $CaseCommentRead = {
       anyOf: [
         {
           $ref: "#/components/schemas/CaseCommentWorkflowRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    agent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentAgentAttributionRead",
         },
         {
           type: "null",
@@ -6538,6 +6754,13 @@ export const $CaseCommentRead = {
       type: "boolean",
       title: "Is Deleted",
       default: false,
+    },
+    mentions: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentMentionRead",
+      },
+      type: "array",
+      title: "Mentions",
     },
   },
   type: "object",
@@ -7973,6 +8196,19 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
     kind: {
       anyOf: [
         {
@@ -8010,6 +8246,10 @@ export const $CaseFieldRead = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8073,6 +8313,7 @@ export const $CaseFieldRead = {
   type: "object",
   required: [
     "id",
+    "display_name",
     "type",
     "description",
     "nullable",
@@ -8089,6 +8330,10 @@ export const $CaseFieldReadMinimal = {
     id: {
       type: "string",
       title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     type: {
       $ref: "#/components/schemas/CaseFieldReadType",
@@ -8147,7 +8392,15 @@ export const $CaseFieldReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "type", "description", "nullable", "default", "reserved"],
+  required: [
+    "id",
+    "display_name",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+  ],
   title: "CaseFieldReadMinimal",
   description: "Minimal read model for a case field.",
 } as const
@@ -8247,6 +8500,19 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
     },
     required_on_closure: {
       anyOf: [
@@ -9299,6 +9565,202 @@ export const $CaseViewedEventRead = {
   required: ["created_at"],
   title: "CaseViewedEventRead",
   description: "Event for when a case is viewed.",
+} as const
+
+export const $CatalogMappingAffectedPreset = {
+  properties: {
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["preset_slug", "preset_name", "version", "path"],
+  title: "CatalogMappingAffectedPreset",
+} as const
+
+export const $CatalogMappingAffectedWorkflow = {
+  properties: {
+    workflow_source_id: {
+      type: "string",
+      title: "Workflow Source Id",
+    },
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_source_id",
+    "workflow_path",
+    "workflow_title",
+    "action_ref",
+  ],
+  title: "CatalogMappingAffectedWorkflow",
+} as const
+
+export const $CatalogMappingCandidate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    provider_name: {
+      type: "string",
+      title: "Provider Name",
+    },
+    model_display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Display Name",
+    },
+    endpoint_hostname: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Hostname",
+    },
+    origin: {
+      type: "string",
+      enum: ["platform", "organization", "custom_provider"],
+      title: "Origin",
+    },
+  },
+  type: "object",
+  required: [
+    "catalog_id",
+    "model_provider",
+    "model_name",
+    "provider_name",
+    "model_display_name",
+    "endpoint_hostname",
+    "origin",
+  ],
+  title: "CatalogMappingCandidate",
+} as const
+
+export const $CatalogMappingRequirement = {
+  properties: {
+    source_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Catalog Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    reason: {
+      $ref: "#/components/schemas/CatalogMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_presets: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingAffectedPreset",
+      },
+      type: "array",
+      title: "Affected Presets",
+    },
+    affected_workflows: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingAffectedWorkflow",
+      },
+      type: "array",
+      title: "Affected Workflows",
+    },
+  },
+  type: "object",
+  required: [
+    "source_catalog_id",
+    "model_provider",
+    "model_name",
+    "reason",
+    "message",
+    "candidates",
+    "affected_presets",
+    "affected_workflows",
+  ],
+  title: "CatalogMappingRequirement",
+} as const
+
+export const $CatalogMappingRequirementReason = {
+  type: "string",
+  enum: ["ambiguous", "invalid_selection"],
+} as const
+
+export const $CatalogMappingSelection = {
+  properties: {
+    source_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Catalog Id",
+    },
+    target_catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["source_catalog_id", "target_catalog_id"],
+  title: "CatalogMappingSelection",
+  description:
+    "User-selected target catalog row for one source catalog reference.",
 } as const
 
 export const $ChannelType = {
@@ -15363,6 +15825,30 @@ export const $MCPAuthType = {
   description: "Authentication type for MCP integrations.",
 } as const
 
+export const $MCPCatalogConnectRequest = {
+  properties: {
+    connection_option_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Connection Option Id",
+      description: "Platform MCP catalog connection option to connect",
+    },
+  },
+  type: "object",
+  title: "MCPCatalogConnectRequest",
+  description: `Request for one-click connecting a platform MCP catalog entry.
+
+Carries no connection fields, so the recipe cannot be inferred from the
+payload; the caller names the connection option it offered.`,
+} as const
+
 export const $MCPCatalogConnectResponse = {
   properties: {
     status: {
@@ -17133,6 +17619,221 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $McpIntegrationMappingAffectedPreset = {
+  properties: {
+    preset_slug: {
+      type: "string",
+      title: "Preset Slug",
+    },
+    preset_name: {
+      type: "string",
+      title: "Preset Name",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["preset_slug", "preset_name", "version", "path"],
+  title: "McpIntegrationMappingAffectedPreset",
+} as const
+
+export const $McpIntegrationMappingAffectedWorkflow = {
+  properties: {
+    workflow_source_id: {
+      type: "string",
+      title: "Workflow Source Id",
+    },
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_source_id",
+    "workflow_path",
+    "workflow_title",
+    "action_ref",
+  ],
+  title: "McpIntegrationMappingAffectedWorkflow",
+} as const
+
+export const $McpIntegrationMappingCandidate = {
+  properties: {
+    mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Mcp Integration Id",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    server_type: {
+      type: "string",
+      title: "Server Type",
+    },
+    auth_type: {
+      type: "string",
+      title: "Auth Type",
+    },
+  },
+  type: "object",
+  required: ["mcp_integration_id", "slug", "name", "server_type", "auth_type"],
+  title: "McpIntegrationMappingCandidate",
+} as const
+
+export const $McpIntegrationMappingRequirement = {
+  properties: {
+    source_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Mcp Integration Id",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    server_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Server Type",
+    },
+    auth_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Type",
+    },
+    reason: {
+      $ref: "#/components/schemas/McpIntegrationMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_presets: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingAffectedPreset",
+      },
+      type: "array",
+      title: "Affected Presets",
+    },
+    affected_workflows: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingAffectedWorkflow",
+      },
+      type: "array",
+      title: "Affected Workflows",
+    },
+  },
+  type: "object",
+  required: [
+    "source_mcp_integration_id",
+    "slug",
+    "name",
+    "server_type",
+    "auth_type",
+    "reason",
+    "message",
+    "candidates",
+    "affected_presets",
+    "affected_workflows",
+  ],
+  title: "McpIntegrationMappingRequirement",
+} as const
+
+export const $McpIntegrationMappingRequirementReason = {
+  type: "string",
+  enum: ["unresolved", "invalid_selection", "conflicting_metadata"],
+} as const
+
+export const $McpIntegrationMappingSelection = {
+  properties: {
+    source_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Mcp Integration Id",
+    },
+    target_mcp_integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Mcp Integration Id",
+    },
+  },
+  type: "object",
+  required: ["source_mcp_integration_id", "target_mcp_integration_id"],
+  title: "McpIntegrationMappingSelection",
+  description:
+    "User-selected local MCP integration for one source integration reference.",
+} as const
+
+export const $MentionTargetType = {
+  type: "string",
+  enum: ["agent"],
+  title: "MentionTargetType",
+  description: `Polymorphic target kind for a parsed case-comment mention.
+
+Only \`\`AGENT\`\` is supported today. The finite set lives here (rather than
+as a bare \`\`str\`\` checked at runtime) so every mention-aware call site —
+the parser, persistence, and API read schema — shares one exhaustive,
+type-checked domain of valid target kinds.`,
+} as const
+
 export const $MessageKind = {
   type: "string",
   enum: [
@@ -18733,7 +19434,7 @@ export const $PlatformAuditSettingsUpdate = {
       ],
       title: "Audit Webhook Custom Payload",
       description:
-        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+        "Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.",
     },
     audit_webhook_payload_attribute: {
       anyOf: [
@@ -19659,6 +20360,34 @@ export const $PullResult = {
         },
       ],
       title: "Resources",
+    },
+    catalog_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CatalogMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Mapping Requirements",
+    },
+    mcp_integration_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/McpIntegrationMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Mapping Requirements",
     },
   },
   type: "object",
@@ -21334,6 +22063,7 @@ export const $Role = {
         "tracecat-cli",
         "tracecat-executor",
         "tracecat-agent-executor",
+        "tracecat-case-duration-sync",
         "tracecat-case-triggers",
         "tracecat-llm-gateway",
         "tracecat-mcp",
@@ -24602,7 +25332,10 @@ export const $SyncResourceType = {
     "secret_metadata",
   ],
   title: "SyncResourceType",
-  description: "Kind of workspace resource that can be synced to and from Git.",
+  description: `Kind of workspace resource that can be synced to and from Git.
+
+Every member is adapter-backed: it can be projected to and imported from
+repository files.`,
 } as const
 
 export const $SyntaxToken = {
@@ -31961,6 +32694,24 @@ export const $WorkflowSyncPullRequest = {
       description:
         "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
       default: false,
+    },
+    catalog_mappings: {
+      items: {
+        $ref: "#/components/schemas/CatalogMappingSelection",
+      },
+      type: "array",
+      title: "Catalog Mappings",
+      description:
+        "Explicit source-to-target model choices from the pull preview.",
+    },
+    mcp_integration_mappings: {
+      items: {
+        $ref: "#/components/schemas/McpIntegrationMappingSelection",
+      },
+      type: "array",
+      title: "Mcp Integration Mappings",
+      description:
+        "Explicit source-to-target MCP integration choices from the pull preview.",
     },
   },
   type: "object",

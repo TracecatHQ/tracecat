@@ -24,6 +24,7 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "tables",
     "case",
     "case_comment",
+    "case_comment_mention",
     "case_event",
     "case_task",
     "case_tag",
@@ -72,6 +73,7 @@ INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 # revisions must apply policy SQL explicitly.
 POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
+    "case_comment_agent_invocation",
     "agent_channel_token",
     "agent_preset_version",
     "agent_folder",

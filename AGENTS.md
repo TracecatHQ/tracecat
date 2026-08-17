@@ -198,6 +198,12 @@ just gen-functions
   dictionary semantics are required, prefer `TypedDict`. Any unavoidable
   untyped-dictionary exception must include a clear nearby explanation of why
   the typed alternatives are unsuitable.
+- Prefer `@dataclass(frozen=True, slots=True)` over `NamedTuple` for immutable
+  structured values. It is smaller and blocks positional/iteration access, so
+  fields stay named. Measured on this repo's CPython 3.12.8 (shallow instance
+  size): `NamedTuple` 56 bytes, `@dataclass(frozen=True, slots=True)` 48 bytes,
+  plain dataclass 344 bytes including `__dict__`. Use `NamedTuple` only when
+  tuple unpacking or tuple compatibility is actually required.
 - Never branch on exception or error-message strings to choose behavior, status
   codes, or retry policy. Use explicit exception types, machine-readable error
   codes in exception details, or structured error objects instead.
@@ -208,6 +214,12 @@ just gen-functions
   hardcoded literal so `.env` overrides still work. In `.env.example`, use an
   explicit `true` or `false`, never a blank value. Update
   `tests/unit/test_config.py` when adding deployment env files.
+- Keep `.env.example` focused on settings that ordinary open-source and
+  self-hosted users are reasonably expected to configure. Do not list advanced
+  tuning knobs or operator-only overrides when safe defaults work for nearly
+  all users; keep those settings overrideable through explicit deployment
+  configuration instead. A variable being supported by config or Compose is
+  not, by itself, a reason to advertise it in `.env.example`.
 - Use `pnpm` instead of `npm`, prefer `rg` over slower text-search tools, and
   prefer `fd` over `find` when `fd` is available.
 - Ask clarifying questions when the task lacks enough context to make a safe
@@ -285,6 +297,18 @@ just gen-functions
   re-verify.
 - Keep auto-generated PR content from cubic unless the user explicitly asks to
   remove it.
+- Include a LOC breakdown in every PR body: categorize the diff's added and
+  removed lines by kind of change, e.g.:
+  - Logic: application/backend/frontend source code.
+  - Tests: `tests/`, `frontend/**/*.test.*`, fixtures.
+  - Infra/config: `docker-compose*.yml`, `deployments/`, `.github/`, `Dockerfile*`,
+    env files, `justfile`, tool configs.
+  - Docs: `docs/`, `*.md`.
+  - Generated: lockfiles (`uv.lock`, `pnpm-lock.yaml`), generated API clients,
+    migrations produced by autogenerate.
+  Compute counts from `git diff --numstat <base>...HEAD` and render as a small
+  Markdown table with one row per category and `+` / `-` columns. Omit empty
+  categories; use judgment for files that straddle categories.
 
 ## Services and logging
 

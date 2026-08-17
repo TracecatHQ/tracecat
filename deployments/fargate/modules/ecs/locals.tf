@@ -30,14 +30,16 @@ locals {
 
   # Tracecat Postgres env vars
   tracecat_db_configs = {
-    TRACECAT__DB_USER         = "postgres"
-    TRACECAT__DB_PORT         = "5432"
-    TRACECAT__DB_NAME         = "postgres" # Hardcoded in RDS resource configs
-    TRACECAT__DB_PASS__ARN    = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
-    TRACECAT__DB_MAX_OVERFLOW = var.db_max_overflow
-    TRACECAT__DB_POOL_SIZE    = var.db_pool_size
-    TRACECAT__DB_POOL_TIMEOUT = var.db_pool_timeout
-    TRACECAT__DB_POOL_RECYCLE = var.db_pool_recycle
+    TRACECAT__DB_USER              = "postgres"
+    TRACECAT__DB_PORT              = "5432"
+    TRACECAT__DB_NAME              = "postgres" # Hardcoded in RDS resource configs
+    TRACECAT__DB_PASS__ARN         = data.aws_secretsmanager_secret_version.tracecat_db_password.arn
+    TRACECAT__DB_MAX_OVERFLOW      = var.db_max_overflow
+    TRACECAT__DB_POOL_SIZE         = var.db_pool_size
+    TRACECAT__DB_POOL_TIMEOUT      = var.db_pool_timeout
+    TRACECAT__DB_POOL_RECYCLE      = var.db_pool_recycle
+    TRACECAT__DB_AUTH_MAX_OVERFLOW = var.db_auth_max_overflow
+    TRACECAT__DB_AUTH_POOL_SIZE    = var.db_auth_pool_size
   }
 
   tracecat_db_configs_executor = {
@@ -95,6 +97,7 @@ locals {
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                     = "api"
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
@@ -115,6 +118,7 @@ locals {
         TRACECAT__API_ROOT_PATH           = "/api"
         TRACECAT__API_URL                 = local.internal_api_url
         TRACECAT__DB_ENDPOINT             = local.core_db_hostname
+        TRACECAT__SERVICE_NAME            = "worker"
         TRACECAT__PUBLIC_API_URL          = local.public_api_url
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
@@ -135,16 +139,18 @@ locals {
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        TRACECAT__API_ROOT_PATH           = "/api"
-        TRACECAT__API_URL                 = local.internal_api_url
-        TRACECAT__PUBLIC_API_URL          = local.public_api_url
-        TRACECAT__DB_ENDPOINT             = local.core_db_hostname
-        TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
-        TRACECAT__AGENT_QUEUE             = var.agent_queue
-        TRACECAT__AGENT_EXECUTOR_QUEUE    = var.agent_executor_queue
-        TRACECAT__EXECUTOR_QUEUE          = var.executor_queue
-        TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
-        SENTRY_DSN                        = var.sentry_dsn
+        TRACECAT__API_ROOT_PATH                   = "/api"
+        TRACECAT__API_URL                         = local.internal_api_url
+        TRACECAT__PUBLIC_API_URL                  = local.public_api_url
+        TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                    = "agent-worker"
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT         = var.executor_client_timeout
+        TRACECAT__AGENT_QUEUE                     = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE            = var.agent_executor_queue
+        TRACECAT__EXECUTOR_QUEUE                  = var.executor_queue
+        TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
+        TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
+        SENTRY_DSN                                = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -158,16 +164,22 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                   = local.internal_api_url
-        TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND          = "direct"
-        TRACECAT__EXECUTOR_QUEUE            = var.executor_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.executor_worker_pool_size
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
-        TRACECAT__DISABLE_NSJAIL            = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__API_URL                             = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                        = "executor"
+        TRACECAT__EXECUTOR_BACKEND                    = "direct"
+        TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES   = var.executor_registry_cache_max_bytes
+        # Executor concurrency tuning (see tracecat/executor/worker.py and tracecat/executor/service.py)
+        TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.executor_max_concurrent_activities
+        TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
+        TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY  = var.executor_for_each_max_concurrency
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING          = "false"
+        TRACECAT__DISABLE_NSJAIL                     = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -184,12 +196,14 @@ locals {
       {
         TRACECAT__API_URL                                  = local.internal_api_url
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                             = "agent-executor"
         TRACECAT__EXECUTOR_BACKEND                         = "direct"
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
         TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES      = var.executor_registry_cache_max_entries
+        TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES        = var.executor_registry_cache_max_bytes
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = var.llm_gateway_credential_cache_ttl_seconds
@@ -218,6 +232,7 @@ locals {
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT         = local.core_db_hostname
+        TRACECAT__SERVICE_NAME        = "litellm"
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
       }
@@ -232,6 +247,7 @@ locals {
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                    = "mcp"
         TRACECAT__API_URL                         = local.internal_api_url
         TRACECAT__PUBLIC_APP_URL                  = local.public_app_url
         TRACECAT__PUBLIC_API_URL                  = local.public_api_url

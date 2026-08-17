@@ -7,6 +7,7 @@ import type { CaseRead, CaseUpdate } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 import { Button } from "@/components/tiptap-ui-primitive/button"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const descriptionFormSchema = z.object({
@@ -160,11 +161,12 @@ export function CasePanelDescription({
               <FormItem className="relative">
                 <FormControl>
                   <CaseDescriptionEditor
-                    className={
+                    className={cn(
+                      "case-description-editor--panel",
                       compact
                         ? "case-description-editor--compact min-h-[160px]"
-                        : "min-h-[250px]"
-                    }
+                        : "case-description-editor--page min-h-[250px]"
+                    )}
                     initialContent={caseData.description}
                     onChange={(content) => {
                       field.onChange(content)

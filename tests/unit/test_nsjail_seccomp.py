@@ -9,7 +9,6 @@ from tracecat.agent.sandbox.config import (
     AgentSandboxConfig,
     build_agent_nsjail_config,
 )
-from tracecat.executor.backends.pool import WorkerPool
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
@@ -87,35 +86,6 @@ def test_agent_sandbox_config_includes_seccomp_policy(tmp_path: Path):
     _assert_seccomp_config(config_text)
 
 
-def test_worker_pool_config_includes_seccomp_policy(tmp_path: Path):
-    """Warm worker pool configs should emit the shared seccomp policy."""
-    pool = WorkerPool()
-
-    config_text = pool._build_nsjail_config(
-        worker_id=1,
-        work_dir=tmp_path / "work",
-    )
-
-    _assert_seccomp_config(config_text)
-
-
-def test_worker_pool_config_mounts_action_gateway_socket(tmp_path: Path):
-    """Warm nsjail workers should mount the action gateway socket when enabled."""
-    pool = WorkerPool()
-    action_gateway_socket = tmp_path / "action-gateway.sock"
-
-    config_text = pool._build_nsjail_config(
-        worker_id=1,
-        work_dir=tmp_path / "work",
-        action_gateway_socket=action_gateway_socket,
-    )
-
-    assert (
-        f'mount {{ src: "{action_gateway_socket}" dst: "/var/run/tracecat/action-gateway.sock" '
-        "is_bind: true rw: false }"
-    ) in config_text
-
-
 def test_python_install_uses_job_local_uv_cache(tmp_path: Path) -> None:
     """Install sandboxes must not share a globally writable uv cache."""
     job_dir = tmp_path / "job"
@@ -173,16 +143,3 @@ def test_nsjail_configs_use_resource_limit_megabyte_units(tmp_path: Path) -> Non
         assert "rlimit_fsize: 45" in config_text
         assert f"rlimit_as: {321 * 1024 * 1024}" not in config_text
         assert f"rlimit_fsize: {45 * 1024 * 1024}" not in config_text
-
-
-def test_worker_pool_uses_procfs_scoped_to_pid_namespace(tmp_path: Path) -> None:
-    """Warm workers must not bind the executor container's existing procfs."""
-    pool = WorkerPool()
-
-    config_text = pool._build_nsjail_config(
-        worker_id=1,
-        work_dir=tmp_path / "work",
-    )
-
-    assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text
-    assert 'src: "/proc"' not in config_text

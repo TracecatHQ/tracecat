@@ -359,7 +359,7 @@ Once deployed, access your instance at:
 - API docs: `https://<your-domain>/api/docs`
 - MCP: `https://<your-domain>/mcp`
 
-## Upgrading
+## Upgrade the Helm chart
 
 ```bash
 helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
@@ -369,10 +369,43 @@ helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
   --wait --timeout 10m
 ```
 
+`--version` selects the chart version. If you set image tags in `values.yaml`, a chart upgrade keeps using those tags. Otherwise, it uses the new chart's `appVersion` and may also update Tracecat.
+
 <Warning>
   Do not change or lose your `dbEncryptionKey`, `serviceKey`, `signingSecret`, or `userAuthSecret` values between upgrades.
   Losing these secrets makes encrypted credentials unrecoverable and invalidates existing webhook URLs.
 </Warning>
+
+## Update Tracecat
+
+The chart version and Tracecat version are independent. You can use the chart's `appVersion` or set image tags explicitly.
+
+### Use the chart `appVersion`
+
+Each chart version includes an `appVersion`. When image tags are unset, the chart uses `appVersion` for both the backend and UI images.
+
+```bash
+helm show chart oci://<ecr-registry-url>/tracecat \
+  --version <chart-version>
+```
+
+Choose a chart with the required `appVersion`, then run the chart upgrade command above. This updates the chart and Tracecat together.
+
+### Set image tags
+
+To update Tracecat without changing the chart version, keep `--version` unchanged and set both image tags in `values.yaml`:
+
+```yaml
+image:
+  tag: "<app-version>"
+
+uiImage:
+  tag: "<app-version>"
+```
+
+`image.tag` sets the backend image and the default migrations image. `uiImage.tag` sets the UI image. Both override the chart's `appVersion`; keep them on the same compatible release.
+
+Run the chart upgrade command after updating `values.yaml`. If you set `migrations.image.tag` separately, it continues to override `image.tag` for migrations.
 
 ## Security
 
@@ -388,7 +421,7 @@ tracecat:
 
 nsjail requires privileged pods with `SYS_ADMIN` capability and an `Unconfined` seccomp profile. The chart sets these automatically on executor and agent-executor containers.
 
-See [Security](/self-hosting/security) for backend choices (`pool`, `ephemeral`, `direct`) and isolation tradeoffs.
+See [Security](/self-hosting/security) for backend choices (`ephemeral`, `direct`) and isolation tradeoffs.
 
 ### Authentication
 

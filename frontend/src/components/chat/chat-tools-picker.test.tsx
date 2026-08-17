@@ -104,8 +104,10 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.workflow.execute",
         "core.workflow.get_authoring_context",
         "core.workflow.get_case_trigger",
+        "core.workflow.get_status",
         "core.workflow.get_webhook",
         "core.workflow.get_workflow",
+        "core.workflow.list_executions",
         "core.workflow.publish",
         "core.workflow.run",
         "core.workflow.update_case_trigger",
@@ -121,13 +123,46 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     expect(workflows?.tools).toContain("core.workflow.execute")
     expect(workflows?.tools).toContain("core.workflow.publish")
     expect(workflows?.tools).toContain("core.workflow.run")
-    expect(workflows?.tools.length).toBe(11)
+    expect(workflows?.tools).toContain("core.workflow.list_executions")
+    expect(workflows?.tools).toContain("core.workflow.get_status")
+    expect(workflows?.tools.length).toBe(13)
   })
 })
 
 describe("ChatToolsPicker", () => {
   beforeEach(() => {
     mockToast.mockClear()
+  })
+
+  it("does not offer actions excluded from agent toolsets", () => {
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.script.run_python", {
+            default_title: "Run Python script",
+            display_group: "Core",
+          }),
+          registryAction("core.http_request", {
+            default_title: "HTTP Request",
+            display_group: "Core",
+          }),
+        ]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      { target: { value: "request" } }
+    )
+
+    // Excluded action is not offered, but ordinary core.* actions still are.
+    expect(screen.queryByText("Run Python script")).not.toBeInTheDocument()
+    expect(screen.getByText("HTTP Request")).toBeInTheDocument()
   })
 
   it("disables the add toggle for an unselected tool once the limit is reached", () => {

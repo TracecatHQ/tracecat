@@ -47,7 +47,6 @@ from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from temporalio.client import WorkflowExecutionStatus
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -92,6 +91,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
+from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
@@ -151,11 +151,7 @@ from tracecat.db.models import (
     Workflow,
     WorkflowDefinition,
 )
-from tracecat.dsl.common import (
-    DSLInput,
-    get_execution_type_from_search_attr,
-    get_trigger_type_from_search_attr,
-)
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -196,6 +192,7 @@ from tracecat.mcp.config import (
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
+    MCPRequestAuditMiddleware,
     MCPTimeoutMiddleware,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
@@ -256,7 +253,15 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionDetailResponse,
+    WorkflowExecutionSummaryResponse,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.shaping import (
+    build_execution_events,
+    build_execution_summary,
+)
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
@@ -441,6 +446,13 @@ def _role_organization_id(role: Role) -> uuid.UUID:
     if role.organization_id is None:
         raise ToolError("Resolved role is missing organization context")
     return role.organization_id
+
+
+def _role_user_id(role: Role) -> uuid.UUID:
+    """Return the authenticated user id for an MCP workspace role."""
+    if role.user_id is None:
+        raise ToolError("Resolved role is missing user context")
+    return role.user_id
 
 
 def _normalize_folder_path_arg(path: str, *, allow_root: bool = True) -> str:
@@ -974,46 +986,6 @@ class ActionCatalogResponse(BaseModel):
     namespaces: dict[str, ActionCatalogNamespace]
 
 
-class WorkflowExecutionSummaryResponse(BaseModel):
-    """Workflow execution summary."""
-
-    id: WorkflowExecutionID
-    run_id: uuid.UUID | str
-    status: str | None = None
-    start_time: str
-    close_time: str | None = None
-    trigger_type: str | None = None
-    execution_type: str | None = None
-
-
-class WorkflowExecutionEventError(BaseModel):
-    """Action-level workflow execution error payload."""
-
-    message: str
-    cause: Any | None = None
-
-
-class WorkflowExecutionEventResponse(BaseModel):
-    """Compact workflow execution event payload."""
-
-    action_ref: str | None = None
-    action_name: str | None = None
-    status: str
-    schedule_time: str
-    start_time: str | None = None
-    close_time: str | None = None
-    error: WorkflowExecutionEventError | None = None
-    result: Any | None = None
-    result_truncated: str | None = None
-
-
-class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
-    """Detailed workflow execution response."""
-
-    history_length: int
-    events: list[WorkflowExecutionEventResponse] = Field(default_factory=list)
-
-
 class WorkflowRunStartedResponse(BaseModel):
     """Workflow execution start response."""
 
@@ -1277,6 +1249,7 @@ class TemplateFileArtifact(BaseModel):
     artifact_id: uuid.UUID
     organization_id: uuid.UUID
     workspace_id: uuid.UUID
+    user_id: uuid.UUID
     client_id: str
     session_id: str
     relative_path: str
@@ -1676,10 +1649,14 @@ async def _require_template_file_artifact(
         raise ToolError("Template file artifact is not valid for this workspace")
     if artifact.organization_id != role.organization_id:
         raise ToolError("Template file artifact is not valid for this organization")
+    if artifact.user_id != role.user_id:
+        raise ToolError("Template file artifact is not valid for this user")
     if artifact.client_id != _current_mcp_client_id():
         raise ToolError("Template file artifact is not valid for this MCP client")
-    if artifact.session_id != _get_context_session_id(ctx):
-        raise ToolError("Template file artifact is not valid for this MCP session")
+    # Streamable HTTP runs statelessly so subsequent tool calls can land on a
+    # different replica and receive a different request-local session ID. The
+    # artifact is still bound to its organization, workspace, authenticated
+    # MCP client, unguessable ID, and short expiry.
     return artifact
 
 
@@ -1832,6 +1809,32 @@ async def _create_workflow_from_import_data(
         raise ToolError(str(exc)) from exc
 
 
+def _workflow_yaml_update_audit_details(
+    *,
+    role: Role,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    workflow_id: WorkflowUUID,
+    update_params: WorkflowUpdate,
+    yaml_payload: WorkflowYamlPayload | None,
+    definition_yaml: str | None,
+    update_mode: Literal["replace", "patch"],
+) -> AuditEventDetails:
+    changed_fields = set(update_params.model_fields_set)
+    if yaml_payload is not None:
+        changed_fields.update(
+            field
+            for field in ("definition", "layout", "schedules", "case_trigger")
+            if getattr(yaml_payload, field) is not None
+        )
+    return AuditEventDetails(data={"changed_fields": sorted(changed_fields)})
+
+
+@audit_log(
+    resource_type="workflow",
+    action="update",
+    attempt_metadata=_workflow_yaml_update_audit_details,
+)
 async def _apply_workflow_yaml_update(
     *,
     role: Role,
@@ -2257,6 +2260,7 @@ mcp.add_middleware(
     )
 )
 mcp.add_middleware(MCPInputSizeLimitMiddleware())
+mcp.add_middleware(MCPRequestAuditMiddleware())
 mcp.add_middleware(WatchtowerMonitorMiddleware())
 mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
@@ -3044,22 +3048,6 @@ def _case_field_payload(
     )
 
 
-def _format_temporal_status(status: Any) -> str | None:
-    """Return a stable workflow status string for MCP responses."""
-    if status is None:
-        return None
-    if isinstance(status, WorkflowExecutionStatus):
-        return status.name
-    if isinstance(status, int):
-        try:
-            return WorkflowExecutionStatus(status).name
-        except ValueError:
-            return str(status)
-    if hasattr(status, "name"):
-        return str(status.name)
-    return str(status)
-
-
 def _parse_sql_type_arg(raw_value: str, field_name: str = "type") -> SqlType:
     """Parse an uppercase SqlType string argument."""
     try:
@@ -3088,6 +3076,7 @@ def _build_tag_update_params(
 def _build_case_field_update_params(
     *,
     name: str | None = None,
+    display_name: str | None = None,
     type: SqlType | None = None,
     options: list[str] | None = None,
     options_provided: bool = False,
@@ -3096,6 +3085,8 @@ def _build_case_field_update_params(
     update_kwargs: dict[str, Any] = {}
     if name is not None:
         update_kwargs["name"] = name
+    if display_name is not None:
+        update_kwargs["display_name"] = display_name
     if type is not None:
         update_kwargs["type"] = type
     if options_provided:
@@ -3400,6 +3391,7 @@ async def edit_workflow(
                 workflow=workflow,
                 original_document=draft_document,
                 updated_document=updated_document,
+                changed_sections=changed_sections,
             )
             await svc.session.refresh(
                 workflow,
@@ -3469,31 +3461,26 @@ async def update_workflow(
         if definition_yaml is not None:
             _ensure_inline_workflow_yaml_size(definition_yaml)
         update_params = WorkflowUpdate(**update_kwargs)
-
+        yaml_payload = (
+            _parse_workflow_yaml_payload(definition_yaml)
+            if definition_yaml is not None
+            else None
+        )
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            if definition_yaml is not None:
-                yaml_payload = _parse_workflow_yaml_payload(definition_yaml)
-                await _apply_workflow_yaml_update(
-                    role=role,
-                    service=svc,
-                    workflow=workflow,
-                    workflow_id=workflow_id,
-                    update_params=update_params,
-                    yaml_payload=yaml_payload,
-                    definition_yaml=definition_yaml,
-                    update_mode=update_mode,
-                )
-                mode = update_mode
-            else:
-                for key, value in update_params.model_dump(exclude_unset=True).items():
-                    setattr(workflow, key, value)
-                svc.session.add(workflow)
-                await svc.session.commit()
-                await svc.session.refresh(workflow)
-                mode = "metadata"
+            await _apply_workflow_yaml_update(
+                role=role,
+                service=svc,
+                workflow=workflow,
+                workflow_id=workflow_id,
+                update_params=update_params,
+                yaml_payload=yaml_payload,
+                definition_yaml=definition_yaml,
+                update_mode=update_mode,
+            )
+            mode = update_mode if definition_yaml is not None else "metadata"
 
             return WorkflowUpdateResponse(
                 message=f"Workflow {workflow_id} updated successfully",
@@ -4022,7 +4009,6 @@ async def list_actions(
 async def sync_custom_registry(
     org_id: uuid.UUID | None = None,
     target_commit_sha: str | None = None,
-    force: bool = False,
 ) -> CustomRegistrySyncResponse:
     """Sync the organization's custom action registry from its remote git repository.
 
@@ -4039,8 +4025,6 @@ async def sync_custom_registry(
             single-org callers or tokens scoped with organization_id/org:<id>.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
-        force: Delete the repository's current registry version before
-            syncing, so the same commit can be re-synced from scratch.
 
     Returns JSON with `success`, `synced_at`, and a `results` array containing
     the per-repository `repository_id`, `origin`, `version`, `commit_sha`,
@@ -4077,7 +4061,6 @@ async def sync_custom_registry(
                     repo,
                     RegistryRepositorySync(
                         target_commit_sha=target_commit_sha,
-                        force=force,
                     ),
                 )
             except ScopeDeniedError:
@@ -4098,7 +4081,7 @@ async def sync_custom_registry(
                             synced_at=synced_at,
                             repository_id=repo.id,
                             origin=repo.origin,
-                            forced=force,
+                            forced=False,
                             error=str(exc),
                         )
                     ],
@@ -4116,7 +4099,7 @@ async def sync_custom_registry(
                         version=response.version,
                         commit_sha=response.commit_sha,
                         actions_count=response.actions_count,
-                        forced=force,
+                        forced=response.forced,
                     )
                 ],
             )
@@ -4390,6 +4373,7 @@ async def prepare_template_file_upload(
             artifact_id=artifact_id,
             organization_id=_role_organization_id(role),
             workspace_id=_role_workspace_id(role),
+            user_id=_role_user_id(role),
             client_id=_current_mcp_client_id(),
             session_id=_get_context_session_id(ctx),
             relative_path=normalized_relative_path,
@@ -4640,32 +4624,7 @@ async def list_workflow_executions(
             pagination=CursorPaginationParams(limit=limit, cursor=cursor),
             workflow_id=workflow_id,
         )
-        items: list[WorkflowExecutionSummaryResponse] = []
-        for execution in executions.items:
-            trigger_type = None
-            execution_type = None
-            try:
-                trigger_type = get_trigger_type_from_search_attr(
-                    execution.typed_search_attributes, execution.id
-                )
-                execution_type = get_execution_type_from_search_attr(
-                    execution.typed_search_attributes
-                )
-            except Exception:
-                pass
-            items.append(
-                WorkflowExecutionSummaryResponse(
-                    id=execution.id,
-                    run_id=execution.run_id,
-                    status=_format_temporal_status(execution.status),
-                    start_time=str(execution.start_time),
-                    close_time=(
-                        str(execution.close_time) if execution.close_time else None
-                    ),
-                    trigger_type=str(trigger_type) if trigger_type else None,
-                    execution_type=str(execution_type) if execution_type else None,
-                )
-            )
+        items = [build_execution_summary(execution) for execution in executions.items]
         return MCPPaginatedResponse[WorkflowExecutionSummaryResponse](
             items=items,
             next_cursor=executions.next_cursor,
@@ -4721,59 +4680,16 @@ async def get_workflow_execution(
         if execution is None:
             raise ToolError(f"Execution {execution_id} not found")
 
-        trigger_type = None
-        execution_type = None
-        try:
-            trigger_type = get_trigger_type_from_search_attr(
-                execution.typed_search_attributes, execution.id
-            )
-            execution_type = get_execution_type_from_search_attr(
-                execution.typed_search_attributes
-            )
-        except Exception:
-            pass
-
         # Get compact event history for action-level details
         compact_events = await exec_service.list_workflow_execution_events_compact(
             execution_id
         )
 
-        events_payload: list[WorkflowExecutionEventResponse] = []
-        for event in compact_events:
-            event_data = WorkflowExecutionEventResponse(
-                action_ref=event.action_ref,
-                action_name=event.action_name,
-                status=str(event.status),
-                schedule_time=str(event.schedule_time),
-                start_time=str(event.start_time) if event.start_time else None,
-                close_time=str(event.close_time) if event.close_time else None,
-            )
-            if event.action_error is not None:
-                event_data.error = WorkflowExecutionEventError(
-                    message=event.action_error.message,
-                    cause=event.action_error.cause,
-                )
-            if event.action_result is not None:
-                try:
-                    result_str = json.dumps(event.action_result, default=str)
-                    if len(result_str) > 2000:
-                        event_data.result_truncated = result_str[:2000] + "..."
-                    else:
-                        event_data.result = event.action_result
-                except (TypeError, ValueError):
-                    event_data.result = str(event.action_result)[:2000]
-            events_payload.append(event_data)
-
+        summary = build_execution_summary(execution)
         return WorkflowExecutionDetailResponse(
-            id=execution.id,
-            run_id=execution.run_id,
-            status=_format_temporal_status(execution.status),
-            start_time=str(execution.start_time),
-            close_time=str(execution.close_time) if execution.close_time else None,
-            trigger_type=str(trigger_type) if trigger_type else None,
-            execution_type=str(execution_type) if execution_type else None,
+            **summary.model_dump(),
             history_length=execution.history_length,
-            events=events_payload,
+            events=build_execution_events(compact_events),
         )
     except ToolError:
         raise
@@ -4859,19 +4775,15 @@ async def update_webhook(
         update_params = WebhookUpdate(**update_kwargs)
 
         async with get_async_session_context_manager() as session:
-            webhook = await webhook_service.get_webhook(
-                session=session,
-                workspace_id=role.workspace_id,
-                workflow_id=workflow_id,
-            )
-            if webhook is None:
-                raise ToolError(f"Webhook not found for workflow {workflow_id}")
-
-            for key, value in update_params.model_dump(exclude_unset=True).items():
-                setattr(webhook, key, value)
-
-            session.add(webhook)
-            await session.commit()
+            try:
+                await webhook_service.update_webhook(
+                    role=role,
+                    session=session,
+                    workflow_id=workflow_id,
+                    params=update_params,
+                )
+            except TracecatNotFoundError as e:
+                raise ToolError(f"Webhook not found for workflow {workflow_id}") from e
         return MCPMessageResponse(
             message=f"Webhook for workflow {workflow_id} updated successfully"
         )
@@ -6417,8 +6329,9 @@ async def list_case_fields(
 ) -> MCPPaginatedResponse[CaseFieldReadMinimal]:
     """List case field definitions in a workspace.
 
-    Returns a JSON array of field objects with `id`, `type`, `description`,
-    `nullable`, `default`, `reserved`, `options`, and optional `kind`.
+    Returns a JSON array of field objects with `id`, `display_name`, `type`,
+    `description`, `nullable`, `default`, `reserved`, `options`, and optional
+    `kind`.
     """
 
     try:
@@ -6452,6 +6365,7 @@ async def create_case_field(
     workspace_id: uuid.UUID,
     name: str,
     type: str,
+    display_name: str | None = None,
     kind: str | None = None,
     options: list[str] | None = None,
 ) -> MCPMessageResponse:
@@ -6464,6 +6378,7 @@ async def create_case_field(
         workspace_id: The workspace ID.
         name: Field name / column id. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        display_name: Optional human-readable field name. Defaults to `name`.
         type: Uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE, BOOLEAN,
             TIMESTAMPTZ, JSONB, SELECT, or MULTI_SELECT.
         kind: Optional semantic kind. Valid values: LONG_TEXT and URL.
@@ -6482,6 +6397,7 @@ async def create_case_field(
             await svc.create_field(
                 CaseFieldCreate(
                     name=name,
+                    display_name=display_name,
                     type=parsed_type,
                     kind=parsed_kind,
                     options=options,
@@ -6502,6 +6418,7 @@ async def update_case_field(
     workspace_id: uuid.UUID,
     field_id: str,
     name: str | None = None,
+    display_name: str | None = None,
     type: str | None = None,
     options: list[str] | None = None,
 ) -> MCPMessageResponse:
@@ -6512,6 +6429,7 @@ async def update_case_field(
         field_id: Existing field id from `list_case_fields` (field name, not UUID).
         name: Optional new field name. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        display_name: Optional new human-readable field name.
         type: Optional uppercase SqlType value.
         options: Optional list of strings. Use `[]` to clear select options.
 
@@ -6527,6 +6445,7 @@ async def update_case_field(
                 field_id,
                 _build_case_field_update_params(
                     name=name,
+                    display_name=display_name,
                     type=parsed_type,
                     options=options,
                     options_provided=options_provided,

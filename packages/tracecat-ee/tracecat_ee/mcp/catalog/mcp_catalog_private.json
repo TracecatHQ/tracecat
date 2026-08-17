@@ -160,6 +160,14 @@
         "server_uri": "https://mcp.your-env-here.scanner.dev/v1/mcp",
         "credentials": [
           {
+            "key": "your-env-here",
+            "label": "Scanner environment",
+            "description": "Your Scanner environment slug, found in Scanner Settings under API URL, e.g. acme-prod. The MCP endpoint is https://mcp.<your-env-here>.scanner.dev/v1/mcp.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
             "key": "Authorization",
             "label": "Scanner API key (Authorization header)",
             "description": "Scanner API key sent as the Authorization header in the form 'Bearer <api-key>'. The key needs Read and Query permissions on the indexes you want to investigate, or team-level IndexReadAny and IndexQueryAny permissions.",
@@ -292,6 +300,63 @@
             "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp"
           ]
         }
+      }
+    },
+    {
+      "slug": "google-security-command-center-mcp",
+      "docs": "https://google.github.io/mcp-security/servers/scc_mcp.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "scc-mcp==0.1.0",
+          "scc_mcp"
+        ],
+        "stdio_env": [
+          "GOOGLE_APPLICATION_CREDENTIALS"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "scc-mcp==0.1.0",
+              "scc_mcp"
+            ],
+            "package": "scc-mcp==0.1.0"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "scc_mcp"
+            ],
+            "package": "scc-mcp==0.1.0"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "GOOGLE_APPLICATION_CREDENTIALS",
+            "label": "Service Account Key File Path",
+            "description": "Path to a Google Cloud service account JSON key file. The server authenticates via Application Default Credentials (ADC); set this when ADC is not already configured in the environment (e.g. via `gcloud auth application-default login` or Workload Identity). The service account needs roles/securitycenter.adminViewer (or adminEditor) and roles/cloudasset.viewer, and the securitycenter.googleapis.com and cloudasset.googleapis.com APIs must be enabled.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Google repo: github.com/google/mcp-security (the Security Command Center server lives under server/scc). Distributed on PyPI as `scc-mcp` with module `scc_mcp`. Canonical STDIO launch: `uvx --from scc-mcp scc_mcp`, pinned here to `scc-mcp==0.1.0` (the only published release, 2025-09-05, matching upstream tag `scc-v0.1.0`). Also installable via `pip install scc-mcp` (then run module `scc_mcp`).\n\nAuth classified as CUSTOM: scc_mcp.py reads no environment variables of its own. Both the Security Command Center and Cloud Asset Inventory clients are constructed without explicit credentials and rely on Application Default Credentials, so authentication is configured out-of-band (`gcloud auth application-default login`, Workload Identity, or a service account key referenced by the standard GOOGLE_APPLICATION_CREDENTIALS variable, which google-auth reads). Required IAM: roles/securitycenter.adminViewer or roles/securitycenter.adminEditor, plus roles/cloudasset.viewer. Required APIs: securitycenter.googleapis.com and cloudasset.googleapis.com.\n\nThe target project is passed per tool call as a `project_id` argument rather than an environment variable, so no project identifier is required in the connection spec.\n\nTools exposed: top_vulnerability_findings (active HIGH/CRITICAL vulnerability-class findings, sorted by Attack Exposure Score) and get_finding_remediation (remediation steps plus affected resource details from Cloud Asset Inventory). This server is read-only and vulnerability-focused; it does not list all finding classes and cannot mute or change finding state.",
+        "sources": [
+          "https://github.com/google/mcp-security",
+          "https://google.github.io/mcp-security/servers/scc_mcp.html",
+          "https://pypi.org/project/scc-mcp/",
+          "https://cloud.google.com/security-command-center/docs/reference/rest"
+        ]
       }
     },
     {
@@ -1044,6 +1109,81 @@
             "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/README.md",
             "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/pyproject.toml",
             "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/gti_mcp/server.py"
+          ]
+        }
+      }
+    },
+    {
+      "slug": "misp-mcp",
+      "docs": "https://github.com/MISP/misp-mcp",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--with",
+          "mcp==1.28.1",
+          "--from",
+          "git+https://github.com/MISP/misp-mcp.git@745ce9ab4989a98b765ca4a5a99530926ea3d232",
+          "misp-mcp"
+        ],
+        "stdio_env": [
+          "MISP_URL",
+          "MISP_API_KEY",
+          "MISP_VERIFYCERT"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--with",
+              "mcp==1.28.1",
+              "--from",
+              "git+https://github.com/MISP/misp-mcp.git@745ce9ab4989a98b765ca4a5a99530926ea3d232",
+              "misp-mcp"
+            ],
+            "package": "git+https://github.com/MISP/misp-mcp.git@745ce9ab4989a98b765ca4a5a99530926ea3d232"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "MISP_URL",
+            "label": "MISP URL",
+            "description": "Base URL of your MISP instance, including the http:// or https:// scheme.",
+            "required": true,
+            "secret": false,
+            "placeholder": "https://misp.example.com",
+            "type": "url",
+            "target": "stdio_env"
+          },
+          {
+            "key": "MISP_API_KEY",
+            "label": "MISP API Key",
+            "description": "API authentication key used to read threat intelligence from MISP.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "MISP_VERIFYCERT",
+            "label": "Verify TLS Certificate",
+            "description": "Whether to verify the MISP server TLS certificate. Use true unless the instance uses a private development certificate.",
+            "required": true,
+            "secret": false,
+            "placeholder": "true",
+            "target": "stdio_env"
+          }
+        ],
+        "_research": {
+          "confidence": "high",
+          "docker_only": false,
+          "notes": "Official first-party MISP MCP server from MISP/misp-mcp. The v0.1 release identifies itself as version 0.1.0 and is pinned to source commit 745ce9ab4989a98b765ca4a5a99530926ea3d232 because no misp-mcp distribution is published on PyPI. Its declared mcp[cli]>=1.0.0 dependency is not bounded above; the current unconstrained resolution fails at startup after the MCP SDK removed mcp.server.fastmcp. The uvx recipe therefore also pins mcp==1.28.1, which was verified with an MCP initialize/list-tools probe returning 14 read-only tools. Authentication uses MISP_URL and MISP_API_KEY. MISP_VERIFYCERT controls TLS certificate verification and is explicitly prefilled as true so an empty environment value cannot silently disable verification.",
+          "sources": [
+            "https://github.com/MISP/misp-mcp",
+            "https://github.com/MISP/misp-mcp/releases/tag/v0.1",
+            "https://github.com/MISP/misp-mcp/blob/v0.1/pyproject.toml",
+            "https://github.com/MISP/misp-mcp/blob/v0.1/README.md"
           ]
         }
       }

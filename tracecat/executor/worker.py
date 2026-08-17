@@ -5,7 +5,6 @@ This worker listens on the 'shared-action-queue' and executes:
 - Registry sync operations (when sandboxed sync is enabled)
 
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
-- pool: Warm nsjail workers (single-tenant, high throughput)
 - ephemeral: Cold nsjail subprocess per action (multitenant, full isolation)
 - direct: Direct subprocess execution
 - test: In-process execution (tests only)
@@ -39,7 +38,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -56,6 +54,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
     from tracecat.executor.action_gateway.server import ActionGateway
+    from tracecat.executor.action_runner import get_action_runner
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.executor.backends import (
         initialize_executor_backend,
@@ -115,12 +114,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     # Get configuration
     task_queue = config.TRACECAT__EXECUTOR_QUEUE
-    max_concurrent = int(
-        os.environ.get("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 100)
-    )
-    threadpool_max_workers = int(
-        os.environ.get("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS", 100)
-    )
+    max_concurrent = config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+    threadpool_max_workers = config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS
 
     logger.info(
         "Starting ExecutorWorker",
@@ -135,6 +130,18 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         # Start the local action gateway before sandbox workers are spawned so its
         # socket path is available in their immutable process environment.
         await action_gateway.start()
+
+        # Warm the registry artifact cache sweep before the backend spawns
+        # workers or activities run; cache construction itself is cheap.
+        try:
+            await get_action_runner().registry_artifacts.ensure_swept()
+        except OSError as e:
+            # Cache cleanup is best-effort. The failed sweep remains retryable
+            # at the first lease or materialization boundary.
+            logger.warning(
+                "Registry artifact cache warmup failed; continuing worker startup",
+                error=str(e),
+            )
 
         # Initialize the executor backend before accepting tasks
         await initialize_executor_backend()

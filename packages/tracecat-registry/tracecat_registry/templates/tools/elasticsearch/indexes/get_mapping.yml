@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get mapping
+  description: Get mapping definitions for an Elasticsearch index.
+  display_group: Elasticsearch
+  doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-get-mapping
+  namespace: tools.elasticsearch
+  name: get_mapping
+  secrets:
+    - name: elasticsearch
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    index:
+      type: str
+      description: Index name or pattern.
+    params:
+      type: dict[str, Any] | None
+      description: Optional native Elasticsearch query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Elasticsearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/${{ FN.url_encode(inputs.index) }}/_mapping
+        method: GET
+        params: ${{ inputs.params }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}
+  returns: ${{ steps.request.result.data }}

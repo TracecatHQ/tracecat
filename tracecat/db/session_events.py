@@ -89,6 +89,10 @@ class AfterCommitQueue:
             except Exception as e:
                 logger.error("after_commit callback failed", error=str(e))
 
+    def discard_on_rollback(self) -> None:
+        """Discard side effects registered by a rolled-back transaction."""
+        self.callbacks.clear()
+
 
 @event.listens_for(sqlalchemy.orm.Session, "after_commit")
 def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: ignore[reportUnusedFunction]
@@ -96,3 +100,15 @@ def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: igno
     queue: AfterCommitQueue | None = session.info.get(_QUEUE_KEY)
     if queue is not None:
         queue.drain_on_commit()
+
+
+@event.listens_for(sqlalchemy.orm.Session, "after_soft_rollback")
+def _discard_after_outer_rollback(  # pyright: ignore[reportUnusedFunction]
+    session: sqlalchemy.orm.Session,
+    previous_transaction: sqlalchemy.orm.SessionTransaction,
+) -> None:
+    """Discard callbacks when the outermost transaction rolls back."""
+    if previous_transaction.parent is None:
+        queue: AfterCommitQueue | None = session.info.get(_QUEUE_KEY)
+        if queue is not None:
+            queue.discard_on_rollback()

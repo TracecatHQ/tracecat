@@ -4,16 +4,20 @@
 FROM debian:bookworm-slim AS nsjail-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Build from specific commit that includes pasta/user_net support
-ENV NSJAIL_COMMIT=b24be32d38a26656568491c2c5fcffa6e77341d6
+# Pin NsJail 4.0 source with the in-process NSTUN policy backend.
+ENV NSJAIL_COMMIT=388b9655a696e88df3185d09e36c0378a8532904
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git gcc g++ make pkg-config bison flex \
     libprotobuf-dev protobuf-compiler libnl-route-3-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+COPY docker/nsjail/nstun-bounded-memory.patch /tmp/nstun-bounded-memory.patch
+
 RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
+    git apply --check /tmp/nstun-bounded-memory.patch && \
+    git apply /tmp/nstun-bounded-memory.patch && \
     git submodule update --init --recursive && \
     make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
@@ -29,7 +33,7 @@ ARG TARGETARCH
 ARG DUCKDB_VERSION=1.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget jq iputils-ping git openssh-client \
+    ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
@@ -121,7 +125,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates jq \
     libnl-route-3-200 libprotobuf32 libcap2-bin util-linux \
-    passt squashfs-tools \
+    squashfs-tools \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -187,7 +191,7 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
         /var/lib/tracecat/sandbox-rootfs/home/sandbox && \
     chmod 1777 /var/lib/tracecat/sandbox-rootfs/tmp
 
-# Create apiuser for non-root runtime (required for pasta userspace networking)
+# Create apiuser for the non-root runtime.
 RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
     mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
     chown -R apiuser:apiuser /home/apiuser
@@ -227,13 +231,9 @@ ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
-COPY docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# Switch to non-root user (matches production, required for pasta userspace networking)
+# Switch to the non-root user used in production.
 USER apiuser
 
-ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
@@ -296,8 +296,6 @@ COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
-COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
 
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     uv sync --locked --no-dev --no-editable
@@ -326,5 +324,4 @@ COPY --from=registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /
 RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available"
 
 EXPOSE $PORT
-ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]
