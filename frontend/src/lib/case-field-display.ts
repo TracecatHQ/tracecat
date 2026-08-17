@@ -81,6 +81,42 @@ export function formatCaseFieldDisplayLabel(
   return String(value)
 }
 
+/**
+ * Return true when a custom case-field value should be treated as empty.
+ * Booleans are never empty (`false` is a real answer); strings are empty when
+ * blank or whitespace-only; arrays and objects when they have no entries.
+ */
+export function isCustomFieldValueEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === "string") return value.trim().length === 0
+  if (typeof value === "number") return Number.isNaN(value)
+  if (typeof value === "boolean") return false
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === "object")
+    return Object.keys(value as object).length === 0
+  return false
+}
+
+/**
+ * Order custom case fields for the case panel. When collapsed (`showAll` is
+ * false), only non-empty fields are shown. When expanded, non-empty fields
+ * come first and empty fields follow, each group keeping its original
+ * relative order — a stable partition, not a sort.
+ */
+export function orderCustomFieldsForDisplay<T extends { value: unknown }>(
+  fields: T[],
+  showAll: boolean
+): T[] {
+  const nonEmpty = fields.filter(
+    (field) => !isCustomFieldValueEmpty(field.value)
+  )
+  if (!showAll) {
+    return nonEmpty
+  }
+  const empty = fields.filter((field) => isCustomFieldValueEmpty(field.value))
+  return [...nonEmpty, ...empty]
+}
+
 function parseFiniteCaseFieldNumber(value: unknown): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null

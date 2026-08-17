@@ -1,0 +1,73 @@
+---
+title: "Mention agents in case comments"
+description: "Invoke a preset agent from a case comment, follow its reply, and inspect the full agent session."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Mention a preset agent when you want it to investigate a case or respond in a comment thread.
+Tracecat posts the agent's final answer as a reply and keeps its full run in case chat history.
+
+## Before you start
+
+Your organization needs the agent add-ons and case add-ons entitlements.
+Your workspace role also needs:
+
+- `agent:read` to find preset agents in autocomplete.
+- `agent:execute` to invoke the selected agent.
+- `case:update` to create the comment.
+
+Without these requirements, `@` behaves as regular comment text and never starts an agent run.
+
+## Mention an agent
+
+1. Open a case and start a new comment or reply.
+2. Type `@`, then enter part of the preset agent's name.
+3. Select the agent from the autocomplete list.
+4. Add your request and submit the comment.
+
+![Select an agent in a case comment](/img/cases/agent-mention-composer.png)
+
+Selecting the autocomplete result creates the mention.
+Typing an agent name as plain text does not invoke it.
+
+Tracecat invokes agents only when you create a comment.
+Editing an existing comment to add a mention never starts a run; create a new comment instead.
+
+## Follow the response
+
+The comment thread shows when each mentioned agent is preparing, running, or unable to finish.
+Multiple mentions run independently and can finish in any order.
+
+![Agent activity and reply in a comment thread](/img/cases/agent-mention-reply.png)
+
+When the run succeeds, Tracecat posts the final answer as an attributed reply in the same thread.
+If a run fails, mention the agent in a new comment to try again.
+
+Agent replies have the same 25,000-character limit as other comments.
+Tracecat adds `[Agent output truncated]` when a longer response reaches that limit.
+
+## Agent context
+
+The agent receives the current case context and the comment thread that contains the mention.
+The context identifies the mentioning user and asks the agent to write a self-contained reply.
+
+Each mention starts a new agent session.
+Later mentions receive the updated comment thread, but they do not receive another session's private working transcript.
+
+## View the full session
+
+Select `View session` from the agent activity or attributed reply to open the exact case chat session.
+The session contains the full transcript, including tool calls, errors, and approval pauses that do not appear in the comment reply.
+
+![Comment agent session in case chat history](/img/cases/agent-mention-session.png)
+
+Comment-created sessions have a `From comment` badge in the case chat history.
+Use the history search to find these sessions after the comment thread is no longer visible.
+
+## Related pages
+
+- See [Cases](/automations/cases) to configure and manage case records.
+- See [AI agent](/agents/ai-agent) to configure agent tools, outputs, and approvals.
+- See [Comment triggers](/automations/triggers/comment-triggers) to run a workflow from a case comment instead of invoking a preset agent.

@@ -362,7 +362,7 @@ export function CaseFeed({
   if (caseEventsIsLoading) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-6 w-full" />
@@ -377,7 +377,7 @@ export function CaseFeed({
   if (caseEventsError) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-4">
           <div className="flex items-center justify-center p-8">
             <div className="flex items-center gap-2 text-red-600">
               <AlertCircle className="h-4 w-4" />
@@ -392,7 +392,7 @@ export function CaseFeed({
   if (events.length === 0) {
     return (
       <div className="mx-auto w-full">
-        <div className="p-4">
+        <div>
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -413,10 +413,10 @@ export function CaseFeed({
 
   return (
     <div className="mx-auto w-full">
-      <div className="space-y-4 p-4">
+      <div className="space-y-4">
         {groupedEvents.map(({ date, events: dateEvents }) => (
           <div key={date.toISOString()} className="space-y-2">
-            <div className="sticky top-0 z-10 py-2">
+            <div className="sticky top-0 z-10 -mt-2 bg-background py-2">
               <div className="flex items-center">
                 <div className="text-sm font-medium">
                   {date.toLocaleDateString(undefined, {

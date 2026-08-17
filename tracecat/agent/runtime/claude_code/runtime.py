@@ -88,6 +88,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     is_approval_continuation_prompt_line,
     is_meta_session_line,
+    is_model_context_session_line,
     is_synthetic_session_line,
 )
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
@@ -803,7 +804,11 @@ class ClaudeAgentRuntime:
         # SDK compaction artifacts marked with structural flags
         # isCompactSummary messages are persisted as kind='compaction' for badge rendering
         # isMeta messages (like caveats) are internal
-        if is_meta_session_line(line_data) or line_data.get("isCompactSummary"):
+        if (
+            is_meta_session_line(line_data)
+            or is_model_context_session_line(line_data)
+            or line_data.get("isCompactSummary")
+        ):
             return True
 
         msg_type = line_data.get("type", "")

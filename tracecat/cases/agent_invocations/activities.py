@@ -55,10 +55,13 @@ async def prepare_comment_agent_invocation_activity(
         prepared = await dispatcher.create_or_get_agent_session(input.invocation_id)
         if prepared is None:
             return PrepareCommentAgentInvocationResult()
-        prepared_turn = await AgentSessionService(
+        session_service = AgentSessionService(
             dispatcher.session,
             input.role,
-        ).prepare_new_turn(prepared.session_id, prepared.prompt)
+        )
+        prepared_turn = await session_service.prepare_new_turn(
+            prepared.session_id, prepared.prompt
+        )
         config = replace(
             prepared_turn.config,
             actions=_without_comment_reply_actions(prepared_turn.config.actions),

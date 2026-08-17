@@ -44,9 +44,18 @@ class CommentThreadContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CommentAgentInput:
+    """Structured initial input for an agent invoked from a comment thread."""
+
+    model_context_prompt: str
+    display_messages: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedCommentAgentSession:
     """Linked session and prompt prepared for parent-workflow execution."""
 
     invocation_id: uuid.UUID
     session_id: uuid.UUID
     prompt: str
+    display_messages: tuple[str, ...]

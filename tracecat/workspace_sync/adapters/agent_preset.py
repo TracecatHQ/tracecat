@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.authz.controls import check_scopes
 from tracecat.db.models import (
     AgentFolder,
     AgentPreset,
@@ -24,6 +25,7 @@ from tracecat.db.models import (
     AgentPresetVersionSkill,
     AgentTag,
     AgentTagLink,
+    MCPIntegration,
     Skill,
     SkillVersion,
 )
@@ -36,6 +38,11 @@ from tracecat.sync import (
     CatalogMappingCandidate,
     CatalogMappingRequirement,
     CatalogMappingRequirementReason,
+    McpIntegrationMappingAffectedPreset,
+    McpIntegrationMappingAffectedWorkflow,
+    McpIntegrationMappingCandidate,
+    McpIntegrationMappingRequirement,
+    McpIntegrationMappingRequirementReason,
     PullDiagnostic,
     serializable_validation_errors,
 )
@@ -56,6 +63,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     AgentPresetVersionResourceSpec,
+    McpIntegrationHint,
     WorkflowResourceSpec,
     WorkspaceManifestResources,
     WorkspaceSpec,
@@ -63,15 +71,30 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.types import (
     AgentPresetCatalogReference,
+    AgentPresetMcpIntegrationReference,
     CatalogReference,
     CorrelatedAgentPresets,
+    CorrelatedMcpIntegrationRefs,
+    McpIntegrationCorrelationKey,
+    McpIntegrationReference,
     WorkflowCatalogReference,
+    WorkflowMcpIntegrationReference,
 )
 from tracecat.workspace_sync.workflow import workflow_source_path
 
 AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
+
+
+def _parse_uuid(value: object) -> uuid.UUID | None:
+    """Parse a reference into a UUID; non-UUID refs are left uncorrelated."""
+    try:
+        return uuid.UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
 
 
@@ -319,8 +342,24 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_service,
             [version.id for version in version_rows],
         )
+        mcp_hints_by_id = await self._mcp_integration_hints(
+            workspace_service,
+            {
+                ref
+                for version in version_rows
+                for ref in (version.mcp_integrations or [])
+            },
+        )
         versions: dict[int, AgentPresetVersionResourceSpec] = {}
         for version in version_rows:
+            mcp_integrations = sorted(version.mcp_integrations or [])
+            mcp_integration_hints: dict[uuid.UUID, McpIntegrationHint] = {}
+            for ref in mcp_integrations:
+                integration_id = _parse_uuid(ref)
+                if integration_id is None:
+                    continue
+                if hint := mcp_hints_by_id.get(integration_id):
+                    mcp_integration_hints[integration_id] = hint
             versions[version.version] = AgentPresetVersionResourceSpec(
                 version_number=version.version,
                 name=preset.name,
@@ -335,12 +374,51 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 base_url=version.base_url,
                 output_type=version.output_type,
                 namespaces=sorted(version.namespaces or []),
-                mcp_integrations=sorted(version.mcp_integrations or []),
+                mcp_integrations=mcp_integrations,
+                mcp_integration_hints=mcp_integration_hints,
                 retries=version.retries,
                 enable_thinking=version.enable_thinking,
                 enable_internet_access=version.enable_internet_access,
             )
         return versions
+
+    async def _mcp_integration_hints(
+        self,
+        workspace_service: SyncMappingService,
+        refs: set[str],
+    ) -> dict[uuid.UUID, McpIntegrationHint]:
+        """Return portable identity hints keyed by local MCP integration id."""
+        integration_ids: set[uuid.UUID] = set()
+        for ref in refs:
+            try:
+                integration_ids.add(uuid.UUID(ref))
+            except (TypeError, ValueError):
+                # Non-UUID refs predate id-based references; nothing to correlate.
+                continue
+        if not integration_ids:
+            return {}
+        check_scopes(workspace_service.role, "integration:read")
+        stmt = select(
+            MCPIntegration.id,
+            MCPIntegration.slug,
+            MCPIntegration.server_type,
+            MCPIntegration.auth_type,
+            MCPIntegration.name,
+        ).where(
+            MCPIntegration.workspace_id == workspace_service.workspace_id,
+            MCPIntegration.id.in_(integration_ids),
+        )
+        return {
+            integration_id: McpIntegrationHint(
+                slug=slug,
+                server_type=server_type,
+                auth_type=str(auth_type),
+                name=name,
+            )
+            for integration_id, slug, server_type, auth_type, name in (
+                await workspace_service.session.execute(stmt)
+            ).tuples()
+        }
 
     async def _skill_bindings_for_versions(
         self,
@@ -884,6 +962,440 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     def _catalog_reference_title(self, reference: CatalogReference) -> str:
         """Return the owning preset or workflow title for a catalog reference."""
         if isinstance(reference, AgentPresetCatalogReference):
+            return reference.preset_name
+        return reference.workflow_title
+
+    async def correlate_mcp_integration_refs(
+        self,
+        workspace_service: SyncMappingService,
+        presets: dict[str, AgentPresetResourceSpec],
+        workflows: dict[str, WorkflowResourceSpec] | None = None,
+        *,
+        requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
+    ) -> CorrelatedMcpIntegrationRefs:
+        """Re-map preset and workflow MCP integration UUIDs to local rows.
+
+        MCP integration UUIDs are workspace-local, and the integrations themselves
+        never sync. An exact slug/server_type/auth_type match against an exported
+        identity hint auto-resolves. Anything else requires an explicit selection
+        for the current pull.
+        """
+        requested_mappings = requested_mcp_integration_mappings or {}
+        workflows = workflows or {}
+        diagnostics: list[PullDiagnostic] = []
+        references: dict[uuid.UUID, list[McpIntegrationReference]] = {}
+        meta_by_source_id: dict[uuid.UUID, McpIntegrationHint] = {}
+        conflicting_meta_ids: set[uuid.UUID] = set()
+
+        for source_id, preset in sorted(presets.items()):
+            for version_number, version in sorted(preset.versions.items()):
+                for ref in version.mcp_integrations:
+                    integration_id = _parse_uuid(ref)
+                    if integration_id is None:
+                        continue
+                    meta = version.mcp_integration_hints.get(integration_id)
+                    if meta is not None:
+                        meta_key = McpIntegrationCorrelationKey(
+                            slug=meta.slug,
+                            server_type=meta.server_type,
+                            auth_type=meta.auth_type,
+                        )
+                        known = meta_by_source_id.get(integration_id)
+                        if known is None:
+                            meta_by_source_id[integration_id] = meta
+                        elif (
+                            McpIntegrationCorrelationKey(
+                                slug=known.slug,
+                                server_type=known.server_type,
+                                auth_type=known.auth_type,
+                            )
+                            != meta_key
+                        ):
+                            # One source UUID must identify one integration.
+                            conflicting_meta_ids.add(integration_id)
+                    references.setdefault(integration_id, []).append(
+                        AgentPresetMcpIntegrationReference(
+                            path=self._version_source_path(source_id, version_number),
+                            preset_slug=preset.slug,
+                            preset_name=preset.name,
+                            version_number=version_number,
+                            meta=meta,
+                        )
+                    )
+
+        workflow_action_types = (PlatformAction.AI_AGENT, PlatformAction.AI_ACTION)
+        for source_id, workflow in sorted(workflows.items()):
+            for action in workflow.definition.actions:
+                if action.action not in workflow_action_types:
+                    continue
+                raw_refs = action.args.get("mcp_integrations")
+                if not isinstance(raw_refs, list):
+                    continue
+                for ref in raw_refs:
+                    integration_id = _parse_uuid(ref)
+                    if integration_id is None:
+                        continue
+                    references.setdefault(integration_id, []).append(
+                        WorkflowMcpIntegrationReference(
+                            path=workflow_source_path(source_id),
+                            workflow_source_id=source_id,
+                            workflow_title=workflow.definition.title,
+                            action_ref=action.ref,
+                        )
+                    )
+
+        present_source_ids = set(references)
+        unused_requested = set(requested_mappings) - present_source_ids
+        for source_integration_id in sorted(unused_requested):
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="validation",
+                    message=(
+                        f"MCP integration mapping selection for source "
+                        f"{source_integration_id} does not appear in this "
+                        "repository snapshot."
+                    ),
+                    details={
+                        "code": "mcp_integration_mapping_source_not_found",
+                        "mcp_integration_id": str(source_integration_id),
+                    },
+                )
+            )
+
+        if not references:
+            return CorrelatedMcpIntegrationRefs(
+                presets=presets,
+                workflows=workflows,
+                diagnostics=diagnostics,
+                requirements=[],
+            )
+
+        local_integrations = await self._local_mcp_integrations(workspace_service)
+        local_by_id = {row.mcp_integration_id: row for row in local_integrations}
+        by_integration_key: dict[
+            McpIntegrationCorrelationKey, list[McpIntegrationMappingCandidate]
+        ] = {}
+        for row in local_integrations:
+            key = McpIntegrationCorrelationKey(
+                slug=row.slug,
+                server_type=row.server_type,
+                auth_type=str(row.auth_type),
+            )
+            by_integration_key.setdefault(key, []).append(row)
+
+        resolved: dict[uuid.UUID, uuid.UUID] = {}
+        requirements: list[McpIntegrationMappingRequirement] = []
+        local_ids = {row.mcp_integration_id for row in local_integrations}
+
+        for source_integration_id, refs in sorted(references.items()):
+            requested_target = requested_mappings.get(source_integration_id)
+            meta = meta_by_source_id.get(source_integration_id)
+            if requested_target is not None:
+                if requested_target in local_ids:
+                    resolved[source_integration_id] = requested_target
+                    continue
+                self._append_mcp_integration_requirement(
+                    requirements=requirements,
+                    diagnostics=diagnostics,
+                    source_integration_id=source_integration_id,
+                    meta=meta,
+                    references=refs,
+                    local_integrations=local_integrations,
+                    reason="invalid_selection",
+                )
+                continue
+
+            if source_integration_id in conflicting_meta_ids:
+                # Neither copy of the hint can be trusted; require a choice.
+                self._append_mcp_integration_requirement(
+                    requirements=requirements,
+                    diagnostics=diagnostics,
+                    source_integration_id=source_integration_id,
+                    meta=None,
+                    references=refs,
+                    local_integrations=local_integrations,
+                    reason="conflicting_metadata",
+                )
+                continue
+
+            local_integration = local_by_id.get(source_integration_id)
+            if local_integration is not None and (
+                meta is None
+                or McpIntegrationCorrelationKey(
+                    slug=local_integration.slug,
+                    server_type=local_integration.server_type,
+                    auth_type=local_integration.auth_type,
+                )
+                == McpIntegrationCorrelationKey(
+                    slug=meta.slug,
+                    server_type=meta.server_type,
+                    auth_type=meta.auth_type,
+                )
+            ):
+                resolved[source_integration_id] = source_integration_id
+                continue
+
+            if meta is not None:
+                matches = by_integration_key.get(
+                    McpIntegrationCorrelationKey(
+                        slug=meta.slug,
+                        server_type=meta.server_type,
+                        auth_type=meta.auth_type,
+                    ),
+                    [],
+                )
+                if len(matches) == 1:
+                    # Deterministic correlation-key hit; intentionally not persisted.
+                    resolved[source_integration_id] = matches[0].mcp_integration_id
+                    continue
+
+            self._append_mcp_integration_requirement(
+                requirements=requirements,
+                diagnostics=diagnostics,
+                source_integration_id=source_integration_id,
+                meta=meta,
+                references=refs,
+                local_integrations=local_integrations,
+                reason="unresolved",
+            )
+
+        if not resolved:
+            return CorrelatedMcpIntegrationRefs(
+                presets=presets,
+                workflows=workflows,
+                diagnostics=diagnostics,
+                requirements=requirements,
+            )
+
+        local_hint_by_id = {
+            row.mcp_integration_id: McpIntegrationHint(
+                slug=row.slug,
+                server_type=row.server_type,
+                auth_type=str(row.auth_type),
+                name=row.name,
+            )
+            for row in local_integrations
+        }
+        correlated_presets: dict[str, AgentPresetResourceSpec] = {}
+        for source_id, preset in sorted(presets.items()):
+            correlated_versions: dict[int, AgentPresetVersionResourceSpec] = {}
+            for version_number, version in sorted(preset.versions.items()):
+                # Resolved ids and hints take the local shape so repeat previews
+                # converge on the local projection.
+                rewritten: list[str] = []
+                rewritten_hints: dict[uuid.UUID, McpIntegrationHint] = {}
+                for ref in version.mcp_integrations:
+                    ref_id = _parse_uuid(ref)
+                    if ref_id is not None and ref_id in resolved:
+                        local_id = resolved[ref_id]
+                        rewritten.append(str(local_id))
+                        rewritten_hints[local_id] = local_hint_by_id[local_id]
+                    else:
+                        rewritten.append(ref)
+                        if ref_id is not None and (
+                            hint := version.mcp_integration_hints.get(ref_id)
+                        ):
+                            rewritten_hints[ref_id] = hint
+                correlated_versions[version_number] = (
+                    version
+                    if rewritten == version.mcp_integrations
+                    and rewritten_hints == version.mcp_integration_hints
+                    else version.model_copy(
+                        update={
+                            "mcp_integrations": rewritten,
+                            "mcp_integration_hints": rewritten_hints,
+                        }
+                    )
+                )
+            correlated_presets[source_id] = preset.model_copy(
+                update={"versions": correlated_versions}
+            )
+
+        correlated_workflows: dict[str, WorkflowResourceSpec] = {}
+        for source_id, workflow in sorted(workflows.items()):
+            action_specs = list(workflow.definition.actions)
+            rewritten_workflow = False
+            for index, action in enumerate(workflow.definition.actions):
+                if action.action not in workflow_action_types:
+                    continue
+                raw_refs = action.args.get("mcp_integrations")
+                if not isinstance(raw_refs, list):
+                    continue
+                rewritten_refs = [
+                    str(resolved[parsed])
+                    if (parsed := _parse_uuid(ref)) is not None and parsed in resolved
+                    else ref
+                    for ref in raw_refs
+                ]
+                if rewritten_refs == raw_refs:
+                    continue
+                new_args = dict(action.args)
+                new_args["mcp_integrations"] = rewritten_refs
+                action_specs[index] = action.model_copy(update={"args": new_args})
+                rewritten_workflow = True
+
+            correlated_workflows[source_id] = (
+                workflow
+                if not rewritten_workflow
+                else workflow.model_copy(
+                    update={
+                        "definition": workflow.definition.model_copy(
+                            update={"actions": action_specs}
+                        )
+                    }
+                )
+            )
+
+        return CorrelatedMcpIntegrationRefs(
+            presets=correlated_presets,
+            workflows=correlated_workflows,
+            diagnostics=diagnostics,
+            requirements=requirements,
+        )
+
+    async def _local_mcp_integrations(
+        self,
+        workspace_service: SyncMappingService,
+    ) -> list[McpIntegrationMappingCandidate]:
+        """Return the workspace's MCP integrations ordered by slug.
+
+        Loads only the correlation metadata columns; encrypted credential columns
+        and the OAuth relationship must never enter this path.
+        """
+        check_scopes(workspace_service.role, "integration:read")
+        stmt = (
+            select(
+                MCPIntegration.id,
+                MCPIntegration.slug,
+                MCPIntegration.name,
+                MCPIntegration.server_type,
+                MCPIntegration.auth_type,
+            )
+            .where(MCPIntegration.workspace_id == workspace_service.workspace_id)
+            .order_by(MCPIntegration.slug.asc())
+        )
+        return [
+            McpIntegrationMappingCandidate(
+                mcp_integration_id=integration_id,
+                slug=slug,
+                name=name,
+                server_type=server_type,
+                auth_type=str(auth_type),
+            )
+            for integration_id, slug, name, server_type, auth_type in (
+                await workspace_service.session.execute(stmt)
+            ).tuples()
+        ]
+
+    def _append_mcp_integration_requirement(
+        self,
+        *,
+        requirements: list[McpIntegrationMappingRequirement],
+        diagnostics: list[PullDiagnostic],
+        source_integration_id: uuid.UUID,
+        meta: McpIntegrationHint | None,
+        references: list[McpIntegrationReference],
+        local_integrations: list[McpIntegrationMappingCandidate],
+        reason: McpIntegrationMappingRequirementReason,
+    ) -> None:
+        """Append one grouped MCP mapping requirement and its blocking diagnostic."""
+        first = references[0]
+        label = f"{meta.slug!r}" if meta is not None else str(source_integration_id)
+        if not local_integrations:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=first.path,
+                    workflow_title=self._mcp_reference_title(first),
+                    error_type="dependency",
+                    message=(
+                        f"MCP integration {label} is referenced by this snapshot, "
+                        "but no MCP integrations are configured for this workspace."
+                    ),
+                    details={
+                        "code": "mcp_integration_mapping_required",
+                        "mcp_integration_id": str(source_integration_id),
+                        "reason": reason,
+                    },
+                )
+            )
+            return
+
+        # Slug-matched candidate first so the likely target leads the picker.
+        candidates = sorted(
+            local_integrations,
+            key=lambda row: (
+                meta is None or row.slug != meta.slug,
+                row.slug,
+            ),
+        )
+        if reason == "invalid_selection":
+            message = (
+                f"The selected target is not an MCP integration in this workspace. "
+                f"Choose an available MCP integration for source {label}."
+            )
+        elif reason == "conflicting_metadata":
+            message = (
+                f"MCP integration {label} carries conflicting correlation "
+                "metadata across this snapshot's files. Choose the target "
+                "integration explicitly."
+            )
+        else:
+            message = (
+                f"MCP integration {label} could not be matched to a local MCP "
+                "integration. Choose the target integration before applying "
+                "this pull."
+            )
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=first.path,
+                workflow_title=self._mcp_reference_title(first),
+                error_type="dependency",
+                message=message,
+                details={
+                    "code": "mcp_integration_mapping_required",
+                    "mcp_integration_id": str(source_integration_id),
+                    "reason": reason,
+                },
+            )
+        )
+        requirements.append(
+            McpIntegrationMappingRequirement(
+                source_mcp_integration_id=source_integration_id,
+                slug=meta.slug if meta else None,
+                name=meta.name if meta else None,
+                server_type=meta.server_type if meta else None,
+                auth_type=meta.auth_type if meta else None,
+                reason=reason,
+                message=message,
+                candidates=candidates,
+                affected_presets=[
+                    McpIntegrationMappingAffectedPreset(
+                        preset_slug=reference.preset_slug,
+                        preset_name=reference.preset_name,
+                        version=reference.version_number,
+                        path=reference.path,
+                    )
+                    for reference in references
+                    if isinstance(reference, AgentPresetMcpIntegrationReference)
+                ],
+                affected_workflows=[
+                    McpIntegrationMappingAffectedWorkflow(
+                        workflow_source_id=reference.workflow_source_id,
+                        workflow_path=reference.path,
+                        workflow_title=reference.workflow_title,
+                        action_ref=reference.action_ref,
+                    )
+                    for reference in references
+                    if isinstance(reference, WorkflowMcpIntegrationReference)
+                ],
+            )
+        )
+
+    def _mcp_reference_title(self, reference: McpIntegrationReference) -> str:
+        """Return the owning preset or workflow title for an MCP reference."""
+        if isinstance(reference, AgentPresetMcpIntegrationReference):
             return reference.preset_name
         return reference.workflow_title
 
