@@ -403,6 +403,7 @@ export function CaseDurationDialog({
       .map((f) => ({
         value: f.id,
         label: f.display_name,
+        description: f.id,
       }))
   }, [caseFields])
 
