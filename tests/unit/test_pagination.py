@@ -982,6 +982,7 @@ class TestPaginate:
             )
 
         assert exc_info.value.code is PaginationErrorCode.INVALID_CURSOR
+        assert isinstance(exc_info.value, ValueError)
 
     @pytest.mark.anyio
     async def test_oversized_cursor_fails_at_its_source(

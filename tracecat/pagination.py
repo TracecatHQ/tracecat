@@ -108,7 +108,7 @@ class PaginationErrorCode(StrEnum):
     UNSUPPORTED_CURSOR_VERSION = "unsupported_cursor_version"
 
 
-class PaginationError(TracecatValidationError):
+class PaginationError(TracecatValidationError, ValueError):
     """A user-facing pagination cursor error."""
 
     def __init__(self, message: str, *, code: PaginationErrorCode) -> None:
