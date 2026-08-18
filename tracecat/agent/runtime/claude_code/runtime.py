@@ -1497,10 +1497,6 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
-        if payload.config.passthrough or any(
-            subagent.config.passthrough for subagent in payload.subagents
-        ):
-            env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
         # Bedrock does not consistently support tool search across APIs, models,
         # and opaque inference profiles. Explicitly disable it for Bedrock roots
         # so the CLI sends full tool definitions without tool_reference blocks.

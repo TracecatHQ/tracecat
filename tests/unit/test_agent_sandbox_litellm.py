@@ -94,6 +94,14 @@ def clean_redis_db() -> Iterator[None]:
     yield
 
 
+def _fake_temporal_activity() -> SimpleNamespace:
+    """Provide the Temporal APIs used when exercising the activity directly."""
+    return SimpleNamespace(
+        heartbeat=lambda _message: None,
+        info=lambda: SimpleNamespace(attempt=1, task_queue="test-agent-queue"),
+    )
+
+
 class _LiteLLMRequestPayload(TypedDict, total=False):
     messages: list[object]
     model: str
@@ -1135,7 +1143,7 @@ async def _run_full_claude_harness_runtime_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1489,7 +1497,7 @@ async def _run_mcp_compression_initialize_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1919,7 +1927,7 @@ async def _run_activity_with_fake_loopback_runtime(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2266,7 +2274,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2436,7 +2444,7 @@ async def _run_attached_skills_visible_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
 
     try:
@@ -2560,7 +2568,7 @@ async def _run_duckdb_cli_available_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2957,7 +2965,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return self.port if isinstance(self.port, int) else 4312
+        return self.port if isinstance(self.port, int) and self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
