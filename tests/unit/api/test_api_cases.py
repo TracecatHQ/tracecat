@@ -36,7 +36,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatValidationError,
 )
-from tracecat.pagination import CursorPaginatedResponse
+from tracecat.pagination import CursorPaginatedResponse, InvalidCursorError
 
 
 @pytest.fixture
@@ -261,6 +261,33 @@ async def test_list_cases_validates_field_ids_even_when_page_is_empty(
         case_ids=[],
         field_ids=["case_id"],
     )
+
+
+@pytest.mark.anyio
+async def test_list_cases_returns_400_for_a_stale_sort_cursor(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """A cursor from another sort is a client error, not a silent first page."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_cases.side_effect = InvalidCursorError(
+            "Cursor was created for sort column 'created_at', "
+            "but this request sorts by 'priority'."
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "cursor": "stale-cursor",
+                "order_by": "priority",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "sorts by 'priority'" in response.json()["detail"]
 
 
 @pytest.mark.anyio

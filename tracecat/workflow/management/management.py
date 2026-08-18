@@ -56,6 +56,8 @@ from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
+    build_cursor_page,
+    take_cursor_page,
 )
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
@@ -522,12 +524,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         stmt = stmt.options(selectinload(Workflow.tags))
 
         results = await self.session.execute(stmt)
-        raw_items = list(results.all())
-
-        # Check if there are more items
-        has_more = len(raw_items) > params.limit
-        if has_more:
-            raw_items = raw_items[: params.limit]
+        raw_items, has_more = take_cursor_page(list(results.all()), limit=params.limit)
 
         # Process results into the expected format
         items = []
@@ -560,37 +557,25 @@ class WorkflowsManagementService(BaseWorkspaceService):
             items.append((workflow, latest_defn, trigger_summary))
 
         # Generate cursors
-        next_cursor = None
-        prev_cursor = None
-
-        if items:
-            if has_more:
-                last_workflow = items[-1][0]  # Get the workflow from the tuple
-                next_cursor = paginator.encode_cursor(
-                    last_workflow.id,
-                    sort_column="created_at",
-                    sort_value=last_workflow.created_at,
-                )
-
-            if params.cursor:
-                first_workflow = items[0][0]  # Get the workflow from the tuple
-                prev_cursor = paginator.encode_cursor(
-                    first_workflow.id,
-                    sort_column="created_at",
-                    sort_value=first_workflow.created_at,
-                )
-
-        # If we were doing reverse pagination, swap the cursors and reverse items
-        if params.reverse:
-            items = list(reversed(items))
-            next_cursor, prev_cursor = prev_cursor, next_cursor
+        page = build_cursor_page(
+            items,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            has_more=has_more,
+            # Get the workflow from the tuple
+            encode_cursor=lambda item: paginator.encode_cursor(
+                item[0].id,
+                sort_column="created_at",
+                sort_value=item[0].created_at,
+            ),
+        )
 
         return CursorPaginatedResponse(
-            items=items,
-            next_cursor=next_cursor,
-            prev_cursor=prev_cursor,
-            has_more=has_more,
-            has_previous=params.cursor is not None,
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
         )
 
     async def get_workflow(
