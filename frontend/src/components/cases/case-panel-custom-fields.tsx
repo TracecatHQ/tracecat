@@ -190,7 +190,7 @@ function LongTextCustomField({
       <LongTextFieldDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
+        fieldLabel={customField.display_name}
         initialValue={currentValue}
         onSave={handleSave}
       />
@@ -231,7 +231,7 @@ function UrlCustomField({
 
   return (
     <UrlFieldPopover
-      fieldId={customField.id}
+      fieldLabel={customField.display_name}
       value={urlValue.url ? urlValue : null}
       onSave={handleSave}
     />
@@ -270,7 +270,7 @@ function JsonCustomField({
       <JsonFieldDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
+        fieldLabel={customField.display_name}
         initialValue={customField.value}
         onSave={handleSave}
       />
@@ -298,10 +298,10 @@ const CLEAR_SELECT_VALUE = "__clear__"
  * scrolls away with the option list. Clears the field back to null.
  */
 function ClearFieldRow({
-  fieldId,
+  fieldLabel,
   onClear,
 }: {
-  fieldId: string
+  fieldLabel: string
   onClear: () => void
 }) {
   return (
@@ -310,7 +310,7 @@ function ClearFieldRow({
       <div className="p-1">
         <button
           type="button"
-          aria-label={`Clear ${fieldId} field`}
+          aria-label={`Clear ${fieldLabel} field`}
           className="flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
           onClick={onClear}
         >
@@ -559,7 +559,7 @@ export function CustomFieldInner({
                           <SelectSeparator />
                           <SelectItem
                             value={CLEAR_SELECT_VALUE}
-                            aria-label={`Clear ${customField.id} field`}
+                            aria-label={`Clear ${customField.display_name} field`}
                             // Radix sets aria-labelledby on every item, which
                             // outranks aria-label; drop it so the label wins.
                             aria-labelledby={undefined}
@@ -740,7 +740,7 @@ export function CustomFieldInner({
                     </Command>
                     {hasValue && (
                       <ClearFieldRow
-                        fieldId={customField.id}
+                        fieldLabel={customField.display_name}
                         onClear={() => {
                           field.onChange(null)
                           onBlur?.(customField.id, null)
@@ -871,7 +871,7 @@ export function CustomFieldInner({
                     </Command>
                     {hasValue && (
                       <ClearFieldRow
-                        fieldId={customField.id}
+                        fieldLabel={customField.display_name}
                         onClear={() => {
                           field.onChange(null)
                           onBlur?.(customField.id, null)

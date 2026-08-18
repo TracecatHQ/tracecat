@@ -44,9 +44,15 @@ function makeField(
 // One plain field plus one dropdown-backed field with a value, so the
 // alignment assertions have something that could plausibly lead a row.
 const FIELDS: CaseFieldRead[] = [
-  makeField({ id: "reporter", type: "TEXT", value: "analyst@example.com" }),
+  makeField({
+    id: "reporter",
+    display_name: "Reporter email",
+    type: "TEXT",
+    value: "analyst@example.com",
+  }),
   makeField({
     id: "verdict",
+    display_name: "Analyst verdict",
     type: "SELECT",
     value: "malicious",
     options: ["malicious", "benign"],

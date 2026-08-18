@@ -61,6 +61,12 @@ export function CasePanelContent({
     case "payload":
       return <CasePayloadSection caseData={caseData} />
     case "activity":
-      return <CaseFeed caseId={caseId} workspaceId={workspaceId} />
+      return (
+        <CaseFeed
+          caseId={caseId}
+          workspaceId={workspaceId}
+          caseFields={caseData.fields}
+        />
+      )
   }
 }
