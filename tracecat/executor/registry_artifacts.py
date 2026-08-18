@@ -777,13 +777,6 @@ def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
     return tarball_uri.removesuffix(".tar.gz") + ".squashfs"
 
 
-def _tarball_uri_for_squashfs(squashfs_uri: str) -> str | None:
-    """Return the sibling gzip tarball URI for registry SquashFS artifacts."""
-    if not squashfs_uri.endswith("site-packages.squashfs"):
-        return None
-    return squashfs_uri.removesuffix(".squashfs") + ".tar.gz"
-
-
 def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     """Return the materialization format for an artifact URI."""
     if artifact_uri.endswith(".squashfs"):
@@ -1367,20 +1360,12 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
         artifact_format = _artifact_format(artifact_uri)
         if artifact_format == RegistryArtifactFormat.SQUASHFS:
-            candidates: list[RegistryArtifact] = [
+            return [
                 SquashfsArtifact(
                     uri=artifact_uri,
                     cache_key=ctx.cache_key,
                 )
             ]
-            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
-                candidates.append(
-                    TarballArtifact(
-                        uri=tarball_uri,
-                        cache_key=ctx.cache_key,
-                    )
-                )
-            return candidates
 
         candidates = []
         if include_squashfs_sidecar and (

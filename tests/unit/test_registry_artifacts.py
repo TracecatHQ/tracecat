@@ -661,10 +661,10 @@ class TestRegistryArtifactCache:
         assert list(outside.iterdir()) == []
 
     @pytest.mark.anyio
-    async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
+    async def test_artifact_candidates_direct_squashfs_have_no_gzip_fallback(
         self, temp_cache_dir
     ):
-        """Test direct SquashFS URIs fall back to sibling gzip tarballs."""
+        """Direct SquashFS URIs must not synthesize absent gzip artifacts."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
@@ -677,15 +677,13 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.squashfs",
             )
 
+        assert len(candidates) == 1
         assert isinstance(candidates[0], SquashfsArtifact)
-        assert isinstance(candidates[1], TarballArtifact)
         assert [artifact.uri for artifact in candidates] == [
             "s3://bucket/path/site-packages.squashfs",
-            "s3://bucket/path/site-packages.tar.gz",
         ]
         assert [artifact.format for artifact in candidates] == [
             RegistryArtifactFormat.SQUASHFS,
-            RegistryArtifactFormat.TAR_GZ,
         ]
         can_try_squashfs.assert_not_called()
 
@@ -1340,7 +1338,7 @@ class TestRegistryArtifactCache:
         mount.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
+    async def test_legacy_tarball_uri_falls_back_after_squashfs_sidecar_fails(
         self, temp_cache_dir
     ):
         """Test that legacy gzip remains the final compatibility fallback."""
