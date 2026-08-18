@@ -60,6 +60,11 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
+data "aws_secretsmanager_secret" "otel_exporter_otlp_headers" {
+  count = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  arn   = var.otel_exporter_otlp_headers_arn
+}
+
 # Temporal UI authentication
 
 data "aws_secretsmanager_secret" "temporal_auth_client_id" {
@@ -120,6 +125,11 @@ data "aws_secretsmanager_secret_version" "user_auth_secret" {
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   count     = var.saml_idp_metadata_url_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
+}
+
+data "aws_secretsmanager_secret_version" "otel_exporter_otlp_headers" {
+  count     = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.otel_exporter_otlp_headers[0].id
 }
 
 # Temporal UI secrets
@@ -256,8 +266,16 @@ locals {
     }
   ] : []
 
+  platform_otel_headers_secret = var.otel_exporter_otlp_headers_arn != null ? [
+    {
+      name      = "OTEL_EXPORTER_OTLP_HEADERS"
+      valueFrom = data.aws_secretsmanager_secret_version.otel_exporter_otlp_headers[0].arn
+    }
+  ] : []
+
   tracecat_api_secrets = concat(
     local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
@@ -285,6 +303,21 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
+  worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  agent_worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  # Executor processes may pass environment values across a sandbox boundary,
+  # so platform exporter credentials must stay out of both executor task
+  # environments. The host process reads the secret directly by ARN instead.
+  executor_secrets = local.tracecat_temporal_secrets
+
   agent_otel_platform_override_headers_secret = var.agent_otel_platform_override_headers_arn != null ? [
     {
       name      = "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS"
@@ -292,11 +325,8 @@ locals {
     }
   ] : []
 
-  executor_secrets = local.tracecat_temporal_secrets
-
-  # Agent executor reads platform OTel headers in-process via
-  # load_agent_otel_platform_override; the standard executor does not, so the
-  # secret is scoped to the agent task only.
+  # The agent-native platform override is separate from standard service
+  # tracing and stays scoped to the agent executor host process.
   agent_executor_secrets = concat(
     local.tracecat_temporal_secrets,
     local.agent_otel_platform_override_headers_secret,

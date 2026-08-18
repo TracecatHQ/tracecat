@@ -6,12 +6,15 @@ import json
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import uuid
+import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, replace
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, TypedDict, cast
@@ -28,6 +31,7 @@ import tracecat.agent.runtime.session_paths as session_paths_module
 import tracecat.agent.sandbox.llm_proxy as llm_proxy_module
 import tracecat.agent.sandbox.nsjail as nsjail_module
 import tracecat.agent.sandbox.shim_entrypoint as shim_entrypoint
+import tracecat.sandbox.networking as sandbox_networking
 from tracecat import config as app_config
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import (
@@ -36,6 +40,8 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPStdioServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
@@ -65,6 +71,12 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.sandbox.types import (
+    SandboxEgressRule,
+    SandboxNetworkPolicy,
+    SandboxNetworkProtocol,
+    SandboxNetworkPurpose,
+)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -82,8 +94,20 @@ def clean_redis_db() -> Iterator[None]:
     yield
 
 
+def _fake_temporal_activity() -> SimpleNamespace:
+    """Provide the Temporal APIs used when exercising the activity directly."""
+    return SimpleNamespace(
+        heartbeat=lambda _message: None,
+        info=lambda: SimpleNamespace(attempt=1, task_queue="test-agent-queue"),
+    )
+
+
 class _LiteLLMRequestPayload(TypedDict, total=False):
+    messages: list[object]
     model: str
+    path: str
+    stream: bool
+    tools: list[str]
 
 
 class _SkillVisibilityMessage(TypedDict):
@@ -94,6 +118,120 @@ class _SkillVisibilityMessage(TypedDict):
 class _DuckDBSmokeMessage(TypedDict):
     duckdb_extension_count: int
     duckdb_path: str
+
+
+_STDIO_MCP_BURST_SERVER_COUNT = 12
+_STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
+_STDIO_MCP_BURST_FLOW_COUNT = (
+    _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
+)
+_STDIO_MCP_BASH_FLOW_COUNT = 256
+_STDIO_MCP_COMBINED_FLOW_COUNT = (
+    _STDIO_MCP_BURST_FLOW_COUNT + _STDIO_MCP_BASH_FLOW_COUNT
+)
+_STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
+_STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
+_STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
+_RFC1918_NETWORKS = (
+    IPv4Network("10.0.0.0/8"),
+    IPv4Network("172.16.0.0/12"),
+    IPv4Network("192.168.0.0/16"),
+)
+_STDIO_MCP_BURST_SERVER_SOURCE = """\
+import json
+import socket
+import sys
+import time
+
+
+def respond(request_id, result):
+    payload = {"jsonrpc": "2.0", "id": request_id, "result": result}
+    print(json.dumps(payload, separators=(",", ":")), flush=True)
+
+
+def main():
+    server_id, host, raw_ports = sys.argv[1:]
+    ports = [int(port) for port in raw_ports.split(",")]
+    sockets = []
+    for port in ports:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(b"x", (host, port))
+        sockets.append(udp_socket)
+        time.sleep(0.02)
+
+    for udp_socket in sockets:
+        udp_socket.settimeout(8)
+        if udp_socket.recv(3) != b"ack":
+            raise RuntimeError("startup UDP probe was not acknowledged")
+
+    for raw_line in sys.stdin:
+        message = json.loads(raw_line)
+        request_id = message.get("id")
+        method = message.get("method")
+        if method == "initialize":
+            params = message.get("params")
+            protocol_version = (
+                params.get("protocolVersion", "2025-06-18")
+                if isinstance(params, dict)
+                else "2025-06-18"
+            )
+            respond(
+                request_id,
+                {
+                    "protocolVersion": protocol_version,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {
+                        "name": f"tracecat-burst-{server_id}",
+                        "version": "1.0.0",
+                    },
+                },
+            )
+        elif method == "tools/list":
+            respond(
+                request_id,
+                {
+                    "tools": [
+                        {
+                            "name": "ping",
+                            "description": "Return a deterministic test response.",
+                            "inputSchema": {"type": "object", "properties": {}},
+                        }
+                    ]
+                },
+            )
+            sockets[0].sendto(f"initialized:{server_id}".encode(), (host, ports[0]))
+        elif request_id is not None:
+            respond(request_id, {})
+
+
+if __name__ == "__main__":
+    main()
+"""
+_STDIO_MCP_BASH_PROBE_SOURCE = f"""\
+import socket
+import sys
+
+
+def main():
+    host, raw_ports = sys.argv[1:]
+    ports = [int(port) for port in raw_ports.split(",")]
+    sockets = []
+    for port in ports:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(b"x", (host, port))
+        sockets.append(udp_socket)
+
+    for udp_socket in sockets:
+        udp_socket.settimeout(8)
+        if udp_socket.recv(3) != b"ack":
+            raise RuntimeError("Bash UDP probe was not acknowledged")
+
+    print("{_STDIO_MCP_BASH_RESULT_MARKER}", len(sockets), flush=True)
+
+
+if __name__ == "__main__":
+    main()
+"""
 
 
 @dataclass(slots=True)
@@ -176,6 +314,122 @@ def _docker_nsjail_fallback_enabled() -> bool:
     )
 
 
+def _private_parent_ipv4_address() -> IPv4Address:
+    parent_address = ip_address(socket.gethostbyname(socket.gethostname()))
+    if not isinstance(parent_address, IPv4Address) or not any(
+        parent_address in network for network in _RFC1918_NETWORKS
+    ):
+        pytest.skip(
+            f"agent executor address {parent_address} is not a private IPv4 address"
+        )
+    return parent_address
+
+
+def _open_private_parent_udp_sinks(
+    count: int,
+) -> tuple[tuple[socket.socket, ...], IPv4Address]:
+    """Keep one deterministic parent destination open for every startup flow."""
+    parent_address = _private_parent_ipv4_address()
+    sinks: list[socket.socket] = []
+    try:
+        for _ in range(count):
+            sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sinks.append(sink)
+            sink.bind((str(parent_address), 0))
+    except OSError as exc:
+        for sink in sinks:
+            sink.close()
+        pytest.skip(f"could not open {count} parent UDP sinks: {exc}")
+    return tuple(sinks), parent_address
+
+
+def _write_stdio_mcp_burst_wheel(
+    job_dir: Path,
+    server_index: int,
+) -> tuple[Path, str]:
+    """Build a dependency-free local wheel for one cold uvx MCP process."""
+    module_name = f"tracecat_mcp_burst_{server_index}"
+    package_name = f"tracecat-mcp-burst-{server_index}"
+    command_name = package_name
+    dist_info = f"{module_name}-1.0.0.dist-info"
+    wheel_path = job_dir / f"{module_name}-1.0.0-py3-none-any.whl"
+    files = {
+        f"{module_name}.py": _STDIO_MCP_BURST_SERVER_SOURCE,
+        f"{dist_info}/METADATA": (
+            f"Metadata-Version: 2.1\nName: {package_name}\nVersion: 1.0.0\n"
+        ),
+        f"{dist_info}/WHEEL": (
+            "Wheel-Version: 1.0\n"
+            "Generator: tracecat-test\n"
+            "Root-Is-Purelib: true\n"
+            "Tag: py3-none-any\n"
+        ),
+        f"{dist_info}/entry_points.txt": (
+            f"[console_scripts]\n{command_name} = {module_name}:main\n"
+        ),
+    }
+    record_path = f"{dist_info}/RECORD"
+    files[record_path] = "".join(f"{path},,\n" for path in (*files, record_path))
+    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as wheel:
+        for path, contents in files.items():
+            wheel.writestr(path, contents)
+    return wheel_path, command_name
+
+
+def _build_stdio_mcp_burst_servers(
+    *,
+    job_dir: Path,
+    parent_address: IPv4Address,
+    destination_ports: list[int],
+) -> list[MCPServerConfig]:
+    if len(destination_ports) != _STDIO_MCP_BURST_FLOW_COUNT:
+        raise ValueError(
+            f"expected {_STDIO_MCP_BURST_FLOW_COUNT} destination ports, "
+            f"got {len(destination_ports)}"
+        )
+
+    servers: list[MCPServerConfig] = []
+    for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT):
+        start = server_index * _STDIO_MCP_BURST_FLOWS_PER_SERVER
+        server_ports = destination_ports[
+            start : start + _STDIO_MCP_BURST_FLOWS_PER_SERVER
+        ]
+        wheel_path, command_name = _write_stdio_mcp_burst_wheel(
+            job_dir,
+            server_index,
+        )
+        jailed_wheel_path = session_paths_module.JAILED_AGENT_JOB_DIR / wheel_path.name
+        server: MCPStdioServerConfig = {
+            "type": "stdio",
+            "name": f"startup-burst-{server_index}",
+            "command": "uvx",
+            "args": [
+                "--offline",
+                "--from",
+                str(jailed_wheel_path),
+                command_name,
+                str(server_index),
+                str(parent_address),
+                ",".join(str(port) for port in server_ports),
+            ],
+            "timeout": 15,
+            "id": str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"https://tracecat.invalid/mcp-startup-burst/{server_index}",
+                )
+            ),
+        }
+        servers.append(server)
+    return servers
+
+
+def _write_bash_network_probe(job_dir: Path) -> Path:
+    probe_path = job_dir / "bash_network_probe.py"
+    probe_path.write_text(_STDIO_MCP_BASH_PROBE_SOURCE)
+    return session_paths_module.JAILED_AGENT_JOB_DIR / probe_path.name
+
+
 def _make_fake_claude_options() -> _FakeClaudeOptions:
     return _FakeClaudeOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"})
 
@@ -190,10 +444,27 @@ def _decode_litellm_request_payload(body_bytes: bytes) -> _LiteLLMRequestPayload
     if not isinstance(decoded, dict):
         return {}
 
+    payload: _LiteLLMRequestPayload = {}
     model = decoded.get("model")
     if isinstance(model, str):
-        return {"model": model}
-    return {}
+        payload["model"] = model
+
+    stream = decoded.get("stream")
+    if isinstance(stream, bool):
+        payload["stream"] = stream
+
+    messages = decoded.get("messages")
+    if isinstance(messages, list):
+        payload["messages"] = messages
+
+    tools = decoded.get("tools")
+    if isinstance(tools, list):
+        tool_names: list[str] = []
+        for tool in tools:
+            if isinstance(tool, dict) and isinstance(name := tool.get("name"), str):
+                tool_names.append(name)
+        payload["tools"] = tool_names
+    return payload
 
 
 def _parse_skill_visibility_message(message: object) -> _SkillVisibilityMessage:
@@ -339,6 +610,7 @@ class _FakeProxy:
 
 class _FakeLLMSocketProxy:
     instances: list[_FakeLLMSocketProxy] = []
+    scripted_bash_command: str | None = None
 
     def __init__(
         self,
@@ -354,6 +626,7 @@ class _FakeLLMSocketProxy:
         self.started = False
         self.stopped = False
         self.request_count = 0
+        self.message_request_count = 0
         self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
@@ -403,7 +676,40 @@ class _FakeLLMSocketProxy:
         self.request_count += 1
 
         request_body = _decode_litellm_request_payload(body_bytes)
+        request_line = headers.partition(b"\r\n")[0].decode("latin1")
+        request_line_parts = request_line.split()
+        if len(request_line_parts) >= 2:
+            request_body["path"] = request_line_parts[1]
         self.requests.append(request_body)
+
+        request_path = request_body.get("path", "")
+        is_messages_request = request_path.partition("?")[0] == "/v1/messages"
+        is_nonstream_messages_request = (
+            is_messages_request and request_body.get("stream") is not True
+        )
+        if is_nonstream_messages_request:
+            self.message_request_count += 1
+
+        if (
+            self.scripted_bash_command is not None
+            and self.message_request_count == 1
+            and is_nonstream_messages_request
+        ):
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": _STDIO_MCP_BASH_TOOL_USE_ID,
+                    "name": "Bash",
+                    "input": {
+                        "command": self.scripted_bash_command,
+                        "description": "Exercise sandbox networking after MCP startup",
+                    },
+                }
+            ]
+            stop_reason = "tool_use"
+        else:
+            content = [{"type": "text", "text": "fake claude response"}]
+            stop_reason = "end_turn"
 
         body = json.dumps(
             {
@@ -411,8 +717,8 @@ class _FakeLLMSocketProxy:
                 "type": "message",
                 "role": "assistant",
                 "model": request_body.get("model") or "customer-alias",
-                "content": [{"type": "text", "text": "fake claude response"}],
-                "stop_reason": "end_turn",
+                "content": content,
+                "stop_reason": stop_reason,
                 "stop_sequence": None,
                 "usage": {
                     "input_tokens": 1,
@@ -766,6 +1072,9 @@ async def _run_full_claude_harness_runtime_case(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     enable_internet_access: bool = False,
+    executor_input: AgentExecutorInput | None = None,
+    job_dir: Path | None = None,
+    scripted_bash_command: str | None = None,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
@@ -773,7 +1082,10 @@ async def _run_full_claude_harness_runtime_case(
     await broker.start()
     stream_sink = _InMemoryStreamSink()
     persisted_session_lines: list[tuple[str, str, bool]] = []
-    job_dir = Path(tempfile.mkdtemp(prefix="tcaj-", dir="/tmp"))
+    if job_dir is None:
+        job_dir = Path(tempfile.mkdtemp(prefix="tcaj-", dir="/tmp"))
+    else:
+        job_dir.mkdir(parents=True, exist_ok=True)
 
     async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
         del self
@@ -796,6 +1108,11 @@ async def _run_full_claude_harness_runtime_case(
         del self
         persisted_session_lines.append((sdk_session_id, session_line, internal))
 
+    monkeypatch.setattr(
+        _FakeLLMSocketProxy,
+        "scripted_bash_command",
+        scripted_bash_command,
+    )
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
         nsjail_module,
@@ -826,7 +1143,7 @@ async def _run_full_claude_harness_runtime_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -836,9 +1153,10 @@ async def _run_full_claude_harness_runtime_case(
 
     try:
         result = await run_agent_activity(
-            _make_passthrough_executor_input(
+            executor_input
+            or _make_passthrough_executor_input(
                 enable_internet_access=enable_internet_access
-            ),
+            )
         )
     finally:
         await broker.stop()
@@ -847,7 +1165,7 @@ async def _run_full_claude_harness_runtime_case(
     assert result.success is True
     assert result.error is None
     assert result.output == "fake claude response"
-    assert result.result_num_turns == 1
+    assert result.result_num_turns == (2 if scripted_bash_command else 1)
     assert result.messages is None
 
     assert len(_FakeLLMSocketProxy.instances) == 1
@@ -860,6 +1178,140 @@ async def _run_full_claude_harness_runtime_case(
     assert stream_sink.errors == []
     # Terminal END is emitted by the workflow, not the executor loopback.
     assert stream_sink.done_count == 0
+
+
+async def _run_stdio_mcp_startup_burst_case(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Initialize many MCPs, then make the agent use Bash under retained load."""
+    if not 1024 < _STDIO_MCP_BURST_FLOW_COUNT < _STDIO_MCP_COMBINED_FLOW_COUNT:
+        raise AssertionError("MCP startup must exceed the old 1024-flow budget")
+    if _STDIO_MCP_COMBINED_FLOW_COUNT >= 2048:
+        raise AssertionError("combined MCP and Bash burst must fit the new budget")
+
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(
+        _STDIO_MCP_COMBINED_FLOW_COUNT
+    )
+    mcp_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[:_STDIO_MCP_BURST_FLOW_COUNT]
+    ]
+    bash_destination_ports = [
+        sink.getsockname()[1] for sink in udp_sinks[_STDIO_MCP_BURST_FLOW_COUNT:]
+    ]
+    job_dir = tmp_path / "stdio-mcp-startup-burst"
+    job_dir.mkdir(parents=True)
+    mcp_servers = _build_stdio_mcp_burst_servers(
+        job_dir=job_dir,
+        parent_address=parent_address,
+        destination_ports=mcp_destination_ports,
+    )
+    bash_probe_path = _write_bash_network_probe(job_dir)
+    bash_command = f"python3 {bash_probe_path} {parent_address} " + ",".join(
+        str(port) for port in bash_destination_ports
+    )
+    base_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = base_input.model_copy(
+        update={
+            "config": replace(base_input.config, mcp_servers=mcp_servers),
+        }
+    )
+
+    original_network_policy = sandbox_networking.configured_sandbox_network_policy
+
+    def network_policy_with_udp_fixture(
+        purpose: SandboxNetworkPurpose,
+    ) -> SandboxNetworkPolicy:
+        policy = original_network_policy(purpose)
+        return replace(
+            policy,
+            allowed_rules=(
+                SandboxEgressRule(
+                    destination=ip_network(f"{parent_address}/32"),
+                    protocol=SandboxNetworkProtocol.UDP,
+                ),
+                *policy.allowed_rules,
+            ),
+        )
+
+    async def passthrough_stdio_env(
+        servers: list[MCPServerConfig] | None,
+        *,
+        role: Role,
+    ) -> list[MCPServerConfig] | None:
+        del role
+        return servers
+
+    monkeypatch.setattr(
+        sandbox_networking,
+        "configured_sandbox_network_policy",
+        network_policy_with_udp_fixture,
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "_hydrate_stdio_env",
+        passthrough_stdio_env,
+    )
+
+    received_packets = 0
+    initialized_servers: set[str] = set()
+    loop = asyncio.get_running_loop()
+
+    def echo_startup_packet(sink: socket.socket) -> None:
+        nonlocal received_packets
+        try:
+            data, source = sink.recvfrom(128)
+        except BlockingIOError:
+            return
+        if data == b"x":
+            received_packets += 1
+        elif data.startswith(b"initialized:"):
+            initialized_servers.add(data.decode().partition(":")[2])
+        sink.sendto(b"ack", source)
+
+    for sink in udp_sinks:
+        sink.setblocking(False)
+        loop.add_reader(sink.fileno(), echo_startup_packet, sink)
+
+    try:
+        await _run_full_claude_harness_runtime_case(
+            disable_nsjail_mode=False,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            executor_input=executor_input,
+            job_dir=job_dir,
+            scripted_bash_command=bash_command,
+        )
+        await asyncio.sleep(0.1)
+    finally:
+        for sink in udp_sinks:
+            loop.remove_reader(sink.fileno())
+            sink.close()
+
+    assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
+    expected_initialized_servers = {
+        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
+    }
+    assert initialized_servers == expected_initialized_servers, initialized_servers
+
+    [proxy] = _FakeLLMSocketProxy.instances
+    message_requests = [
+        request
+        for request in proxy.requests
+        if request.get("path", "").partition("?")[0] == "/v1/messages"
+        and request.get("stream") is not True
+    ]
+    assert len(message_requests) == 2, message_requests
+    assert "Bash" in message_requests[0].get("tools", [])
+    # Web tools execute provider-side, so assert that the agent can select them
+    # without miscounting them as jailed NSTUN flows.
+    advertised_tools = json.dumps(message_requests[0].get("messages", []))
+    assert "WebFetch" in advertised_tools
+    assert "WebSearch" in advertised_tools
+    bash_result = json.dumps(message_requests[1].get("messages", []))
+    assert _STDIO_MCP_BASH_TOOL_USE_ID in bash_result
+    assert _STDIO_MCP_BASH_RESULT_MARKER in bash_result
 
 
 async def _run_mcp_compression_initialize_case(
@@ -1045,7 +1497,7 @@ async def _run_mcp_compression_initialize_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1129,6 +1581,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     cli_flag: str = "--run-nsjail-harness-smoke",
     failure_label: str = "Dockerized nsjail harness fallback failed.",
     requires_tun: bool = False,
+    parent_nofile_limit: int | None = None,
 ) -> None:
     if os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
         pytest.skip("nsjail unavailable inside Docker fallback child")
@@ -1144,8 +1597,6 @@ def _run_nsjail_harness_in_docker_or_skip(
     )
     if docker_info.returncode != 0:
         pytest.skip("Docker daemon unavailable for nsjail fallback")
-    if requires_tun and not Path("/dev/net/tun").exists():
-        pytest.skip("Dockerized nsjail NSTUN smoke requires host /dev/net/tun")
 
     repo_root = Path(__file__).resolve().parents[2]
     compose_env = os.environ.copy()
@@ -1168,6 +1619,17 @@ def _run_nsjail_harness_in_docker_or_skip(
         if requires_tun
         else []
     )
+    privileged_lines = ["    privileged: true"] if requires_tun else []
+    ulimit_lines = (
+        [
+            "    ulimits:",
+            "      nofile:",
+            f"        soft: {parent_nofile_limit}",
+            f"        hard: {parent_nofile_limit}",
+        ]
+        if parent_nofile_limit is not None
+        else []
+    )
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-agent-nsjail-test-", suffix=".yml")[1]
     )
@@ -1178,11 +1640,13 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 "    build:",
                 "      target: test",
+                *privileged_lines,
                 "    cap_add:",
                 "      - SYS_ADMIN",
                 "    security_opt:",
                 "      - seccomp:unconfined",
                 "      - systempaths=unconfined",
+                *ulimit_lines,
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
@@ -1261,6 +1725,23 @@ def _run_nsjail_nstun_smoke_from_cli() -> None:
                 monkeypatch=monkeypatch,
                 tmp_path=tmp_path,
                 enable_internet_access=True,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_stdio_mcp_burst_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-stdio-mcp-burst-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_stdio_mcp_startup_burst_case(
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
             )
         finally:
             monkeypatch.undo()
@@ -1446,7 +1927,7 @@ async def _run_activity_with_fake_loopback_runtime(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1793,7 +2274,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -1963,7 +2444,7 @@ async def _run_attached_skills_visible_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
 
     try:
@@ -2087,7 +2568,7 @@ async def _run_duckdb_cli_available_case(
     monkeypatch.setattr(
         executor_activity,
         "activity",
-        SimpleNamespace(heartbeat=lambda _message: None),
+        _fake_temporal_activity(),
     )
     monkeypatch.setattr(
         executor_activity.AgentSessionService,
@@ -2198,6 +2679,29 @@ async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_nstun_
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
         enable_internet_access=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_nsjail_handles_stdio_mcp_startup_and_bash_network_burst(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-stdio-mcp-burst-smoke",
+            failure_label="Dockerized stdio MCP startup burst smoke failed.",
+            requires_tun=True,
+            parent_nofile_limit=_STDIO_MCP_BURST_PARENT_NOFILE_LIMIT,
+        )
+        return
+    if not Path("/dev/net/tun").exists():
+        pytest.skip("agent stdio MCP startup burst smoke requires /dev/net/tun")
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_stdio_mcp_startup_burst_case(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
     )
 
 
@@ -2461,7 +2965,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return self.port if isinstance(self.port, int) else 4312
+        return self.port if isinstance(self.port, int) and self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -2650,6 +3154,8 @@ if __name__ == "__main__":
         _run_nsjail_harness_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
         _run_nsjail_nstun_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-stdio-mcp-burst-smoke"]:
+        _run_nsjail_stdio_mcp_burst_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-skills-smoke"]:
         _run_nsjail_skills_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-mcp-compression-smoke"]:
@@ -2660,6 +3166,7 @@ if __name__ == "__main__":
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
             "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
+            "--run-nsjail-stdio-mcp-burst-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
             "--run-nsjail-duckdb-smoke]"
         )

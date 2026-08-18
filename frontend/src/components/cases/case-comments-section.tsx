@@ -104,7 +104,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { cn, INSET_SURFACE } from "@/lib/utils"
 
 const commentFormSchema = z.object({
   content: z
@@ -397,7 +397,12 @@ export function CommentSection({
 
 function CommentThreadShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60 px-5 py-4">
+    <section
+      className={cn(
+        "overflow-hidden rounded-lg border border-border/60 px-5 py-4",
+        INSET_SURFACE
+      )}
+    >
       {children}
     </section>
   )
@@ -429,7 +434,12 @@ function CommentThread({
   const hasReplies = replies.length > 0
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60">
+    <section
+      className={cn(
+        "overflow-hidden rounded-lg border border-border/60",
+        INSET_SURFACE
+      )}
+    >
       <div className="px-5 py-4">
         <CommentRow
           caseId={caseId}
@@ -635,7 +645,9 @@ function CommentRow({
 
 function CommentThreadSkeleton() {
   return (
-    <div className="rounded-lg border border-border/60 p-4">
+    <div
+      className={cn("rounded-lg border border-border/60 p-4", INSET_SURFACE)}
+    >
       <div className="space-y-4">
         <div className="flex gap-3">
           <Skeleton className="size-4 rounded-full" />
@@ -894,9 +906,11 @@ function CommentComposer({
 
   return (
     <div
-      className={
-        isInline ? "w-full" : "rounded-lg border border-border/60 px-4 py-3"
-      }
+      className={cn(
+        isInline
+          ? "w-full"
+          : ["rounded-lg border border-border/60 px-4 py-3", INSET_SURFACE]
+      )}
     >
       <Form {...form}>
         <form

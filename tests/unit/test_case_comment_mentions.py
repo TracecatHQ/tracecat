@@ -3,7 +3,11 @@ import uuid
 import pytest
 
 from tracecat.cases.enums import MentionTargetType
-from tracecat.cases.mentions import MentionToken, parse_mentions
+from tracecat.cases.mentions import (
+    MentionToken,
+    parse_mentions,
+    render_mentions_as_text,
+)
 
 SINGLE_MENTION_TARGET_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 UNKNOWN_TARGET_TYPE_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")
@@ -125,3 +129,18 @@ def test_parse_skips_overlong_label() -> None:
     label = "a" * 256
 
     assert parse_mentions(f"[@{label}](mention://agent/{target_id})") == []
+
+
+def test_render_mentions_as_text_replaces_valid_mentions() -> None:
+    content = (
+        f"Ask [@First](mention://agent/{FIRST_DISTINCT_TARGET_ID}) and "
+        f"[@Second](mention://agent/{SECOND_DISTINCT_TARGET_ID})"
+    )
+
+    assert render_mentions_as_text(content) == "Ask @First and @Second"
+
+
+def test_render_mentions_as_text_preserves_malformed_mentions() -> None:
+    content = f"Ask [@User](mention://user/{UNKNOWN_TARGET_TYPE_ID})"
+
+    assert render_mentions_as_text(content) == content

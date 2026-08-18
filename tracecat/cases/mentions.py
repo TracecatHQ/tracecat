@@ -31,27 +31,43 @@ def parse_mentions(content: str) -> list[MentionToken]:
     """Parse mention tokens from comment content.
 
     Malformed tokens (bad UUID, unknown target type, overlong label, or
-    broken syntax) are skipped silently. This is the only function in the
-    application that should understand the mention token encoding.
+    broken syntax) are skipped silently.
     """
     tokens: list[MentionToken] = []
     for match in _MENTION_PATTERN.finditer(content):
-        try:
-            target_type = MentionTargetType(match.group("target_type"))
-        except ValueError:
-            continue
-        try:
-            target_id = uuid.UUID(match.group("target_id"))
-        except ValueError:
-            continue
-        label = match.group("label")
-        if len(label) > _MAX_LABEL_LENGTH:
-            continue
-        tokens.append(
-            MentionToken(
-                target_type=target_type,
-                target_id=target_id,
-                label=label,
-            )
-        )
+        if token := _parse_mention_match(match):
+            tokens.append(token)
     return tokens
+
+
+def render_mentions_as_text(content: str) -> str:
+    """Replace valid encoded mentions with their visible ``@label`` text.
+
+    Malformed mention-like text is preserved verbatim instead of being presented
+    as a real mention.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        if token := _parse_mention_match(match):
+            return f"@{token.label}"
+        return match.group(0)
+
+    return _MENTION_PATTERN.sub(replace, content)
+
+
+def _parse_mention_match(match: re.Match[str]) -> MentionToken | None:
+    """Validate one encoded mention match.
+
+    This module is the only place in the application that should understand the
+    mention token encoding.
+    """
+    try:
+        target_type = MentionTargetType(match.group("target_type"))
+        target_id = uuid.UUID(match.group("target_id"))
+    except ValueError:
+        return None
+
+    label = match.group("label")
+    if len(label) > _MAX_LABEL_LENGTH:
+        return None
+    return MentionToken(target_type=target_type, target_id=target_id, label=label)

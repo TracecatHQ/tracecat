@@ -36,6 +36,7 @@ from tracecat.exceptions import (
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, set_current_span_attributes
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
 
 
@@ -109,6 +110,23 @@ class ExecutorActivities:
 
         act_info = activity.info()
         act_attempt = act_info.attempt
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    str(role.organization_id) if role.organization_id else None
+                ),
+                "tracecat.workspace.id": (
+                    str(role.workspace_id) if role.workspace_id else None
+                ),
+                "tracecat.workflow.id": str(input.run_context.wf_id),
+                "tracecat.workflow.execution.id": str(input.run_context.wf_exec_id),
+                "tracecat.trigger.type": input.run_context.trigger_type,
+                "tracecat.action.ref": task.ref,
+                "tracecat.action.name": action_name,
+                "temporal.activity.attempt": act_attempt,
+                "temporal.task_queue": act_info.task_queue,
+            }
+        )
         log.debug(
             "Execute action activity details",
             task=task,
@@ -116,9 +134,10 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        materialized_input = input.model_copy(
-            update={"exec_context": await materialize_context(input.exec_context)}
-        )
+        with platform_span("tracecat.action.materialize_inputs"):
+            materialized_input = input.model_copy(
+                update={"exec_context": await materialize_context(input.exec_context)}
+            )
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 
@@ -145,9 +164,19 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    result = await dispatch_action(
-                        backend=backend, input=materialized_input
-                    )
+                    with platform_span(
+                        "tracecat.action.execute",
+                        attributes={
+                            "tracecat.action.ref": task.ref,
+                            "tracecat.action.name": action_name,
+                            "tracecat.retry.attempt": (
+                                attempt_manager.retry_state.attempt_number
+                            ),
+                        },
+                    ):
+                        result = await dispatch_action(
+                            backend=backend, input=materialized_input
+                        )
 
                     if heartbeat_interval > 0:
                         activity.heartbeat(
@@ -163,7 +192,8 @@ class ExecutorActivities:
                         stream_id=input.stream_id,
                         ref=task.ref,
                     )
-                    stored = await get_object_storage().store(key, result)
+                    with platform_span("tracecat.action.store_result"):
+                        stored = await get_object_storage().store(key, result)
                     return stored
         except ScopeDeniedError as e:
             # ScopeDeniedError from dispatch_action (user lacks action permission)

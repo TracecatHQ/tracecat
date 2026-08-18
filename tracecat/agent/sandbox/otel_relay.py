@@ -27,6 +27,12 @@ from uuid import UUID
 
 import httpx
 import orjson
+from google.protobuf.message import DecodeError
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
+from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+from opentelemetry.proto.resource.v1.resource_pb2 import Resource
 from pydantic import SecretStr
 
 from tracecat.agent.tokens import AgentOtelTokenClaims, verify_agent_otel_token
@@ -126,6 +132,16 @@ class _OtelDelivery:
     session_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class PlatformTraceParent:
+    """Trusted platform parent used to join native agent spans to one trace."""
+
+    trace_id: bytes
+    span_id: bytes
+    trace_flags: int
+    resource_attributes: Mapping[str, str]
+
+
 class _MalformedRequestError(Exception):
     """The sandbox request is not valid HTTP for this receiver."""
 
@@ -174,6 +190,60 @@ def resolve_collector_url(collector_env: Mapping[str, str], path: str) -> str | 
     if generic := collector_env.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return f"{generic.rstrip('/')}{path}"
     return None
+
+
+def _upsert_resource_attributes(
+    resource: Resource,
+    attributes: Mapping[str, str],
+) -> None:
+    """Attach trusted correlation fields, overriding sandbox-supplied values."""
+    existing = {attribute.key: attribute for attribute in resource.attributes}
+    for key, value in attributes.items():
+        if (attribute := existing.get(key)) is not None:
+            attribute.value.CopyFrom(AnyValue(string_value=value))
+        else:
+            resource.attributes.append(
+                KeyValue(key=key, value=AnyValue(string_value=value))
+            )
+
+
+def reparent_platform_trace_body(
+    body: bytes,
+    *,
+    content_type: str,
+    parent: PlatformTraceParent | None,
+) -> bytes:
+    """Join native OTLP/protobuf spans beneath the active platform span.
+
+    Claude's sandbox exporter is forced to HTTP/protobuf. JSON remains
+    untouched for compatibility with any legacy producer. A malformed payload
+    is also forwarded unchanged so best-effort telemetry cannot block a turn.
+    """
+    if parent is None or content_type != "application/x-protobuf" or not body:
+        return body
+
+    request = ExportTraceServiceRequest()
+    try:
+        request.ParseFromString(body)
+    except DecodeError:
+        logger.warning(
+            "Could not join malformed native agent trace payload",
+            error_type=DecodeError.__name__,
+        )
+        return body
+
+    for resource_spans in request.resource_spans:
+        _upsert_resource_attributes(
+            resource_spans.resource,
+            parent.resource_attributes,
+        )
+        for scope_spans in resource_spans.scope_spans:
+            for span in scope_spans.spans:
+                span.trace_id = parent.trace_id
+                if not span.parent_span_id:
+                    span.parent_span_id = parent.span_id
+                span.flags = (span.flags & ~1) | (parent.trace_flags & 1)
+    return request.SerializeToString()
 
 
 def _sweep_closed_loops() -> None:
@@ -348,6 +418,7 @@ class OtelSocketReceiver:
         expected_workspace_id: WorkspaceID,
         expected_organization_id: OrganizationID,
         expected_session_id: UUID,
+        platform_trace_parent: PlatformTraceParent | None = None,
     ) -> None:
         self.socket_path = socket_path
         self._collector_env = dict(collector_env)
@@ -357,6 +428,7 @@ class OtelSocketReceiver:
         self._expected_workspace_id = expected_workspace_id
         self._expected_organization_id = expected_organization_id
         self._expected_session_id = expected_session_id
+        self._platform_trace_parent = platform_trace_parent
         self._server: asyncio.Server | None = None
         self._connection_tasks: set[asyncio.Task[None]] = set()
         self._pending_items = 0
@@ -558,6 +630,26 @@ class OtelSocketReceiver:
                         writer, status_code=408, reason="Request Timeout"
                     )
                     return
+
+            if normalized_path == "/v1/traces":
+                rewritten_body = reparent_platform_trace_body(
+                    body,
+                    content_type=content_type,
+                    parent=self._platform_trace_parent,
+                )
+                size_delta = len(rewritten_body) - len(body)
+                if size_delta > 0:
+                    if not _reserve_pending_bytes(size_delta):
+                        self._rejected["pool_capacity"] += 1
+                        await self._write_response(
+                            writer, status_code=503, reason="Service Unavailable"
+                        )
+                        return
+                    reserved += size_delta
+                elif size_delta < 0:
+                    _refund_pending_bytes(-size_delta)
+                    reserved += size_delta
+                body = rewritten_body
 
             delivery = _OtelDelivery(
                 collector_url=collector_url,

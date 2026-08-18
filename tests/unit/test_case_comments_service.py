@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from claude_agent_sdk.types import UserMessage
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -452,7 +453,7 @@ class TestCaseCommentsService:
         assert failed is not None
         assert failed.error == {"kind": "agent_turn", "message": "model failed"}
 
-    async def test_create_comment_agent_mention_requires_agent_execute_scope(
+    async def test_create_comment_agent_mention_is_inert_without_execute_scope(
         self,
         session: AsyncSession,
         svc_role: Role,
@@ -466,19 +467,20 @@ class TestCaseCommentsService:
         role = svc_role.model_copy(update={"scopes": frozenset({"case:update"})})
         service = CaseCommentsService(session=session, role=role)
 
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            await service.create_comment(
-                test_case,
-                CaseCommentCreate(content=_mention_token("Scoped agent", preset.id)),
-            )
+        comment = await service.create_comment(
+            test_case,
+            CaseCommentCreate(content=_mention_token("Scoped agent", preset.id)),
+        )
 
-        assert exc_info.value.missing_scopes == ["agent:execute"]
+        [mention] = await _load_comment_mentions(session, comment.id)
+        assert mention.target_id == preset.id
+        assert await _load_comment_invocations(session, comment.id) == []
 
     @pytest.mark.parametrize(
         "missing_entitlement",
         [Entitlement.AGENT_ADDONS, Entitlement.CASE_ADDONS],
     )
-    async def test_create_comment_agent_mention_requires_entitlements(
+    async def test_create_comment_agent_mention_is_inert_without_entitlements(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
@@ -491,22 +493,21 @@ class TestCaseCommentsService:
             name="Entitled agent",
         )
 
-        with (
-            patch.object(
-                case_comments_service,
-                "has_entitlement",
-                new=AsyncMock(
-                    side_effect=lambda entitlement: (
-                        entitlement is not missing_entitlement
-                    )
-                ),
+        with patch.object(
+            case_comments_service,
+            "has_entitlement",
+            new=AsyncMock(
+                side_effect=lambda entitlement: entitlement is not missing_entitlement
             ),
-            pytest.raises(EntitlementRequired, match=missing_entitlement.value),
         ):
-            await case_comments_service.create_comment(
+            comment = await case_comments_service.create_comment(
                 test_case,
                 CaseCommentCreate(content=_mention_token("Entitled agent", preset.id)),
             )
+
+        [mention] = await _load_comment_mentions(session, comment.id)
+        assert mention.target_id == preset.id
+        assert await _load_comment_invocations(session, comment.id) == []
 
     async def test_create_comment_deduplicates_agent_mentions(
         self,
@@ -884,22 +885,32 @@ class TestCaseCommentsService:
             first = await dispatcher.create_or_get_agent_session(invocation.id)
             retry = await dispatcher.create_or_get_agent_session(invocation.id)
             assert first is not None and retry == first
+            assert first.display_messages == ("@Thread agent",)
+            assert first.prompt.startswith("<tracecat-model-context>\n")
             assert "Root &lt;context&gt;" in first.prompt
-            assert (
-                f'id="{invoking.id}"' in first.prompt
-                and 'invoking="true"' in first.prompt
-            )
+            assert "Workflow: Investigation workflow" in first.prompt
+            assert 'invoking="true"' in first.prompt
             agent_session = await session.scalar(
                 select(AgentSession).where(AgentSession.id == first.session_id)
             )
             assert agent_session is not None
             assert agent_session.agent_preset_version_id == version.id
+            assert agent_session.title == "Thread agent"
+            assert agent_session.channel_context == {"session_origin": "case_comment"}
+
+            session_service = AgentSessionService(session, case_comments_service.role)
+            messages = await session_service.list_messages(first.session_id)
+            assert [
+                message.message.content
+                for message in messages
+                if isinstance(message.message, UserMessage)
+            ] == list(first.display_messages)
+
             await session.refresh(other)
             assert other.session_id is None
             second = await dispatcher.create_or_get_agent_session(other.id)
             assert second is not None and second.session_id != first.session_id
 
-            session_service = AgentSessionService(session, case_comments_service.role)
             prepared = await session_service.prepare_new_turn(
                 first.session_id, first.prompt
             )

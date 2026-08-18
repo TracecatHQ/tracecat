@@ -1,12 +1,13 @@
 "use client"
 
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { CheckIcon, LinkIcon } from "lucide-react"
+import { LinkIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { CaseReadMinimal } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
 import { useTableSelection } from "@/components/tables/table-selection-context"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandDialog,
@@ -18,7 +19,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks"
 import { client as apiClient } from "@/lib/api"
-import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type SearchCasesResponse = {
@@ -152,6 +152,7 @@ export function TableLinkRowsToCaseCommand() {
               return (
                 <CommandItem
                   key={caseItem.id}
+                  className="group"
                   value={caseItem.short_id}
                   onSelect={() => {
                     setSelectedCaseIds((prev) => {
@@ -165,11 +166,9 @@ export function TableLinkRowsToCaseCommand() {
                     })
                   }}
                 >
-                  <CheckIcon
-                    className={cn(
-                      "size-4",
-                      isSelected ? "opacity-100" : "opacity-0"
-                    )}
+                  <CheckIndicator
+                    checked={isSelected}
+                    className="mt-0.5 self-start"
                   />
                   <div className="flex min-w-0 flex-col">
                     <span className="text-sm font-medium">

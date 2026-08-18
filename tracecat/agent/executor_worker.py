@@ -25,6 +25,10 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
@@ -92,6 +96,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
         max_concurrent_activities=max_concurrent,
     )
+    initialize_platform_tracing("tracecat-agent-executor")
 
     try:
         client = await _start_runtime_services()
@@ -121,8 +126,13 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
-        await close_storage_client_cache()
-        await _stop_runtime_services()
+        try:
+            await close_storage_client_cache()
+        finally:
+            try:
+                await _stop_runtime_services()
+            finally:
+                shutdown_platform_tracing()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)
 

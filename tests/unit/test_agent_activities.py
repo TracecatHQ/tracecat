@@ -17,6 +17,9 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
+from opentelemetry import trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -1223,6 +1226,7 @@ class TestRunAgentActivity:
         return AgentExecutorInput(
             session_id=mock_session_id,
             workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            curr_run_id=uuid.uuid4(),
             user_prompt="Test prompt",
             config=mock_agent_config,
             role=mock_role,
@@ -1238,6 +1242,9 @@ class TestRunAgentActivity:
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
             patch(
+                "tracecat.agent.executor.activity.set_current_span_attributes"
+            ) as set_span_attributes,
+            patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
         ):
@@ -1250,6 +1257,22 @@ class TestRunAgentActivity:
 
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            set_span_attributes.assert_called_once_with(
+                {
+                    "tracecat.organization.id": str(
+                        mock_executor_input.role.organization_id
+                    ),
+                    "tracecat.workspace.id": str(mock_executor_input.workspace_id),
+                    "tracecat.agent.session.id": str(mock_executor_input.session_id),
+                    "tracecat.agent.run.id": str(mock_executor_input.curr_run_id),
+                    "tracecat.workflow.id": None,
+                    "tracecat.workflow.execution.id": None,
+                    "tracecat.action.ref": None,
+                    "tracecat.trigger.type": None,
+                    "temporal.activity.attempt": mock_activity.info.return_value.attempt,
+                    "temporal.task_queue": mock_activity.info.return_value.task_queue,
+                }
+            )
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(
@@ -1874,6 +1897,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: False,
         )
@@ -1975,6 +2003,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
         )
@@ -2066,6 +2099,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             fake_create_llm_socket_proxy,
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
         monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
@@ -2164,6 +2202,11 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
         monkeypatch.setattr(
+            executor,
+            "_load_artifact_working_set",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
             lambda: True,
         )
@@ -2244,6 +2287,60 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
         assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer receiver-jwt"
         assert env["OTEL_LOGS_EXPORTER"] == "otlp"
+
+    def test_platform_trace_parent_carries_trusted_workflow_origin(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> None:
+        run_id = uuid.uuid4()
+        workflow_id = uuid.uuid4()
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                curr_run_id=run_id,
+                user_prompt="Synthetic prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                origin_workflow_id=workflow_id,
+                origin_workflow_execution_id="wf_synthetic/exec_synthetic",
+                origin_action_ref="investigate",
+                origin_trigger_type="webhook",
+            )
+        )
+        span_context = SpanContext(
+            trace_id=0x1234567890ABCDEF1234567890ABCDEF,
+            span_id=0x1234567890ABCDEF,
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+            trace_state=TraceState(),
+        )
+        token = otel_context.attach(
+            trace.set_span_in_context(NonRecordingSpan(span_context))
+        )
+        try:
+            parent = executor._platform_trace_parent()
+        finally:
+            otel_context.detach(token)
+
+        assert parent is not None
+        assert parent.trace_id == span_context.trace_id.to_bytes(16, "big")
+        assert parent.span_id == span_context.span_id.to_bytes(8, "big")
+        assert parent.resource_attributes["tracecat.agent.session.id"] == str(
+            mock_session_id
+        )
+        assert parent.resource_attributes["tracecat.agent.run.id"] == str(run_id)
+        assert parent.resource_attributes["tracecat.workflow.id"] == str(workflow_id)
+        assert (
+            parent.resource_attributes["tracecat.workflow.execution.id"]
+            == "wf_synthetic/exec_synthetic"
+        )
+        assert parent.resource_attributes["tracecat.action.ref"] == "investigate"
+        assert parent.resource_attributes["tracecat.trigger.type"] == "webhook"
 
 
 class TestSandboxedAgentExecutorSkillCaching:

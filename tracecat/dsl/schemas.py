@@ -439,6 +439,8 @@ class RunContext(BaseModel):
     wf_exec_id: WorkflowExecutionID
     wf_run_id: WorkflowRunID
     environment: str
+    trigger_type: str | None = None
+    """Trigger that started the workflow, when known to the caller."""
     logical_time: datetime
     """The logical start time for the workflow run."""
 

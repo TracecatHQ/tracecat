@@ -379,7 +379,7 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-
+import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   markStdioMcpVerificationStarted,
@@ -436,6 +436,18 @@ function toastMutationError(activity: string) {
       description: `An error occurred while ${activity}: ${getApiErrorDetail(error)}`,
     })
   }
+}
+
+function traceToastAction(traceUrl?: string) {
+  if (!traceUrl) return undefined
+  return (
+    <ToastAction
+      altText="Open workflow trace"
+      onClick={() => window.open(traceUrl, "_blank", "noopener,noreferrer")}
+    >
+      View trace
+    </ToastAction>
+  )
 }
 
 interface AppInfo {
@@ -1222,10 +1234,11 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
         requestBody: params,
       })
     },
-    onSuccess: async ({ wf_exec_id, message }) => {
+    onSuccess: async ({ wf_exec_id, message, trace_url }) => {
       toast({
         title: `Workflow run started`,
         description: `${wf_exec_id} ${message}`,
+        action: traceToastAction(trace_url),
       })
 
       // Still invalidate queries for compatibility with other components
@@ -1282,10 +1295,11 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
         requestBody: params,
       })
     },
-    onSuccess: async ({ wf_exec_id, message }) => {
+    onSuccess: async ({ wf_exec_id, message, trace_url }) => {
       toast({
         title: `Draft workflow run started`,
         description: `${wf_exec_id} ${message}`,
+        action: traceToastAction(trace_url),
       })
 
       // Still invalidate queries for compatibility with other components
@@ -4309,7 +4323,11 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+export function useCaseTasks({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListTasksData & { enabled?: boolean }) {
   const {
     data: caseTasks,
     isLoading: caseTasksIsLoading,
@@ -4318,6 +4336,10 @@ export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+    // Tasks are gated behind the `case_addons` entitlement; callers outside
+    // the gate (the switcher's progress ring) must pass `enabled` so
+    // non-entitled orgs never fire the request.
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {

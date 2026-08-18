@@ -18,7 +18,11 @@ from temporalio.exceptions import (
     ApplicationError,
     ChildWorkflowError,
     FailureError,
+    TimeoutType,
     is_cancelled_exception,
+)
+from temporalio.exceptions import (
+    TimeoutError as TemporalTimeoutError,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -163,6 +167,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
+ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 
 
 def _inherit_search_attributes_with_alias(
@@ -633,6 +638,7 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
+            trigger_type=get_trigger_type(wf_info).value,
             logical_time=self.time_anchor,
         )
         ctx_run.set(self.run_context)
@@ -970,11 +976,13 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = action_args.session_id or workflow.uuid4()
+                    run_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
+                            curr_run_id=run_id,
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
@@ -997,11 +1005,15 @@ class DSLWorkflow:
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                         continue_existing_session=action_args.session_id is not None,
+                        origin_workflow_id=self.run_context.wf_id,
+                        origin_workflow_execution_id=self.run_context.wf_exec_id,
+                        origin_action_ref=task.ref,
+                        origin_trigger_type=self.run_context.trigger_type,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=AgentWorkflowID(session_id),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1036,11 +1048,13 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = workflow.uuid4()
+                    run_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
+                            curr_run_id=run_id,
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
@@ -1064,11 +1078,15 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        origin_workflow_id=self.run_context.wf_id,
+                        origin_workflow_execution_id=self.run_context.wf_exec_id,
+                        origin_action_ref=task.ref,
+                        origin_trigger_type=self.run_context.trigger_type,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=AgentWorkflowID(session_id),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1126,11 +1144,13 @@ class DSLWorkflow:
                         wf_info, task.ref
                     )
                     session_id = preset_action_args.session_id or workflow.uuid4()
+                    run_id = workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
+                            curr_run_id=run_id,
                             preset_slug=preset_action_args.preset,
                             preset_version=preset_action_args.preset_version,
                             config=override_config,
@@ -1144,11 +1164,15 @@ class DSLWorkflow:
                         agent_preset_version_id=preset_ref.preset_version_id,
                         continue_existing_session=preset_action_args.session_id
                         is not None,
+                        origin_workflow_id=self.run_context.wf_id,
+                        origin_workflow_execution_id=self.run_context.wf_exec_id,
+                        origin_action_ref=task.ref,
+                        origin_trigger_type=self.run_context.trigger_type,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
-                        id=AgentWorkflowID(session_id),
+                        id=AgentWorkflowID(run_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         # Route to agent worker queue for session activities
                         task_queue=config.TRACECAT__AGENT_QUEUE,
@@ -1795,9 +1819,39 @@ class DSLWorkflow:
             registry_lock=self.registry_lock,
         )
 
+        return await self._execute_action_activity(task, arg)
+
+    async def _execute_action_activity(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> StoredObject:
+        """Dispatch an action, retrying one executor heartbeat interruption."""
+        try:
+            stored = await self._execute_action_activity_once(task, arg)
+        except ActivityError as exc:
+            cause = exc.cause
+            should_retry_heartbeat = (
+                task.retry_policy.max_attempts == 1
+                and isinstance(cause, TemporalTimeoutError)
+                and cause.type is TimeoutType.HEARTBEAT
+                and workflow.patched(ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH)
+            )
+            if not should_retry_heartbeat:
+                raise
+
+            self.logger.warning(
+                "Retrying action after activity heartbeat timeout",
+                task_ref=task.ref,
+            )
+            stored = await self._execute_action_activity_once(task, arg)
+
+        return StoredObjectValidator.validate_python(stored)
+
+    async def _execute_action_activity_once(
+        self, task: ActionStatement, arg: RunActionInput
+    ) -> Any:
         # Dispatch to ExecutorWorker on shared-action-queue
         # Using string activity name since it's registered on a different worker
-        stored = await workflow.execute_activity(
+        return await workflow.execute_activity(
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
@@ -1813,7 +1867,6 @@ class DSLWorkflow:
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
-        return StoredObjectValidator.validate_python(stored)
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None

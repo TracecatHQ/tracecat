@@ -10,7 +10,7 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.cases.agent_invocations.prompts import build_comment_agent_prompt
+from tracecat.cases.agent_invocations.prompts import build_comment_agent_input
 from tracecat.cases.agent_invocations.service import (
     CaseCommentAgentInvocationService,
 )
@@ -19,6 +19,8 @@ from tracecat.cases.enums import CaseCommentAgentInvocationStatus, MentionTarget
 from tracecat.db.models import CaseCommentAgentInvocation, CaseCommentMention
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
+
+COMMENT_AGENT_SESSION_CONTEXT = {"session_origin": "case_comment"}
 
 
 class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
@@ -61,40 +63,42 @@ class CaseCommentAgentInvocationDispatcher(BaseWorkspaceService):
         if thread_context is None:
             raise TracecatNotFoundError("Agent invocation comment thread not found")
 
-        prompt = build_comment_agent_prompt(thread_context)
+        agent_input = build_comment_agent_input(thread_context)
 
         session_service = AgentSessionService(self.session, self.role)
         if invocation.session_id is not None:
             agent_session = await session_service.get_session(invocation.session_id)
             if agent_session is None:
                 raise TracecatNotFoundError("Linked agent session not found")
-            return PreparedCommentAgentSession(
-                invocation_id=invocation.id,
-                session_id=agent_session.id,
-                prompt=prompt,
+        else:
+            preset_service = AgentPresetService(self.session, self.role)
+            preset_version = await preset_service.resolve_agent_preset_version(
+                preset_id=preset_id
             )
-
-        preset_service = AgentPresetService(self.session, self.role)
-        preset_version = await preset_service.resolve_agent_preset_version(
-            preset_id=preset_id
-        )
-        session_id = uuid.uuid4()
-        invocation.session_id = session_id
-        # Suppress query-triggered autoflush until create_session adds the row
-        # referenced by invocation.session_id; its commit persists both together.
-        with self.session.no_autoflush:
-            agent_session = await session_service.create_session(
-                AgentSessionCreate(
-                    id=session_id,
-                    title=f"{invocation.preset_name} case comment",
-                    entity_type=AgentSessionEntity.CASE,
-                    entity_id=case_id,
-                    agent_preset_id=preset_id,
-                    agent_preset_version_id=preset_version.id,
+            session_id = uuid.uuid4()
+            invocation.session_id = session_id
+            # Suppress query-triggered autoflush until create_session adds the row
+            # referenced by invocation.session_id; its commit persists both together.
+            with self.session.no_autoflush:
+                agent_session = await session_service.create_session(
+                    AgentSessionCreate(
+                        id=session_id,
+                        title=invocation.preset_name,
+                        entity_type=AgentSessionEntity.CASE,
+                        entity_id=case_id,
+                        agent_preset_id=preset_id,
+                        agent_preset_version_id=preset_version.id,
+                    ),
+                    channel_context=COMMENT_AGENT_SESSION_CONTEXT,
                 )
-            )
+
+        await session_service.ensure_display_only_user_messages(
+            agent_session.id,
+            agent_input.display_messages,
+        )
         return PreparedCommentAgentSession(
             invocation_id=invocation.id,
             session_id=agent_session.id,
-            prompt=prompt,
+            prompt=agent_input.model_context_prompt,
+            display_messages=agent_input.display_messages,
         )

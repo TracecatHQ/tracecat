@@ -64,6 +64,9 @@ from tracecat.sandbox.types import (
 _DOCKER_CHILD_ENV = "TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD"
 _SKIP_SENTINEL = "TRACE_CAT_EXECUTOR_ACTION_SMOKE_SKIP:"
 _SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
+_NSTUN_UDP_SOCKET_BUDGET = 2048
+_NSTUN_UDP_SOCKET_PROBE_OVERFLOW = 16
+_NSTUN_PARENT_NOFILE_LIMIT = 4096
 _RFC1918_NETWORKS = (
     IPv4Network("10.0.0.0/8"),
     IPv4Network("172.16.0.0/12"),
@@ -197,6 +200,16 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
         if Path("/dev/net/tun").exists()
         else []
     )
+    ulimit_lines = (
+        [
+            "    ulimits:",
+            "      nofile:",
+            f"        soft: {_NSTUN_PARENT_NOFILE_LIMIT}",
+            f"        hard: {_NSTUN_PARENT_NOFILE_LIMIT}",
+        ]
+        if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET
+        else []
+    )
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-executor-action-smoke-", suffix=".yml")[1]
     )
@@ -211,6 +224,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "    security_opt:",
                 "      - seccomp:unconfined",
                 "      - systempaths=unconfined",
+                *ulimit_lines,
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
@@ -910,7 +924,9 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
     if reason := _missing_prerequisite(smoke_case):
         _skip_smoke(reason)
 
-    udp_sinks, parent_address = _open_private_parent_udp_sinks(272)
+    udp_sinks, parent_address = _open_private_parent_udp_sinks(
+        _NSTUN_UDP_SOCKET_BUDGET + _NSTUN_UDP_SOCKET_PROBE_OVERFLOW
+    )
     destination_ports = [sink.getsockname()[1] for sink in udp_sinks]
     script_name = "udp_socket_budget.py"
     (tmp_path / script_name).write_text(
@@ -950,7 +966,7 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
                     cpu_seconds=10,
                     max_open_files=16,
                     max_processes=16,
-                    timeout_seconds=10,
+                    timeout_seconds=20,
                 ),
             ),
             script_name=script_name,
@@ -969,9 +985,13 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             sink.close()
 
     assert result.success, result.error
-    assert received_packets == 256, (received_packets, result.stderr)
-    assert "Maximum number of UDP flows reached" not in result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" in result.stderr, result.stderr
+    assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
+        received_packets,
+        result.stderr,
+    )
+    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
+    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
+    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
     assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
 
 

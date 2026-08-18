@@ -193,6 +193,23 @@ resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   })
 }
 
+resource "aws_iam_policy" "platform_otel_headers_access" {
+  count       = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}PlatformOTelHeadersAccessPolicy"
+  description = "Policy for accessing OTLP exporter headers"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.otel_exporter_otlp_headers_arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "ui_secrets_access" {
   name        = "${var.iam_name_prefix}UISecretsAccessPolicy"
   description = "Policy for accessing Tracecat UI secrets"
@@ -253,6 +270,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
+resource "aws_iam_role_policy_attachment" "api_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+  role       = aws_iam_role.api_execution.name
+}
+
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
   name               = "${var.iam_name_prefix}WorkerExecutionRole"
@@ -266,6 +289,12 @@ resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.worker_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "worker_execution_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
   role       = aws_iam_role.worker_execution.name
 }
 
@@ -414,6 +443,12 @@ resource "aws_iam_role_policy_attachment" "executor_task_redis" {
 resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryption_keyring" {
   count      = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
   policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
+  role       = aws_iam_role.executor_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "executor_task_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
   role       = aws_iam_role.executor_task.name
 }
 

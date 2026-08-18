@@ -58,6 +58,7 @@ export function WorkflowTriggerDialog({
     useCreateManualWorkflowExecution(workflowId || "")
 
   const {
+    caseFieldDisplayNameById,
     caseFieldsRecord,
     fallbackInputs,
     groupCaseFields,
@@ -197,6 +198,7 @@ export function WorkflowTriggerDialog({
             schema={triggerSchema}
             caseId={caseData.id}
             caseFields={caseFieldsRecord}
+            caseFieldDisplayNameById={caseFieldDisplayNameById}
             groupCaseFields={effectiveGroupCaseFields}
             defaultTriggerValues={defaultTriggerValues}
             taskId={taskId}

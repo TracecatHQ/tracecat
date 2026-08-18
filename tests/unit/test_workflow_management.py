@@ -337,7 +337,12 @@ async def test_external_import_publishes_before_online_case_trigger(
         alias="imported-case-trigger",
         registry_lock=registry_lock,
     )
-    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock(), commit=AsyncMock())
+    session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+        refresh=AsyncMock(),
+    )
     service = WorkflowsManagementService(cast(Any, session), role=role)
     dsl = DSLInput(
         **{
@@ -445,6 +450,7 @@ async def test_external_import_publishes_before_online_case_trigger(
     session.add.assert_called_once_with(workflow)
     session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(workflow)
     assert len(case_trigger_calls) == 1
     assert case_trigger_calls[0]["workflow_id"] == workflow.id
     assert case_trigger_calls[0]["params"].status == "online"

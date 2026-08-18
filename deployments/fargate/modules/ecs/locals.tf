@@ -64,6 +64,13 @@ locals {
     TRACECAT__DB_SSLMODE                             = "require"
   }
 
+  tracecat_platform_otel_env = {
+    TRACECAT__PLATFORM_OTEL_ENABLED = var.platform_otel_enabled
+    OTEL_EXPORTER_OTLP_ENDPOINT     = var.otel_exporter_otlp_endpoint
+    OTEL_TRACES_SAMPLER             = var.otel_traces_sampler
+    OTEL_TRACES_SAMPLER_ARG         = var.otel_traces_sampler_arg
+  }
+
   tracecat_temporal_payload_encryption_env = {
     TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
     TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN       = var.temporal_payload_encryption_keyring_arn
@@ -82,27 +89,29 @@ locals {
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        TRACECAT__ALLOW_ORIGINS                    = local.allow_origins
-        TRACECAT__API_ROOT_PATH                    = "/api"
-        TRACECAT__API_URL                          = local.internal_api_url
-        TRACECAT__PUBLIC_API_URL                   = local.public_api_url
-        TRACECAT__PUBLIC_APP_URL                   = local.public_app_url
-        TRACECAT__AUTH_TYPES                       = var.auth_types
-        TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
-        TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
-        TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
-        TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
-        TRACECAT__SERVICE_NAME                     = "api"
-        OIDC_ISSUER                                = var.oidc_issuer
-        OIDC_SCOPES                                = var.oidc_scopes
-        TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
-        SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
-        TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
+        TRACECAT__ALLOW_ORIGINS                         = local.allow_origins
+        TRACECAT__API_ROOT_PATH                         = "/api"
+        TRACECAT__API_URL                               = local.internal_api_url
+        TRACECAT__PUBLIC_API_URL                        = local.public_api_url
+        TRACECAT__PUBLIC_APP_URL                        = local.public_app_url
+        TRACECAT__AUTH_TYPES                            = var.auth_types
+        TRACECAT__AUTH_ALLOWED_DOMAINS                  = var.auth_allowed_domains
+        TRACECAT__AUTH_MIN_PASSWORD_LENGTH              = var.auth_min_password_length
+        TRACECAT__AUTH_SUPERADMIN_EMAIL                 = var.auth_superadmin_email
+        TRACECAT__DB_ENDPOINT                           = local.core_db_hostname
+        TRACECAT__SERVICE_NAME                          = "api"
+        TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE = var.platform_otel_trace_view_url_template
+        OIDC_ISSUER                                     = var.oidc_issuer
+        OIDC_SCOPES                                     = var.oidc_scopes
+        TEMPORAL__CLUSTER_QUEUE                         = local.temporal_cluster_queue
+        SAML_ALLOW_UNSOLICITED                          = var.saml_allow_unsolicited
+        TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS      = var.workflow_artifact_retention_days
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -111,6 +120,7 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -135,6 +145,7 @@ locals {
   agent_worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -159,6 +170,7 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -167,6 +179,7 @@ locals {
         TRACECAT__API_URL                             = local.internal_api_url
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
+        TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN    = var.otel_exporter_otlp_headers_arn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -188,6 +201,7 @@ locals {
   agent_executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_platform_otel_env,
       local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
@@ -197,6 +211,7 @@ locals {
         TRACECAT__API_URL                                  = local.internal_api_url
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
         TRACECAT__SERVICE_NAME                             = "agent-executor"
+        TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN         = var.otel_exporter_otlp_headers_arn
         TRACECAT__EXECUTOR_BACKEND                         = "direct"
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
