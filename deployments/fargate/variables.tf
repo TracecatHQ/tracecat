@@ -221,7 +221,7 @@ variable "tracecat_app_env" {
 
 variable "platform_otel_enabled" {
   type        = bool
-  description = "Enable platform-owned OpenTelemetry tracing for the API, worker, and executor services"
+  description = "Enable platform-owned OpenTelemetry tracing for all Tracecat runtime services"
   default     = false
 }
 
@@ -233,7 +233,25 @@ variable "otel_exporter_otlp_endpoint" {
 
 variable "otel_exporter_otlp_headers_arn" {
   type        = string
-  description = "Optional Secrets Manager ARN containing OTLP exporter headers for API and worker tracing"
+  description = "Optional Secrets Manager ARN containing platform OTLP exporter headers"
+  default     = null
+}
+
+variable "otel_traces_sampler" {
+  type        = string
+  description = "OpenTelemetry trace sampler used by platform tracing"
+  default     = "parentbased_traceidratio"
+}
+
+variable "otel_traces_sampler_arg" {
+  type        = string
+  description = "Argument supplied to the platform trace sampler"
+  default     = "1.0"
+}
+
+variable "platform_otel_trace_view_url_template" {
+  type        = string
+  description = "Optional trace viewer URL template containing {trace_id}"
   default     = null
 }
 

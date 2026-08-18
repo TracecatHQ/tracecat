@@ -429,6 +429,14 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    origin_workflow_id: uuid.UUID | None = None
+    """Workflow definition that launched this agent turn, if any."""
+    origin_workflow_execution_id: str | None = None
+    """Workflow execution that launched this agent turn, if any."""
+    origin_action_ref: str | None = None
+    """DSL action reference that launched this agent turn, if any."""
+    origin_trigger_type: str | None = None
+    """Trigger type of the originating workflow, if any."""
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -1327,6 +1335,10 @@ class DurableAgentWorkflow:
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
+            origin_workflow_id=args.origin_workflow_id,
+            origin_workflow_execution_id=args.origin_workflow_execution_id,
+            origin_action_ref=args.origin_action_ref,
+            origin_trigger_type=args.origin_trigger_type,
         )
 
         # Run the executor activity
@@ -1581,6 +1593,10 @@ class DurableAgentWorkflow:
                     sdk_session_data=reload_result.sdk_session_data,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
+                    origin_workflow_id=args.origin_workflow_id,
+                    origin_workflow_execution_id=args.origin_workflow_execution_id,
+                    origin_action_ref=args.origin_action_ref,
+                    origin_trigger_type=args.origin_trigger_type,
                 )
                 self._turn += 1
                 continue

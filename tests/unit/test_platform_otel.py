@@ -15,9 +15,11 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from tracecat import config
 from tracecat.logger._logger import _add_trace_context
+from tracecat.observability import otel as platform_otel
 from tracecat.observability.otel import (
     TRACE_ID_HEADER,
     TRACE_SAMPLED_HEADER,
+    current_trace_reference,
     get_platform_tracing,
     initialize_platform_tracing,
     instrument_fastapi_app,
@@ -38,6 +40,12 @@ class RaisingSpanExporter(SpanExporter):
 def reset_platform_tracing(monkeypatch: pytest.MonkeyPatch):
     shutdown_platform_tracing()
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN", None)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE",
+        None,
+    )
     yield
     shutdown_platform_tracing()
 
@@ -61,6 +69,51 @@ def test_platform_tracing_initialization_is_idempotent(
     assert second is first
     assert get_platform_tracing() is first
     assert isinstance(temporal_tracing_interceptor(), TracingInterceptor)
+
+
+def test_platform_exporter_headers_load_from_secret_arn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SecretsClient:
+        def get_secret_value(self, *, SecretId: str) -> dict[str, str]:
+            assert SecretId == "arn:aws:secretsmanager:synthetic"
+            return {"SecretString": "Authorization=Bearer%20synthetic,X-Tenant=test"}
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN",
+        "arn:aws:secretsmanager:synthetic",
+    )
+    monkeypatch.setattr(platform_otel.boto3, "client", lambda service: SecretsClient())
+
+    assert platform_otel._load_platform_exporter_headers() == {
+        "authorization": "Bearer synthetic",
+        "x-tenant": "test",
+    }
+
+
+def test_current_trace_reference_builds_operator_view_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE",
+        "http://localhost:3000/explore?trace={trace_id}",
+    )
+    runtime = initialize_platform_tracing(
+        "tracecat-api", exporter=InMemorySpanExporter()
+    )
+    assert runtime is not None
+
+    with runtime.tracer("test.trace-link").start_as_current_span("request") as span:
+        reference = current_trace_reference()
+
+    assert reference is not None
+    assert span.get_span_context().trace_id == int(reference.trace_id, 16)
+    assert reference.trace_url == (
+        f"http://localhost:3000/explore?trace={reference.trace_id}"
+    )
 
 
 def test_active_trace_context_is_added_to_log_records(
