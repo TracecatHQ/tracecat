@@ -1497,6 +1497,10 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
+        if payload.config.passthrough or any(
+            subagent.config.passthrough for subagent in payload.subagents
+        ):
+            env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
         # Bedrock does not consistently support tool search across APIs, models,
         # and opaque inference profiles. Explicitly disable it for Bedrock roots
         # so the CLI sends full tool definitions without tool_reference blocks.
@@ -1504,6 +1508,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(

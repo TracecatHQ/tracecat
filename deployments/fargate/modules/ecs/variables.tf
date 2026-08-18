@@ -723,6 +723,18 @@ variable "agent_executor_max_concurrent_activities" {
   default     = 3
 }
 
+variable "agent_otel_platform_override_config" {
+  type        = string
+  description = "Typed Agent OTel configuration JSON. Unset uses org configuration; present overrides it."
+  default     = null
+}
+
+variable "agent_otel_platform_override_headers_arn" {
+  type        = string
+  description = "AWS Secrets Manager ARN containing Agent OTel platform override headers JSON."
+  default     = null
+}
+
 variable "llm_proxy_read_timeout" {
   type        = string
   description = "LLM proxy read timeout in seconds (default: 600)"

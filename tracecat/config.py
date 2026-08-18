@@ -879,6 +879,20 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG = os.environ.get(
+    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG"
+)
+"""Typed Agent OTel configuration for the optional platform override.
+
+Unset means organization settings apply. A JSON object with ``enabled`` set to
+true or false definitively overrides organization configuration for every tenant.
+"""
+
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS = os.environ.get(
+    "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS"
+)
+"""Sensitive JSON object of OTel headers for the platform override."""
+
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
 

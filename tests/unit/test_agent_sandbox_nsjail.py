@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.config import (
+    JAILED_OTEL_SOCKET_PATH,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_UV_STATE_DIR,
     job_uv_state_dir,
@@ -453,3 +456,58 @@ def test_cleanup_spawned_runtime_removes_read_only_uv_subtree(
         if read_only_dir.exists():
             read_only_dir.chmod(0o700)
         shutil.rmtree(job_dir, ignore_errors=True)
+
+
+@pytest.mark.anyio
+async def test_spawn_nsjail_runtime_uses_mounted_otel_socket_path(
+    tmp_path: Path,
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    nsjail_path = tmp_path / "nsjail"
+    nsjail_path.touch()
+    socket_dir = tmp_path / "sockets"
+    socket_dir.mkdir()
+    llm_socket_path = socket_dir / "llm.sock"
+    llm_socket_path.touch()
+    mcp_socket_path = socket_dir / "mcp.sock"
+    mcp_socket_path.touch()
+    otel_socket_path = socket_dir / "otel.sock"
+    otel_socket_path.touch()
+    init_payload_path = tmp_path / "init.json"
+    init_payload_path.write_text("{}")
+    job_dir = tmp_path / "job"
+
+    with (
+        patch("tracecat.agent.sandbox.nsjail.TRACECAT__DISABLE_NSJAIL", False),
+        patch(
+            "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=MagicMock()),
+        ) as create_subprocess_exec,
+    ):
+        result = await spawn_jailed_runtime(
+            socket_dir=socket_dir,
+            llm_socket_path=llm_socket_path,
+            mcp_socket_path=mcp_socket_path,
+            init_payload_path=init_payload_path,
+            config=AgentSandboxConfig(),
+            nsjail_path=str(nsjail_path),
+            rootfs_path=str(rootfs),
+            control_socket_required=False,
+            pipe_stdin=False,
+            job_dir=job_dir,
+            otel_socket_path=otel_socket_path,
+        )
+
+    assert result.job_dir is None
+    assert create_subprocess_exec.await_args is not None
+    cmd = create_subprocess_exec.await_args.args
+    jailed_socket_env = f"TRACECAT__AGENT_OTEL_SOCKET_PATH={JAILED_OTEL_SOCKET_PATH}"
+    assert jailed_socket_env in cmd
+    assert create_subprocess_exec.await_args.kwargs["env"][
+        "TRACECAT__AGENT_OTEL_SOCKET_PATH"
+    ] == str(JAILED_OTEL_SOCKET_PATH)
+    assert (
+        f'mount {{ src: "{otel_socket_path}" dst: "{JAILED_OTEL_SOCKET_PATH}" '
+        "is_bind: true rw: false }"
+    ) in (job_dir / "nsjail.cfg").read_text()
