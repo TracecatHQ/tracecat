@@ -23,6 +23,10 @@ jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
 
+jest.mock("@/lib/hooks", () => ({
+  useCaseFields: () => ({ caseFields: [{ id: "field_2fa_status" }] }),
+}))
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockCasesCreateField.mockResolvedValue(undefined)
@@ -56,21 +60,23 @@ const existingField: CaseFieldReadMinimal = {
 }
 
 describe("custom field metadata dialogs", () => {
-  it("creates a field with a display name and derived reference", async () => {
+  it("creates a field with a unique derived reference", async () => {
     const user = userEvent.setup()
     renderWithQueryClient(
       <AddCustomFieldDialog open onOpenChange={jest.fn()} />
     )
 
     await user.type(screen.getByRole("textbox", { name: "Name" }), "2FA status")
-    expect(screen.getByText("Reference: field_2fa_status")).toBeInTheDocument()
+    expect(
+      screen.getByText("Reference: field_2fa_status_2")
+    ).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Add field" }))
 
     await waitFor(() => {
       expect(mockCasesCreateField).toHaveBeenCalledWith({
         workspaceId: "workspace-1",
         requestBody: expect.objectContaining({
-          name: "field_2fa_status",
+          name: "field_2fa_status_2",
           display_name: "2FA status",
         }),
       })

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { getCaseFieldTypeConfig } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
@@ -352,13 +353,7 @@ export function EditCustomFieldDialog({
         },
       })
 
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["case"] }),
-        queryClient.invalidateQueries({ queryKey: ["cases"] }),
-      ])
+      await invalidateCaseFieldQueries(queryClient, workspaceId)
 
       toast({
         title: "Field updated",

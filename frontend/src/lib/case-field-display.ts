@@ -14,6 +14,32 @@ export function createCaseFieldReference(displayName: string): string {
 }
 
 /**
+ * Derive the first available case-field reference, suffixing collisions.
+ */
+export function createUniqueCaseFieldReference(
+  displayName: string,
+  existingReferences: ReadonlySet<string>
+): string {
+  const baseReference = createCaseFieldReference(displayName)
+  if (!baseReference || !existingReferences.has(baseReference)) {
+    return baseReference
+  }
+
+  let counter = 2
+  while (true) {
+    const suffix = `_${counter}`
+    const candidate = `${baseReference.slice(
+      0,
+      MAX_CASE_FIELD_REFERENCE_LENGTH - suffix.length
+    )}${suffix}`
+    if (!existingReferences.has(candidate)) {
+      return candidate
+    }
+    counter += 1
+  }
+}
+
+/**
  * Index case-field display names by their stable API references.
  */
 export function createCaseFieldDisplayNameMap(

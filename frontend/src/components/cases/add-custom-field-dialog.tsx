@@ -35,9 +35,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { createCaseFieldReference } from "@/lib/case-field-display"
+import {
+  createCaseFieldReference,
+  createUniqueCaseFieldReference,
+} from "@/lib/case-field-display"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
+import { useCaseFields } from "@/lib/hooks"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -153,6 +158,7 @@ export function AddCustomFieldDialog({
 }: AddCustomFieldDialogProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const { caseFields } = useCaseFields(workspaceId, open)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const form = useForm<CaseFieldFormValues>({
@@ -170,7 +176,11 @@ export function AddCustomFieldDialog({
   const selectedType = form.watch("type")
   const selectedKind = form.watch("kind")
   const displayName = form.watch("displayName")
-  const fieldReference = createCaseFieldReference(displayName)
+  const existingReferences = new Set(caseFields?.map((field) => field.id))
+  const fieldReference = createUniqueCaseFieldReference(
+    displayName,
+    existingReferences
+  )
   const requiresOptions = isSelectableColumnType(selectedType)
   const pickerValue = selectedKind ?? selectedType
 
@@ -298,7 +308,10 @@ export function AddCustomFieldDialog({
       await casesCreateField({
         workspaceId,
         requestBody: {
-          name: createCaseFieldReference(data.displayName),
+          name: createUniqueCaseFieldReference(
+            data.displayName,
+            existingReferences
+          ),
           display_name: data.displayName,
           type: data.type,
           nullable: data.nullable,
@@ -310,13 +323,7 @@ export function AddCustomFieldDialog({
         },
       })
 
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["case"] }),
-        queryClient.invalidateQueries({ queryKey: ["cases"] }),
-      ])
+      await invalidateCaseFieldQueries(queryClient, workspaceId)
 
       toast({
         title: "Field created",
