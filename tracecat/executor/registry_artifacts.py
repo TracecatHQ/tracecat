@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import fcntl
 import hashlib
 import os
 import shutil
@@ -39,6 +38,7 @@ from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_mounts import (
     SQUASHFS_MOUNT_OPTIONS,
     SquashfsMountCommandError,
+    SquashfsMountUnavailableError,
 )
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
@@ -83,6 +83,7 @@ __all__ = (
     "RegistryArtifactUriError",
     "SquashfsArtifact",
     "SquashfsMountCommandError",
+    "SquashfsMountUnavailableError",
     "TarballArtifact",
     "bundled_builtin_registry_uri",
     "compute_registry_artifact_cache_key",
@@ -138,34 +139,6 @@ def _log_registry_artifact_capacity_retry(retry_state: RetryCallState) -> None:
 async def _sleep_registry_artifact_capacity_retry(delay: float) -> None:
     """Sleep between admission attempts through a narrow test seam."""
     await asyncio.sleep(delay)
-
-
-def _open_cache_entry_guard(entry_dir: Path) -> int:
-    """Open one real cache entry directory for advisory lifetime locking."""
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    return os.open(entry_dir, flags)
-
-
-def _try_acquire_exclusive_cache_entry_guard(entry_dir: Path) -> int | None:
-    """Try to exclude leases in every cache instance sharing an entry."""
-    try:
-        guard_fd = _open_cache_entry_guard(entry_dir)
-    except FileNotFoundError:
-        return None
-    try:
-        fcntl.flock(guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        os.close(guard_fd)
-        return None
-    except BaseException:
-        os.close(guard_fd)
-        raise
-    return guard_fd
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +222,7 @@ class SquashfsArtifact(RegistryArtifact):
         if is_reusable_cache_directory(mount_dir) and registry_artifact_mounts.is_mount(
             mount_dir
         ):
+            ctx.squashfs_mount_policy.record_mount_success()
             logger.debug(
                 "Using cached SquashFS registry mount",
                 cache_key=ctx.cache_key,
@@ -271,7 +245,16 @@ class SquashfsArtifact(RegistryArtifact):
         image_path = ctx.paths.squashfs_image_path
         if ctx.can_mount_squashfs():
             try:
-                return [await self.mount(ctx, image_path)]
+                mounted_path = await self.mount(ctx, image_path)
+            except SquashfsMountUnavailableError as e:
+                ctx.squashfs_mount_policy.record_mount_unavailable()
+                logger.warning(
+                    "SquashFS mounting is unavailable, using reusable extraction",
+                    cache_key=ctx.cache_key,
+                    artifact_uri=_artifact_uri_for_logging(self.uri),
+                    artifact_format=self.format.value,
+                    error=str(e),
+                )
             except SquashfsMountCommandError as e:
                 logger.warning(
                     "Failed to mount SquashFS registry artifact, trying extraction",
@@ -280,8 +263,13 @@ class SquashfsArtifact(RegistryArtifact):
                     artifact_format=self.format.value,
                     error=str(e),
                 )
+            else:
+                ctx.squashfs_mount_policy.record_mount_success()
+                return [mounted_path]
 
-        return [await self.extract(ctx, image_path)]
+        extracted_path = await self.extract(ctx, image_path)
+        ctx.squashfs_mount_policy.record_extraction(ctx.cache_key)
+        return [extracted_path]
 
     async def download(
         self,
@@ -1184,23 +1172,26 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
     async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
         """Discard an unsquashed fallback after its final lease releases."""
+        if not self._squashfs_mount_policy.should_discard_extraction(cache_key):
+            return
         retired_path: Path | None = None
         async with self._runtime_lock(cache_key, wait=False) as runtime:
             if runtime is None or self._refcount(cache_key) > 0:
                 return
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
-            guard_fd = _try_acquire_exclusive_cache_entry_guard(paths.entry_dir)
-            if guard_fd is None:
-                return
-            try:
+            with self._exclusive_entry_guard(paths.entry_dir) as guarded:
+                if not guarded:
+                    return
                 extracted_path = paths.squashfs_extract_dir
                 if not os.path.lexists(extracted_path):
+                    self._squashfs_mount_policy.forget_extraction(cache_key)
                     return
                 retired_path = unique_work_path(self.trash_dir, cache_key)
                 try:
                     extracted_path.rename(retired_path)
                 except FileNotFoundError:
+                    self._squashfs_mount_policy.forget_extraction(cache_key)
                     return
                 except OSError as error:
                     logger.warning(
@@ -1211,8 +1202,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     self._budget_dirty = True
                     return
                 self._budget_dirty = True
-            finally:
-                os.close(guard_fd)
+                self._squashfs_mount_policy.forget_extraction(cache_key)
 
         await remove_tree_rejoin_on_cancel(
             retired_path,

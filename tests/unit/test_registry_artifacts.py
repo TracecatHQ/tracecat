@@ -38,6 +38,7 @@ from tracecat.executor.registry_artifacts import (
     RegistryArtifactUriError,
     SquashfsArtifact,
     SquashfsMountCommandError,
+    SquashfsMountUnavailableError,
     TarballArtifact,
     _squashfs_listing_size,
     bundled_builtin_registry_uri,
@@ -748,8 +749,8 @@ class TestRegistryArtifactCache:
             error_type="RuntimeError",
         )
 
-    def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
-        """Prefer SquashFS whenever enabled; extraction may work without mounts."""
+    def test_mount_capability_is_checked_lazily(self, temp_cache_dir):
+        """An enabled executor learns mount availability from the actual spawn."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with (
@@ -764,7 +765,7 @@ class TestRegistryArtifactCache:
         ):
             ctx = cache._context_for("squashfs-test")
             assert cache._can_try_squashfs() is True
-            assert ctx.can_mount_squashfs() is False
+            assert ctx.can_mount_squashfs() is True
 
     @pytest.mark.anyio
     async def test_artifact_candidates_skip_non_registry_tarballs(self, temp_cache_dir):
@@ -1251,14 +1252,24 @@ class TestRegistryArtifactCache:
         assert cache._failed_startup_cleanup == {}
 
     @pytest.mark.anyio
-    async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
-        """Test that SquashFS mount failures fall back to unsquashfs extraction."""
+    async def test_mount_unavailable_uses_reusable_squashfs_extraction(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A spawn denial never probes a legacy tarball or repeats extraction."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        mount_attempts = 0
+        extraction_attempts = 0
 
         async def mock_mount(self, ctx, image_path):
-            raise SquashfsMountCommandError("operation not permitted")
+            nonlocal mount_attempts
+            mount_attempts += 1
+            raise SquashfsMountUnavailableError(
+                "mount command is unavailable to this executor"
+            )
 
         async def mock_extract(self, ctx, image_path):
+            nonlocal extraction_attempts
+            extraction_attempts += 1
             target_dir = ctx.paths.squashfs_extract_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "module.py").write_text("VALUE = 1")
@@ -1266,17 +1277,8 @@ class TestRegistryArtifactCache:
 
         with (
             patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
                 "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
                 True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
-                return_value="/sbin/mount",
             ),
             patch.object(SquashfsArtifact, "mount", mock_mount),
             patch.object(SquashfsArtifact, "extract", mock_extract),
@@ -1286,20 +1288,31 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            artifact_uri = "s3://bucket/path/site-packages.tar.gz"
-            async with cache.lease([artifact_uri]) as result:
-                assert len(result) == 1
-                assert (result[0] / "module.py").read_text() == "VALUE = 1"
-                assert result[0].name == "extracted"
+            artifact_uri = "s3://bucket/path/site-packages.squashfs"
+            async with cache.lease([artifact_uri]) as first_result:
+                assert len(first_result) == 1
+                assert (first_result[0] / "module.py").read_text() == "VALUE = 1"
+                assert first_result[0].name == "extracted"
 
-        assert not result[0].exists()
+            assert first_result[0].is_dir()
+
+            async with cache.lease([artifact_uri]) as second_result:
+                assert second_result == first_result
+
+            later_uri = "s3://bucket/path/later-site-packages.squashfs"
+            async with cache.lease([later_uri]) as later_result:
+                assert later_result[0].name == "extracted"
+
+        assert first_result[0].is_dir()
+        assert mount_attempts == 1
+        assert extraction_attempts == 2
         tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_materialize_extracts_squashfs_without_mount_binary(
-        self, temp_cache_dir
-    ):
-        """Test that SquashFS is still preferred when only unsquashfs is available."""
+    async def test_materialize_retains_extraction_when_mounting_is_disabled(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """An explicit extract-only deployment retains its SquashFS cache."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         async def mock_extract(self, ctx, image_path):
@@ -1309,27 +1322,22 @@ class TestRegistryArtifactCache:
             return target_dir
 
         with (
-            patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch.object(
+                SquashfsArtifact,
+                "mount",
                 new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
-                True,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.shutil.which", return_value=None
-            ),
+            ) as mount,
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
-            artifact_uri = "s3://bucket/path/site-packages.tar.gz"
+            artifact_uri = "s3://bucket/path/site-packages.squashfs"
             async with cache.lease([artifact_uri]) as result:
                 assert len(result) == 1
                 assert (result[0] / "module.py").read_text() == "VALUE = 1"
                 assert result[0].name == "extracted"
 
-        assert not result[0].exists()
+        assert result[0].is_dir()
+        mount.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
@@ -4498,6 +4506,7 @@ class TestSquashfsMountPolicy:
         """A local release must not retire another instance's leased extraction."""
         first_cache = RegistryArtifactCache(temp_cache_dir)
         second_cache = RegistryArtifactCache(temp_cache_dir)
+        first_cache._squashfs_mount_policy.record_mount_success()
         artifact_uri = "s3://bucket/shared-extraction.squashfs"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         harness = _SquashfsMountHarness(

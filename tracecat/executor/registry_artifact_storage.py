@@ -320,11 +320,14 @@ class RegistryArtifactMaterializationContext:
     staging_dir: Path
     paths: RegistryArtifactPaths
     defer_cleanup: Callable[[Path], None]
+    squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
     admission: RegistryArtifactAdmission | None = None
 
     def can_mount_squashfs(self) -> bool:
-        return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED and (
-            shutil.which("mount") is not None
+        """Return whether SquashFS mounting is enabled and worth attempting."""
+        return (
+            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            and self.squashfs_mount_policy.should_attempt_mount()
         )
 
 
@@ -600,6 +603,7 @@ class RegistryArtifactCacheStorage:
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
         self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
+        self._squashfs_mount_policy = registry_artifact_mounts.SquashfsMountPolicy()
         self._budget_dirty = True
 
     async def ensure_swept(self) -> None:
@@ -730,6 +734,7 @@ class RegistryArtifactCacheStorage:
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
             defer_cleanup=self._defer_cleanup,
+            squashfs_mount_policy=self._squashfs_mount_policy,
             admission=admission,
         )
 
@@ -1113,6 +1118,7 @@ class RegistryArtifactCacheStorage:
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
             if not paths.entry_dir.exists():
+                self._squashfs_mount_policy.forget_extraction(cache_key)
                 self._request_runtime_retirement(cache_key, runtime)
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
             if registry_artifact_mounts.is_mount(
@@ -1139,6 +1145,7 @@ class RegistryArtifactCacheStorage:
                     error=str(e),
                 )
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
+            self._squashfs_mount_policy.forget_extraction(cache_key)
             self._request_runtime_retirement(cache_key, runtime)
 
         try:

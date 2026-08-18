@@ -6,7 +6,8 @@ import asyncio
 import os
 import random
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 from tracecat.logger import logger
@@ -35,6 +36,71 @@ class SquashfsMountCommandError(RuntimeError):
     and other preparation failures must not be mistaken for a missing mount
     capability or loop-device exhaustion.
     """
+
+
+class SquashfsMountUnavailableError(SquashfsMountCommandError):
+    """The executor cannot start the ``mount`` command in this deployment."""
+
+
+class SquashfsMountAvailability(StrEnum):
+    """Mount capability learned from real SquashFS materialization attempts."""
+
+    UNKNOWN = "unknown"
+    MOUNT_CAPABLE = "mount_capable"
+    EXTRACT_ONLY = "extract_only"
+
+
+class SquashfsExtractionRetention(StrEnum):
+    """Lifetime assigned to a successfully published SquashFS extraction."""
+
+    REUSABLE = "reusable"
+    DISCARD_WHEN_IDLE = "discard_when_idle"
+
+
+@dataclass(slots=True)
+class SquashfsMountPolicy:
+    """Cache lazy mount capability and per-extraction retention outcomes."""
+
+    availability: SquashfsMountAvailability = SquashfsMountAvailability.UNKNOWN
+    _extraction_retention: dict[str, SquashfsExtractionRetention] = field(
+        default_factory=dict
+    )
+
+    def should_attempt_mount(self) -> bool:
+        """Return whether an actual mount attempt can still teach us capability."""
+        return self.availability is not SquashfsMountAvailability.EXTRACT_ONLY
+
+    def record_mount_success(self) -> None:
+        """Record positive evidence that this executor can mount SquashFS."""
+        self.availability = SquashfsMountAvailability.MOUNT_CAPABLE
+
+    def record_mount_unavailable(self) -> None:
+        """Avoid repeating a mount command that this executor cannot start."""
+        self.availability = SquashfsMountAvailability.EXTRACT_ONLY
+
+    def record_extraction(self, cache_key: str) -> SquashfsExtractionRetention:
+        """Assign retention based on capability known when extraction succeeds."""
+        retention = (
+            SquashfsExtractionRetention.DISCARD_WHEN_IDLE
+            if self.availability is SquashfsMountAvailability.MOUNT_CAPABLE
+            else SquashfsExtractionRetention.REUSABLE
+        )
+        if retention is SquashfsExtractionRetention.DISCARD_WHEN_IDLE:
+            self._extraction_retention[cache_key] = retention
+        else:
+            self._extraction_retention.pop(cache_key, None)
+        return retention
+
+    def should_discard_extraction(self, cache_key: str) -> bool:
+        """Return whether one extraction was an unexpected transient fallback."""
+        return (
+            self._extraction_retention.get(cache_key)
+            is SquashfsExtractionRetention.DISCARD_WHEN_IDLE
+        )
+
+    def forget_extraction(self, cache_key: str) -> None:
+        """Forget retention metadata after an extraction is removed."""
+        self._extraction_retention.pop(cache_key, None)
 
 
 class LoopDeviceSyncCommandError(RuntimeError):
@@ -122,24 +188,30 @@ async def mount_squashfs(image_path: Path, target_dir: Path) -> None:
     ``/dev`` snapshots and concurrent node-level loop allocation.
 
     Raises:
+        SquashfsMountUnavailableError: The mount command could not be started.
         SquashfsMountCommandError: The mount command failed after recovery.
     """
     for attempt in range(1, SQUASHFS_MOUNT_MAX_ATTEMPTS + 1):
         if is_mount(target_dir):
             return
 
-        proc = await asyncio.create_subprocess_exec(
-            "mount",
-            "-t",
-            "squashfs",
-            "-o",
-            SQUASHFS_MOUNT_OPTIONS,
-            str(image_path),
-            str(target_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "mount",
+                "-t",
+                "squashfs",
+                "-o",
+                SQUASHFS_MOUNT_OPTIONS,
+                str(image_path),
+                str(target_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+        except (FileNotFoundError, PermissionError) as error:
+            raise SquashfsMountUnavailableError(
+                "mount command is unavailable to this executor"
+            ) from error
         stdout, stderr = await communicate_process_group(proc)
 
         if proc.returncode == 0 or is_mount(target_dir):
