@@ -55,7 +55,7 @@ export function CasePanelFieldsGroup({
             group in `case-panel-view.tsx`. */}
         <div className="flex flex-col gap-1">
           {visibleCustomFields.map((field) => {
-            const label = field.id
+            const label = field.display_name
             return (
               <div key={field.id} className={rowClassName} onClick={onRowClick}>
                 <span className={labelClassName} title={label}>

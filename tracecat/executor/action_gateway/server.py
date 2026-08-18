@@ -4,12 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+
+import uvicorn
 
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.logger import logger
+
+
+class _ExecutorOwnedSignalServer(uvicorn.Server):
+    """Uvicorn server that leaves process signal handling to the executor."""
+
+    @contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        # The executor must stop Temporal intake and drain active activities
+        # before this gateway closes. Uvicorn's default signal capture would
+        # close the socket first and make in-flight SDK calls fail.
+        yield
 
 
 class ActionGateway:
@@ -17,7 +31,7 @@ class ActionGateway:
 
     def __init__(self, *, socket_path: Path | None = None) -> None:
         self._configured_socket_path = socket_path
-        self._server: Any | None = None
+        self._server: uvicorn.Server | None = None
         self._task: asyncio.Task[None] | None = None
         self._socket_path: Path | None = None
 
@@ -25,8 +39,6 @@ class ActionGateway:
         """Start the action gateway for this executor process."""
         if self._task is not None:
             return
-
-        import uvicorn
 
         socket_path = self._configured_socket_path or action_gateway_socket_path()
         socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,7 +50,7 @@ class ActionGateway:
             log_level="warning",
             lifespan="on",
         )
-        server = uvicorn.Server(uvicorn_config)
+        server = _ExecutorOwnedSignalServer(uvicorn_config)
         self._server = server
         self._socket_path = socket_path
         self._task = asyncio.create_task(server.serve())
@@ -69,7 +81,7 @@ class ActionGateway:
         if task is None:
             return
 
-        if server is not None and hasattr(server, "should_exit"):
+        if server is not None:
             server.should_exit = True
         try:
             await asyncio.wait_for(task, timeout=5)

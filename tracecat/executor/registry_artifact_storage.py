@@ -10,7 +10,13 @@ import shutil
 import stat
 import threading
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from collections.abc import (
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +42,9 @@ __all__ = (
     "CACHE_TRASH_DIR_NAME",
     "RegistryArtifactAdmission",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactCacheEntryLease",
+    "RegistryArtifactCacheLeaseAttempt",
+    "RegistryArtifactCacheLeaseContentionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactCacheStorage",
     "RegistryArtifactEviction",
@@ -94,6 +103,10 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         self.max_bytes = max_bytes
 
 
+class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
+    """Active leases temporarily pin bytes needed by a cold artifact."""
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactPaths:
     """Executor-local cache paths for one registry artifact key."""
@@ -123,6 +136,47 @@ class RegistryArtifactRuntimeState:
     last_used: float = 0.0
     lock_users: int = 0
     retire_when_idle: bool = False
+
+
+@dataclass(slots=True)
+class RegistryArtifactCacheLeaseAttempt:
+    """Own the cache keys pinned by one all-or-nothing lease attempt."""
+
+    _cache_keys: set[str] = field(default_factory=set)
+
+    @property
+    def cache_keys(self) -> Collection[str]:
+        """Return keys that must remain protected for this attempt."""
+        return self._cache_keys
+
+    def record(self, cache_key: str) -> None:
+        """Record one acquired cache entry."""
+        self._cache_keys.add(cache_key)
+
+
+@dataclass(slots=True)
+class RegistryArtifactCacheEntryLease:
+    """Own one process-local cache entry pin."""
+
+    cache: RegistryArtifactCacheStorage
+    cache_key: str
+    attempt: RegistryArtifactCacheLeaseAttempt
+    _acquired: bool = False
+
+    def acquire(self) -> None:
+        """Acquire the process-local pin exactly once."""
+        if self._acquired:
+            raise RuntimeError("Registry artifact cache entry already leased")
+        self.cache._acquire_lease(self.cache_key)
+        self.attempt.record(self.cache_key)
+        self._acquired = True
+
+    def release(self) -> bool:
+        """Release the pin, returning whether the entry became idle."""
+        if not self._acquired:
+            return False
+        self._acquired = False
+        return self.cache._release_lease(self.cache_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,11 +213,14 @@ class RegistryArtifactMaterializationContext:
     staging_dir: Path
     paths: RegistryArtifactPaths
     defer_cleanup: Callable[[Path], None]
+    squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
     admission: RegistryArtifactAdmission | None = None
 
     def can_mount_squashfs(self) -> bool:
-        return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED and (
-            shutil.which("mount") is not None
+        """Return whether SquashFS mounting is enabled and worth attempting."""
+        return (
+            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            and self.squashfs_mount_policy.should_attempt_mount()
         )
 
 
@@ -439,6 +496,7 @@ class RegistryArtifactCacheStorage:
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
         self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
+        self._squashfs_mount_policy = registry_artifact_mounts.SquashfsMountPolicy()
         self._budget_dirty = True
 
     async def ensure_swept(self) -> None:
@@ -569,10 +627,30 @@ class RegistryArtifactCacheStorage:
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
             defer_cleanup=self._defer_cleanup,
+            squashfs_mount_policy=self._squashfs_mount_policy,
             admission=admission,
         )
 
-    def _admission_for(self, cache_key: str) -> RegistryArtifactAdmission | None:
+    def _new_entry_lease(
+        self,
+        cache_key: str,
+        attempt: RegistryArtifactCacheLeaseAttempt,
+    ) -> RegistryArtifactCacheEntryLease:
+        """Create and acquire one cache-entry lease token."""
+        lease = RegistryArtifactCacheEntryLease(
+            cache=self,
+            cache_key=cache_key,
+            attempt=attempt,
+        )
+        lease.acquire()
+        return lease
+
+    def _admission_for(
+        self,
+        cache_key: str,
+        *,
+        attempt_cache_keys: Collection[str] = (),
+    ) -> RegistryArtifactAdmission | None:
         """Return byte-bound admission controls for one cold cache key."""
         max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
         if max_bytes <= 0:
@@ -587,6 +665,7 @@ class RegistryArtifactCacheStorage:
                 ),
                 protected_key=cache_key,
                 max_bytes=max_bytes,
+                attempt_cache_keys=attempt_cache_keys,
             )
 
         return RegistryArtifactAdmission(
@@ -753,13 +832,23 @@ class RegistryArtifactCacheStorage:
         additional_bytes: int,
         protected_key: str,
         max_bytes: int,
+        attempt_cache_keys: Collection[str] = (),
     ) -> None:
         """Reserve peak bytes for one serialized cold writer."""
         if additional_bytes < 0:
             raise ValueError("additional_bytes must be non-negative")
 
-        def capacity_error(current_bytes: int) -> RegistryArtifactCacheCapacityError:
-            return RegistryArtifactCacheCapacityError(
+        def capacity_error(
+            current_bytes: int,
+            *,
+            lease_contention: bool = False,
+        ) -> RegistryArtifactCacheCapacityError:
+            error_type = (
+                RegistryArtifactCacheLeaseContentionError
+                if lease_contention
+                else RegistryArtifactCacheCapacityError
+            )
+            return error_type(
                 current_bytes=current_bytes,
                 additional_bytes=additional_bytes,
                 max_bytes=max_bytes,
@@ -769,23 +858,37 @@ class RegistryArtifactCacheStorage:
         snapshot = await asyncio.to_thread(self._scan_cache_snapshot)
         entries = snapshot.entries
         total_bytes = snapshot.total_bytes
-        non_evictable_bytes = (
-            snapshot.structural_bytes
-            + snapshot.staging_bytes
-            + snapshot.trash_bytes
-            + sum(
-                entry.size_bytes
-                for entry in entries.values()
-                if entry.cache_key == protected_key
-                or self._refcount(entry.cache_key) > 0
-                or (
-                    (runtime := self._runtime.get(entry.cache_key)) is not None
-                    and runtime.lock.locked()
-                )
-            )
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
         )
+        protected_bytes = sum(
+            entry.size_bytes
+            for entry in entries.values()
+            if entry.cache_key == protected_key
+        )
+        busy_entries = [
+            entry
+            for entry in entries.values()
+            if entry.cache_key != protected_key
+            and self._cache_entry_is_busy(entry.cache_key)
+        ]
+        busy_bytes = sum(entry.size_bytes for entry in busy_entries)
+        retryable_busy_bytes = sum(
+            entry.size_bytes
+            for entry in busy_entries
+            if entry.cache_key not in attempt_cache_keys
+        )
+        non_evictable_bytes = fixed_bytes + protected_bytes + busy_bytes
         if non_evictable_bytes + additional_bytes > max_bytes:
-            raise capacity_error(non_evictable_bytes)
+            fits_after_busy_entries_release = (
+                retryable_busy_bytes > 0
+                and non_evictable_bytes - retryable_busy_bytes + additional_bytes
+                <= max_bytes
+            )
+            raise capacity_error(
+                non_evictable_bytes,
+                lease_contention=fits_after_busy_entries_release,
+            )
         if (
             not (trash_clean and startup_clean)
             and total_bytes + additional_bytes > max_bytes
@@ -802,7 +905,30 @@ class RegistryArtifactCacheStorage:
             ),
         )
         if not eviction_pass.fits:
-            raise capacity_error(eviction_pass.total_bytes)
+            retryable_busy_bytes = sum(
+                entry.size_bytes
+                for entry in entries.values()
+                if entry.cache_key != protected_key
+                and entry.cache_key not in attempt_cache_keys
+                and self._cache_entry_is_busy(entry.cache_key)
+            )
+            fits_after_busy_entries_release = (
+                eviction_pass.exhausted_candidates
+                and retryable_busy_bytes > 0
+                and eviction_pass.total_bytes - retryable_busy_bytes + additional_bytes
+                <= max_bytes
+            )
+            raise capacity_error(
+                eviction_pass.total_bytes,
+                lease_contention=fits_after_busy_entries_release,
+            )
+
+    def _cache_entry_is_busy(self, cache_key: str) -> bool:
+        """Return whether process-local lease or lock state blocks eviction."""
+        if self._refcount(cache_key) > 0:
+            return True
+        runtime = self._runtime.get(cache_key)
+        return runtime is not None and runtime.lock.locked()
 
     async def _evict_until_fits(
         self,
@@ -875,6 +1001,7 @@ class RegistryArtifactCacheStorage:
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
             if not paths.entry_dir.exists():
+                self._squashfs_mount_policy.forget_extraction(cache_key)
                 self._request_runtime_retirement(cache_key, runtime)
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
             if registry_artifact_mounts.is_mount(
@@ -901,6 +1028,7 @@ class RegistryArtifactCacheStorage:
                     error=str(e),
                 )
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
+            self._squashfs_mount_policy.forget_extraction(cache_key)
             self._request_runtime_retirement(cache_key, runtime)
 
         try:

@@ -71,12 +71,17 @@ describe("BOOLEAN clear option", () => {
   it("clears a field set to true", async () => {
     const user = userEvent.setup()
     const updateCase = renderField(
-      makeField({ id: "is_phishing", type: "BOOLEAN", value: true })
+      makeField({
+        id: "is_phishing",
+        display_name: "Is phishing",
+        type: "BOOLEAN",
+        value: true,
+      })
     )
 
     await user.click(screen.getByRole("combobox"))
     await user.click(
-      await screen.findByRole("option", { name: "Clear is_phishing field" })
+      await screen.findByRole("option", { name: "Clear Is phishing field" })
     )
 
     await waitFor(() => {

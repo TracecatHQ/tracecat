@@ -47,7 +47,7 @@ export function getUrlHint(url: string): string | undefined {
 }
 
 interface UrlFieldPopoverProps {
-  fieldId: string
+  fieldLabel: string
   value: UrlFieldValue | null
   onSave: (value: UrlFieldValue | null) => void | Promise<void>
 }
@@ -58,7 +58,7 @@ interface UrlFieldPopoverProps {
  * open-in-new-window, and remove actions. Outside clicks discard drafts.
  */
 export function UrlFieldPopover({
-  fieldId,
+  fieldLabel,
   value,
   onSave,
 }: UrlFieldPopoverProps) {
@@ -191,7 +191,7 @@ export function UrlFieldPopover({
             event.preventDefault()
           }
         }}
-        aria-label={`Edit ${fieldId} URL`}
+        aria-label={`Edit ${fieldLabel} URL`}
         className="w-[min(24rem,calc(100vw-2rem))] space-y-1 p-1.5"
       >
         <Input
