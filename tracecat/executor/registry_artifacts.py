@@ -758,13 +758,6 @@ def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
     return tarball_uri.removesuffix(".tar.gz") + ".squashfs"
 
 
-def _tarball_uri_for_squashfs(squashfs_uri: str) -> str | None:
-    """Return the sibling gzip tarball URI for registry SquashFS artifacts."""
-    if not squashfs_uri.endswith("site-packages.squashfs"):
-        return None
-    return squashfs_uri.removesuffix(".squashfs") + ".tar.gz"
-
-
 def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     """Return the materialization format for an artifact URI."""
     if artifact_uri.endswith(".squashfs"):
@@ -1185,8 +1178,8 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         if cache_key is None:
             builtin_key = compute_registry_artifact_cache_key(artifact_uri)
             ctx = self._context_for(builtin_key)
-            candidates = await self._artifact_candidates(ctx, artifact_uri)
-            return await self._materialize_candidates(ctx, candidates)
+            artifact = await self._select_artifact(ctx, artifact_uri)
+            return await self._materialize_artifact(ctx, artifact)
 
         ctx = self._context_for(cache_key)
         async with self._runtime_lock(cache_key):
@@ -1206,11 +1199,11 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                         attempt_cache_keys=lease.attempt_cache_keys,
                     ),
                 )
-                candidates = await self._artifact_candidates(ctx, artifact_uri)
+                artifact = await self._select_artifact(ctx, artifact_uri)
                 # Recheck after acquiring the lock.
-                if cached_paths := self._first_cached_path(candidates, ctx):
+                if cached_paths := artifact.cached_path(ctx):
                     return cached_paths
-                paths = await self._materialize_candidates(ctx, candidates)
+                paths = await self._materialize_artifact(ctx, artifact)
                 self._touch_entry(cache_key)
 
         # Enforce entry count and final measured size after publication,
@@ -1228,61 +1221,34 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             )
         return paths
 
-    async def _materialize_candidates(
+    async def _materialize_artifact(
         self,
         ctx: RegistryArtifactMaterializationContext,
-        candidates: list[RegistryArtifact],
+        artifact: RegistryArtifact,
     ) -> list[Path]:
-        """Materialize the first viable artifact candidate.
+        """Materialize the selected registry artifact.
 
         Callers hold the cache key's lock for evictable entries.
         """
         cache_key = ctx.cache_key
-        for index, artifact in enumerate(candidates):
-            try:
-                logger.info(
-                    "Trying registry artifact candidate",
-                    cache_key=cache_key,
-                    artifact_uri=_artifact_uri_for_logging(artifact.uri),
-                    artifact_format=artifact.format.value,
-                    candidate=index + 1,
-                    candidates=len(candidates),
-                )
-                materialized = False
-                try:
-                    registry_paths = await artifact.materialize(ctx)
-                    materialized = True
-                finally:
-                    if _is_cache_entry_uri(artifact.uri):
-                        # Any attempt may deposit canonical bytes, even when it
-                        # fails or is cancelled.
-                        self._budget_dirty = True
-                        if not materialized:
-                            self._remove_unpublished_entry(ctx)
-                return registry_paths
-            except Exception as e:
-                if index == len(candidates) - 1:
-                    raise
-                logger.warning(
-                    "Failed to materialize registry artifact candidate, trying fallback",
-                    cache_key=cache_key,
-                    artifact_uri=_artifact_uri_for_logging(artifact.uri),
-                    artifact_format=artifact.format.value,
-                    error_type=type(e).__name__,
-                )
-
-        raise RuntimeError(f"No registry artifact candidates for {ctx.cache_key}")
-
-    def _first_cached_path(
-        self,
-        candidates: list[RegistryArtifact],
-        ctx: RegistryArtifactMaterializationContext,
-    ) -> list[Path] | None:
-        """Return the first already-materialized candidate paths."""
-        for artifact in candidates:
-            if cached_paths := artifact.cached_path(ctx):
-                return cached_paths
-        return None
+        logger.info(
+            "Materializing selected registry artifact",
+            cache_key=cache_key,
+            artifact_uri=_artifact_uri_for_logging(artifact.uri),
+            artifact_format=artifact.format.value,
+        )
+        materialized = False
+        try:
+            registry_paths = await artifact.materialize(ctx)
+            materialized = True
+        finally:
+            if _is_cache_entry_uri(artifact.uri):
+                # Any attempt may deposit canonical bytes, even when it fails or
+                # is cancelled.
+                self._budget_dirty = True
+                if not materialized:
+                    self._remove_unpublished_entry(ctx)
+        return registry_paths
 
     def _locally_cached_path(
         self,
@@ -1295,64 +1261,55 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             and _artifact_format(artifact_uri) == RegistryArtifactFormat.TAR_GZ
             and self._can_try_squashfs()
         )
-        candidates = self._candidate_artifacts(
+        artifact = self._build_artifact(
             ctx,
             artifact_uri,
             include_squashfs_sidecar=include_squashfs_sidecar,
         )
-        return self._first_cached_path(candidates, ctx)
+        if cached_paths := artifact.cached_path(ctx):
+            return cached_paths
+        if include_squashfs_sidecar:
+            legacy_artifact = self._build_artifact(
+                ctx,
+                artifact_uri,
+                include_squashfs_sidecar=False,
+            )
+            return legacy_artifact.cached_path(ctx)
+        return None
 
-    def _candidate_artifacts(
+    def _build_artifact(
         self,
         ctx: RegistryArtifactMaterializationContext,
         artifact_uri: str,
         *,
         include_squashfs_sidecar: bool,
-    ) -> list[RegistryArtifact]:
-        """Build artifact candidates in executor preference order."""
+    ) -> RegistryArtifact:
+        """Build the current-format artifact or a legacy tarball artifact."""
         if version := _bundled_builtin_registry_version(artifact_uri):
-            return [
-                BuiltinArtifact(
-                    uri=artifact_uri,
-                    cache_key=ctx.cache_key,
-                    version=version,
-                )
-            ]
+            return BuiltinArtifact(
+                uri=artifact_uri,
+                cache_key=ctx.cache_key,
+                version=version,
+            )
 
         artifact_format = _artifact_format(artifact_uri)
         if artifact_format == RegistryArtifactFormat.SQUASHFS:
-            candidates: list[RegistryArtifact] = [
-                SquashfsArtifact(
-                    uri=artifact_uri,
-                    cache_key=ctx.cache_key,
-                )
-            ]
-            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
-                candidates.append(
-                    TarballArtifact(
-                        uri=tarball_uri,
-                        cache_key=ctx.cache_key,
-                    )
-                )
-            return candidates
-
-        candidates = []
-        if include_squashfs_sidecar and (
-            squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
-        ):
-            candidates.append(
-                SquashfsArtifact(
-                    uri=squashfs_uri,
-                    cache_key=ctx.cache_key,
-                )
-            )
-        candidates.append(
-            TarballArtifact(
+            return SquashfsArtifact(
                 uri=artifact_uri,
                 cache_key=ctx.cache_key,
             )
+
+        if include_squashfs_sidecar and (
+            squashfs_uri := _squashfs_sidecar_uri(artifact_uri)
+        ):
+            return SquashfsArtifact(
+                uri=squashfs_uri,
+                cache_key=ctx.cache_key,
+            )
+        return TarballArtifact(
+            uri=artifact_uri,
+            cache_key=ctx.cache_key,
         )
-        return candidates
 
     def _remove_unpublished_entry(
         self,
@@ -1376,14 +1333,14 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 directory.rmdir()
         self._request_runtime_retirement_if_entry_missing(ctx.cache_key)
 
-    async def _artifact_candidates(
+    async def _select_artifact(
         self,
         ctx: RegistryArtifactMaterializationContext,
         artifact_uri: str,
-    ) -> list[RegistryArtifact]:
-        """Return artifact candidates in executor preference order."""
+    ) -> RegistryArtifact:
+        """Select the artifact representation to materialize."""
         if _bundled_builtin_registry_version(artifact_uri) is not None:
-            return self._candidate_artifacts(
+            return self._build_artifact(
                 ctx,
                 artifact_uri,
                 include_squashfs_sidecar=False,
@@ -1405,7 +1362,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 )
             )
 
-        return self._candidate_artifacts(
+        return self._build_artifact(
             ctx,
             artifact_uri,
             include_squashfs_sidecar=include_squashfs_sidecar,
