@@ -287,21 +287,29 @@ function ClosureFieldInput({
 }: ClosureFieldInputProps) {
   // Resolve effective type from kind
   if (field.kind === "LONG_TEXT") {
-    return <LongTextField label={field.id} value={value} onChange={onChange} />
+    return (
+      <LongTextField
+        label={field.display_name}
+        value={value}
+        onChange={onChange}
+      />
+    )
   }
   if (field.kind === "URL") {
-    return <UrlField label={field.id} value={value} onChange={onChange} />
+    return (
+      <UrlField label={field.display_name} value={value} onChange={onChange} />
+    )
   }
 
   switch (field.type) {
     case "TEXT":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
@@ -309,7 +317,7 @@ function ClosureFieldInput({
     case "NUMERIC":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             inputMode={field.type === "INTEGER" ? "numeric" : "decimal"}
@@ -334,14 +342,14 @@ function ClosureFieldInput({
               onValidationChange?.(!isValid)
               onChange(trimmed)
             }}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
     case "BOOLEAN":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Select
             value={value != null ? String(value) : ""}
             onValueChange={(val) => onChange(val === "true")}
@@ -359,7 +367,7 @@ function ClosureFieldInput({
     case "DATE":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             placeholder="YYYY-MM-DD"
@@ -381,7 +389,7 @@ function ClosureFieldInput({
     case "TIMESTAMPTZ":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             placeholder="YYYY-MM-DDTHH:mm:ss.Z"
@@ -409,7 +417,7 @@ function ClosureFieldInput({
     case "JSONB":
       return (
         <JsonField
-          label={field.id}
+          label={field.display_name}
           value={value}
           onChange={onChange}
           onValidationChange={onValidationChange}
@@ -418,11 +426,11 @@ function ClosureFieldInput({
     default:
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
@@ -498,7 +506,7 @@ function SelectField({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm">{field.id}</Label>
+      <Label className="text-sm">{field.display_name}</Label>
       <Select
         value={typeof value === "string" ? value : ""}
         onValueChange={onChange}
@@ -540,7 +548,7 @@ function MultiSelectField({
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm">{field.id}</Label>
+      <Label className="text-sm">{field.display_name}</Label>
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
           <Button

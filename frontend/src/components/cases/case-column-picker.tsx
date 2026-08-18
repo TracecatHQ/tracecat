@@ -189,8 +189,8 @@ export function CaseColumnPicker({
                     <ColumnOption
                       key={columnId}
                       columnId={columnId}
-                      searchValue={`field ${field.id}`}
-                      label={field.id}
+                      searchValue={`field ${field.display_name} ${field.id}`}
+                      label={field.display_name}
                       icon={
                         <TextIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                       }

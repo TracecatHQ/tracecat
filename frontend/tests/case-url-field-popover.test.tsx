@@ -87,7 +87,7 @@ function renderPopover(value: UrlFieldValue | null) {
       <button type="button" data-testid="outside">
         outside
       </button>
-      <UrlFieldPopover fieldId="ticket_url" value={value} onSave={onSave} />
+      <UrlFieldPopover fieldLabel="Ticket URL" value={value} onSave={onSave} />
     </div>
   )
   return onSave
