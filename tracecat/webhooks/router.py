@@ -25,8 +25,17 @@ from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
-from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
+from tracecat.identifiers.workflow import (
+    AnyWorkflowIDPath,
+    WorkflowExecutionID,
+    WorkflowID,
+    generate_exec_id,
+)
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    current_trace_reference,
+    set_current_span_attributes,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
 from tracecat.storage.collection import get_collection_page
@@ -100,6 +109,37 @@ class WaitResultUnwrapOverflowResponse(TypedDict):
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
+
+
+def _annotate_webhook_trace(
+    *,
+    wf_id: WorkflowID,
+    wf_exec_id: WorkflowExecutionID,
+    response: WorkflowExecutionCreateResponse | None = None,
+) -> None:
+    """Correlate a webhook request span with the workflow it dispatched."""
+    role = ctx_role.get()
+    set_current_span_attributes(
+        {
+            "tracecat.organization.id": (
+                str(role.organization_id)
+                if role is not None and role.organization_id is not None
+                else None
+            ),
+            "tracecat.workspace.id": (
+                str(role.workspace_id)
+                if role is not None and role.workspace_id is not None
+                else None
+            ),
+            "tracecat.workflow.id": str(wf_id),
+            "tracecat.workflow.execution.id": str(wf_exec_id),
+            "tracecat.trigger.type": TriggerType.WEBHOOK.value,
+        }
+    )
+    if response is not None and (trace_reference := current_trace_reference()):
+        response["trace_id"] = trace_reference.trace_id
+        if trace_reference.trace_url is not None:
+            response["trace_url"] = trace_reference.trace_url
 
 
 async def _to_external_download_response(
@@ -440,6 +480,12 @@ async def _incoming_webhook(
             else None,
         )
 
+    _annotate_webhook_trace(
+        wf_id=response["wf_id"],
+        wf_exec_id=response["wf_exec_id"],
+        response=response,
+    )
+
     # Response handling
     if echo:
         if empty_echo:
@@ -515,15 +561,18 @@ async def incoming_webhook_wait(
     )
 
     service = await WorkflowExecutionsService.connect()
+    wf_exec_id = generate_exec_id(workflow_id)
     response = await service.create_workflow_execution(
         dsl=dsl_input,
         wf_id=workflow_id,
+        wf_exec_id=wf_exec_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
         registry_lock=RegistryLock.model_validate(defn.registry_lock)
         if defn.registry_lock
         else None,
     )
+    _annotate_webhook_trace(wf_id=workflow_id, wf_exec_id=wf_exec_id)
 
     result = response["result"]
     if unwrap:
@@ -569,6 +618,11 @@ async def incoming_webhook_draft(
         registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
         if draft_ctx.registry_lock
         else None,
+    )
+    _annotate_webhook_trace(
+        wf_id=response["wf_id"],
+        wf_exec_id=response["wf_exec_id"],
+        response=response,
     )
     return response
 

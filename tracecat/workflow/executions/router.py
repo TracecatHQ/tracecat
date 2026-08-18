@@ -39,7 +39,10 @@ from tracecat.identifiers.workflow import (
     exec_id_to_parts,
 )
 from tracecat.logger import logger
-from tracecat.observability.otel import set_current_span_attributes
+from tracecat.observability.otel import (
+    current_trace_reference,
+    set_current_span_attributes,
+)
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
@@ -1039,8 +1042,13 @@ async def create_workflow_execution(
                 ),
                 "tracecat.workflow.id": str(response["wf_id"]),
                 "tracecat.workflow.execution.id": str(response["wf_exec_id"]),
+                "tracecat.trigger.type": TriggerType.MANUAL.value,
             }
         )
+        if trace_reference := current_trace_reference():
+            response["trace_id"] = trace_reference.trace_id
+            if trace_reference.trace_url is not None:
+                response["trace_url"] = trace_reference.trace_url
         return response
     except TracecatValidationError as e:
         raise HTTPException(
@@ -1116,6 +1124,23 @@ async def create_draft_workflow_execution(
             time_anchor=params.time_anchor,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    str(role.organization_id) if role.organization_id else None
+                ),
+                "tracecat.workspace.id": (
+                    str(role.workspace_id) if role.workspace_id else None
+                ),
+                "tracecat.workflow.id": str(response["wf_id"]),
+                "tracecat.workflow.execution.id": str(response["wf_exec_id"]),
+                "tracecat.trigger.type": TriggerType.MANUAL.value,
+            }
+        )
+        if trace_reference := current_trace_reference():
+            response["trace_id"] = trace_reference.trace_id
+            if trace_reference.trace_url is not None:
+                response["trace_url"] = trace_reference.trace_url
         return response
     except TracecatValidationError as e:
         raise HTTPException(

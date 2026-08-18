@@ -12,6 +12,15 @@ from tracecat.config import bound_env, env_bool, env_networks, env_ports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
+FARGATE_ECS_LOCALS_PATH = (
+    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "locals.tf"
+)
+FARGATE_AGENT_WORKER_PATH = (
+    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "ecs-agent-worker.tf"
+)
+FARGATE_ECS_IAM_PATH = (
+    REPO_ROOT / "deployments" / "fargate" / "modules" / "ecs" / "iam.tf"
+)
 SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
@@ -25,10 +34,18 @@ COMPOSE_ENV_FILES = (
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
 TRACED_COMPOSE_ENV_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
-TRACED_COMPOSE_SERVICES = ("api", "worker", "executor")
+TRACED_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "executor",
+    "agent-worker",
+    "agent-executor",
+)
 PLATFORM_OTEL_COMPOSE_ENV = (
     "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
     "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
+    "OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}",
+    "OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}",
 )
 PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
     "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
@@ -310,10 +327,53 @@ def test_platform_otel_env_is_forwarded_to_traced_compose_services(
     service_body = service_match.group("body")
     for env_line in PLATFORM_OTEL_COMPOSE_ENV:
         assert env_line in service_body
-    if service == "executor":
+    if service in {"executor", "agent-executor"}:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
     else:
         assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
+
+
+@pytest.mark.parametrize("local_name", ["agent_worker_env", "agent_executor_env"])
+def test_platform_otel_env_is_forwarded_to_fargate_agent_services(
+    local_name: str,
+) -> None:
+    source = FARGATE_ECS_LOCALS_PATH.read_text()
+    local_match = re.search(
+        rf"(?ms)^  {re.escape(local_name)} = \[\n(?P<body>.*?)(?=^  [a-z][a-z0-9_]+ = |^\}})",
+        source,
+    )
+    assert local_match is not None
+    assert "local.tracecat_platform_otel_env," in local_match.group("body")
+
+
+def test_fargate_agent_worker_receives_platform_otel_header_secret() -> None:
+    source = FARGATE_AGENT_WORKER_PATH.read_text()
+    assert "secrets     = local.agent_worker_secrets" in source
+
+
+def test_fargate_executors_load_platform_headers_by_arn() -> None:
+    source = FARGATE_ECS_LOCALS_PATH.read_text()
+    for local_name in ("executor_env", "agent_executor_env"):
+        local_match = re.search(
+            rf"(?ms)^  {local_name} = \[\n(?P<body>.*?)(?=^  [a-z][a-z0-9_]+ = |^\}})",
+            source,
+        )
+        assert local_match is not None
+        assert "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN" in local_match.group("body")
+
+    iam_source = FARGATE_ECS_IAM_PATH.read_text()
+    assert (
+        'resource "aws_iam_role_policy_attachment" "executor_task_platform_otel_headers"'
+        in iam_source
+    )
+    assert "aws_iam_policy.platform_otel_headers_access[0].arn" in iam_source
+
+
+def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
+    source = (REPO_ROOT / ".env.example").read_text()
+    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:

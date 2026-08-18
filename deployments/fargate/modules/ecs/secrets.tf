@@ -308,10 +308,14 @@ locals {
     local.platform_otel_headers_secret,
   )
 
-  # The direct executor backend passes its process environment to untrusted
-  # action subprocesses, so platform exporter credentials must stay out of the
-  # executor task. Operators can expose an unauthenticated collector endpoint
-  # on the executor's private network when executor spans are required.
+  agent_worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  # Executor processes may pass environment values across a sandbox boundary,
+  # so platform exporter credentials must stay out of both executor task
+  # environments. The host process reads the secret directly by ARN instead.
   executor_secrets = local.tracecat_temporal_secrets
 
   agent_otel_platform_override_headers_secret = var.agent_otel_platform_override_headers_arn != null ? [
@@ -321,9 +325,8 @@ locals {
     }
   ] : []
 
-  # Agent executor reads platform OTel headers in-process via
-  # load_agent_otel_platform_override; the standard executor does not, so the
-  # secret is scoped to the agent task only.
+  # The agent-native platform override is separate from standard service
+  # tracing and stays scoped to the agent executor host process.
   agent_executor_secrets = concat(
     local.tracecat_temporal_secrets,
     local.agent_otel_platform_override_headers_secret,

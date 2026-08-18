@@ -22640,6 +22640,17 @@ export const $RunContext = {
       type: "string",
       title: "Environment",
     },
+    trigger_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Trigger Type",
+    },
     logical_time: {
       type: "string",
       format: "date-time",
@@ -31379,6 +31390,14 @@ export const $WorkflowExecutionCreateResponse = {
       pattern:
         "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
+    },
+    trace_id: {
+      type: "string",
+      title: "Trace Id",
+    },
+    trace_url: {
+      type: "string",
+      title: "Trace Url",
     },
     payload: {
       title: "Payload",
