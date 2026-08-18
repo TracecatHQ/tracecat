@@ -1,0 +1,1313 @@
+"""Behavioral tests for policy-aware expression resolution."""
+
+from dataclasses import dataclass
+from typing import Any
+
+import pytest
+
+from tracecat.dsl.schemas import TemplateExecutionContext
+from tracecat.exceptions import TracecatExpressionError
+from tracecat.expressions.policy import (
+    PRESERVE_PARAMETERS,
+    REDACT_PARAMETERS,
+    ActionArgumentPlan,
+    ExpressionPolicy,
+    ProvenanceMap,
+    build_provenance,
+    expression_policy,
+    resolve_action_args,
+)
+from tracecat.secrets.constants import MASK_VALUE
+
+
+@dataclass
+class _TemplateState:
+    context: TemplateExecutionContext
+    provenance: ProvenanceMap
+
+    def resolve_action_args(
+        self,
+        action: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        return resolve_action_args(
+            action,
+            arguments,
+            self.context,
+            self.provenance,
+        )
+
+    def record_step(self, ref: str, result: Any) -> None:
+        self.context["steps"][ref] = result
+
+    def child_provenance(self, arguments: dict[str, Any]) -> ProvenanceMap:
+        return build_provenance(arguments, self.provenance)
+
+
+def _state(
+    source_args: dict[str, Any],
+    runtime_inputs: dict[str, Any],
+    variables: dict[str, Any] | None = None,
+) -> _TemplateState:
+    provenance = build_provenance(source_args)
+    context = TemplateExecutionContext(
+        SECRETS={},
+        VARS=variables or {},
+        inputs=runtime_inputs,
+        steps={},
+    )
+    return _TemplateState(context, provenance)
+
+
+def _redact(value: Any) -> Any:
+    plan = ActionArgumentPlan.build(
+        "core.cases.create_comment",
+        {"content": value},
+    )
+    return plan.evaluable["content"]
+
+
+def _resolve_root(
+    action: str,
+    arguments: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    return ActionArgumentPlan.build(action, arguments).evaluate(context)
+
+
+def test_action_parameter_policy_scope_is_explicit() -> None:
+    # PRESERVE skips evaluation entirely, so its scope must stay tiny and
+    # explicitly reviewed. Unlisted pairs resolve by default.
+    assert PRESERVE_PARAMETERS == {
+        ("core.workflow.edit_workflow", "patch_ops"),
+        ("core.workflow.create_workflow", "definition_yaml"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "parameter"),
+    [
+        ("core.http_paginate", "auth"),
+        ("core.http_paginate", "headers"),
+        ("core.http_paginate", "params"),
+        ("core.http_poll", "auth"),
+        ("core.http_poll", "headers"),
+        ("core.http_poll", "params"),
+        ("core.http_request", "auth"),
+        ("core.http_request", "headers"),
+        ("core.http_request", "params"),
+    ],
+)
+def test_http_transport_credential_fields_resolve_secrets(
+    action: str,
+    parameter: str,
+) -> None:
+    secret_expression = "${{ SECRETS.api.TOKEN }}"
+    values = {
+        "auth": {"username": "bot", "password": secret_expression},
+        "headers": {"Authorization": f"Bearer {secret_expression}"},
+        "params": {"token": secret_expression},
+    }
+    expected = {
+        "auth": {"username": "bot", "password": "runtime-secret"},
+        "headers": {"Authorization": "Bearer runtime-secret"},
+        "params": {"token": "runtime-secret"},
+    }
+
+    prepared = _resolve_root(
+        action,
+        {parameter: values[parameter]},
+        {"SECRETS": {"api": {"TOKEN": "runtime-secret"}}},
+    )
+
+    assert prepared == {parameter: expected[parameter]}
+
+
+def test_expression_policy_requires_exact_action_parameter_pair() -> None:
+    assert (
+        expression_policy("core.workflow.edit_workflow", "patch_ops")
+        is ExpressionPolicy.PRESERVE
+    )
+    assert (
+        expression_policy("core.workflow.edit_workflow", "workflow_id")
+        is ExpressionPolicy.RESOLVE
+    )
+    assert (
+        expression_policy("core.transform.reshape", "patch_ops")
+        is ExpressionPolicy.RESOLVE
+    )
+    assert expression_policy("core.http_request", "headers") is ExpressionPolicy.RESOLVE
+    assert expression_policy("core.http_request", "url") is ExpressionPolicy.RESOLVE
+    assert (
+        expression_policy("core.cases.create_comment", "content")
+        is ExpressionPolicy.REDACT_SECRETS
+    )
+
+
+@pytest.mark.parametrize(
+    "action",
+    sorted(
+        {
+            "custom.unconfigured_action",
+            *REDACT_PARAMETERS,
+            *(action for action, _ in PRESERVE_PARAMETERS),
+        }
+    ),
+)
+def test_unconfigured_parameters_retain_default_resolve_behavior(action: str) -> None:
+    # The synthetic action represents every action absent from the override tables;
+    # configured actions are included to prove that opt-ins remain field-scoped.
+    parameter = "unconfigured_parameter"
+    arguments = {
+        parameter: {
+            "secret": "${{ SECRETS.api.TOKEN }}",
+            "variable": "Value: ${{ VARS.api.VALUE }}",
+            "action": "${{ ACTIONS.lookup.result.value }}",
+            "input": "${{ inputs.item }}",
+        }
+    }
+    context = {
+        "SECRETS": {"api": {"TOKEN": "runtime-secret"}},
+        "VARS": {"api": {"VALUE": "runtime-variable"}},
+        "ACTIONS": {"lookup": {"result": {"value": "runtime-result"}}},
+        "inputs": {"item": "runtime-input"},
+    }
+
+    plan = ActionArgumentPlan.build(action, arguments)
+
+    assert expression_policy(action, parameter) is ExpressionPolicy.RESOLVE
+    assert plan.evaluable == arguments
+    assert plan.evaluate(context) == {
+        parameter: {
+            "secret": "runtime-secret",
+            "variable": "Value: runtime-variable",
+            "action": "runtime-result",
+            "input": "runtime-input",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "parameter"),
+    [
+        ("core.table.update_table", "new_name"),
+        ("ai.agent.create_preset", "model_name"),
+        ("ai.agent.create_preset", "model_provider"),
+        ("ai.agent.update_preset", "model_name"),
+        ("ai.agent.update_preset", "model_provider"),
+        ("core.cases.upload_attachment", "file_name"),
+        ("core.cases.upload_attachment", "content_type"),
+        ("core.cases.upload_attachment_from_url", "file_name"),
+        ("core.cases.create_task", "title"),
+        ("core.cases.create_task", "description"),
+        ("core.cases.update_task", "title"),
+        ("core.cases.update_task", "description"),
+        ("ai.skill.create_skill", "name"),
+        ("ai.skill.create_skill", "description"),
+        ("core.cases.add_case_tag", "tag"),
+    ],
+)
+def test_explicit_durable_string_fields_redact_secrets(
+    action: str,
+    parameter: str,
+) -> None:
+    prepared = _resolve_root(
+        action,
+        {parameter: "prefix-${{ SECRETS.api.TOKEN }}"},
+        {"SECRETS": {"api": {"TOKEN": "runtime-secret"}}},
+    )
+
+    assert prepared == {parameter: f"prefix-{MASK_VALUE}"}
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["core.cases.create_task", "core.cases.update_task"],
+)
+def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
+    prepared = _resolve_root(
+        action,
+        {
+            "default_trigger_values": {
+                "safe": "${{ VARS.api.region }}",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        {
+            "SECRETS": {"api": {"TOKEN": "runtime-secret"}},
+            "VARS": {"api": {"region": "us-east-1"}},
+        },
+    )
+
+    assert prepared == {
+        "default_trigger_values": {
+            "safe": "us-east-1",
+            "token": MASK_VALUE,
+        }
+    }
+
+
+def test_agent_skill_files_redact_nested_secrets() -> None:
+    prepared = _resolve_root(
+        "ai.skill.publish_skill_version",
+        {
+            "skill_id": "triage-assistant",
+            "files": [
+                {
+                    "path": "SKILL.md",
+                    "content_base64": "${{ SECRETS.api.FILE_BASE64 }}",
+                    "content_type": "text/markdown",
+                }
+            ],
+        },
+        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
+    )
+
+    assert prepared == {
+        "skill_id": "triage-assistant",
+        "files": [
+            {
+                "path": "SKILL.md",
+                "content_base64": MASK_VALUE,
+                "content_type": "text/markdown",
+            }
+        ],
+    }
+
+
+def test_attachment_content_redacts_secrets_before_persistence() -> None:
+    prepared = _resolve_root(
+        "core.cases.upload_attachment",
+        {"content_base64": "${{ SECRETS.api.FILE_BASE64 }}"},
+        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
+    )
+
+    assert prepared == {"content_base64": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["ai.agent.create_preset", "ai.agent.update_preset"],
+)
+def test_preset_nested_durable_fields_redact_secrets(action: str) -> None:
+    prepared = _resolve_root(
+        action,
+        {
+            "catalog_id": "${{ SECRETS.api.CATALOG_ID }}",
+            "actions": ["core.cases.create_case", "${{ SECRETS.api.ACTION }}"],
+            "namespaces": ["core", "${{ SECRETS.api.NAMESPACE }}"],
+            "tool_approvals": {
+                "core.cases.create_case": False,
+                "core.cases.update_case": "${{ SECRETS.api.APPROVAL }}",
+            },
+            "mcp_integrations": ["${{ SECRETS.api.MCP_INTEGRATION_ID }}"],
+            "agents": {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "triage-assistant",
+                        "description": "Uses ${{ SECRETS.api.TOKEN }}",
+                    }
+                ],
+            },
+            "skills": [{"skill_id": "${{ SECRETS.api.SKILL_ID }}"}],
+        },
+        {
+            "SECRETS": {
+                "api": {
+                    "CATALOG_ID": "00000000-0000-0000-0000-000000000001",
+                    "ACTION": "core.cases.update_case",
+                    "NAMESPACE": "private.namespace",
+                    "APPROVAL": "true",
+                    "MCP_INTEGRATION_ID": "00000000-0000-0000-0000-000000000002",
+                    "TOKEN": "runtime-secret",
+                    "SKILL_ID": "triage-assistant",
+                }
+            }
+        },
+    )
+
+    assert prepared == {
+        "catalog_id": MASK_VALUE,
+        "actions": ["core.cases.create_case", MASK_VALUE],
+        "namespaces": ["core", MASK_VALUE],
+        "tool_approvals": {
+            "core.cases.create_case": False,
+            "core.cases.update_case": MASK_VALUE,
+        },
+        "mcp_integrations": [MASK_VALUE],
+        "agents": {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "triage-assistant",
+                    "description": f"Uses {MASK_VALUE}",
+                }
+            ],
+        },
+        "skills": [{"skill_id": MASK_VALUE}],
+    }
+
+
+def test_redact_secret_expressions_preserves_non_secret_templates() -> None:
+    value = (
+        "Host: ${{ VARS.api.host }}, "
+        "token: ${{ SECRETS.api.TOKEN }}, "
+        "time: ${{ FN.now() }}, "
+        "result: ${{ ACTIONS.lookup.result }}"
+    )
+
+    assert _redact(value) == (
+        f"Host: ${{{{ VARS.api.host }}}}, token: {MASK_VALUE}, "
+        "time: ${{ FN.now() }}, result: ${{ ACTIONS.lookup.result }}"
+    )
+
+
+def test_redact_secret_expressions_replaces_complex_occurrence() -> None:
+    value = "${{ FN.to_base64(SECRETS.api.TOKEN + VARS.api.suffix) }}"
+
+    assert _redact(value) == MASK_VALUE
+
+
+def test_redact_secret_expressions_uses_ast_dependencies() -> None:
+    value = (
+        "Plain SECRETS.api.TOKEN; "
+        "literal ${{ 'SECRETS.api.TOKEN' }}; "
+        "reference ${{ SECRETS.api.TOKEN }}"
+    )
+
+    assert _redact(value) == (
+        "Plain SECRETS.api.TOKEN; "
+        "literal ${{ 'SECRETS.api.TOKEN' }}; "
+        f"reference {MASK_VALUE}"
+    )
+
+
+def test_redact_secret_expressions_rejects_secret_dependent_keys() -> None:
+    value = {
+        "${{ SECRETS.api.KEY }}": 1,
+        "${{ SECRETS.other.KEY }}": 2,
+    }
+
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        _redact(value)
+
+    assert exc_info.value.detail == {"code": "secret_expression_in_key"}
+
+
+def test_redact_secret_expressions_recurses_through_values() -> None:
+    value = {
+        "keep ${{ VARS.api.key }}": [
+            "keep ${{ VARS.api.value }}",
+            {"nested": "${{ SECRETS.api.TOKEN }}"},
+        ]
+    }
+
+    assert _redact(value) == {
+        "keep ${{ VARS.api.key }}": [
+            "keep ${{ VARS.api.value }}",
+            {"nested": MASK_VALUE},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        '${{ inputs.content || "fallback" }}',
+        "${{ FN.to_base64(inputs.content) }}",
+        '${{ FN.to_base64(inputs["content"]) }}',
+        "${{ FN.to_base64(inputs['content']) }}",
+        '${{ FN.to_base64(inputs."content") }}',
+    ],
+)
+def test_compound_template_input_dependency_is_redacted(expression: str) -> None:
+    state = _state(
+        source_args={"content": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"content": "runtime-secret"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment", {"content": expression}
+    )
+
+    assert prepared == {"content": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".content",
+        '["content"]',
+        "['content']",
+        '."content"',
+    ],
+)
+def test_equivalent_input_selectors_redact_direct_secret(selector: str) -> None:
+    state = _state(
+        source_args={"content": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"content": "runtime-secret"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"content": MASK_VALUE}
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        (".*", [MASK_VALUE, {"content": MASK_VALUE}]),
+        ('["*"]', [MASK_VALUE, {"content": MASK_VALUE}]),
+        ('."*"', [MASK_VALUE, {"content": MASK_VALUE}]),
+        ("..content", MASK_VALUE),
+    ],
+)
+def test_non_concrete_input_selectors_redact_conservatively(
+    selector: str,
+    expected: Any,
+) -> None:
+    state = _state(
+        source_args={
+            "safe": "plain",
+            "nested": {"content": "${{ SECRETS.api.TOKEN }}"},
+        },
+        runtime_inputs={
+            "safe": "plain",
+            "nested": {"content": "runtime-secret"},
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"content": expected}
+
+
+def test_non_concrete_input_selector_scopes_dependencies_to_concrete_prefix() -> None:
+    state = _state(
+        source_args={
+            "safe_items": ["first", "second"],
+            "unrelated": "${{ SECRETS.api.TOKEN }}",
+        },
+        runtime_inputs={
+            "safe_items": ["first", "second"],
+            "unrelated": "runtime-secret",
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.safe_items[*] }}"},
+    )
+
+    assert prepared == {"content": ["first", "second"]}
+
+
+def test_non_concrete_input_selector_collapses_selected_subtree_dependencies() -> None:
+    state = _state(
+        source_args={
+            "items": ["plain", "${{ SECRETS.api.TOKEN }}"],
+            "unrelated": "safe",
+        },
+        runtime_inputs={
+            "items": ["plain", "runtime-secret"],
+            "unrelated": "safe",
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.items[*] }}"},
+    )
+
+    assert prepared == {"content": [MASK_VALUE, MASK_VALUE]}
+
+
+def test_template_input_dependencies_preserve_structured_paths() -> None:
+    state = _state(
+        source_args={
+            "context": {
+                "safe": "plain value",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "safe": "plain value",
+                "token": "runtime-secret",
+            }
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_case",
+        {
+            "payload": {
+                "safe": "${{ inputs.context.safe }}",
+                "token": "${{ inputs.context.token }}",
+            }
+        },
+    )
+
+    assert prepared == {
+        "payload": {
+            "safe": "plain value",
+            "token": MASK_VALUE,
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        (-1, MASK_VALUE),
+        (-2, "plain value"),
+    ],
+)
+def test_template_input_dependencies_normalize_negative_list_indices(
+    index: int,
+    expected: str,
+) -> None:
+    state = _state(
+        source_args={
+            "items": [
+                "plain value",
+                "${{ SECRETS.api.TOKEN }}",
+            ]
+        },
+        runtime_inputs={
+            "items": [
+                "plain value",
+                "runtime-secret",
+            ]
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": f"${{{{ inputs.items[{index}] }}}}"},
+    )
+
+    assert prepared == {"content": expected}
+
+
+def test_whole_tainted_input_is_conservatively_masked_without_re_evaluation() -> None:
+    state = _state(
+        source_args={
+            "context": {
+                "safe": "${{ ACTIONS.fetch.result.note }}",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "safe": "${{ SECRETS.injected.VALUE }}",
+                "token": "runtime-secret",
+            }
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.table.insert_row",
+        {"table": "events", "row_data": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "table": "events",
+        "row_data": {
+            "safe": MASK_VALUE,
+            "token": MASK_VALUE,
+        },
+    }
+
+
+def test_whole_tainted_mapping_masks_every_runtime_value() -> None:
+    state = _state(
+        source_args={
+            "context": {
+                "safe": "plain",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "token": "runtime-secret",
+                "safe": "plain",
+            }
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.table.insert_row",
+        {"row_data": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "row_data": {
+            "token": MASK_VALUE,
+            "safe": MASK_VALUE,
+        }
+    }
+
+
+def test_whole_secret_mapping_keeps_non_sensitive_keys_and_masks_values() -> None:
+    """Mapping keys are metadata; the confidentiality contract covers values."""
+    state = _state(
+        source_args={
+            "context": "${{ FN.deserialize_json(SECRETS.api.JSON) }}",
+        },
+        runtime_inputs={
+            "context": {"metadata-key": "runtime-secret"},
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_case",
+        {"payload": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "payload": {
+            "metadata-key": MASK_VALUE,
+        }
+    }
+
+
+def test_dynamic_authored_key_falls_back_to_conservative_mask() -> None:
+    state = _state(
+        source_args={
+            "context": {
+                "${{ VARS.col }}": "plain",
+                "token": "${{ SECRETS.api.TOKEN }}",
+            }
+        },
+        runtime_inputs={
+            "context": {
+                "events": "plain",
+                "token": "runtime-secret",
+            }
+        },
+        variables={"col": "events"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.table.insert_row",
+        {"row_data": "${{ inputs.context }}"},
+    )
+
+    assert prepared == {
+        "row_data": {
+            "events": MASK_VALUE,
+            "token": MASK_VALUE,
+        }
+    }
+
+
+def test_secret_dependent_input_key_is_rejected_only_at_sink() -> None:
+    state = _state(
+        source_args={
+            "content": "plain",
+            "context": {"${{ SECRETS.api.KEY }}": "value"},
+        },
+        runtime_inputs={
+            "content": "plain",
+            "context": {"runtime-key": "value"},
+        },
+    )
+
+    assert state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.content }}"},
+    ) == {"content": "plain"}
+
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        state.resolve_action_args(
+            "core.cases.create_case",
+            {"payload": "${{ inputs.context }}"},
+        )
+
+    assert exc_info.value.detail == {"code": "secret_expression_in_key"}
+
+
+def test_compound_dependency_propagates_across_template_boundaries() -> None:
+    outer = _state(
+        source_args={"value": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"value": "runtime-secret"},
+    )
+
+    child = outer.child_provenance({"value": '${{ inputs.value || "fallback" }}'})
+
+    assert child["value"].dependencies.value
+    assert child["value"].source == '${{ inputs.value || "fallback" }}'
+
+
+def test_substitution_splices_caller_source_without_evaluating() -> None:
+    """Direct input references become the caller's raw source, verbatim."""
+    state = _state(
+        source_args={"content": "${{ ACTIONS.fetch.result.body }}"},
+        runtime_inputs={"content": "evaluated-upstream-value"},
+    )
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {
+            "patch_ops": {
+                "content": "${{ inputs.content }}",
+                "note": "Token: ${{ inputs.content }}",
+                "step": "${{ steps.prev.result }}",
+            }
+        },
+    )
+
+    assert prepared["patch_ops"] == {
+        "content": "${{ ACTIONS.fetch.result.body }}",
+        "note": "Token: ${{ ACTIONS.fetch.result.body }}",
+        "step": "${{ steps.prev.result }}",
+    }
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".ops",
+        '["ops"]',
+        "['ops']",
+        '."ops"',
+    ],
+)
+def test_equivalent_input_selectors_preserve_authored_source(selector: str) -> None:
+    source_ops = [
+        {
+            "op": "add",
+            "path": "/definition/actions/-",
+            "value": "${{ SECRETS.api.TOKEN }}",
+        }
+    ]
+    state = _state(
+        source_args={"ops": source_ops},
+        runtime_inputs={
+            "ops": [
+                {
+                    "op": "add",
+                    "path": "/definition/actions/-",
+                    "value": "runtime-secret",
+                }
+            ]
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"patch_ops": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"patch_ops": source_ops}
+
+
+@pytest.mark.parametrize(
+    ("source_args", "runtime_inputs", "selector", "expected"),
+    [
+        (
+            {
+                "first": {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                },
+                "second": {
+                    "op": "add",
+                    "path": "/b",
+                    "value": "plain",
+                },
+            },
+            {
+                "first": {"op": "add", "path": "/a", "value": "secret"},
+                "second": {"op": "add", "path": "/b", "value": "plain"},
+            },
+            ".*",
+            [
+                {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                },
+                {"op": "add", "path": "/b", "value": "plain"},
+            ],
+        ),
+        (
+            {
+                "wrapper": {
+                    "ops": [
+                        {
+                            "op": "add",
+                            "path": "/a",
+                            "value": "${{ SECRETS.api.FIRST }}",
+                        }
+                    ]
+                }
+            },
+            {"wrapper": {"ops": [{"op": "add", "path": "/a", "value": "secret"}]}},
+            "..ops",
+            [
+                {
+                    "op": "add",
+                    "path": "/a",
+                    "value": "${{ SECRETS.api.FIRST }}",
+                }
+            ],
+        ),
+    ],
+)
+def test_non_concrete_input_selectors_preserve_authored_source(
+    source_args: dict[str, Any],
+    runtime_inputs: dict[str, Any],
+    selector: str,
+    expected: Any,
+) -> None:
+    state = _state(source_args=source_args, runtime_inputs=runtime_inputs)
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"patch_ops": f"${{{{ inputs{selector} }}}}"},
+    )
+
+    assert prepared == {"patch_ops": expected}
+
+
+def test_substitution_keeps_unresolvable_references() -> None:
+    state = _state(source_args={"other": "value"}, runtime_inputs={"other": "value"})
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"patch_ops": {"content": "${{ inputs.missing }}"}},
+    )
+
+    assert prepared["patch_ops"] == {"content": "${{ inputs.missing }}"}
+
+
+def test_preserve_rejects_source_key_collisions() -> None:
+    state = _state(
+        source_args={"first": "same", "second": "same"},
+        runtime_inputs={"first": "same", "second": "same"},
+    )
+
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        state.resolve_action_args(
+            "core.workflow.edit_workflow",
+            {
+                "patch_ops": {
+                    "${{ inputs.first }}": 1,
+                    "${{ inputs.second }}": 2,
+                }
+            },
+        )
+
+    assert exc_info.value.detail == {"code": "expression_key_collision"}
+
+
+def test_caller_scoped_source_resolves_to_runtime_value_at_sink() -> None:
+    """Regression: upstream action data through a sink must not become None."""
+    state = _state(
+        source_args={"content": "${{ ACTIONS.fetch.result.body }}"},
+        runtime_inputs={"content": "evaluated-upstream-value"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"case_id": "case-123", "content": "${{ inputs.content }}"},
+    )
+
+    assert prepared == {
+        "case_id": "case-123",
+        "content": "evaluated-upstream-value",
+    }
+
+
+def test_whole_mixed_string_input_is_conservatively_masked() -> None:
+    state = _state(
+        source_args={
+            "content": "${{ ACTIONS.fetch.result.body }} ${{ SECRETS.api.TOKEN }}"
+        },
+        runtime_inputs={"content": "upstream s3cret"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment", {"content": "${{ inputs.content }}"}
+    )
+
+    assert prepared == {"content": MASK_VALUE}
+
+
+def test_adjacent_templates_mask_independently() -> None:
+    state = _state(
+        source_args={"a": "left", "b": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"a": "left", "b": "runtime-secret"},
+    )
+    assert state.provenance["b"].dependencies.value
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.a }} ${{ inputs.b }}"},
+    )
+
+    assert prepared == {"content": f"left {MASK_VALUE}"}
+
+
+def test_step_results_are_runtime_data_without_taint() -> None:
+    state = _state(
+        source_args={"token": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"token": "runtime-secret"},
+    )
+    state.record_step("normalize", {"result": "runtime-secret"})
+    state.record_step("plain", {"result": "ok"})
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ steps.normalize.result }} / ${{ steps.plain.result }}"},
+    )
+
+    assert prepared == {"content": "runtime-secret / ok"}
+
+
+def test_step_results_do_not_taint_child_provenance() -> None:
+    state = _state(
+        source_args={"token": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"token": "runtime-secret"},
+    )
+    state.record_step("normalize", {"result": "runtime-secret"})
+
+    child = state.child_provenance({"value": "${{ steps.normalize.result }}"})
+
+    assert not child["value"].dependencies.secret
+
+
+def test_workflow_metadata_redacts_secret_expressions() -> None:
+    prepared = _resolve_root(
+        "core.workflow.create_workflow",
+        {
+            "title": "Sync ${{ SECRETS.api.KEY }}",
+            "description": "Uses ${{ VARS.api.host }}",
+        },
+        {"VARS": {"api": {"host": "api.example.com"}}},
+    )
+
+    assert prepared == {
+        "title": f"Sync {MASK_VALUE}",
+        "description": "Uses api.example.com",
+    }
+
+
+def test_preset_metadata_redacts_secret_expressions() -> None:
+    prepared = _resolve_root(
+        "ai.agent.update_preset",
+        {
+            "slug": "analyst",
+            "description": "Uses ${{ SECRETS.api.KEY }}",
+            "name": "Analyst ${{ VARS.api.env }}",
+        },
+        {"VARS": {"api": {"env": "prod"}}},
+    )
+
+    assert prepared == {
+        "slug": "analyst",
+        "description": f"Uses {MASK_VALUE}",
+        "name": "Analyst prod",
+    }
+
+
+def test_column_definitions_redact_secret_expressions() -> None:
+    prepared = _resolve_root(
+        "core.table.create_table",
+        {
+            "name": "alerts",
+            "columns": [
+                {
+                    "name": "token",
+                    "type": "TEXT",
+                    "default": "${{ SECRETS.api.KEY }}",
+                },
+                {
+                    "name": "region",
+                    "type": "TEXT",
+                    "default": "${{ VARS.api.region }}",
+                },
+            ],
+        },
+        {"VARS": {"api": {"region": "us-east-1"}}},
+    )
+
+    assert prepared == {
+        "name": "alerts",
+        "columns": [
+            {"name": "token", "type": "TEXT", "default": MASK_VALUE},
+            {"name": "region", "type": "TEXT", "default": "us-east-1"},
+        ],
+    }
+
+
+def test_preserve_substitutes_caller_source_for_direct_reference() -> None:
+    ops = [
+        {
+            "op": "add",
+            "path": "/definition/actions/-",
+            "value": {"token": "${{ SECRETS.source.TOKEN }}"},
+        }
+    ]
+    state = _state(
+        source_args={"ops": ops},
+        runtime_inputs={"ops": [{"op": "add", "value": {"token": "runtime-secret"}}]},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ inputs.ops }}"},
+    )
+
+    assert prepared == {"workflow_id": "wf-123", "patch_ops": ops}
+
+
+def test_preserve_carrier_source_materializes_runtime_value() -> None:
+    """A caller source that is itself a carrier resolves to the runtime value."""
+    runtime_ops = [{"op": "add", "path": "/x", "value": 1}]
+    state = _state(
+        source_args={"ops": "${{ ACTIONS.builder.result }}"},
+        runtime_inputs={"ops": runtime_ops},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ inputs.ops }}"},
+    )
+
+    assert prepared == {"workflow_id": "wf-123", "patch_ops": runtime_ops}
+
+
+def test_secret_dependent_carrier_stays_preserved_in_template() -> None:
+    state = _state(
+        source_args={"ops": "${{ SECRETS.api.OPS }}"},
+        runtime_inputs={"ops": "runtime-secret"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ inputs.ops }}"},
+    )
+
+    assert prepared == {
+        "workflow_id": "wf-123",
+        "patch_ops": "${{ SECRETS.api.OPS }}",
+    }
+
+
+def test_preserve_untainted_step_carrier_materializes() -> None:
+    runtime_ops = [{"op": "add", "path": "/x", "value": 1}]
+    state = _state(
+        source_args={},
+        runtime_inputs={},
+    )
+    state.record_step("build", {"result": runtime_ops})
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ steps.build.result }}"},
+    )
+
+    assert prepared == {"workflow_id": "wf-123", "patch_ops": runtime_ops}
+
+
+def test_preserve_step_carrier_materializes_without_step_taint() -> None:
+    state = _state(
+        source_args={"token": "${{ SECRETS.api.TOKEN }}"},
+        runtime_inputs={"token": "runtime-secret"},
+    )
+    state.record_step("build", {"result": "runtime-secret"})
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ steps.build.result }}"},
+    )
+
+    assert prepared == {
+        "workflow_id": "wf-123",
+        "patch_ops": "runtime-secret",
+    }
+
+
+def test_preserve_carrier_expression_materializes_at_root() -> None:
+    """A bare expression can never be valid preserved source; evaluate it."""
+    ops = [{"op": "add", "path": "/definition/actions/-", "value": "${{ VARS.x }}"}]
+    prepared = _resolve_root(
+        "core.workflow.edit_workflow",
+        {
+            "workflow_id": "wf-123",
+            "patch_ops": "${{ ACTIONS.builder.result }}",
+            "validate_only": False,
+        },
+        {"ACTIONS": {"builder": {"result": ops}}},
+    )
+
+    assert prepared == {
+        "workflow_id": "wf-123",
+        "patch_ops": ops,
+        "validate_only": False,
+    }
+
+
+def test_preserve_carrier_expression_materializes_definition_yaml() -> None:
+    yaml_source = "definition:\n  title: Generated\n"
+    prepared = _resolve_root(
+        "core.workflow.create_workflow",
+        {"definition_yaml": "${{ ACTIONS.gen.result }}"},
+        {"ACTIONS": {"gen": {"result": yaml_source}}},
+    )
+
+    assert prepared == {"definition_yaml": yaml_source}
+
+
+def test_secret_dependent_carrier_stays_preserved_at_root() -> None:
+    prepared = _resolve_root(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": "${{ SECRETS.api.OPS }}"},
+        {"SECRETS": {"api": {"OPS": "runtime-secret"}}},
+    )
+
+    assert prepared == {
+        "workflow_id": "wf-123",
+        "patch_ops": "${{ SECRETS.api.OPS }}",
+    }
+
+
+def test_preserve_literal_source_is_untouched_by_carrier_carveout() -> None:
+    source = {"op": "add", "path": "/x", "value": "${{ ACTIONS.a.result }}"}
+    prepared = _resolve_root(
+        "core.workflow.edit_workflow",
+        {"workflow_id": "wf-123", "patch_ops": [source]},
+        {},
+    )
+
+    assert prepared == {"workflow_id": "wf-123", "patch_ops": [source]}
+
+
+def test_source_provenance_never_evaluates_authored_source() -> None:
+    provenance = build_provenance(
+        {"content": "${{ FN.uuid4() }} ${{ SECRETS.api.TOKEN }}"},
+    )
+
+    assert provenance["content"].dependencies.value
+    assert provenance["content"].source == (
+        "${{ FN.uuid4() }} ${{ SECRETS.api.TOKEN }}"
+    )
+
+
+def test_partition_redacts_before_evaluation_and_restores_order() -> None:
+    args = {
+        "case_id": "${{ VARS.case.id }}",
+        "content": "Host ${{ VARS.api.host }}, token ${{ SECRETS.api.TOKEN }}",
+        "workflow_id": None,
+    }
+
+    partitioned = ActionArgumentPlan.build("core.cases.create_comment", args)
+
+    assert partitioned.evaluable == {
+        "case_id": "${{ VARS.case.id }}",
+        "content": f"Host ${{{{ VARS.api.host }}}}, token {MASK_VALUE}",
+        "workflow_id": None,
+    }
+    assert partitioned.evaluate(
+        {"VARS": {"case": {"id": "case-123"}, "api": {"host": "example.com"}}}
+    ) == {
+        "case_id": "case-123",
+        "content": f"Host example.com, token {MASK_VALUE}",
+        "workflow_id": None,
+    }
+
+
+def test_partition_restores_preserved_subtree_without_reordering() -> None:
+    source = {
+        "${{ VARS.source.key }}": ["${{ SECRETS.source.TOKEN }}"],
+    }
+    args = {
+        "workflow_id": "${{ VARS.runtime.workflow_id }}",
+        "patch_ops": source,
+        "validate_only": False,
+    }
+
+    partitioned = ActionArgumentPlan.build("core.workflow.edit_workflow", args)
+
+    assert partitioned.evaluable == {
+        "workflow_id": "${{ VARS.runtime.workflow_id }}",
+        "validate_only": False,
+    }
+    assert partitioned.evaluate({"VARS": {"runtime": {"workflow_id": "wf-123"}}}) == {
+        "workflow_id": "wf-123",
+        "patch_ops": source,
+        "validate_only": False,
+    }
+
+
+def test_provenance_does_not_taint_step_results() -> None:
+    provenance = build_provenance({"value": "${{ steps.normalize.result }}"})
+
+    assert not provenance["value"].dependencies.secret
+
+
+def test_preserve_splices_null_input_value_but_leaves_missing_reference() -> None:
+    state = _state(
+        source_args={"optional": None, "present": "abc"},
+        runtime_inputs={"optional": None, "present": "abc"},
+    )
+    patch_ops = [
+        {"op": "replace", "path": "/config/timeout", "value": "${{ inputs.optional }}"},
+        {"op": "replace", "path": "/config/name", "value": "${{ inputs.present }}"},
+        {"op": "replace", "path": "/config/ghost", "value": "${{ inputs.missing }}"},
+    ]
+
+    prepared = state.resolve_action_args(
+        "core.workflow.edit_workflow", {"patch_ops": patch_ops}
+    )
+
+    assert prepared["patch_ops"] == [
+        {"op": "replace", "path": "/config/timeout", "value": None},
+        {"op": "replace", "path": "/config/name", "value": "abc"},
+        {"op": "replace", "path": "/config/ghost", "value": "${{ inputs.missing }}"},
+    ]
+
+
+def test_create_case_tags_redact_secret_expressions_at_root() -> None:
+    partitioned = ActionArgumentPlan.build(
+        "core.cases.create_case",
+        {
+            "summary": "Case",
+            "tags": ["${{ SECRETS.api.KEY }}", "phishing"],
+            "create_missing_tags": True,
+        },
+    )
+
+    assert partitioned.evaluable["tags"] == [MASK_VALUE, "phishing"]
+    assert partitioned.evaluable["create_missing_tags"] is True
+
+
+def test_preserve_splices_null_into_embedded_reference_as_native_rendering() -> None:
+    state = _state(
+        source_args={"optional": None, "present": "abc"},
+        runtime_inputs={"optional": None, "present": "abc"},
+    )
+
+    prepared = state.resolve_action_args(
+        "core.workflow.create_workflow",
+        {
+            "definition_yaml": (
+                "description: ${{ inputs.optional }}\n"
+                "title: ${{ inputs.present }}\n"
+                "ghost: ${{ inputs.missing }}\n"
+            )
+        },
+    )
+
+    assert prepared["definition_yaml"] == (
+        "description: None\ntitle: abc\nghost: ${{ inputs.missing }}\n"
+    )
