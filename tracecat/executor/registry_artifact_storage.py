@@ -10,7 +10,7 @@ import shutil
 import stat
 import threading
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Collection, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +36,7 @@ __all__ = (
     "CACHE_TRASH_DIR_NAME",
     "RegistryArtifactAdmission",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactCacheLeaseContentionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactCacheStorage",
     "RegistryArtifactEviction",
@@ -92,6 +93,10 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         self.current_bytes = current_bytes
         self.additional_bytes = additional_bytes
         self.max_bytes = max_bytes
+
+
+class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
+    """Active leases temporarily pin bytes needed by a cold artifact."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -572,7 +577,12 @@ class RegistryArtifactCacheStorage:
             admission=admission,
         )
 
-    def _admission_for(self, cache_key: str) -> RegistryArtifactAdmission | None:
+    def _admission_for(
+        self,
+        cache_key: str,
+        *,
+        attempt_cache_keys: Collection[str] = (),
+    ) -> RegistryArtifactAdmission | None:
         """Return byte-bound admission controls for one cold cache key."""
         max_bytes = config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES
         if max_bytes <= 0:
@@ -587,6 +597,7 @@ class RegistryArtifactCacheStorage:
                 ),
                 protected_key=cache_key,
                 max_bytes=max_bytes,
+                attempt_cache_keys=attempt_cache_keys,
             )
 
         return RegistryArtifactAdmission(
@@ -753,13 +764,23 @@ class RegistryArtifactCacheStorage:
         additional_bytes: int,
         protected_key: str,
         max_bytes: int,
+        attempt_cache_keys: Collection[str] = (),
     ) -> None:
         """Reserve peak bytes for one serialized cold writer."""
         if additional_bytes < 0:
             raise ValueError("additional_bytes must be non-negative")
 
-        def capacity_error(current_bytes: int) -> RegistryArtifactCacheCapacityError:
-            return RegistryArtifactCacheCapacityError(
+        def capacity_error(
+            current_bytes: int,
+            *,
+            lease_contention: bool = False,
+        ) -> RegistryArtifactCacheCapacityError:
+            error_type = (
+                RegistryArtifactCacheLeaseContentionError
+                if lease_contention
+                else RegistryArtifactCacheCapacityError
+            )
+            return error_type(
                 current_bytes=current_bytes,
                 additional_bytes=additional_bytes,
                 max_bytes=max_bytes,
@@ -769,23 +790,37 @@ class RegistryArtifactCacheStorage:
         snapshot = await asyncio.to_thread(self._scan_cache_snapshot)
         entries = snapshot.entries
         total_bytes = snapshot.total_bytes
-        non_evictable_bytes = (
-            snapshot.structural_bytes
-            + snapshot.staging_bytes
-            + snapshot.trash_bytes
-            + sum(
-                entry.size_bytes
-                for entry in entries.values()
-                if entry.cache_key == protected_key
-                or self._refcount(entry.cache_key) > 0
-                or (
-                    (runtime := self._runtime.get(entry.cache_key)) is not None
-                    and runtime.lock.locked()
-                )
-            )
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
         )
+        protected_bytes = sum(
+            entry.size_bytes
+            for entry in entries.values()
+            if entry.cache_key == protected_key
+        )
+        busy_entries = [
+            entry
+            for entry in entries.values()
+            if entry.cache_key != protected_key
+            and self._cache_entry_is_busy(entry.cache_key)
+        ]
+        busy_bytes = sum(entry.size_bytes for entry in busy_entries)
+        retryable_busy_bytes = sum(
+            entry.size_bytes
+            for entry in busy_entries
+            if entry.cache_key not in attempt_cache_keys
+        )
+        non_evictable_bytes = fixed_bytes + protected_bytes + busy_bytes
         if non_evictable_bytes + additional_bytes > max_bytes:
-            raise capacity_error(non_evictable_bytes)
+            fits_after_busy_entries_release = (
+                retryable_busy_bytes > 0
+                and non_evictable_bytes - retryable_busy_bytes + additional_bytes
+                <= max_bytes
+            )
+            raise capacity_error(
+                non_evictable_bytes,
+                lease_contention=fits_after_busy_entries_release,
+            )
         if (
             not (trash_clean and startup_clean)
             and total_bytes + additional_bytes > max_bytes
@@ -802,7 +837,30 @@ class RegistryArtifactCacheStorage:
             ),
         )
         if not eviction_pass.fits:
-            raise capacity_error(eviction_pass.total_bytes)
+            retryable_busy_bytes = sum(
+                entry.size_bytes
+                for entry in entries.values()
+                if entry.cache_key != protected_key
+                and entry.cache_key not in attempt_cache_keys
+                and self._cache_entry_is_busy(entry.cache_key)
+            )
+            fits_after_busy_entries_release = (
+                eviction_pass.exhausted_candidates
+                and retryable_busy_bytes > 0
+                and eviction_pass.total_bytes - retryable_busy_bytes + additional_bytes
+                <= max_bytes
+            )
+            raise capacity_error(
+                eviction_pass.total_bytes,
+                lease_contention=fits_after_busy_entries_release,
+            )
+
+    def _cache_entry_is_busy(self, cache_key: str) -> bool:
+        """Return whether process-local lease or lock state blocks eviction."""
+        if self._refcount(cache_key) > 0:
+            return True
+        runtime = self._runtime.get(cache_key)
+        return runtime is not None and runtime.lock.locked()
 
     async def _evict_until_fits(
         self,
