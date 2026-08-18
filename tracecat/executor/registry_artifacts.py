@@ -21,6 +21,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import tracecat_registry
+from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from tracecat import config
 from tracecat.concurrency import (
@@ -87,6 +94,10 @@ class RegistryArtifactFormat(StrEnum):
     TAR_GZ = "tar.gz"
 
 
+REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS = 4
+REGISTRY_ARTIFACT_CAPACITY_RETRY_BASE_SECONDS = 0.25
+REGISTRY_ARTIFACT_CAPACITY_RETRY_MAX_SECONDS = 1.0
+
 BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
 """Pseudo-URI for the builtin registry already installed in the executor image."""
 
@@ -100,6 +111,30 @@ class RegistryArtifactExtractionError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Registry artifact extraction failed")
+
+
+def _log_registry_artifact_capacity_retry(retry_state: RetryCallState) -> None:
+    """Log one retryable registry artifact admission failure."""
+    outcome = retry_state.outcome
+    if outcome is None or not outcome.failed:
+        return
+    error = outcome.exception()
+    if not isinstance(error, RegistryArtifactCacheLeaseContentionError):
+        return
+    logger.warning(
+        "Retrying registry artifact admission after lease contention",
+        attempt=retry_state.attempt_number,
+        max_attempts=REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS,
+        current_bytes=error.current_bytes,
+        additional_bytes=error.additional_bytes,
+        max_bytes=error.max_bytes,
+        retry_delay_ms=f"{retry_state.upcoming_sleep * 1000:.1f}",
+    )
+
+
+async def _sleep_registry_artifact_capacity_retry(delay: float) -> None:
+    """Sleep between admission attempts through a narrow test seam."""
+    await asyncio.sleep(delay)
 
 
 @dataclass(frozen=True, slots=True)
@@ -937,6 +972,7 @@ class _RegistryArtifactLease:
     cache: RegistryArtifactCache
     artifact_uri: str
     cache_key: str | None
+    attempt_cache_keys: set[str]
     paths: list[Path] | None = None
     paths_may_be_modified: bool = False
     _acquired: bool = False
@@ -947,6 +983,7 @@ class _RegistryArtifactLease:
         if self.cache_key is None or self._acquired:
             raise RuntimeError("Invalid registry artifact lease acquisition")
         self._acquired = True
+        self.attempt_cache_keys.add(self.cache_key)
 
     async def __aenter__(self) -> list[Path]:
         try:
@@ -1036,6 +1073,40 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
             await self.ensure_swept()
 
+        async with contextlib.AsyncExitStack() as lease_stack:
+
+            async def enter_lease_once() -> list[Path]:
+                return await lease_stack.enter_async_context(
+                    self._lease_once(
+                        artifact_uris,
+                        paths_may_be_modified=paths_may_be_modified,
+                    )
+                )
+
+            registry_paths = await AsyncRetrying(
+                retry=retry_if_exception_type(
+                    RegistryArtifactCacheLeaseContentionError
+                ),
+                stop=stop_after_attempt(REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS),
+                wait=wait_random_exponential(
+                    multiplier=REGISTRY_ARTIFACT_CAPACITY_RETRY_BASE_SECONDS,
+                    max=REGISTRY_ARTIFACT_CAPACITY_RETRY_MAX_SECONDS,
+                ),
+                before_sleep=_log_registry_artifact_capacity_retry,
+                sleep=_sleep_registry_artifact_capacity_retry,
+                reraise=True,
+            )(enter_lease_once)
+            yield registry_paths
+
+    @asynccontextmanager
+    async def _lease_once(
+        self,
+        artifact_uris: list[str],
+        *,
+        paths_may_be_modified: bool,
+    ) -> AsyncGenerator[list[Path]]:
+        """Acquire one complete lease set, releasing partial pins on failure."""
+        attempt_cache_keys: set[str] = set()
         async with contextlib.AsyncExitStack() as leases:
             handles: list[_RegistryArtifactLease] = []
             registry_paths: list[Path] = []
@@ -1049,6 +1120,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     cache=self,
                     artifact_uri=artifact_uri,
                     cache_key=cache_key,
+                    attempt_cache_keys=attempt_cache_keys,
                 )
                 registry_paths.extend(await leases.enter_async_context(handle))
                 handles.append(handle)
@@ -1065,7 +1137,43 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         """Unmount every newly idle entry and converge the cache budget."""
         for cache_key in idle_keys:
             await self._unmount_idle_entry(cache_key)
+            await self._discard_idle_squashfs_extraction(cache_key)
         await self._converge_cache_budget()
+
+    async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
+        """Discard an unsquashed fallback after its final lease releases."""
+        retired_path: Path | None = None
+        async with self._runtime_lock(cache_key, wait=False) as runtime:
+            if runtime is None or self._refcount(cache_key) > 0:
+                return
+            paths = self._paths_for(cache_key)
+            validate_cache_entry_path(paths)
+            extracted_path = paths.squashfs_extract_dir
+            if not os.path.lexists(extracted_path):
+                return
+            retired_path = unique_work_path(self.trash_dir, cache_key)
+            try:
+                extracted_path.rename(retired_path)
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                logger.warning(
+                    "Failed to retire idle SquashFS extraction",
+                    cache_key=cache_key,
+                    error=str(error),
+                )
+                self._budget_dirty = True
+                return
+            self._budget_dirty = True
+
+        await remove_tree_rejoin_on_cancel(
+            retired_path,
+            defer_cleanup=self._defer_cleanup,
+        )
+        logger.info(
+            "Discarded idle SquashFS extraction",
+            cache_key=cache_key,
+        )
 
     async def _acquire_artifact(
         self,
@@ -1093,7 +1201,10 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     return cached_paths
                 ctx = self._context_for(
                     cache_key,
-                    admission=self._admission_for(cache_key),
+                    admission=self._admission_for(
+                        cache_key,
+                        attempt_cache_keys=lease.attempt_cache_keys,
+                    ),
                 )
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
                 # Recheck after acquiring the lock.
