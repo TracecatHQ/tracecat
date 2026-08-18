@@ -62,7 +62,7 @@ def test_agent_action_parsed_without_timeout_gets_default() -> None:
 
 
 def test_agent_timeout_clamped_to_bounds() -> None:
-    """Legacy stored values outside the sandbox budget are normalized at
+    """Legacy values outside the continuous execution bounds are normalized at
     parse time so the statement value is exactly what executes."""
     low = _task("ai.agent", ActionRetryPolicy(timeout=1))
     high = _task("ai.agent", ActionRetryPolicy(timeout=100_000))
@@ -306,12 +306,3 @@ def test_git_sync_parse_reports_out_of_bounds_as_a_diagnostic() -> None:
         f"between {AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX}"
         in diagnostic.message
     )
-
-
-def test_executor_result_active_seconds_defaults_for_legacy_results() -> None:
-    """Legacy activity results lack active_seconds; 0.0 keeps full budgets on
-    replay so old histories never hit the exceeded-runtime error."""
-    from tracecat.agent.executor.activity import AgentExecutorResult
-
-    legacy = AgentExecutorResult.model_validate({"success": True})
-    assert legacy.active_seconds == 0.0

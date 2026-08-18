@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,10 +27,7 @@ with workflow.unsafe.imports_passed_through():
         SandboxAgentConfig,
         SandboxSubagentConfig,
     )
-    from tracecat.agent.constants import (
-        AGENT_APPROVAL_CONTINUATION_MIN_SECONDS,
-        AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
-    )
+    from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         AgentExecutorResult,
@@ -130,7 +126,6 @@ ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
-AGENT_ACTIVE_RUNTIME_EXCEEDED_ERROR = "AgentActiveRuntimeExceededError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
 )
@@ -179,25 +174,6 @@ def _apply_configured_timeout(
         return executor_input
     return executor_input.model_copy(
         update={"timeout_seconds": configured_timeout_seconds}
-    )
-
-
-def _continuation_budget_seconds(remaining_active_seconds: float) -> int:
-    """Budget for a post-approval continuation slice.
-
-    The floor is deliberate grace: an approved tool always gets a viable slice,
-    even with under 60s of budget left. Turns are charged their actual active
-    seconds and the first non-positive remainder is terminal, so a run can
-    exceed its configured budget by at most one floor — repeated approvals
-    cannot compound it.
-
-    Raises:
-        ValueError: The active runtime budget is exhausted.
-    """
-    if remaining_active_seconds <= 0:
-        raise ValueError("Active runtime budget is exhausted")
-    return max(
-        math.ceil(remaining_active_seconds), AGENT_APPROVAL_CONTINUATION_MIN_SECONDS
     )
 
 
@@ -1247,10 +1223,6 @@ class DurableAgentWorkflow:
         activity_timeout_seconds = timeout_seconds + (
             AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS if configurable_timeout else 0
         )
-        # The timeout is a budget for the whole run's active time, not per
-        # approval segment. Deducted after every executor turn; legacy activity
-        # results report 0.0 so replayed histories keep full budgets.
-        remaining_active_seconds = float(timeout_seconds)
         token_ttl_seconds = (
             _agent_token_ttl_seconds(activity_timeout_seconds)
             if configurable_timeout
@@ -1484,8 +1456,6 @@ class DurableAgentWorkflow:
                     non_retryable=True,
                 )
 
-            remaining_active_seconds -= result.active_seconds
-
             if result.approval_requested:
                 logger.info("Agent waiting for approval", session_id=self.session_id)
                 # Convert ToolCallContent to ToolCallPart for ApprovalManager
@@ -1637,8 +1607,8 @@ class DurableAgentWorkflow:
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
 
-                # Approved tools run outside the active-runtime budget. Refresh
-                # after reconciliation so continuation receives a full token TTL.
+                # Refresh after reconciliation so the next turn
+                # window receives a full token TTL.
                 if refresh_tokens_after_approved_tools:
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
@@ -1680,23 +1650,9 @@ class DurableAgentWorkflow:
                     is_approval_continuation=True,
                 )
                 if configurable_timeout:
-                    try:
-                        remaining_budget = _continuation_budget_seconds(
-                            remaining_active_seconds
-                        )
-                    except ValueError as exc:
-                        raise ApplicationError(
-                            "Agent exceeded its maximum active runtime of "
-                            f"{timeout_seconds} seconds",
-                            type=AGENT_ACTIVE_RUNTIME_EXCEEDED_ERROR,
-                            non_retryable=True,
-                        ) from exc
-                    activity_timeout_seconds = (
-                        remaining_budget + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
-                    )
                     executor_input = _apply_configured_timeout(
                         executor_input,
-                        remaining_budget,
+                        args.agent_args.timeout_seconds,
                     )
                 self._turn += 1
                 continue

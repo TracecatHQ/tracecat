@@ -27,11 +27,9 @@ from tracecat_ee.agent.workflows.durable import (
     _apply_configured_timeout,
     _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
-    _continuation_budget_seconds,
 )
 
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.constants import AGENT_APPROVAL_CONTINUATION_MIN_SECONDS
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
@@ -134,55 +132,6 @@ def test_apply_configured_timeout_preserves_inheritance_or_pins_explicit_value(
         assert "timeout_seconds" not in payload
     else:
         assert payload["timeout_seconds"] == configured_timeout_seconds
-
-
-@pytest.mark.parametrize(
-    ("remaining", "expected"),
-    [
-        (2.0, AGENT_APPROVAL_CONTINUATION_MIN_SECONDS),
-        (0.2, AGENT_APPROVAL_CONTINUATION_MIN_SECONDS),
-        (60.0, 60),
-        (120.4, 121),
-        (1799.5, 1800),
-    ],
-)
-def test_continuation_budget_floors_to_payload_minimum(
-    remaining: float, expected: int
-) -> None:
-    """A tiny remainder must still clear AgentExecutorInput's ge=5 bound, and
-    remainders above the floor round up unchanged."""
-    assert _continuation_budget_seconds(remaining) == expected
-
-
-@pytest.mark.parametrize("remaining", [0.0, -0.5, -120.0])
-def test_continuation_budget_rejects_exhausted_runtime(remaining: float) -> None:
-    with pytest.raises(ValueError):
-        _continuation_budget_seconds(remaining)
-
-
-def test_continuation_budget_result_satisfies_executor_input_bound() -> None:
-    """The floored budget must validate as a real payload, not just model_copy."""
-    role = Role(
-        type="service",
-        service_id="tracecat-service",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
-    assert role.workspace_id is not None
-    budget = _continuation_budget_seconds(2.0)
-    validated = AgentExecutorInput.model_validate(
-        {
-            "session_id": uuid.uuid4(),
-            "workspace_id": role.workspace_id,
-            "user_prompt": "hello",
-            "config": AgentConfig(model_name="gpt-4o-mini", model_provider="openai"),
-            "role": role,
-            "mcp_auth_token": "mcp-token",
-            "llm_gateway_auth_token": "llm-token",
-            "timeout_seconds": budget,
-        }
-    )
-    assert validated.timeout_seconds == budget
 
 
 def test_workflow_rotates_stream_from_new_approval_update() -> None:

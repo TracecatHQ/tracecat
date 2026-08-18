@@ -159,8 +159,8 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
         {isAgent ? (
           <>
             <div>
-              Defines the maximum active runtime (in seconds) for the agent.
-              Time spent waiting for approvals does not count.
+              Defines how long the agent may execute continuously. Resuming
+              after an approval starts a new timeout window.
             </div>
             <div>
               Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes). Allowed

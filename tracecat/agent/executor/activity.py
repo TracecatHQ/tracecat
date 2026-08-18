@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
-import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
@@ -29,7 +28,6 @@ from tracecat.agent.cancellation import (
 )
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
@@ -81,7 +79,7 @@ from tracecat.agent.sandbox.llm_proxy import (
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, resolve_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
@@ -133,6 +131,7 @@ class AgentExecutorInput(BaseModel):
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
+    # Maximum continuous execution time; None inherits the deployment default.
     timeout_seconds: int | None = Field(
         default=None,
         ge=AGENT_TIMEOUT_SECONDS_MIN,
@@ -164,9 +163,6 @@ class AgentExecutorResult(BaseModel):
     terminal_stream_error_emitted: bool | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
-    # Active wall-clock seconds this turn consumed. 0.0 means a legacy activity
-    # result did not carry this field, so old histories keep full budgets.
-    active_seconds: float = 0.0
     # Legacy replay compatibility only. New executions load terminal message
     # history in the durable workflow after the final executor turn completes.
     messages: list[ChatMessage] | None = None
@@ -256,7 +252,7 @@ class SandboxedAgentExecutor:
 
     input: AgentExecutorInput
     timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+        default_factory=lambda: resolve_agent_timeout_seconds(None)
     )
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
 
@@ -600,7 +596,6 @@ class SandboxedAgentExecutor:
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
-            timeout_seconds=self.timeout_seconds,
             artifact_working_set=artifact_working_set,
             skills_dir=self._skills_dir(),
             hydrate_work_dir=self._hydrate_agent_filesystem
@@ -1229,18 +1224,12 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
-    timeout_seconds = (
-        input.timeout_seconds
-        if input.timeout_seconds is not None
-        else TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
+    timeout_seconds = resolve_agent_timeout_seconds(input.timeout_seconds)
     executor = SandboxedAgentExecutor(
         input=input,
         timeout_seconds=timeout_seconds,
     )
-    turn_started_at = time.monotonic()
     result = await executor.run()
-    result.active_seconds = time.monotonic() - turn_started_at
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
