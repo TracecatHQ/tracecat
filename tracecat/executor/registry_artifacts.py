@@ -28,6 +28,10 @@ from tracecat.concurrency import (
     run_blocking_rejoin_on_cancel,
 )
 from tracecat.executor import registry_artifact_mounts
+from tracecat.executor.registry_artifact_mounts import (
+    SQUASHFS_MOUNT_OPTIONS,
+    SquashfsMountCommandError,
+)
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
     RegistryArtifactCacheCapacityError,
@@ -81,25 +85,8 @@ class RegistryArtifactFormat(StrEnum):
     TAR_GZ = "tar.gz"
 
 
-SQUASHFS_MOUNT_OPTIONS = "loop,ro,nodev,nosuid"
-"""Mount options for executor-managed SquashFS registry artifacts.
-
-The image must stay read-only and should not expose device nodes or setuid bits
-from registry package contents. Avoid noexec because Python packages may include
-native extension modules that need to be loaded from the mounted artifact.
-"""
-
 BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
 """Pseudo-URI for the builtin registry already installed in the executor image."""
-
-
-class SquashfsMountCommandError(RuntimeError):
-    """The ``mount`` command itself failed for a SquashFS registry artifact.
-
-    Only this error drives SquashFS mount policy. Download, mkdir, and other
-    preparation failures must not be mistaken for a missing mount capability or
-    for loop-device exhaustion.
-    """
 
 
 class RegistryArtifactUriError(ValueError):
@@ -413,28 +400,7 @@ class SquashfsArtifact(RegistryArtifact):
         Raises:
             SquashfsMountCommandError: The ``mount`` command failed.
         """
-        if registry_artifact_mounts.is_mount(target_dir):
-            return
-
-        proc = await asyncio.create_subprocess_exec(
-            "mount",
-            "-t",
-            "squashfs",
-            "-o",
-            SQUASHFS_MOUNT_OPTIONS,
-            str(image_path),
-            str(target_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-        stdout, stderr = await communicate_process_group(proc)
-
-        if proc.returncode == 0 or registry_artifact_mounts.is_mount(target_dir):
-            return
-
-        output = (stderr or stdout).decode(errors="replace").strip()
-        raise SquashfsMountCommandError(output or "mount command failed")
+        await registry_artifact_mounts.mount_squashfs(image_path, target_dir)
 
     async def _extract_image(self, image_path: Path, target_dir: Path) -> None:
         """Extract a SquashFS image to target_dir using unsquashfs.
