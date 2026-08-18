@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import hashlib
 import os
 import shutil
@@ -135,6 +136,50 @@ def _log_registry_artifact_capacity_retry(retry_state: RetryCallState) -> None:
 async def _sleep_registry_artifact_capacity_retry(delay: float) -> None:
     """Sleep between admission attempts through a narrow test seam."""
     await asyncio.sleep(delay)
+
+
+def _open_cache_entry_guard(entry_dir: Path) -> int:
+    """Open one real cache entry directory for advisory lifetime locking."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    return os.open(entry_dir, flags)
+
+
+async def _acquire_shared_cache_entry_guard(entry_dir: Path) -> int:
+    """Hold a cross-instance guard for the lifetime of one artifact lease."""
+    guard_fd = _open_cache_entry_guard(entry_dir)
+    try:
+        while True:
+            try:
+                fcntl.flock(guard_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                await asyncio.sleep(0)
+                continue
+            return guard_fd
+    except BaseException:
+        os.close(guard_fd)
+        raise
+
+
+def _try_acquire_exclusive_cache_entry_guard(entry_dir: Path) -> int | None:
+    """Try to exclude leases in every cache instance sharing an entry."""
+    try:
+        guard_fd = _open_cache_entry_guard(entry_dir)
+    except FileNotFoundError:
+        return None
+    try:
+        fcntl.flock(guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(guard_fd)
+        return None
+    except BaseException:
+        os.close(guard_fd)
+        raise
+    return guard_fd
 
 
 @dataclass(frozen=True, slots=True)
@@ -977,6 +1022,7 @@ class _RegistryArtifactLease:
     paths_may_be_modified: bool = False
     _acquired: bool = False
     _closed: bool = False
+    _entry_guard_fd: int | None = None
 
     def mark_acquired(self) -> None:
         """Record the point after which this handle must release a pin."""
@@ -984,6 +1030,36 @@ class _RegistryArtifactLease:
             raise RuntimeError("Invalid registry artifact lease acquisition")
         self._acquired = True
         self.attempt_cache_keys.add(self.cache_key)
+
+    @property
+    def has_entry_guard(self) -> bool:
+        """Return whether this lease coordinates cross-instance cleanup."""
+        return self._entry_guard_fd is not None
+
+    async def acquire_entry_guard(
+        self,
+        entry_dir: Path,
+        *,
+        missing_ok: bool = False,
+    ) -> bool:
+        """Coordinate this lease with cleanup in other cache instances."""
+        if self._entry_guard_fd is not None:
+            raise RuntimeError("Registry artifact lease already holds an entry guard")
+        try:
+            self._entry_guard_fd = await _acquire_shared_cache_entry_guard(entry_dir)
+        except FileNotFoundError:
+            if missing_ok:
+                return False
+            raise
+        return True
+
+    def release_entry_guard(self) -> None:
+        """Release this lease's cross-instance entry guard exactly once."""
+        guard_fd = self._entry_guard_fd
+        if guard_fd is None:
+            return
+        self._entry_guard_fd = None
+        os.close(guard_fd)
 
     async def __aenter__(self) -> list[Path]:
         try:
@@ -1029,6 +1105,7 @@ class _RegistryArtifactLease:
         if self.paths_may_be_modified:
             self.cache._budget_dirty = True
         idle = self.cache._release_lease(cache_key)
+        self.release_entry_guard()
         try:
             if idle or self.cache._budget_dirty:
                 cleanup_task = asyncio.ensure_future(
@@ -1148,23 +1225,29 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 return
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
-            extracted_path = paths.squashfs_extract_dir
-            if not os.path.lexists(extracted_path):
+            guard_fd = _try_acquire_exclusive_cache_entry_guard(paths.entry_dir)
+            if guard_fd is None:
                 return
-            retired_path = unique_work_path(self.trash_dir, cache_key)
             try:
-                extracted_path.rename(retired_path)
-            except FileNotFoundError:
-                return
-            except OSError as error:
-                logger.warning(
-                    "Failed to retire idle SquashFS extraction",
-                    cache_key=cache_key,
-                    error=str(error),
-                )
+                extracted_path = paths.squashfs_extract_dir
+                if not os.path.lexists(extracted_path):
+                    return
+                retired_path = unique_work_path(self.trash_dir, cache_key)
+                try:
+                    extracted_path.rename(retired_path)
+                except FileNotFoundError:
+                    return
+                except OSError as error:
+                    logger.warning(
+                        "Failed to retire idle SquashFS extraction",
+                        cache_key=cache_key,
+                        error=str(error),
+                    )
+                    self._budget_dirty = True
+                    return
                 self._budget_dirty = True
-                return
-            self._budget_dirty = True
+            finally:
+                os.close(guard_fd)
 
         await remove_tree_rejoin_on_cancel(
             retired_path,
@@ -1192,13 +1275,25 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         async with self._runtime_lock(cache_key):
             self._acquire_lease(cache_key)
             lease.mark_acquired()
-            if cached_paths := self._locally_cached_path(ctx, artifact_uri):
-                return cached_paths
+            validate_cache_entry_path(ctx.paths)
+            if await lease.acquire_entry_guard(
+                ctx.paths.entry_dir,
+                missing_ok=True,
+            ):
+                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                    return cached_paths
 
         async with self._admission_lock:
             async with self._runtime_lock(cache_key):
-                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
-                    return cached_paths
+                if not lease.has_entry_guard:
+                    validate_cache_entry_path(ctx.paths)
+                    await lease.acquire_entry_guard(
+                        ctx.paths.entry_dir,
+                        missing_ok=True,
+                    )
+                if lease.has_entry_guard:
+                    if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                        return cached_paths
                 ctx = self._context_for(
                     cache_key,
                     admission=self._admission_for(
@@ -1207,6 +1302,9 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     ),
                 )
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
+                if not lease.has_entry_guard:
+                    ensure_cache_entry_directory(ctx.paths)
+                    await lease.acquire_entry_guard(ctx.paths.entry_dir)
                 # Recheck after acquiring the lock.
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cached_paths
