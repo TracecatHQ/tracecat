@@ -406,7 +406,7 @@ class ActionStatement(BaseModel):
 
     @model_validator(mode="after")
     def apply_agent_timeout_policy(self, info: ValidationInfo) -> Self:
-        # Agent turns get a 30-minute budget unless the action sets one.
+        # Agent execution windows get 30 minutes unless the action sets one.
         # External writes pass strict_timeouts and reject out-of-bounds values;
         # stored rows and Temporal replay predate the bounds, so they normalize.
         if not PlatformAction.is_agent(self.action):

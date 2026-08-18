@@ -38,11 +38,14 @@ from tracecat.agent.common.config import (
     JAILED_LLM_SOCKET_PATH,
     JAILED_OTEL_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+    AGENT_TIMEOUT_SECONDS_MAX,
+)
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
@@ -87,7 +90,11 @@ class AgentResourceLimits:
 
     Defaults are read from environment variables:
     - TRACECAT__AGENT_SANDBOX_MEMORY_MB: memory_mb (default 4096 = 4 GiB)
-    - TRACECAT__AGENT_SANDBOX_TIMEOUT: timeout_seconds and cpu_seconds (default 1800s)
+
+    Default cpu_seconds/timeout_seconds are a static kill ceiling, not the
+    per-run timeout: that is enforced upstream by the executor activity, which
+    cancels the turn gracefully. The kernel limit only reaps orphaned
+    sandboxes, so it sits above the maximum configurable timeout.
 
     Attributes:
         memory_mb: Maximum memory in megabytes.
@@ -99,12 +106,12 @@ class AgentResourceLimits:
     """
 
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
-    cpu_seconds: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT)
+    cpu_seconds: int = AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
-    timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+    timeout_seconds: int = (
+        AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     )
 
 

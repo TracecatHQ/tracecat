@@ -1304,9 +1304,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
-    monkeysession.setenv(
-        "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
-    )
+    monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     # Use worker-specific task queues for pytest-xdist isolation
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
