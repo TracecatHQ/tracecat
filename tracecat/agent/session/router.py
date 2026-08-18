@@ -55,6 +55,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import set_current_span_attributes
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
@@ -506,6 +507,17 @@ async def send_message(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Workspace access required",
             )
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    str(role.organization_id)
+                    if role.organization_id is not None
+                    else None
+                ),
+                "tracecat.workspace.id": str(workspace_id),
+                "tracecat.agent.session.id": str(session_id),
+            }
+        )
 
         message_id: str | None = None
         async with AgentSessionService.with_session(role=role) as svc:
@@ -545,6 +557,13 @@ async def send_message(
                     turn_response.curr_run_id
                     if turn_response is not None
                     else agent_session.curr_run_id
+                )
+                set_current_span_attributes(
+                    {
+                        "tracecat.agent.run.id": (
+                            str(run_id) if run_id is not None else None
+                        )
+                    }
                 )
                 message_id = _bubble_id(session_id, run_id)
 
@@ -616,6 +635,9 @@ async def send_message(
                     raise RuntimeError(
                         "New agent turn completed without a stream response"
                     )
+                set_current_span_attributes(
+                    {"tracecat.agent.run.id": str(turn_response.curr_run_id)}
+                )
                 message_id = _bubble_id(session_id, turn_response.curr_run_id)
 
         logger.info(

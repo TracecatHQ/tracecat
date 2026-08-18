@@ -48,6 +48,10 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.logger import logger
+    from tracecat.observability.otel import (
+        initialize_platform_tracing,
+        shutdown_platform_tracing,
+    )
     from tracecat.observability.sentry import initialize_sentry_from_environment
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
@@ -114,20 +118,22 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     logger.info("Starting AgentWorker")
 
-    client = await get_temporal_client()
-
-    initialize_sentry_from_environment()
-    interceptors = [RuntimeErrorAttributionInterceptor()]
-
-    activities = get_activities()
-    logger.debug(
-        "Activities loaded",
-        activities=[
-            getattr(a, "__temporal_activity_definition").name for a in activities
-        ],
-    )
+    initialize_platform_tracing("tracecat-agent-worker")
 
     try:
+        client = await get_temporal_client()
+
+        initialize_sentry_from_environment()
+        interceptors = [RuntimeErrorAttributionInterceptor()]
+
+        activities = get_activities()
+        logger.debug(
+            "Activities loaded",
+            activities=[
+                getattr(a, "__temporal_activity_definition").name for a in activities
+            ],
+        )
+
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             workflows: list[type] = [
                 DurableAgentWorkflow,
@@ -153,7 +159,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 logger.info("AgentWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
-        await close_storage_client_cache()
+        try:
+            await close_storage_client_cache()
+        finally:
+            shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

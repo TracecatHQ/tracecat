@@ -308,10 +308,14 @@ locals {
     local.platform_otel_headers_secret,
   )
 
-  # The direct executor backend passes its process environment to untrusted
-  # action subprocesses, so platform exporter credentials must stay out of the
-  # executor task. Operators can expose an unauthenticated collector endpoint
-  # on the executor's private network when executor spans are required.
+  agent_worker_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.platform_otel_headers_secret,
+  )
+
+  # Executor processes may pass environment values across a sandbox boundary,
+  # so platform exporter credentials must stay out of both executor task
+  # environments. The host process reads the secret directly by ARN instead.
   executor_secrets = local.tracecat_temporal_secrets
 
   litellm_secrets = local.tracecat_base_secrets

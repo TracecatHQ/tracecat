@@ -407,6 +407,12 @@ resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryp
   role       = aws_iam_role.executor_task.name
 }
 
+resource "aws_iam_role_policy_attachment" "executor_task_platform_otel_headers" {
+  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+  role       = aws_iam_role.executor_task.name
+}
+
 # UI execution role
 resource "aws_iam_role" "ui_execution" {
   name               = "${var.iam_name_prefix}UIExecutionRole"

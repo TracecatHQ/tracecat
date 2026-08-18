@@ -10,6 +10,10 @@ from pathlib import Path
 
 import httpx
 import pytest
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
+from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from pydantic import HttpUrl, SecretStr
 
 from tracecat import config
@@ -22,6 +26,8 @@ from tracecat.agent.sandbox import otel_relay
 from tracecat.agent.sandbox.otel_relay import (
     MAX_BODY_SIZE,
     OtelSocketReceiver,
+    PlatformTraceParent,
+    reparent_platform_trace_body,
     resolve_collector_url,
 )
 from tracecat.agent.tokens import mint_agent_otel_token
@@ -280,6 +286,72 @@ async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
             "/v1/health",
         )
         is None
+    )
+
+
+def test_platform_native_trace_is_joined_under_trusted_parent() -> None:
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    resource_spans.resource.attributes.append(
+        KeyValue(
+            key="tracecat.workflow.execution.id",
+            value=AnyValue(string_value="sandbox-spoofed"),
+        )
+    )
+    scope_spans = resource_spans.scope_spans.add()
+    root = scope_spans.spans.add(
+        name="claude.root",
+        trace_id=b"\x11" * 16,
+        span_id=b"\x21" * 8,
+        flags=0,
+    )
+    scope_spans.spans.add(
+        name="claude.child",
+        trace_id=b"\x11" * 16,
+        span_id=b"\x22" * 8,
+        parent_span_id=root.span_id,
+        flags=0,
+    )
+    parent = PlatformTraceParent(
+        trace_id=b"\xaa" * 16,
+        span_id=b"\xbb" * 8,
+        trace_flags=1,
+        resource_attributes={
+            "tracecat.workflow.execution.id": "wf_synthetic/exec_synthetic",
+            "tracecat.agent.run.id": "00000000-0000-4000-8000-000000000001",
+        },
+    )
+
+    rewritten = reparent_platform_trace_body(
+        request.SerializeToString(),
+        content_type="application/x-protobuf",
+        parent=parent,
+    )
+
+    parsed = ExportTraceServiceRequest.FromString(rewritten)
+    parsed_resource_spans = parsed.resource_spans[0]
+    parsed_spans = parsed_resource_spans.scope_spans[0].spans
+    assert {span.trace_id for span in parsed_spans} == {parent.trace_id}
+    assert parsed_spans[0].parent_span_id == parent.span_id
+    assert parsed_spans[1].parent_span_id == parsed_spans[0].span_id
+    assert all(span.flags & 1 for span in parsed_spans)
+    attributes = {
+        attribute.key: attribute.value.string_value
+        for attribute in parsed_resource_spans.resource.attributes
+    }
+    assert attributes == parent.resource_attributes
+
+
+def test_non_platform_trace_body_is_not_rewritten() -> None:
+    body = b"synthetic-tenant-payload"
+
+    assert (
+        reparent_platform_trace_body(
+            body,
+            content_type="application/x-protobuf",
+            parent=None,
+        )
+        == body
     )
 
 

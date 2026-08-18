@@ -7074,6 +7074,7 @@ export type RunContext = {
   wf_exec_id: string
   wf_run_id: string
   environment: string
+  trigger_type?: string | null
   logical_time: string
 }
 
@@ -9551,6 +9552,8 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  trace_id?: string
+  trace_url?: string
   payload?: unknown
 }
 

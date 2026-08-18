@@ -13,6 +13,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
+from opentelemetry import trace
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
@@ -76,7 +77,11 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiver
+from tracecat.agent.sandbox.otel_relay import (
+    OTEL_SOCKET_NAME,
+    OtelSocketReceiver,
+    PlatformTraceParent,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.builtin import BUILTIN_SKILL_NAME_PREFIX
@@ -93,6 +98,7 @@ from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, set_current_span_attributes
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
@@ -184,6 +190,12 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    # Optional workflow origin. Defaults preserve Temporal replay for direct
+    # chat turns and histories recorded before workflow-agent correlation.
+    origin_workflow_id: uuid.UUID | None = None
+    origin_workflow_execution_id: str | None = None
+    origin_action_ref: str | None = None
+    origin_trigger_type: str | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -466,6 +478,43 @@ class SandboxedAgentExecutor:
             )
             return ResolvedAgentOtelConfig(enabled=False)
 
+    def _platform_trace_parent(self) -> PlatformTraceParent | None:
+        """Capture the active host span and safe agent/workflow correlation."""
+        span_context = trace.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return None
+
+        raw_attributes = {
+            "tracecat.organization.id": (
+                str(self.input.role.organization_id)
+                if self.input.role.organization_id is not None
+                else None
+            ),
+            "tracecat.workspace.id": str(self.input.workspace_id),
+            "tracecat.agent.session.id": str(self.input.session_id),
+            "tracecat.agent.run.id": (
+                str(self.input.curr_run_id)
+                if self.input.curr_run_id is not None
+                else None
+            ),
+            "tracecat.workflow.id": (
+                str(self.input.origin_workflow_id)
+                if self.input.origin_workflow_id is not None
+                else None
+            ),
+            "tracecat.workflow.execution.id": (self.input.origin_workflow_execution_id),
+            "tracecat.action.ref": self.input.origin_action_ref,
+            "tracecat.trigger.type": self.input.origin_trigger_type,
+        }
+        return PlatformTraceParent(
+            trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
+            span_id=span_context.span_id.to_bytes(8, byteorder="big"),
+            trace_flags=int(span_context.trace_flags),
+            resource_attributes={
+                key: value for key, value in raw_attributes.items() if value is not None
+            },
+        )
+
     @staticmethod
     def _build_sandbox_env(
         resolved: ResolvedAgentOtelConfig,
@@ -560,6 +609,7 @@ class SandboxedAgentExecutor:
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
+                        platform_trace_parent=self._platform_trace_parent(),
                     )
 
             # Create loopback handler
@@ -1340,31 +1390,65 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
+    activity_info = activity.info()
+    set_current_span_attributes(
+        {
+            "tracecat.organization.id": (
+                str(input.role.organization_id)
+                if input.role.organization_id is not None
+                else None
+            ),
+            "tracecat.workspace.id": str(input.workspace_id),
+            "tracecat.agent.session.id": str(input.session_id),
+            "tracecat.agent.run.id": (
+                str(input.curr_run_id) if input.curr_run_id is not None else None
+            ),
+            "tracecat.workflow.id": (
+                str(input.origin_workflow_id)
+                if input.origin_workflow_id is not None
+                else None
+            ),
+            "tracecat.workflow.execution.id": input.origin_workflow_execution_id,
+            "tracecat.action.ref": input.origin_action_ref,
+            "tracecat.trigger.type": input.origin_trigger_type,
+            "temporal.activity.attempt": activity_info.attempt,
+            "temporal.task_queue": activity_info.task_queue,
+        }
+    )
+
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
-    input = await _hydrate_sdk_session_history(input)
+    with platform_span("tracecat.agent.prepare"):
+        input = await _hydrate_sdk_session_history(input)
 
-    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
-    # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` and each subagent's
-    # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
-    # from the DB here so the spawned processes get their credentials.
-    config = cast(Any, input.config)
-    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
-    for subagent in input.subagents:
-        subagent.config.mcp_servers = await _hydrate_stdio_env(
-            subagent.config.mcp_servers, role=input.role
+        # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+        # servers they have no per-call secret resolution hook downstream. The
+        # configs in ``input.config.mcp_servers`` and each subagent's
+        # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+        # from the DB here so the spawned processes get their credentials.
+        config = cast(Any, input.config)
+        config.mcp_servers = await _hydrate_stdio_env(
+            config.mcp_servers, role=input.role
+        )
+        for subagent in input.subagents:
+            subagent.config.mcp_servers = await _hydrate_stdio_env(
+                subagent.config.mcp_servers, role=input.role
+            )
+
+        timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+        executor = SandboxedAgentExecutor(
+            input=input,
+            timeout_seconds=timeout_seconds,
         )
 
-    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
-    executor = SandboxedAgentExecutor(
-        input=input,
-        timeout_seconds=timeout_seconds,
-    )
-    result = await executor.run()
+    with platform_span(
+        "tracecat.agent.runtime",
+        attributes={"tracecat.agent.harness": "claude_code"},
+    ):
+        result = await executor.run()
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

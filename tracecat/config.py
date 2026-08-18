@@ -107,6 +107,14 @@ TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
 )
 """Enable Tracecat-operated platform tracing, separate from agent OTel export."""
+TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN = os.environ.get(
+    "TRACECAT__PLATFORM_OTEL_HEADERS_SECRET_ARN"
+)
+"""Optional Secrets Manager ARN for host-only platform OTLP headers."""
+TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE = os.environ.get(
+    "TRACECAT__PLATFORM_OTEL_TRACE_VIEW_URL_TEMPLATE"
+)
+"""Optional UI link template containing a ``{trace_id}`` placeholder."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64

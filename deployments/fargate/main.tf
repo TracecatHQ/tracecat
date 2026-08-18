@@ -75,6 +75,9 @@ module "ecs" {
   otel_exporter_otlp_endpoint                   = var.otel_exporter_otlp_endpoint
   otel_exporter_otlp_headers_arn                = var.otel_exporter_otlp_headers_arn
   audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
+  otel_traces_sampler                           = var.otel_traces_sampler
+  otel_traces_sampler_arg                       = var.otel_traces_sampler_arg
+  platform_otel_trace_view_url_template         = var.platform_otel_trace_view_url_template
   log_level                                     = var.log_level
   log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level

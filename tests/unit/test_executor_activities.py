@@ -12,9 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from botocore.exceptions import HTTPClientError
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
+from tracecat import config
 from tracecat.agent.executor.activity import (
     _resolve_and_probe_stdio_config,
     probe_stdio_mcp_connection_activity,
@@ -49,6 +53,10 @@ from tracecat.executor.registry_artifacts import (
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.observability.otel import (
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -186,6 +194,83 @@ class TestExecuteActionActivity:
             )
             # Heartbeats sent at start and after completion
             assert mock_activity.heartbeat.call_count >= 2
+
+    @pytest.mark.anyio
+    async def test_successful_execution_emits_fine_grained_spans(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The action activity exposes input, runtime, and storage latency."""
+        exporter = InMemorySpanExporter()
+        monkeypatch.setattr(config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+        runtime = initialize_platform_tracing("tracecat-executor", exporter=exporter)
+        assert runtime is not None
+
+        try:
+            with (
+                patch("tracecat.executor.activities.activity") as mock_activity,
+                patch(
+                    "tracecat.executor.activities.get_executor_backend"
+                ) as mock_backend,
+                patch(
+                    "tracecat.executor.activities.dispatch_action",
+                    new_callable=AsyncMock,
+                ) as mock_dispatch,
+                patch(
+                    "tracecat.executor.activities.materialize_context",
+                    new_callable=AsyncMock,
+                ) as mock_materialize,
+            ):
+                mock_activity.info.return_value = MagicMock(
+                    attempt=1,
+                    task_queue="shared-action-queue",
+                )
+                mock_activity.heartbeat = MagicMock()
+                mock_backend.return_value = MagicMock()
+                mock_dispatch.return_value = {"status": "success"}
+                mock_materialize.return_value = mock_run_action_input.exec_context
+
+                tracer = runtime.tracer("test.executor-activity")
+                with tracer.start_as_current_span("temporal.activity"):
+                    await ExecutorActivities.execute_action_activity(
+                        mock_run_action_input, mock_role
+                    )
+        finally:
+            shutdown_platform_tracing()
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        assert set(spans) == {
+            "temporal.activity",
+            "tracecat.action.materialize_inputs",
+            "tracecat.action.execute",
+            "tracecat.action.store_result",
+        }
+        activity_span = spans["temporal.activity"]
+        assert activity_span.context is not None
+        activity_span_id = activity_span.context.span_id
+        for child_name in (
+            "tracecat.action.materialize_inputs",
+            "tracecat.action.execute",
+            "tracecat.action.store_result",
+        ):
+            child_parent = spans[child_name].parent
+            assert child_parent is not None
+            assert child_parent.span_id == activity_span_id
+
+        attributes = activity_span.attributes
+        assert attributes is not None
+        assert attributes["tracecat.organization.id"] == str(mock_role.organization_id)
+        assert attributes["tracecat.workspace.id"] == str(mock_role.workspace_id)
+        assert attributes["tracecat.workflow.id"] == str(
+            mock_run_action_input.run_context.wf_id
+        )
+        assert attributes["tracecat.workflow.execution.id"] == str(
+            mock_run_action_input.run_context.wf_exec_id
+        )
+        assert attributes["tracecat.action.ref"] == "test_action"
+        assert attributes["tracecat.action.name"] == "core.http_request"
 
     @pytest.mark.anyio
     async def test_execution_error_raises_application_error(
