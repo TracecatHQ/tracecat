@@ -35,6 +35,7 @@ from tracecat.executor.registry_artifact_mounts import (
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
     RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheLeaseContentionError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactCacheStorage,
     RegistryArtifactEviction,
@@ -63,6 +64,7 @@ __all__ = (
     "RegistryArtifactAdmission",
     "RegistryArtifactCache",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactCacheLeaseContentionError",
     "RegistryArtifactExtractionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactEviction",
