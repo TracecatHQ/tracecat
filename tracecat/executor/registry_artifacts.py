@@ -21,6 +21,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import tracecat_registry
+from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from tracecat import config
 from tracecat.concurrency import (
@@ -31,10 +38,13 @@ from tracecat.executor import registry_artifact_mounts
 from tracecat.executor.registry_artifact_mounts import (
     SQUASHFS_MOUNT_OPTIONS,
     SquashfsMountCommandError,
+    SquashfsMountUnavailableError,
 )
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
     RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheEntryLease,
+    RegistryArtifactCacheLeaseAttempt,
     RegistryArtifactCacheLeaseContentionError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactCacheStorage,
@@ -73,6 +83,7 @@ __all__ = (
     "RegistryArtifactUriError",
     "SquashfsArtifact",
     "SquashfsMountCommandError",
+    "SquashfsMountUnavailableError",
     "TarballArtifact",
     "bundled_builtin_registry_uri",
     "compute_registry_artifact_cache_key",
@@ -87,6 +98,10 @@ class RegistryArtifactFormat(StrEnum):
     TAR_GZ = "tar.gz"
 
 
+REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS = 4
+REGISTRY_ARTIFACT_CAPACITY_RETRY_BASE_SECONDS = 0.25
+REGISTRY_ARTIFACT_CAPACITY_RETRY_MAX_SECONDS = 1.0
+
 BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
 """Pseudo-URI for the builtin registry already installed in the executor image."""
 
@@ -100,6 +115,30 @@ class RegistryArtifactExtractionError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("Registry artifact extraction failed")
+
+
+def _log_registry_artifact_capacity_retry(retry_state: RetryCallState) -> None:
+    """Log one retryable registry artifact admission failure."""
+    outcome = retry_state.outcome
+    if outcome is None or not outcome.failed:
+        return
+    error = outcome.exception()
+    if not isinstance(error, RegistryArtifactCacheLeaseContentionError):
+        return
+    logger.warning(
+        "Retrying registry artifact admission after lease contention",
+        attempt=retry_state.attempt_number,
+        max_attempts=REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS,
+        current_bytes=error.current_bytes,
+        additional_bytes=error.additional_bytes,
+        max_bytes=error.max_bytes,
+        retry_delay_ms=f"{retry_state.upcoming_sleep * 1000:.1f}",
+    )
+
+
+async def _sleep_registry_artifact_capacity_retry(delay: float) -> None:
+    """Sleep between admission attempts through a narrow test seam."""
+    await asyncio.sleep(delay)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +222,7 @@ class SquashfsArtifact(RegistryArtifact):
         if is_reusable_cache_directory(mount_dir) and registry_artifact_mounts.is_mount(
             mount_dir
         ):
+            ctx.squashfs_mount_policy.record_mount_success()
             logger.debug(
                 "Using cached SquashFS registry mount",
                 cache_key=ctx.cache_key,
@@ -205,7 +245,16 @@ class SquashfsArtifact(RegistryArtifact):
         image_path = ctx.paths.squashfs_image_path
         if ctx.can_mount_squashfs():
             try:
-                return [await self.mount(ctx, image_path)]
+                mounted_path = await self.mount(ctx, image_path)
+            except SquashfsMountUnavailableError as e:
+                ctx.squashfs_mount_policy.record_mount_unavailable()
+                logger.warning(
+                    "SquashFS mounting is unavailable, using reusable extraction",
+                    cache_key=ctx.cache_key,
+                    artifact_uri=_artifact_uri_for_logging(self.uri),
+                    artifact_format=self.format.value,
+                    error=str(e),
+                )
             except SquashfsMountCommandError as e:
                 logger.warning(
                     "Failed to mount SquashFS registry artifact, trying extraction",
@@ -214,8 +263,13 @@ class SquashfsArtifact(RegistryArtifact):
                     artifact_format=self.format.value,
                     error=str(e),
                 )
+            else:
+                ctx.squashfs_mount_policy.record_mount_success()
+                return [mounted_path]
 
-        return [await self.extract(ctx, image_path)]
+        extracted_path = await self.extract(ctx, image_path)
+        ctx.squashfs_mount_policy.record_extraction(ctx.cache_key)
+        return [extracted_path]
 
     async def download(
         self,
@@ -723,13 +777,6 @@ def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
     return tarball_uri.removesuffix(".tar.gz") + ".squashfs"
 
 
-def _tarball_uri_for_squashfs(squashfs_uri: str) -> str | None:
-    """Return the sibling gzip tarball URI for registry SquashFS artifacts."""
-    if not squashfs_uri.endswith("site-packages.squashfs"):
-        return None
-    return squashfs_uri.removesuffix(".squashfs") + ".tar.gz"
-
-
 def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     """Return the materialization format for an artifact URI."""
     if artifact_uri.endswith(".squashfs"):
@@ -937,16 +984,17 @@ class _RegistryArtifactLease:
     cache: RegistryArtifactCache
     artifact_uri: str
     cache_key: str | None
+    attempt: RegistryArtifactCacheLeaseAttempt
     paths: list[Path] | None = None
     paths_may_be_modified: bool = False
-    _acquired: bool = False
     _closed: bool = False
+    _entry_lease: RegistryArtifactCacheEntryLease | None = None
 
-    def mark_acquired(self) -> None:
-        """Record the point after which this handle must release a pin."""
-        if self.cache_key is None or self._acquired:
+    def acquire_entry_lease(self) -> None:
+        """Acquire this handle's storage-owned entry lease token."""
+        if self.cache_key is None or self._entry_lease is not None:
             raise RuntimeError("Invalid registry artifact lease acquisition")
-        self._acquired = True
+        self._entry_lease = self.cache._new_entry_lease(self.cache_key, self.attempt)
 
     async def __aenter__(self) -> list[Path]:
         try:
@@ -985,13 +1033,14 @@ class _RegistryArtifactLease:
             return
         self._closed = True
         cache_key = self.cache_key
-        if cache_key is None or not self._acquired:
+        entry_lease = self._entry_lease
+        self._entry_lease = None
+        if cache_key is None or entry_lease is None:
             return
-        self._acquired = False
 
         if self.paths_may_be_modified:
             self.cache._budget_dirty = True
-        idle = self.cache._release_lease(cache_key)
+        idle = entry_lease.release()
         try:
             if idle or self.cache._budget_dirty:
                 cleanup_task = asyncio.ensure_future(
@@ -1036,6 +1085,40 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         if any(_is_cache_entry_uri(uri) for uri in artifact_uris):
             await self.ensure_swept()
 
+        async with contextlib.AsyncExitStack() as lease_stack:
+
+            async def enter_lease_once() -> list[Path]:
+                return await lease_stack.enter_async_context(
+                    self._lease_once(
+                        artifact_uris,
+                        paths_may_be_modified=paths_may_be_modified,
+                    )
+                )
+
+            registry_paths = await AsyncRetrying(
+                retry=retry_if_exception_type(
+                    RegistryArtifactCacheLeaseContentionError
+                ),
+                stop=stop_after_attempt(REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS),
+                wait=wait_random_exponential(
+                    multiplier=REGISTRY_ARTIFACT_CAPACITY_RETRY_BASE_SECONDS,
+                    max=REGISTRY_ARTIFACT_CAPACITY_RETRY_MAX_SECONDS,
+                ),
+                before_sleep=_log_registry_artifact_capacity_retry,
+                sleep=_sleep_registry_artifact_capacity_retry,
+                reraise=True,
+            )(enter_lease_once)
+            yield registry_paths
+
+    @asynccontextmanager
+    async def _lease_once(
+        self,
+        artifact_uris: list[str],
+        *,
+        paths_may_be_modified: bool,
+    ) -> AsyncGenerator[list[Path]]:
+        """Acquire one complete lease set, releasing partial pins on failure."""
+        attempt = RegistryArtifactCacheLeaseAttempt()
         async with contextlib.AsyncExitStack() as leases:
             handles: list[_RegistryArtifactLease] = []
             registry_paths: list[Path] = []
@@ -1049,6 +1132,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     cache=self,
                     artifact_uri=artifact_uri,
                     cache_key=cache_key,
+                    attempt=attempt,
                 )
                 registry_paths.extend(await leases.enter_async_context(handle))
                 handles.append(handle)
@@ -1065,7 +1149,48 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         """Unmount every newly idle entry and converge the cache budget."""
         for cache_key in idle_keys:
             await self._unmount_idle_entry(cache_key)
+            await self._discard_idle_squashfs_extraction(cache_key)
         await self._converge_cache_budget()
+
+    async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
+        """Discard an unsquashed fallback after its final lease releases."""
+        if not self._squashfs_mount_policy.should_discard_extraction(cache_key):
+            return
+        retired_path: Path | None = None
+        async with self._runtime_lock(cache_key, wait=False) as runtime:
+            if runtime is None or self._refcount(cache_key) > 0:
+                return
+            paths = self._paths_for(cache_key)
+            validate_cache_entry_path(paths)
+            extracted_path = paths.squashfs_extract_dir
+            if not os.path.lexists(extracted_path):
+                self._squashfs_mount_policy.forget_extraction(cache_key)
+                return
+            retired_path = unique_work_path(self.trash_dir, cache_key)
+            try:
+                extracted_path.rename(retired_path)
+            except FileNotFoundError:
+                self._squashfs_mount_policy.forget_extraction(cache_key)
+                return
+            except OSError as error:
+                logger.warning(
+                    "Failed to retire idle SquashFS extraction",
+                    cache_key=cache_key,
+                    error=str(error),
+                )
+                self._budget_dirty = True
+                return
+            self._budget_dirty = True
+            self._squashfs_mount_policy.forget_extraction(cache_key)
+
+        await remove_tree_rejoin_on_cancel(
+            retired_path,
+            defer_cleanup=self._defer_cleanup,
+        )
+        logger.info(
+            "Discarded idle SquashFS extraction",
+            cache_key=cache_key,
+        )
 
     async def _acquire_artifact(
         self,
@@ -1082,8 +1207,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
         ctx = self._context_for(cache_key)
         async with self._runtime_lock(cache_key):
-            self._acquire_lease(cache_key)
-            lease.mark_acquired()
+            lease.acquire_entry_lease()
             if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                 return cached_paths
 
@@ -1093,10 +1217,12 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     return cached_paths
                 ctx = self._context_for(
                     cache_key,
-                    admission=self._admission_for(cache_key),
+                    admission=self._admission_for(
+                        cache_key,
+                        attempt_cache_keys=lease.attempt.cache_keys,
+                    ),
                 )
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
-                # Recheck after acquiring the lock.
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cached_paths
                 paths = await self._materialize_candidates(ctx, candidates)
@@ -1210,20 +1336,12 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
         artifact_format = _artifact_format(artifact_uri)
         if artifact_format == RegistryArtifactFormat.SQUASHFS:
-            candidates: list[RegistryArtifact] = [
+            return [
                 SquashfsArtifact(
                     uri=artifact_uri,
                     cache_key=ctx.cache_key,
                 )
             ]
-            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
-                candidates.append(
-                    TarballArtifact(
-                        uri=tarball_uri,
-                        cache_key=ctx.cache_key,
-                    )
-                )
-            return candidates
 
         candidates = []
         if include_squashfs_sidecar and (

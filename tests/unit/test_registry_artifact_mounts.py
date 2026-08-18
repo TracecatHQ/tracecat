@@ -107,6 +107,34 @@ async def test_sync_loop_device_nodes_wraps_startup_failure() -> None:
 
 
 @pytest.mark.anyio
+async def test_mount_squashfs_classifies_spawn_permission_error(
+    tmp_path: Path,
+) -> None:
+    """A deployment-level spawn denial becomes a typed extract-only outcome."""
+    with (
+        patch(
+            "tracecat.executor.registry_artifact_mounts.is_mount",
+            return_value=False,
+        ),
+        patch(
+            "tracecat.executor.registry_artifact_mounts.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            side_effect=PermissionError("not permitted"),
+        ),
+        pytest.raises(
+            registry_artifact_mounts.SquashfsMountUnavailableError,
+            match="unavailable to this executor",
+        ) as raised,
+    ):
+        await registry_artifact_mounts.mount_squashfs(
+            tmp_path / "image.squashfs",
+            tmp_path / "mount",
+        )
+
+    assert isinstance(raised.value.__cause__, PermissionError)
+
+
+@pytest.mark.anyio
 async def test_mount_squashfs_recovers_after_synchronizing_nodes(
     tmp_path: Path,
 ) -> None:

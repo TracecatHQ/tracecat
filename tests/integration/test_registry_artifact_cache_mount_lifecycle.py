@@ -16,8 +16,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
+from unittest.mock import patch
 
 import pytest
 
@@ -26,7 +28,64 @@ _MOUNT_LIFECYCLE_RESULT = "TRACECAT_REGISTRY_MOUNT_LIFECYCLE_RESULT:"
 _MOUNT_LIFECYCLE_FLAG = "--run-registry-mount-lifecycle"
 
 
-def _run_mount_lifecycle_in_docker_or_skip() -> dict[str, Any]:
+class _CapacityContentionPayload(TypedDict):
+    """Results from the cache-capacity contention scenario."""
+
+    capacity_allocation_unit: int
+    capacity_expected_max_bytes: int
+    capacity_cold_image_bytes: int
+    capacity_snapshot_total_bytes: int
+    capacity_error_current_bytes: int
+    capacity_error_additional_bytes: int
+    capacity_error_max_bytes: int
+    capacity_concurrent_holders: int
+    capacity_all_refcounts_pinned: bool
+    capacity_partial_pins_released_before_retry: bool
+    capacity_all_entries_preserved: bool
+    capacity_all_mounts_preserved: bool
+    capacity_retry_succeeded_after_one_release: bool
+    capacity_released_entry_evicted: bool
+    capacity_still_held_entries_preserved: bool
+    capacity_still_held_mounts_preserved: bool
+    capacity_public_lease_retry_delays: int
+    capacity_cold_mount_released: bool
+
+
+class _MountLifecyclePayload(_CapacityContentionPayload):
+    """Successful result emitted by the privileged mount lifecycle child."""
+
+    module_readable_through_mount: bool
+    lease_mounts_observed: int
+    all_targets_unmounted_after_release: bool
+    all_loop_devices_released: bool
+    images_retained_after_release: bool
+    remounted_from_retained_image: bool
+    remount_released: bool
+    concurrent_paths_shared: bool
+    concurrent_peak_refcount: int
+    concurrent_single_mount: bool
+    concurrent_intermediate_release_preserved_mount: bool
+    concurrent_final_release_unmounted: bool
+    concurrent_loop_device_released: bool
+    evicted: bool
+    evicted_paths_removed: bool
+    converged_lease_unmounted: bool
+    converged_loop_device_released: bool
+    converged_entries_remaining: int
+    startup_sweep_trimmed: bool
+    startup_sweep_removed_stale_mount_dir: bool
+
+
+class _SkippedMountLifecyclePayload(TypedDict):
+    """Result emitted when the container cannot mount SquashFS images."""
+
+    skipped: str
+
+
+_MountLifecycleResult = _MountLifecyclePayload | _SkippedMountLifecyclePayload
+
+
+def _run_mount_lifecycle_in_docker_or_skip() -> _MountLifecycleResult:
     """Run the mount lifecycle child inside the privileged executor image.
 
     Returns:
@@ -135,7 +194,10 @@ def _run_mount_lifecycle_in_docker_or_skip() -> dict[str, Any]:
     output = f"{result.stdout}\n{result.stderr}"
     for line in output.splitlines():
         if line.startswith(_MOUNT_LIFECYCLE_RESULT):
-            return json.loads(line.removeprefix(_MOUNT_LIFECYCLE_RESULT))
+            return cast(
+                _MountLifecycleResult,
+                json.loads(line.removeprefix(_MOUNT_LIFECYCLE_RESULT)),
+            )
 
     pytest.fail(
         "Dockerized registry mount lifecycle did not emit result sentinel."
@@ -143,18 +205,28 @@ def _run_mount_lifecycle_in_docker_or_skip() -> dict[str, Any]:
     )
 
 
+@pytest.fixture(scope="module")
+def mount_lifecycle_payload() -> _MountLifecycleResult:
+    """Run the privileged Docker scenario once for this integration module."""
+    return _run_mount_lifecycle_in_docker_or_skip()
+
+
 @pytest.mark.integration
-def test_registry_artifact_cache_mount_lifecycle() -> None:
+def test_registry_artifact_cache_mount_lifecycle(
+    mount_lifecycle_payload: _MountLifecycleResult,
+) -> None:
     """Protect lease invariants against the real kernel mount lifecycle.
 
     Unit mocks cannot prove that overlapping holders share one loop device or
     that final release actually returns it to the kernel. This privileged test
     guards those assumptions alongside retained-image remount and eviction.
     """
-    payload = _run_mount_lifecycle_in_docker_or_skip()
+    payload = mount_lifecycle_payload
 
-    if skipped := payload.get("skipped"):
-        pytest.skip(f"SquashFS mounts unsupported in this container: {skipped}")
+    if "skipped" in payload:
+        pytest.skip(
+            f"SquashFS mounts unsupported in this container: {payload['skipped']}"
+        )
 
     # Each lease mounts its image and its final release frees the loop device.
     assert payload["module_readable_through_mount"] is True
@@ -187,6 +259,54 @@ def test_registry_artifact_cache_mount_lifecycle() -> None:
     # The startup sweep trims to budget and removes stale mount directories.
     assert payload["startup_sweep_trimmed"] is True
     assert payload["startup_sweep_removed_stale_mount_dir"] is True
+
+
+@pytest.mark.integration
+def test_registry_artifact_cache_retries_after_held_lease_releases(
+    mount_lifecycle_payload: _MountLifecycleResult,
+) -> None:
+    """Reproduce byte-budget admission failure under concurrent leased load.
+
+    Several concurrent executions hold distinct real SquashFS mounts, leaving
+    no eviction candidate for one more cold artifact. Releasing one execution
+    makes exactly one entry idle, so the same admission request can evict it.
+    """
+    payload = mount_lifecycle_payload
+
+    if "skipped" in payload:
+        pytest.skip(
+            f"SquashFS mounts unsupported in this container: {payload['skipped']}"
+        )
+
+    assert (
+        payload["capacity_error_current_bytes"]
+        == payload["capacity_snapshot_total_bytes"]
+    )
+    assert (
+        payload["capacity_error_additional_bytes"]
+        >= payload["capacity_cold_image_bytes"]
+    )
+    assert (
+        payload["capacity_error_additional_bytes"] % payload["capacity_allocation_unit"]
+        == 0
+    )
+    assert payload["capacity_error_max_bytes"] == payload["capacity_expected_max_bytes"]
+    assert (
+        payload["capacity_error_current_bytes"]
+        + payload["capacity_error_additional_bytes"]
+        > payload["capacity_error_max_bytes"]
+    )
+    assert payload["capacity_concurrent_holders"] == 3
+    assert payload["capacity_all_refcounts_pinned"] is True
+    assert payload["capacity_partial_pins_released_before_retry"] is True
+    assert payload["capacity_all_entries_preserved"] is True
+    assert payload["capacity_all_mounts_preserved"] is True
+    assert payload["capacity_public_lease_retry_delays"] == 1
+    assert payload["capacity_retry_succeeded_after_one_release"] is True
+    assert payload["capacity_cold_mount_released"] is True
+    assert payload["capacity_released_entry_evicted"] is True
+    assert payload["capacity_still_held_entries_preserved"] is True
+    assert payload["capacity_still_held_mounts_preserved"] is True
 
 
 def _squashfs_mounts(cache_dir: Path) -> dict[str, str]:
@@ -227,6 +347,223 @@ def _build_squashfs_image(source_dir: Path, image_path: Path, module_name: str) 
     )
 
 
+async def _run_capacity_contention_scenario(
+    root: Path,
+) -> _CapacityContentionPayload:
+    """Exercise retry after active registry leases release cache capacity."""
+    from tracecat import config
+    from tracecat.executor.registry_artifacts import (
+        RegistryArtifactCache,
+        RegistryArtifactCacheLeaseContentionError,
+        allocated_size_bound,
+        compute_registry_artifact_cache_key,
+    )
+
+    payload = cast(_CapacityContentionPayload, {})
+    capacity_dir = root / "capacity-cache"
+    capacity_dir.mkdir()
+    capacity_cache = RegistryArtifactCache(capacity_dir)
+    capacity_holder_count = 3
+    capacity_uris = [
+        f"s3://bucket/capacity/held-{index}/site-packages.squashfs"
+        for index in range(capacity_holder_count)
+    ]
+    capacity_keys = [compute_registry_artifact_cache_key(uri) for uri in capacity_uris]
+    capacity_paths = [
+        capacity_cache._paths_for(cache_key) for cache_key in capacity_keys
+    ]
+    cold_uri = "s3://bucket/capacity/cold/site-packages.squashfs"
+    cold_key = compute_registry_artifact_cache_key(cold_uri)
+    cold_image_source = root / "capacity-cold-image.squashfs"
+    _build_squashfs_image(
+        root / "capacity-cold-source",
+        cold_image_source,
+        "capacity_cold_module.py",
+    )
+    for index, paths in enumerate(capacity_paths):
+        _build_squashfs_image(
+            root / f"capacity-source-{index}",
+            paths.squashfs_image_path,
+            f"capacity_module_{index}.py",
+        )
+
+    config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 0
+    config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = 0
+    capacity_entered = 0
+    all_capacity_holders_entered = asyncio.Event()
+    capacity_releases = [asyncio.Event() for _ in range(capacity_holder_count)]
+
+    async def hold_capacity_lease(index: int) -> None:
+        nonlocal capacity_entered
+        async with capacity_cache.lease([capacity_uris[index]]) as paths:
+            if paths != [capacity_paths[index].squashfs_mount_dir]:
+                raise AssertionError(
+                    f"Expected mounted capacity artifact {index}, got {paths}"
+                )
+            capacity_entered += 1
+            if capacity_entered == capacity_holder_count:
+                all_capacity_holders_entered.set()
+            await capacity_releases[index].wait()
+
+    capacity_holders = [
+        asyncio.create_task(hold_capacity_lease(index))
+        for index in range(capacity_holder_count)
+    ]
+    try:
+        await asyncio.wait_for(all_capacity_holders_entered.wait(), timeout=30)
+        cold_paths = capacity_cache._paths_for(cold_key)
+        cold_paths.entry_dir.mkdir(parents=True)
+        cold_paths.squashfs_mount_dir.mkdir()
+        capacity_with_cold_shell = capacity_cache._scan_cache_snapshot()
+        cold_paths.squashfs_mount_dir.rmdir()
+        cold_paths.entry_dir.rmdir()
+        capacity_snapshot = capacity_cache._scan_cache_snapshot()
+        cold_shell_bytes = (
+            capacity_with_cold_shell.total_bytes - capacity_snapshot.total_bytes
+        )
+        config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = 1
+        probe_admission = capacity_cache._admission_for(cold_key)
+        if probe_admission is None:
+            raise AssertionError("Expected byte-bound registry cache admission")
+        allocation_unit = probe_admission.allocation_unit
+        cold_image_bytes = cold_image_source.stat().st_size
+        cold_download_bytes = allocated_size_bound(
+            cold_image_bytes + 2 * allocation_unit,
+            allocation_unit=allocation_unit,
+        )
+        released_entry_bytes = capacity_snapshot.entries[capacity_keys[0]].size_bytes
+        max_bytes = (
+            capacity_snapshot.total_bytes
+            - released_entry_bytes
+            + cold_shell_bytes
+            + cold_download_bytes
+        )
+        config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = max_bytes
+        payload["capacity_allocation_unit"] = allocation_unit
+        payload["capacity_expected_max_bytes"] = max_bytes
+        payload["capacity_cold_image_bytes"] = cold_image_bytes
+        retry_delays: list[float] = []
+
+        async def download_capacity_artifact(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            max_bytes: int | None,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None,
+            defer_cleanup: Callable[[Path], None] | None,
+            redact_log_identifiers: bool,
+        ) -> None:
+            del key, bucket, max_bytes, defer_cleanup, redact_log_identifiers
+            if ensure_capacity is None:
+                raise AssertionError("Expected capacity-aware artifact download")
+            attempt_snapshot = capacity_cache._scan_cache_snapshot()
+            try:
+                await ensure_capacity(cold_image_source.stat().st_size)
+            except RegistryArtifactCacheLeaseContentionError as error:
+                payload["capacity_snapshot_total_bytes"] = attempt_snapshot.total_bytes
+                payload["capacity_error_current_bytes"] = error.current_bytes
+                payload["capacity_error_additional_bytes"] = error.additional_bytes
+                payload["capacity_error_max_bytes"] = error.max_bytes
+                raise
+            shutil.copyfile(cold_image_source, output_path)
+
+        async def release_one_holder_during_backoff(delay: float) -> None:
+            retry_delays.append(delay)
+            payload["capacity_concurrent_holders"] = capacity_holder_count
+            payload["capacity_all_refcounts_pinned"] = all(
+                capacity_cache._refcount(cache_key) == 1 for cache_key in capacity_keys
+            )
+            payload["capacity_partial_pins_released_before_retry"] = (
+                capacity_cache._refcount(cold_key) == 0
+            )
+            payload["capacity_all_entries_preserved"] = all(
+                paths.squashfs_image_path.exists() for paths in capacity_paths
+            )
+            payload["capacity_all_mounts_preserved"] = all(
+                paths.squashfs_mount_dir.is_mount() for paths in capacity_paths
+            )
+            capacity_releases[0].set()
+            await capacity_holders[0]
+            await asyncio.sleep(0)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                new=download_capacity_artifact,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
+                new=release_one_holder_during_backoff,
+            ),
+        ):
+            async with capacity_cache.lease([cold_uri]) as cold_registry_paths:
+                cold_mount_dir = capacity_cache._paths_for(cold_key).squashfs_mount_dir
+                payload["capacity_retry_succeeded_after_one_release"] = (
+                    cold_registry_paths == [cold_mount_dir]
+                    and cold_mount_dir.is_mount()
+                )
+                payload["capacity_released_entry_evicted"] = not capacity_paths[
+                    0
+                ].entry_dir.exists()
+                payload["capacity_still_held_entries_preserved"] = all(
+                    paths.squashfs_image_path.exists() for paths in capacity_paths[1:]
+                )
+                payload["capacity_still_held_mounts_preserved"] = all(
+                    paths.squashfs_mount_dir.is_mount() for paths in capacity_paths[1:]
+                )
+
+        payload["capacity_public_lease_retry_delays"] = len(retry_delays)
+        payload["capacity_cold_mount_released"] = not cold_mount_dir.is_mount()
+    finally:
+        for release in capacity_releases:
+            release.set()
+        await asyncio.gather(*capacity_holders)
+
+    return payload
+
+
+def _add_capacity_contention_results(
+    payload: _MountLifecyclePayload,
+    capacity: _CapacityContentionPayload,
+) -> None:
+    """Add the independently collected capacity results to the final payload."""
+    payload["capacity_allocation_unit"] = capacity["capacity_allocation_unit"]
+    payload["capacity_expected_max_bytes"] = capacity["capacity_expected_max_bytes"]
+    payload["capacity_cold_image_bytes"] = capacity["capacity_cold_image_bytes"]
+    payload["capacity_snapshot_total_bytes"] = capacity["capacity_snapshot_total_bytes"]
+    payload["capacity_error_current_bytes"] = capacity["capacity_error_current_bytes"]
+    payload["capacity_error_additional_bytes"] = capacity[
+        "capacity_error_additional_bytes"
+    ]
+    payload["capacity_error_max_bytes"] = capacity["capacity_error_max_bytes"]
+    payload["capacity_concurrent_holders"] = capacity["capacity_concurrent_holders"]
+    payload["capacity_all_refcounts_pinned"] = capacity["capacity_all_refcounts_pinned"]
+    payload["capacity_partial_pins_released_before_retry"] = capacity[
+        "capacity_partial_pins_released_before_retry"
+    ]
+    payload["capacity_all_entries_preserved"] = capacity[
+        "capacity_all_entries_preserved"
+    ]
+    payload["capacity_all_mounts_preserved"] = capacity["capacity_all_mounts_preserved"]
+    payload["capacity_retry_succeeded_after_one_release"] = capacity[
+        "capacity_retry_succeeded_after_one_release"
+    ]
+    payload["capacity_released_entry_evicted"] = capacity[
+        "capacity_released_entry_evicted"
+    ]
+    payload["capacity_still_held_entries_preserved"] = capacity[
+        "capacity_still_held_entries_preserved"
+    ]
+    payload["capacity_still_held_mounts_preserved"] = capacity[
+        "capacity_still_held_mounts_preserved"
+    ]
+    payload["capacity_public_lease_retry_delays"] = capacity[
+        "capacity_public_lease_retry_delays"
+    ]
+    payload["capacity_cold_mount_released"] = capacity["capacity_cold_mount_released"]
+
+
 async def _run_mount_lifecycle_child() -> None:
     """Exercise the real mount, eviction, and sweep lifecycle in a container."""
     from tracecat import config
@@ -239,7 +576,7 @@ async def _run_mount_lifecycle_child() -> None:
     config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 8
     config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = 0
 
-    payload: dict[str, Any] = {}
+    payload = cast(_MountLifecyclePayload, {})
     with tempfile.TemporaryDirectory(prefix="registry-mount-lifecycle-") as tmp:
         root = Path(tmp)
         cache_dir = root / "registry-cache"
@@ -270,12 +607,14 @@ async def _run_mount_lifecycle_child() -> None:
                     if index == 0 and not mount_dir.is_mount():
                         # Kernels without SquashFS or loop support fall back to
                         # extraction; that is an environment limit, not a bug.
-                        payload["skipped"] = (
-                            f"materialized {registry_paths} instead of a mount"
-                        )
+                        skipped_payload: _SkippedMountLifecyclePayload = {
+                            "skipped": (
+                                f"materialized {registry_paths} instead of a mount"
+                            )
+                        }
                         print(
                             f"{_MOUNT_LIFECYCLE_RESULT}"
-                            f"{json.dumps(payload, sort_keys=True)}"
+                            f"{json.dumps(skipped_payload, sort_keys=True)}"
                         )
                         return
                     raise AssertionError(
@@ -428,6 +767,10 @@ async def _run_mount_lifecycle_child() -> None:
             and retained_paths.squashfs_image_path.exists()
         )
         payload["startup_sweep_removed_stale_mount_dir"] = not stale_mount_dir.exists()
+
+        # (g) Concurrent leased entries cannot be evicted for a new execution.
+        capacity_results = await _run_capacity_contention_scenario(root)
+        _add_capacity_contention_results(payload, capacity_results)
 
         # Leave no mounts behind for the container teardown.
         for cache_key in sorted(cache._discover_cache_keys()):
