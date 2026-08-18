@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import functools
 import os
 import re
@@ -10,8 +11,15 @@ import shutil
 import stat
 import threading
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable, Collection, Iterable
-from contextlib import asynccontextmanager
+from collections.abc import (
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+)
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,6 +44,8 @@ __all__ = (
     "CACHE_TRASH_DIR_NAME",
     "RegistryArtifactAdmission",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactCacheEntryLease",
+    "RegistryArtifactCacheLeaseAttempt",
     "RegistryArtifactCacheLeaseContentionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactCacheStorage",
@@ -69,6 +79,17 @@ _LEGACY_CACHE_PATH_PATTERN = re.compile(
     r"|[0-9a-f]{16}\.\d+\.\d+\.(?:squashfs|unsquashfs|tar\.gz|tmp)"
 )
 """Exact pre-entries-layout cache names that are safe to reclaim."""
+
+
+def _open_cache_entry_guard(entry_dir: Path) -> int:
+    """Open one real cache entry directory for advisory lifetime locking."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    return os.open(entry_dir, flags)
 
 
 class RegistryArtifactCacheLoopError(RuntimeError):
@@ -128,6 +149,141 @@ class RegistryArtifactRuntimeState:
     last_used: float = 0.0
     lock_users: int = 0
     retire_when_idle: bool = False
+
+
+@dataclass(slots=True)
+class RegistryArtifactCacheLeaseAttempt:
+    """Own the cache keys pinned by one all-or-nothing lease attempt."""
+
+    _cache_keys: set[str] = field(default_factory=set)
+
+    @property
+    def cache_keys(self) -> Collection[str]:
+        """Return keys that must remain protected for this attempt."""
+        return self._cache_keys
+
+    def record(self, cache_key: str) -> None:
+        """Record one acquired cache entry."""
+        self._cache_keys.add(cache_key)
+
+
+@dataclass(slots=True)
+class _RegistryArtifactCacheEntryGuard:
+    """Own one advisory cache-entry lock file descriptor."""
+
+    fd: int
+
+    @classmethod
+    async def acquire_shared(
+        cls,
+        entry_dir: Path,
+    ) -> _RegistryArtifactCacheEntryGuard:
+        """Acquire a shared guard for one active artifact lease."""
+        guard = cls(_open_cache_entry_guard(entry_dir))
+        try:
+            while True:
+                try:
+                    fcntl.flock(guard.fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    await asyncio.sleep(0)
+                    continue
+                return guard
+        except BaseException:
+            guard.close()
+            raise
+
+    @classmethod
+    def try_acquire_exclusive(
+        cls,
+        entry_dir: Path,
+    ) -> _RegistryArtifactCacheEntryGuard | None:
+        """Try to exclude leases in every cache instance sharing an entry."""
+        try:
+            guard = cls(_open_cache_entry_guard(entry_dir))
+        except FileNotFoundError:
+            return None
+        try:
+            fcntl.flock(guard.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            guard.close()
+            return None
+        except BaseException:
+            guard.close()
+            raise
+        return guard
+
+    def close(self) -> None:
+        """Release the advisory guard exactly once."""
+        if self.fd < 0:
+            return
+        fd = self.fd
+        self.fd = -1
+        os.close(fd)
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> None:
+        del exc_type, exc_value, traceback
+        self.close()
+
+
+@dataclass(slots=True)
+class RegistryArtifactCacheEntryLease:
+    """Own one process-local pin and its cross-instance entry guard."""
+
+    cache: RegistryArtifactCacheStorage
+    cache_key: str
+    attempt: RegistryArtifactCacheLeaseAttempt
+    _guard: _RegistryArtifactCacheEntryGuard | None = None
+    _acquired: bool = False
+
+    @property
+    def has_guard(self) -> bool:
+        """Return whether this lease coordinates cross-instance cleanup."""
+        return self._guard is not None
+
+    def acquire(self) -> None:
+        """Acquire the process-local pin exactly once."""
+        if self._acquired:
+            raise RuntimeError("Registry artifact cache entry already leased")
+        self.cache._acquire_lease(self.cache_key)
+        self.attempt.record(self.cache_key)
+        self._acquired = True
+
+    async def protect_entry(self, *, missing_ok: bool = False) -> bool:
+        """Acquire the shared filesystem guard for this entry."""
+        if not self._acquired:
+            raise RuntimeError("Registry artifact cache entry is not leased")
+        if self._guard is not None:
+            raise RuntimeError("Registry artifact cache entry already guarded")
+        try:
+            self._guard = await _RegistryArtifactCacheEntryGuard.acquire_shared(
+                self.cache._paths_for(self.cache_key).entry_dir
+            )
+        except FileNotFoundError:
+            if missing_ok:
+                return False
+            raise
+        return True
+
+    def release(self) -> bool:
+        """Release the pin and guard, returning whether the entry became idle."""
+        if not self._acquired:
+            return False
+        self._acquired = False
+        try:
+            return self.cache._release_lease(self.cache_key)
+        finally:
+            guard = self._guard
+            self._guard = None
+            if guard is not None:
+                guard.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -576,6 +732,30 @@ class RegistryArtifactCacheStorage:
             defer_cleanup=self._defer_cleanup,
             admission=admission,
         )
+
+    def _new_entry_lease(
+        self,
+        cache_key: str,
+        attempt: RegistryArtifactCacheLeaseAttempt,
+    ) -> RegistryArtifactCacheEntryLease:
+        """Create and acquire one cache-entry lease token."""
+        lease = RegistryArtifactCacheEntryLease(
+            cache=self,
+            cache_key=cache_key,
+            attempt=attempt,
+        )
+        lease.acquire()
+        return lease
+
+    @contextmanager
+    def _exclusive_entry_guard(self, entry_dir: Path) -> Iterator[bool]:
+        """Try to guard an entry for cross-instance retirement."""
+        guard = _RegistryArtifactCacheEntryGuard.try_acquire_exclusive(entry_dir)
+        if guard is None:
+            yield False
+            return
+        with guard:
+            yield True
 
     def _admission_for(
         self,
