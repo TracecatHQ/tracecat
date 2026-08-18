@@ -1298,15 +1298,29 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
 
-    def test_enables_tool_search(
+    @pytest.mark.parametrize(
+        ("provider", "expected"),
+        [
+            ("anthropic", "true"),
+            ("bedrock", "false"),
+        ],
+    )
+    def test_configures_tool_search_by_root_provider(
         self,
         sample_init_payload: RuntimeInitPayload,
+        provider: str,
+        expected: str,
     ) -> None:
-        # Always on: the CLI would otherwise disable deferred tool loading
-        # because the socket bridge is not a first-party Anthropic host.
-        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"model_provider": provider}
+            ),
+        )
 
-        assert env["ENABLE_TOOL_SEARCH"] == "true"
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert env["ENABLE_TOOL_SEARCH"] == expected
 
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
@@ -1478,6 +1492,36 @@ class TestClaudeAgentRuntimeRun:
             "EnterWorktree",
             "ExitWorktree",
         }
+        assert "ToolSearch" not in (agent_def.disallowedTools or [])
+
+    def test_bedrock_subagent_disallows_tool_search(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for Bedrock analysis.",
+            prompt="Analyze the request.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_name": "bedrock-profile",
+                    "model_provider": "bedrock",
+                }
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(sample_init_payload, subagents=[child])
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        assert "ToolSearch" in (definitions["analyst"].disallowedTools or [])
+        assert runtime._sdk_env(payload)["ENABLE_TOOL_SEARCH"] == "true"
 
     def test_explicit_subagent_without_scoped_tools_stays_toolless(
         self,

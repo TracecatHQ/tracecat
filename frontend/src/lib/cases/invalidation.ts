@@ -1,5 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query"
 
+/** Invalidate field metadata and case data after a field definition changes. */
+export async function invalidateCaseFieldQueries(
+  queryClient: QueryClient,
+  workspaceId: string
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: ["case-fields", workspaceId],
+    }),
+    queryClient.invalidateQueries({ queryKey: ["case"] }),
+    queryClient.invalidateQueries({ queryKey: ["cases"] }),
+  ])
+}
+
 /**
  * Invalidate the common set of case queries that should refresh
  * after any case-mutating action (events, durations, case detail).

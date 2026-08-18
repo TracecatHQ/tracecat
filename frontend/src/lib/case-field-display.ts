@@ -1,6 +1,52 @@
-import type { CaseFieldReadType } from "@/client"
+import type { CaseFieldReadMinimal, CaseFieldReadType } from "@/client"
+import { slugify } from "@/lib/utils"
 
 export const MAX_CASE_FIELD_FRACTION_DIGITS = 6
+export const MAX_CASE_FIELD_REFERENCE_LENGTH = 100
+
+/**
+ * Derive the snake_case API reference used to store and address a case field.
+ */
+export function createCaseFieldReference(displayName: string): string {
+  const normalized = slugify(displayName, "_")
+  const validStart = /^\d/.test(normalized) ? `field_${normalized}` : normalized
+  return validStart.slice(0, MAX_CASE_FIELD_REFERENCE_LENGTH)
+}
+
+/**
+ * Derive the first available case-field reference, suffixing collisions.
+ */
+export function createUniqueCaseFieldReference(
+  displayName: string,
+  existingReferences: ReadonlySet<string>
+): string {
+  const baseReference = createCaseFieldReference(displayName)
+  if (!baseReference || !existingReferences.has(baseReference)) {
+    return baseReference
+  }
+
+  let counter = 2
+  while (true) {
+    const suffix = `_${counter}`
+    const candidate = `${baseReference.slice(
+      0,
+      MAX_CASE_FIELD_REFERENCE_LENGTH - suffix.length
+    )}${suffix}`
+    if (!existingReferences.has(candidate)) {
+      return candidate
+    }
+    counter += 1
+  }
+}
+
+/**
+ * Index case-field display names by their stable API references.
+ */
+export function createCaseFieldDisplayNameMap(
+  fields: readonly Pick<CaseFieldReadMinimal, "id" | "display_name">[] = []
+): ReadonlyMap<string, string> {
+  return new Map(fields.map((field) => [field.id, field.display_name]))
+}
 
 /**
  * Round numeric case-field values for display without exposing float artifacts.

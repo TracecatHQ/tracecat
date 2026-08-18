@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { invalidateCaseFieldQueries } from "@/lib/cases/invalidation"
 import { useCaseFields } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -34,10 +35,8 @@ export function CustomFieldsView() {
           fieldId,
         })
       },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        })
+      onSuccess: async () => {
+        await invalidateCaseFieldQueries(queryClient, workspaceId)
         toast({
           title: "Field deleted",
           description: "The case field was deleted successfully.",

@@ -1406,6 +1406,53 @@ class TestTableRows:
         assert final_page.has_more is False
         assert final_page.next_cursor is None
 
+    async def test_search_rows_multi_select_cursor_round_trip(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="multi_select_cursor_table",
+                columns=[
+                    TableColumnCreate(
+                        name="tags",
+                        type=SqlType.MULTI_SELECT,
+                        options=["alpha", "beta", "gamma"],
+                    )
+                ],
+            )
+        )
+        for tags in (["gamma"], ["alpha"], ["beta"]):
+            await tables_service.insert_row(
+                table,
+                TableRowInsert(data={"tags": tags}),
+            )
+
+        all_rows = await tables_service.search_rows(
+            table,
+            limit=3,
+            order_by="tags",
+            sort="asc",
+        )
+        first = await tables_service.search_rows(
+            table,
+            limit=1,
+            order_by="tags",
+            sort="asc",
+        )
+        assert first.next_cursor is not None
+        second = await tables_service.search_rows(
+            table,
+            limit=1,
+            cursor=first.next_cursor,
+            order_by="tags",
+            sort="asc",
+        )
+
+        assert [row["id"] for row in first.items + second.items] == [
+            row["id"] for row in all_rows.items[:2]
+        ]
+
     async def test_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table
     ) -> None:
@@ -1418,24 +1465,92 @@ class TestTableRows:
 
         all_rows = await _list_rows(tables_service, table)
         first_page = await _list_rows_page(tables_service, table, limit=2)
-
-        # Navigate backward from the first forward page cursor.
-        reverse_page = await _list_rows_page(
+        second_page = await _list_rows_page(
             tables_service,
             table,
             limit=2,
             cursor=first_page.next_cursor,
+        )
+        assert second_page.prev_cursor is not None
+
+        # Direction is encoded in the previous-page cursor. ``reverse`` remains
+        # accepted by the service for API compatibility.
+        reverse_page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=second_page.prev_cursor,
             reverse=True,
         )
 
-        # The reverse page should contain only rows before the cursor.
-        assert [row["id"] for row in reverse_page.items] == [all_rows[0]["id"]]
+        assert [row["id"] for row in reverse_page.items] == [
+            row["id"] for row in all_rows[:2]
+        ]
 
         # In response direction:
         # - has_more: there is a forward page available (cursor origin and newer items)
         # - has_previous: there are no older rows before this reverse page
         assert reverse_page.has_more is True
         assert reverse_page.has_previous is False
+
+    async def test_list_rows_reverse_pagination_returns_adjacent_page(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """A previous cursor returns the adjacent page, not the first page."""
+        for i in range(7):
+            await tables_service.insert_row(
+                table,
+                TableRowInsert(data={"name": f"User{i}", "age": i}),
+            )
+
+        all_rows = await _list_rows(tables_service, table)
+        expected_ids = [row["id"] for row in all_rows]
+
+        page1 = await _list_rows_page(tables_service, table, limit=2)
+        page2 = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page1.next_cursor,
+        )
+        page3 = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page2.next_cursor,
+        )
+        assert [row["id"] for row in page3.items] == expected_ids[4:6]
+        assert page3.prev_cursor is not None
+
+        back = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page3.prev_cursor,
+            reverse=True,
+        )
+        assert [row["id"] for row in back.items] == expected_ids[2:4]
+        assert back.next_cursor is not None
+        assert back.prev_cursor is not None
+
+        forward_again = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=back.next_cursor,
+        )
+        assert [row["id"] for row in forward_again.items] == expected_ids[4:6]
+
+        back_to_first = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=back.prev_cursor,
+            reverse=True,
+        )
+        assert [row["id"] for row in back_to_first.items] == expected_ids[:2]
+        assert back_to_first.next_cursor is not None
+        assert back_to_first.prev_cursor is None
 
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table

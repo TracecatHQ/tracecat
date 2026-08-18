@@ -18,7 +18,6 @@ from tracecat.cases.rows.service import (
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import CaseTableRow, Table
-from tracecat.pagination import BaseCursorPaginator
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -382,11 +381,64 @@ async def test_list_rows_cursor_uses_created_at_and_id_order(
         oldest_small_id,
     ]
 
-    legacy_cursor = BaseCursorPaginator.encode_cursor(middle_large_id)
-    legacy_page = await case_rows_service.list_rows(
-        case_id=case.id,
-        limit=2,
-        cursor=legacy_cursor,
-        include_row_data=False,
+
+@pytest.mark.anyio
+async def test_list_rows_reverse_pagination_cursors_round_trip(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """Backward cursors return the adjacent page and keep both directions valid."""
+    case = await _create_case(cases_service)
+    table_id, _ = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_reverse_{uuid.uuid4().hex[:8]}",
+        value="seed",
     )
-    assert [item.id for item in legacy_page.items] == [older_small_id, oldest_small_id]
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    links = [
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=uuid.uuid4(),
+            created_at=base_time + timedelta(minutes=i),
+            updated_at=base_time + timedelta(minutes=i),
+        )
+        for i in range(6)
+    ]
+    session.add_all(links)
+    await session.commit()
+    expected_ids = [
+        link.id
+        for link in sorted(links, key=lambda link: link.created_at, reverse=True)
+    ]
+
+    async def get_page(cursor: str | None = None, *, reverse: bool = False):
+        return await case_rows_service.list_rows(
+            case_id=case.id,
+            limit=2,
+            cursor=cursor,
+            reverse=reverse,
+            include_row_data=False,
+        )
+
+    page1 = await get_page()
+    page2 = await get_page(page1.next_cursor)
+    page3 = await get_page(page2.next_cursor)
+    assert [item.id for item in page3.items] == expected_ids[4:6]
+    assert page3.prev_cursor is not None
+
+    back = await get_page(page3.prev_cursor, reverse=True)
+    assert [item.id for item in back.items] == expected_ids[2:4]
+    assert back.next_cursor is not None
+    assert back.prev_cursor is not None
+
+    forward_again = await get_page(back.next_cursor)
+    assert [item.id for item in forward_again.items] == expected_ids[4:6]
+
+    back_to_first = await get_page(back.prev_cursor, reverse=True)
+    assert [item.id for item in back_to_first.items] == expected_ids[:2]
+    assert back_to_first.next_cursor is not None
+    assert back_to_first.prev_cursor is None

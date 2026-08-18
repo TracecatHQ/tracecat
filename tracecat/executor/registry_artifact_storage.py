@@ -10,7 +10,13 @@ import shutil
 import stat
 import threading
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable, Collection, Iterable
+from collections.abc import (
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +42,8 @@ __all__ = (
     "CACHE_TRASH_DIR_NAME",
     "RegistryArtifactAdmission",
     "RegistryArtifactCacheCapacityError",
+    "RegistryArtifactCacheEntryLease",
+    "RegistryArtifactCacheLeaseAttempt",
     "RegistryArtifactCacheLeaseContentionError",
     "RegistryArtifactCacheLoopError",
     "RegistryArtifactCacheStorage",
@@ -130,6 +138,47 @@ class RegistryArtifactRuntimeState:
     retire_when_idle: bool = False
 
 
+@dataclass(slots=True)
+class RegistryArtifactCacheLeaseAttempt:
+    """Own the cache keys pinned by one all-or-nothing lease attempt."""
+
+    _cache_keys: set[str] = field(default_factory=set)
+
+    @property
+    def cache_keys(self) -> Collection[str]:
+        """Return keys that must remain protected for this attempt."""
+        return self._cache_keys
+
+    def record(self, cache_key: str) -> None:
+        """Record one acquired cache entry."""
+        self._cache_keys.add(cache_key)
+
+
+@dataclass(slots=True)
+class RegistryArtifactCacheEntryLease:
+    """Own one process-local cache entry pin."""
+
+    cache: RegistryArtifactCacheStorage
+    cache_key: str
+    attempt: RegistryArtifactCacheLeaseAttempt
+    _acquired: bool = False
+
+    def acquire(self) -> None:
+        """Acquire the process-local pin exactly once."""
+        if self._acquired:
+            raise RuntimeError("Registry artifact cache entry already leased")
+        self.cache._acquire_lease(self.cache_key)
+        self.attempt.record(self.cache_key)
+        self._acquired = True
+
+    def release(self) -> bool:
+        """Release the pin, returning whether the entry became idle."""
+        if not self._acquired:
+            return False
+        self._acquired = False
+        return self.cache._release_lease(self.cache_key)
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryArtifactEviction:
     """Outcome of atomically retiring and physically deleting one entry."""
@@ -164,11 +213,14 @@ class RegistryArtifactMaterializationContext:
     staging_dir: Path
     paths: RegistryArtifactPaths
     defer_cleanup: Callable[[Path], None]
+    squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
     admission: RegistryArtifactAdmission | None = None
 
     def can_mount_squashfs(self) -> bool:
-        return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED and (
-            shutil.which("mount") is not None
+        """Return whether SquashFS mounting is enabled and worth attempting."""
+        return (
+            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            and self.squashfs_mount_policy.should_attempt_mount()
         )
 
 
@@ -444,6 +496,7 @@ class RegistryArtifactCacheStorage:
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
         self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
+        self._squashfs_mount_policy = registry_artifact_mounts.SquashfsMountPolicy()
         self._budget_dirty = True
 
     async def ensure_swept(self) -> None:
@@ -574,8 +627,23 @@ class RegistryArtifactCacheStorage:
             staging_dir=self.staging_dir,
             paths=self._paths_for(cache_key),
             defer_cleanup=self._defer_cleanup,
+            squashfs_mount_policy=self._squashfs_mount_policy,
             admission=admission,
         )
+
+    def _new_entry_lease(
+        self,
+        cache_key: str,
+        attempt: RegistryArtifactCacheLeaseAttempt,
+    ) -> RegistryArtifactCacheEntryLease:
+        """Create and acquire one cache-entry lease token."""
+        lease = RegistryArtifactCacheEntryLease(
+            cache=self,
+            cache_key=cache_key,
+            attempt=attempt,
+        )
+        lease.acquire()
+        return lease
 
     def _admission_for(
         self,
@@ -933,6 +1001,7 @@ class RegistryArtifactCacheStorage:
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
             if not paths.entry_dir.exists():
+                self._squashfs_mount_policy.forget_extraction(cache_key)
                 self._request_runtime_retirement(cache_key, runtime)
                 return RegistryArtifactEviction(retired=True, reclaimed=True)
             if registry_artifact_mounts.is_mount(
@@ -959,6 +1028,7 @@ class RegistryArtifactCacheStorage:
                     error=str(e),
                 )
                 return RegistryArtifactEviction(retired=False, reclaimed=False)
+            self._squashfs_mount_policy.forget_extraction(cache_key)
             self._request_runtime_retirement(cache_key, runtime)
 
         try:

@@ -31,6 +31,8 @@ import type {
 } from "@/components/filters/filter-multi-select"
 import { cn } from "@/lib/utils"
 
+type CaseFieldMetadata = Pick<CaseFieldReadMinimal, "display_name" | "type">
+
 type StatusGroup =
   | "new"
   | "in_progress"
@@ -124,7 +126,7 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
-  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  fieldMetadataById?: ReadonlyMap<string, CaseFieldMetadata>
   durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
@@ -154,7 +156,7 @@ interface VirtualizedGroupRowsProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
-  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  fieldMetadataById?: ReadonlyMap<string, CaseFieldMetadata>
   durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
 }
@@ -170,7 +172,7 @@ function VirtualizedGroupRows({
   tags,
   members,
   dropdownDefinitions,
-  fieldTypesById,
+  fieldMetadataById,
   durationNamesById,
   visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
@@ -281,7 +283,7 @@ function VirtualizedGroupRows({
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
-              fieldTypesById={fieldTypesById}
+              fieldMetadataById={fieldMetadataById}
               durationNamesById={durationNamesById}
               visibleColumnIds={visibleColumnIds}
             />
@@ -302,7 +304,7 @@ export function CasesAccordion({
   tags,
   members,
   dropdownDefinitions,
-  fieldTypesById,
+  fieldMetadataById,
   durationNamesById,
   visibleColumnIds,
   prioritySortDirection,
@@ -496,7 +498,7 @@ export function CasesAccordion({
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
-                    fieldTypesById={fieldTypesById}
+                    fieldMetadataById={fieldMetadataById}
                     durationNamesById={durationNamesById}
                     visibleColumnIds={visibleColumnIds}
                   />
