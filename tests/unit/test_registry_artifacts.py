@@ -30,6 +30,7 @@ from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheLeaseContentionError,
     RegistryArtifactCacheLoopError,
     RegistryArtifactEviction,
     RegistryArtifactExtractionError,
@@ -2365,6 +2366,120 @@ class TestRegistryArtifactCacheLease:
 
 class TestRegistryArtifactCacheEviction:
     """Tests for bounded eviction of registry artifact cache entries."""
+
+    @pytest.mark.anyio
+    async def test_capacity_blocked_only_by_active_lease_is_transient(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Admission identifies bytes that become available on lease release."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        busy_key = "busy"
+        _write_image_entry(temp_cache_dir, busy_key, size=4096, mtime=100.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        cache._acquire_lease(busy_key)
+
+        try:
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised:
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                    )
+        finally:
+            cache._release_lease(busy_key)
+
+        assert raised.value.current_bytes == (
+            fixed_bytes + snapshot.entries[busy_key].size_bytes
+        )
+        assert raised.value.additional_bytes == additional_bytes
+        assert raised.value.max_bytes == fixed_bytes + additional_bytes
+
+    @pytest.mark.anyio
+    async def test_capacity_pinned_by_current_attempt_is_permanent(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Reacquiring this attempt's own pins cannot relieve capacity pressure."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        attempt_key = "attempt"
+        _write_image_entry(temp_cache_dir, attempt_key, size=4096, mtime=100.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        cache._acquire_lease(attempt_key)
+
+        try:
+            with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                        attempt_cache_keys={attempt_key, "cold"},
+                    )
+        finally:
+            cache._release_lease(attempt_key)
+
+        assert type(raised.value) is RegistryArtifactCacheCapacityError
+        assert raised.value.current_bytes == (
+            fixed_bytes + snapshot.entries[attempt_key].size_bytes
+        )
+
+    @pytest.mark.anyio
+    async def test_capacity_rechecks_contention_after_eviction_yields(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A cache hit racing an eviction remains eligible for lease retry."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        oldest_key = "oldest"
+        newly_busy_key = "newly-busy"
+        _write_image_entry(temp_cache_dir, oldest_key, size=4096, mtime=100.0)
+        _write_image_entry(temp_cache_dir, newly_busy_key, size=4096, mtime=200.0)
+        snapshot = cache._scan_cache_snapshot()
+        additional_bytes = _filesystem_allocation_unit(temp_cache_dir)
+        fixed_bytes = (
+            snapshot.structural_bytes + snapshot.staging_bytes + snapshot.trash_bytes
+        )
+        original_evict = cache._evict_entry
+        evicted_keys: list[str] = []
+
+        async def evict_then_pin_remaining(cache_key: str) -> RegistryArtifactEviction:
+            eviction = await original_evict(cache_key)
+            evicted_keys.append(cache_key)
+            if len(evicted_keys) == 1:
+                cache._acquire_lease(newly_busy_key)
+            return eviction
+
+        try:
+            with (
+                patch.object(
+                    cache,
+                    "_evict_entry",
+                    side_effect=evict_then_pin_remaining,
+                ),
+                pytest.raises(RegistryArtifactCacheLeaseContentionError) as raised,
+            ):
+                async with cache._admission_lock:
+                    await cache._ensure_cache_capacity(
+                        additional_bytes=additional_bytes,
+                        protected_key="cold",
+                        max_bytes=fixed_bytes + additional_bytes,
+                    )
+        finally:
+            cache._release_lease(newly_busy_key)
+
+        assert evicted_keys == [oldest_key]
+        assert raised.value.current_bytes == (
+            snapshot.total_bytes - snapshot.entries[oldest_key].size_bytes
+        )
+        assert raised.value.additional_bytes == additional_bytes
+        assert raised.value.max_bytes == fixed_bytes + additional_bytes
 
     def test_snapshot_accounts_for_invalid_entry_children(
         self, temp_cache_dir: Path
