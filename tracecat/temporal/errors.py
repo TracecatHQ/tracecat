@@ -100,20 +100,33 @@ def wrap_application_error(
 
 def extract_error_envelope(error: BaseException) -> ErrorEnvelope | None:
     """Extract the first valid envelope from an exception chain."""
+    envelopes = extract_error_envelopes(error)
+    return envelopes[0] if envelopes else None
+
+
+def extract_error_envelopes(error: BaseException) -> tuple[ErrorEnvelope, ...]:
+    """Extract every valid envelope from an exception chain in transport order."""
+    envelopes: list[ErrorEnvelope] = []
     for current in _error_chain(error):
         if isinstance(current, TracecatRuntimeError):
-            return current.envelope
+            _append_unique_envelope(envelopes, current.envelope)
         if isinstance(current, ApplicationError):
-            if envelope := _envelope_from_details(current.details):
-                return envelope
-    return None
+            for envelope in _envelopes_from_details(current.details):
+                _append_unique_envelope(envelopes, envelope)
+    return tuple(envelopes)
 
 
 def _envelope_from_details(details: Sequence[Any]) -> ErrorEnvelope | None:
+    envelopes = _envelopes_from_details(details)
+    return envelopes[0] if envelopes else None
+
+
+def _envelopes_from_details(details: Sequence[Any]) -> tuple[ErrorEnvelope, ...]:
+    envelopes: list[ErrorEnvelope] = []
     for detail in details:
-        if envelope := _envelope_from_detail(detail):
-            return envelope
-    return None
+        for envelope in _envelopes_from_detail(detail):
+            _append_unique_envelope(envelopes, envelope)
+    return tuple(envelopes)
 
 
 def _serialized_error_details(
@@ -148,23 +161,45 @@ def _serialized_error_details(
     return tuple(serialized) if changed else None
 
 
-def _envelope_from_detail(detail: Any) -> ErrorEnvelope | None:
+def _envelopes_from_detail(detail: Any) -> tuple[ErrorEnvelope, ...]:
     if isinstance(detail, ClassifiedActionErrorInfo):
-        return detail.envelope
+        return (detail.envelope,)
     if isinstance(detail, TemporalErrorDetails):
-        return detail.envelope
+        return (detail.envelope,)
     if not isinstance(detail, Mapping):
-        return None
+        return ()
 
     if detail.get("schema") == TEMPORAL_ERROR_DETAILS_SCHEMA:
         if parse_error_envelope(detail.get("envelope")) is None:
-            return None
+            return ()
         try:
-            return TemporalErrorDetails.model_validate(detail).envelope
+            return (TemporalErrorDetails.model_validate(detail).envelope,)
         except ValidationError:
-            return None
+            return ()
 
-    return parse_error_envelope(detail.get("envelope"))
+    if envelope := parse_error_envelope(detail.get("envelope")):
+        return (envelope,)
+
+    # Workflow-level action failures retain the established ``{ref: info}``
+    # details shape. Validate each complete value as ActionErrorInfo rather than
+    # recursively searching arbitrary mappings, which would allow user payload
+    # keys to collide with the envelope contract.
+    envelopes: list[ErrorEnvelope] = []
+    for value in detail.values():
+        try:
+            parsed = ActionErrorInfoAdapter.validate_python(value)
+        except ValidationError:
+            continue
+        if isinstance(parsed, ClassifiedActionErrorInfo):
+            _append_unique_envelope(envelopes, parsed.envelope)
+    return tuple(envelopes)
+
+
+def _append_unique_envelope(
+    envelopes: list[ErrorEnvelope], envelope: ErrorEnvelope
+) -> None:
+    if envelope not in envelopes:
+        envelopes.append(envelope)
 
 
 def _error_chain(error: BaseException) -> Iterator[BaseException]:
