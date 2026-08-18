@@ -469,6 +469,27 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
   if (POSITIVE_INTEGER_KEYS.has(spec.key) && !/^[1-9]\d*$/.test(value)) {
     issues.push(`${spec.key} must be a positive integer.`)
   }
+  if (spec.key === FIRST_CLASS_ENDPOINT_KEY) {
+    let endpoint: URL
+    try {
+      endpoint = new URL(value)
+    } catch {
+      issues.push(`${spec.key} must be an absolute HTTP(S) URL.`)
+      return issues
+    }
+    if (
+      (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
+      !endpoint.hostname
+    ) {
+      issues.push(`${spec.key} must be an absolute HTTP(S) URL.`)
+    }
+    if (endpoint.username || endpoint.password) {
+      issues.push(`${spec.key} must not include credentials.`)
+    }
+    if (endpoint.search) {
+      issues.push(`${spec.key} must not include a query string.`)
+    }
+  }
   if (spec.key === "OTEL_RESOURCE_ATTRIBUTES") {
     try {
       parseResourceAttributes(value)
@@ -612,6 +633,31 @@ export function validateEnvText(
   }
 
   return issues
+}
+
+/** A collector header entry before conversion to the API's header map. */
+export interface AgentOtelHeaderEntry {
+  name: string
+  value: string
+}
+
+/** Validate non-empty collector header rows before object serialization. */
+export function validateAgentOtelHeaderEntries(
+  entries: readonly AgentOtelHeaderEntry[]
+): string[] {
+  const seenNames = new Set<string>()
+  for (const entry of entries) {
+    const name = entry.name.trim()
+    if (!name || !entry.value.trim()) {
+      return ["Headers must map non-empty names to non-empty string values."]
+    }
+    const normalizedName = name.toLowerCase()
+    if (seenNames.has(normalizedName)) {
+      return [`Header name ${name} is duplicated.`]
+    }
+    seenNames.add(normalizedName)
+  }
+  return []
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   envTextToForm,
   formToEnvMap,
   formToEnvText,
+  validateAgentOtelHeaderEntries,
   validateEnvMap,
   validateEnvText,
   validateForm,
@@ -242,6 +243,29 @@ describe("validateForm / validateEnvMap", () => {
     expect(validateEnvMap({ OTEL_LOG_USER_PROMPTS: "FALSE" })).toEqual([])
   })
 
+  it.each([
+    [
+      "/v1/traces",
+      "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute HTTP(S) URL.",
+    ],
+    [
+      "ftp://collector.example.com",
+      "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute HTTP(S) URL.",
+    ],
+    [
+      "https://user:password@collector.example.com",
+      "OTEL_EXPORTER_OTLP_ENDPOINT must not include credentials.",
+    ],
+    [
+      "https://collector.example.com/v1/traces?token=secret",
+      "OTEL_EXPORTER_OTLP_ENDPOINT must not include a query string.",
+    ],
+  ])("rejects invalid collector endpoint %s", (endpoint, expected) => {
+    expect(validateEnvMap({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint })).toEqual([
+      expected,
+    ])
+  })
+
   it("rejects unsupported boolean values", () => {
     expect(validateEnvMap({ OTEL_LOG_USER_PROMPTS: "yes" })).toEqual([
       "OTEL_LOG_USER_PROMPTS supports true, false, 1, 0.",
@@ -295,5 +319,25 @@ describe("validateForm / validateEnvMap", () => {
     expect(validateEnvMap({ [key]: "http/protobuf" })).toEqual([
       `${key} is managed by Tracecat.`,
     ])
+  })
+})
+
+describe("validateAgentOtelHeaderEntries", () => {
+  it("rejects duplicate trimmed header names case-insensitively", () => {
+    expect(
+      validateAgentOtelHeaderEntries([
+        { name: "Authorization", value: "Bearer first" },
+        { name: " authorization ", value: "Bearer second" },
+      ])
+    ).toEqual(["Header name authorization is duplicated."])
+  })
+
+  it("accepts unique non-empty headers", () => {
+    expect(
+      validateAgentOtelHeaderEntries([
+        { name: "Authorization", value: "Bearer token" },
+        { name: "X-Tenant", value: "tenant" },
+      ])
+    ).toEqual([])
   })
 })

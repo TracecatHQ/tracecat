@@ -2,7 +2,9 @@
 
 import { Code2, SlidersHorizontal, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -11,6 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { type ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import { toast } from "@/components/ui/use-toast"
+import { useOrgAgentOtelSettings } from "@/hooks/use-org-agent-otel-settings"
 import {
   type AgentOtelForm,
   type AgentOtelSignals,
@@ -21,12 +24,10 @@ import {
   envTextToForm,
   formToEnvMap,
   formToEnvText,
-  parseHeadersJson,
+  validateAgentOtelHeaderEntries,
   validateEnvText,
   validateForm,
-  validateHeadersJson,
 } from "@/lib/agent-otel"
-import { useOrgAgentOtelSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 /** Which editing surface the env config is shown in. */
@@ -88,9 +89,11 @@ function newHeaderRow(): HeaderRow {
  * exposes write-only collector headers as structured name/value rows.
  */
 export function OrgAgentOtelSettings() {
+  const canUpdateSettings = useScopeCheck("org:settings:update")
   const {
     agentOtelSettings,
     agentOtelSettingsIsLoading,
+    agentOtelSettingsError,
     updateAgentOtelSettings,
     updateAgentOtelSettingsIsPending,
   } = useOrgAgentOtelSettings()
@@ -104,6 +107,14 @@ export function OrgAgentOtelSettings() {
   const [rawEnv, setRawEnv] = useState("")
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
   const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
+  const settingsLoadFailed =
+    Boolean(agentOtelSettingsError) ||
+    (!agentOtelSettingsIsLoading && agentOtelSettings === undefined)
+  const editingDisabled =
+    canUpdateSettings !== true ||
+    agentOtelSettingsIsLoading ||
+    settingsLoadFailed
+  const fieldsDisabled = !enabled || editingDisabled
 
   // Seed form state from server values once they load.
   useEffect(() => {
@@ -193,15 +204,15 @@ export function OrgAgentOtelSettings() {
     setClearSavedHeaders(false)
   }
 
-  // Serialize header rows into a name -> value map for validation and save.
-  function headerRowsToJson(): string {
+  // Serialize validated header rows into the API's name -> value map.
+  function headerRowsToMap(): Record<string, string> {
     const map: Record<string, string> = {}
     for (const row of headerRows) {
       if (row.name.trim() !== "") {
         map[row.name.trim()] = row.value
       }
     }
-    return Object.keys(map).length === 0 ? "" : JSON.stringify(map)
+    return map
   }
 
   // Env validation is mode-aware. In Raw mode the buffer is the source of truth,
@@ -224,18 +235,7 @@ export function OrgAgentOtelSettings() {
     (row) => row.name.trim() !== "" || row.value.trim() !== ""
   )
   const headersDirty = nonEmptyHeaderRows.length > 0
-  const headersJson = headerRowsToJson()
-  const hasIncompleteHeaderRow = nonEmptyHeaderRows.some(
-    (row) => row.name.trim() === "" || row.value.trim() === ""
-  )
-  let headerIssues: string[] = []
-  if (hasIncompleteHeaderRow) {
-    headerIssues = [
-      "Headers must map non-empty names to non-empty string values.",
-    ]
-  } else if (headersDirty) {
-    headerIssues = validateHeadersJson(headersJson)
-  }
+  const headerIssues = validateAgentOtelHeaderEntries(nonEmptyHeaderRows)
   const hasIssues =
     rawIssues.length > 0 ||
     advancedIssues.length > 0 ||
@@ -271,7 +271,7 @@ export function OrgAgentOtelSettings() {
     if (clearSavedHeaders) {
       headersField = {}
     } else if (headersDirty) {
-      headersField = parseHeadersJson(headersJson)
+      headersField = headerRowsToMap()
     }
 
     await updateAgentOtelSettings({
@@ -285,7 +285,7 @@ export function OrgAgentOtelSettings() {
   }
 
   const saveDisabled =
-    agentOtelSettingsIsLoading || updateAgentOtelSettingsIsPending || hasIssues
+    editingDisabled || updateAgentOtelSettingsIsPending || hasIssues
 
   return (
     <section className="space-y-4">
@@ -299,6 +299,20 @@ export function OrgAgentOtelSettings() {
         </p>
       </div>
 
+      {settingsLoadFailed && (
+        <AlertNotification
+          level="error"
+          message="Agent telemetry settings could not be loaded. Editing is disabled to protect the saved configuration."
+          className="m-0"
+        />
+      )}
+      {canUpdateSettings === false && !settingsLoadFailed && (
+        <AlertNotification
+          message="You can view these settings, but you do not have permission to update them."
+          className="m-0"
+        />
+      )}
+
       <div className="flex flex-row items-center justify-between rounded-lg border p-4">
         <div className="space-y-0.5">
           <p className="text-sm font-medium">Enable agent telemetry</p>
@@ -306,14 +320,18 @@ export function OrgAgentOtelSettings() {
             When off, no OTel env vars are passed to agent runs.
           </p>
         </div>
-        <Switch checked={enabled} onCheckedChange={setEnabled} />
+        <Switch
+          checked={enabled}
+          onCheckedChange={setEnabled}
+          disabled={editingDisabled}
+        />
       </div>
 
       <div
-        aria-disabled={!enabled}
+        aria-disabled={fieldsDisabled}
         className={cn(
           "rounded-lg border transition-opacity",
-          !enabled && "pointer-events-none opacity-50"
+          fieldsDisabled && "pointer-events-none opacity-50"
         )}
       >
         <div className="flex items-start justify-between gap-4 p-4">
@@ -337,6 +355,7 @@ export function OrgAgentOtelSettings() {
             options={MODE_OPTIONS}
             value={mode}
             onValueChange={syncMode}
+            disabled={editingDisabled}
             size="sm"
             className="shrink-0"
           />
@@ -352,7 +371,7 @@ export function OrgAgentOtelSettings() {
                 id="otel-endpoint"
                 value={form.endpoint}
                 onChange={(e) => updateForm({ endpoint: e.target.value })}
-                disabled={!enabled}
+                disabled={fieldsDisabled}
                 placeholder="https://collector.example.com"
                 className="text-xs"
               />
@@ -372,7 +391,7 @@ export function OrgAgentOtelSettings() {
                 onChange={(e) =>
                   updateForm({ metricIntervalMs: e.target.value })
                 }
-                disabled={!enabled}
+                disabled={fieldsDisabled}
                 placeholder="60000"
                 className="text-xs"
               />
@@ -389,7 +408,7 @@ export function OrgAgentOtelSettings() {
                       onCheckedChange={(checked) =>
                         toggleSignal(key, checked === true)
                       }
-                      disabled={!enabled}
+                      disabled={fieldsDisabled}
                     />
                     <Label
                       htmlFor={`otel-signal-${key}`}
@@ -401,6 +420,11 @@ export function OrgAgentOtelSettings() {
                 ))}
               </div>
             </div>
+            {formIssues.length > 0 && (
+              <p className="text-xs text-destructive" role="alert">
+                {formIssues[0]}
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-3 p-4">
@@ -409,7 +433,7 @@ export function OrgAgentOtelSettings() {
               onChange={setRawEnv}
               language="text"
               wrapLongLines
-              readOnly={!enabled}
+              readOnly={fieldsDisabled}
               extensions={envLintExtensions}
               className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[240px]"
             />
@@ -418,10 +442,10 @@ export function OrgAgentOtelSettings() {
       </div>
 
       <div
-        aria-disabled={!enabled}
+        aria-disabled={fieldsDisabled}
         className={cn(
           "rounded-lg border transition-opacity",
-          !enabled && "pointer-events-none opacity-50"
+          fieldsDisabled && "pointer-events-none opacity-50"
         )}
       >
         <div className="space-y-1 p-4">
@@ -442,7 +466,7 @@ export function OrgAgentOtelSettings() {
                     onChange={(e) =>
                       handleHeaderRowChange(row.id, { name: e.target.value })
                     }
-                    disabled={!enabled}
+                    disabled={fieldsDisabled}
                     placeholder="Header name"
                     className="text-xs"
                   />
@@ -452,7 +476,7 @@ export function OrgAgentOtelSettings() {
                     onChange={(e) =>
                       handleHeaderRowChange(row.id, { value: e.target.value })
                     }
-                    disabled={!enabled}
+                    disabled={fieldsDisabled}
                     placeholder="Header value"
                     className="text-xs"
                   />
@@ -461,7 +485,7 @@ export function OrgAgentOtelSettings() {
                     variant="ghost"
                     size="icon"
                     onClick={() => handleRemoveHeaderRow(row.id)}
-                    disabled={!enabled}
+                    disabled={fieldsDisabled}
                     aria-label="Remove header"
                   >
                     <Trash2 className="size-4" />
@@ -470,13 +494,18 @@ export function OrgAgentOtelSettings() {
               ))}
             </div>
           )}
+          {headerIssues.length > 0 && (
+            <p className="text-xs text-destructive" role="alert">
+              {headerIssues[0]}
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleAddHeaderRow}
-              disabled={!enabled}
+              disabled={fieldsDisabled}
             >
               Add header
             </Button>
@@ -485,7 +514,7 @@ export function OrgAgentOtelSettings() {
               variant="ghost"
               size="sm"
               onClick={handleClearSavedHeaders}
-              disabled={!enabled || clearSavedHeaders}
+              disabled={fieldsDisabled || clearSavedHeaders}
               className="text-destructive hover:text-destructive"
             >
               Clear saved headers
@@ -500,7 +529,12 @@ export function OrgAgentOtelSettings() {
       </div>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={handleReset}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleReset}
+          disabled={editingDisabled}
+        >
           Reset
         </Button>
         <Button type="button" onClick={handleSave} disabled={saveDisabled}>
