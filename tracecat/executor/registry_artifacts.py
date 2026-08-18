@@ -996,17 +996,6 @@ class _RegistryArtifactLease:
             raise RuntimeError("Invalid registry artifact lease acquisition")
         self._entry_lease = self.cache._new_entry_lease(self.cache_key, self.attempt)
 
-    @property
-    def has_entry_guard(self) -> bool:
-        """Return whether this lease coordinates cross-instance cleanup."""
-        return self._entry_lease is not None and self._entry_lease.has_guard
-
-    async def acquire_entry_guard(self, *, missing_ok: bool = False) -> bool:
-        """Coordinate this lease with cleanup in other cache instances."""
-        if self._entry_lease is None:
-            raise RuntimeError("Registry artifact lease has no entry token")
-        return await self._entry_lease.protect_entry(missing_ok=missing_ok)
-
     async def __aenter__(self) -> list[Path]:
         try:
             self.paths = await self.cache._acquire_artifact(self)
@@ -1173,29 +1162,26 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 return
             paths = self._paths_for(cache_key)
             validate_cache_entry_path(paths)
-            with self._exclusive_entry_guard(paths.entry_dir) as guarded:
-                if not guarded:
-                    return
-                extracted_path = paths.squashfs_extract_dir
-                if not os.path.lexists(extracted_path):
-                    self._squashfs_mount_policy.forget_extraction(cache_key)
-                    return
-                retired_path = unique_work_path(self.trash_dir, cache_key)
-                try:
-                    extracted_path.rename(retired_path)
-                except FileNotFoundError:
-                    self._squashfs_mount_policy.forget_extraction(cache_key)
-                    return
-                except OSError as error:
-                    logger.warning(
-                        "Failed to retire idle SquashFS extraction",
-                        cache_key=cache_key,
-                        error=str(error),
-                    )
-                    self._budget_dirty = True
-                    return
-                self._budget_dirty = True
+            extracted_path = paths.squashfs_extract_dir
+            if not os.path.lexists(extracted_path):
                 self._squashfs_mount_policy.forget_extraction(cache_key)
+                return
+            retired_path = unique_work_path(self.trash_dir, cache_key)
+            try:
+                extracted_path.rename(retired_path)
+            except FileNotFoundError:
+                self._squashfs_mount_policy.forget_extraction(cache_key)
+                return
+            except OSError as error:
+                logger.warning(
+                    "Failed to retire idle SquashFS extraction",
+                    cache_key=cache_key,
+                    error=str(error),
+                )
+                self._budget_dirty = True
+                return
+            self._budget_dirty = True
+            self._squashfs_mount_policy.forget_extraction(cache_key)
 
         await remove_tree_rejoin_on_cancel(
             retired_path,
@@ -1222,19 +1208,13 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
         ctx = self._context_for(cache_key)
         async with self._runtime_lock(cache_key):
             lease.acquire_entry_lease()
-            validate_cache_entry_path(ctx.paths)
-            if await lease.acquire_entry_guard(missing_ok=True):
-                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
-                    return cached_paths
+            if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                return cached_paths
 
         async with self._admission_lock:
             async with self._runtime_lock(cache_key):
-                if not lease.has_entry_guard:
-                    validate_cache_entry_path(ctx.paths)
-                    await lease.acquire_entry_guard(missing_ok=True)
-                if lease.has_entry_guard:
-                    if cached_paths := self._locally_cached_path(ctx, artifact_uri):
-                        return cached_paths
+                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                    return cached_paths
                 ctx = self._context_for(
                     cache_key,
                     admission=self._admission_for(
@@ -1243,10 +1223,6 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     ),
                 )
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
-                if not lease.has_entry_guard:
-                    ensure_cache_entry_directory(ctx.paths)
-                    await lease.acquire_entry_guard()
-                # Recheck after acquiring the lock.
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cached_paths
                 paths = await self._materialize_candidates(ctx, candidates)
