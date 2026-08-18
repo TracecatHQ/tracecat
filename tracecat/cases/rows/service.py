@@ -98,7 +98,9 @@ class CaseTableRowsService(BaseWorkspaceService):
                         ),
                     )
                 )
-                stmt = stmt.order_by(
+                # Replace (not append to) the base descending ORDER BY, so the
+                # reverse scan direction actually takes effect
+                stmt = stmt.order_by(None).order_by(
                     CaseTableRow.created_at.asc(), CaseTableRow.id.asc()
                 )
             else:
@@ -120,11 +122,8 @@ class CaseTableRowsService(BaseWorkspaceService):
         items = links[:limit] if has_more else links
         has_previous = cursor is not None
 
-        if reverse:
-            items = list(reversed(items))
-
-        hydrated = await self._hydrate_links(items, include_row_data=include_row_data)
-
+        # Cursors are computed from scan order (before restoring display
+        # order), then swapped so they match the response direction.
         next_cursor = None
         prev_cursor = None
         if items and has_more:
@@ -141,8 +140,11 @@ class CaseTableRowsService(BaseWorkspaceService):
             )
 
         if reverse:
+            items = list(reversed(items))
             next_cursor, prev_cursor = prev_cursor, next_cursor
             has_more, has_previous = has_previous, has_more
+
+        hydrated = await self._hydrate_links(items, include_row_data=include_row_data)
 
         return CursorPaginatedResponse(
             items=hydrated,
