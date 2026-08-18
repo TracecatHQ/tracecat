@@ -4492,6 +4492,45 @@ class TestSquashfsMountPolicy:
         assert cache._refcount(later_key) == 0
 
     @pytest.mark.anyio
+    async def test_extraction_retirement_waits_for_other_cache_instance(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A local release must not retire another instance's leased extraction."""
+        first_cache = RegistryArtifactCache(temp_cache_dir)
+        second_cache = RegistryArtifactCache(temp_cache_dir)
+        artifact_uri = "s3://bucket/shared-extraction.squashfs"
+        cache_key = compute_registry_artifact_cache_key(artifact_uri)
+        harness = _SquashfsMountHarness(
+            first_cache,
+            failed_mount_keys={cache_key},
+        )
+
+        with (
+            patch(MOUNT_CHECK, lambda path: path in harness.mounted),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", harness.mount),
+            patch.object(SquashfsArtifact, "extract", harness.extract),
+            patch.object(first_cache, "_unmount", harness.unmount),
+            patch.object(second_cache, "_unmount", harness.unmount),
+        ):
+            async with first_cache.lease([artifact_uri]) as first_paths:
+                extracted_path = first_cache._paths_for(cache_key).squashfs_extract_dir
+                assert first_paths == [extracted_path]
+
+                async with second_cache.lease([artifact_uri]) as second_paths:
+                    assert second_paths == [extracted_path]
+
+                assert extracted_path.is_dir()
+
+            assert not extracted_path.exists()
+
+        assert harness.extraction_attempts == [cache_key]
+
+    @pytest.mark.anyio
     async def test_mount_failure_does_not_disable_later_artifacts(
         self, temp_cache_dir
     ) -> None:
