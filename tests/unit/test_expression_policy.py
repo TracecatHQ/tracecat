@@ -9,6 +9,7 @@ from tracecat.dsl.schemas import TemplateExecutionContext
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.policy import (
     PRESERVE_PARAMETERS,
+    REDACT_PARAMETERS,
     ActionArgumentPlan,
     ExpressionPolicy,
     ProvenanceMap,
@@ -141,6 +142,49 @@ def test_expression_policy_requires_exact_action_parameter_pair() -> None:
         expression_policy("core.cases.create_comment", "content")
         is ExpressionPolicy.REDACT_SECRETS
     )
+
+
+@pytest.mark.parametrize(
+    "action",
+    sorted(
+        {
+            "custom.unconfigured_action",
+            *REDACT_PARAMETERS,
+            *(action for action, _ in PRESERVE_PARAMETERS),
+        }
+    ),
+)
+def test_unconfigured_parameters_retain_default_resolve_behavior(action: str) -> None:
+    # The synthetic action represents every action absent from the override tables;
+    # configured actions are included to prove that opt-ins remain field-scoped.
+    parameter = "unconfigured_parameter"
+    arguments = {
+        parameter: {
+            "secret": "${{ SECRETS.api.TOKEN }}",
+            "variable": "Value: ${{ VARS.api.VALUE }}",
+            "action": "${{ ACTIONS.lookup.result.value }}",
+            "input": "${{ inputs.item }}",
+        }
+    }
+    context = {
+        "SECRETS": {"api": {"TOKEN": "runtime-secret"}},
+        "VARS": {"api": {"VALUE": "runtime-variable"}},
+        "ACTIONS": {"lookup": {"result": {"value": "runtime-result"}}},
+        "inputs": {"item": "runtime-input"},
+    }
+
+    plan = ActionArgumentPlan.build(action, arguments)
+
+    assert expression_policy(action, parameter) is ExpressionPolicy.RESOLVE
+    assert plan.evaluable == arguments
+    assert plan.evaluate(context) == {
+        parameter: {
+            "secret": "runtime-secret",
+            "variable": "Value: runtime-variable",
+            "action": "runtime-result",
+            "input": "runtime-input",
+        }
+    }
 
 
 @pytest.mark.parametrize(
