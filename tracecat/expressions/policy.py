@@ -558,7 +558,7 @@ def _select_input(
     )
 
     if ref.path is None:
-        dependencies = root_dependencies.collapsed()
+        dependencies = root_dependencies.select(ref.concrete_prefix).collapsed()
     elif (dependency_path := _normalize_negative_indices(ref.path, sources)) is None:
         dependencies = root_dependencies.collapsed()
     else:
@@ -657,21 +657,26 @@ class _InputRef:
     path: DataPath | None
     """Concrete path segments, or None for non-concrete JSONPath selectors."""
 
+    concrete_prefix: DataPath
+    """Concrete segments before the first wildcard, filter, or recursive lookup."""
+
 
 def _parse_input_ref(path: str) -> _InputRef:
+    parsed_path, concrete_prefix = _parse_path_segments(path)
     return _InputRef(
         selector=path,
-        path=_parse_path_segments(path),
+        path=parsed_path,
+        concrete_prefix=concrete_prefix,
     )
 
 
-def _parse_path_segments(suffix: str) -> DataPath | None:
+def _parse_path_segments(suffix: str) -> tuple[DataPath | None, DataPath]:
     segments: list[PathSegment] = []
     position = 0
     while position < len(suffix):
         match = _PATH_SEGMENT.match(suffix, position)
         if match is None:
-            return None
+            return None, tuple(segments)
         if (attribute := match.group("field")) is not None:
             segments.append(attribute)
         elif (index := match.group("index")) is not None:
@@ -679,10 +684,11 @@ def _parse_path_segments(suffix: str) -> DataPath | None:
         elif (quoted := match.group("dot_quoted") or match.group("quoted")) is not None:
             value = ast.literal_eval(quoted)
             if not isinstance(value, str) or value == "*":
-                return None
+                return None, tuple(segments)
             segments.append(value)
         position = match.end()
-    return tuple(segments)
+    path = tuple(segments)
+    return path, path
 
 
 def _direct_input_ref(tree: Tree[Token]) -> _InputRef | None:

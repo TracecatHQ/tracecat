@@ -445,6 +445,46 @@ def test_non_concrete_input_selectors_redact_conservatively(
     assert prepared == {"content": expected}
 
 
+def test_non_concrete_input_selector_scopes_dependencies_to_concrete_prefix() -> None:
+    state = _state(
+        source_args={
+            "safe_items": ["first", "second"],
+            "unrelated": "${{ SECRETS.api.TOKEN }}",
+        },
+        runtime_inputs={
+            "safe_items": ["first", "second"],
+            "unrelated": "runtime-secret",
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.safe_items[*] }}"},
+    )
+
+    assert prepared == {"content": ["first", "second"]}
+
+
+def test_non_concrete_input_selector_collapses_selected_subtree_dependencies() -> None:
+    state = _state(
+        source_args={
+            "items": ["plain", "${{ SECRETS.api.TOKEN }}"],
+            "unrelated": "safe",
+        },
+        runtime_inputs={
+            "items": ["plain", "runtime-secret"],
+            "unrelated": "safe",
+        },
+    )
+
+    prepared = state.resolve_action_args(
+        "core.cases.create_comment",
+        {"content": "${{ inputs.items[*] }}"},
+    )
+
+    assert prepared == {"content": [MASK_VALUE, MASK_VALUE]}
+
+
 def test_template_input_dependencies_preserve_structured_paths() -> None:
     state = _state(
         source_args={
