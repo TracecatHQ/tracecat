@@ -491,7 +491,7 @@ class CaseViewedEvent(CaseEventBase):
 
 class UpdatedEvent(CaseEventBase):
     type: Literal[CaseEventType.CASE_UPDATED] = CaseEventType.CASE_UPDATED
-    field: Literal["summary"]
+    field: Literal["summary", "description"]
     old: str | None
     new: str | None
 

@@ -42,6 +42,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseVersionField,
     MentionTargetType,
 )
 from tracecat.cases.events import CaseEventsService
@@ -96,6 +97,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
+from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
@@ -219,6 +221,7 @@ class CasesService(BaseWorkspaceService):
         self.tables = TablesService(session=self.session, role=self.role)
         self.fields = CaseFieldsService(session=self.session, role=self.role)
         self.events = CaseEventsService(session=self.session, role=self.role)
+        self.versions = CaseVersionsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
         self.dropdowns = CaseDropdownValuesService(session=self.session, role=self.role)
@@ -784,6 +787,17 @@ class CasesService(BaseWorkspaceService):
             # Generate the case ID without locking the workspace counter.
             await self.session.flush()
 
+            await self.versions.append_version(
+                case_id=case.id,
+                field=CaseVersionField.SUMMARY,
+                content=case.summary,
+            )
+            await self.versions.append_version(
+                case_id=case.id,
+                field=CaseVersionField.DESCRIPTION,
+                content=case.description,
+            )
+
             # Always create the fields row to ensure defaults are applied
             # Pass empty dict if no fields provided to trigger default value application
             await self.fields.upsert_field_values(case, params.fields or {})
@@ -927,6 +941,12 @@ class CasesService(BaseWorkspaceService):
         """
 
         try:
+            if {"summary", "description"} & params.model_fields_set:
+                await self.versions.lock_case(case.id)
+                await self.session.refresh(
+                    case,
+                    attribute_names=["summary", "description"],
+                )
             await self._apply_case_update(case, params)
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
@@ -1049,12 +1069,19 @@ class CasesService(BaseWorkspaceService):
                     events.append(
                         AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
-            elif key == "summary":
-                # Only record event if the summary actually changed
+            elif key in {"summary", "description"}:
                 if old != value:
+                    await self.versions.append_version(
+                        case_id=case.id,
+                        field=CaseVersionField(key),
+                        content=value,
+                    )
                     events.append(
                         UpdatedEvent(
-                            field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                            field=typing_cast(Literal["summary", "description"], key),
+                            old=old,
+                            new=value,
+                            wf_exec_id=wf_exec_id,
                         )
                     )
             elif key == "payload":

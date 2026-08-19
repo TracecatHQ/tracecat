@@ -28089,7 +28089,7 @@ export const $UpdatedEventRead = {
     },
     field: {
       type: "string",
-      const: "summary",
+      enum: ["summary", "description"],
       title: "Field",
     },
     old: {

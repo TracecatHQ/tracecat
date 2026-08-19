@@ -340,6 +340,15 @@ export function CaseUpdatedEvent({
           </span>
         </div>
       )
+    case "description":
+      return (
+        <div className="flex items-center space-x-2 text-xs">
+          <EventIcon icon={PencilIcon} />
+          <span>
+            <EventActor user={actor} /> updated the description
+          </span>
+        </div>
+      )
     default:
       return null
   }

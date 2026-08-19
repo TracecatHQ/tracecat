@@ -8,6 +8,7 @@ import type {
   CommentCreatedEventRead,
   CommentReplyDeletedEventRead,
   CommentReplyUpdatedEventRead,
+  UpdatedEventRead,
 } from "@/client"
 import { CASE_EVENT_SUGGESTIONS } from "@/components/builder/panel/case-event-suggestions"
 import {
@@ -15,6 +16,7 @@ import {
   getCaseEventOption,
 } from "@/components/cases/case-duration-options"
 import {
+  CaseUpdatedEvent,
   CommentCreatedEvent,
   CommentReplyDeletedEvent,
   CommentReplyUpdatedEvent,
@@ -73,6 +75,18 @@ function buildReplyDeletedEvent(): CommentReplyDeletedEventRead {
   }
 }
 
+function buildDescriptionUpdatedEvent(): UpdatedEventRead {
+  return {
+    type: "case_updated",
+    field: "description",
+    old: "<p>Previous private body</p>",
+    new: "<p>Current private body</p>",
+    created_at: "2026-03-08T00:00:00Z",
+    user_id: "user-1",
+    wf_exec_id: null,
+  }
+}
+
 describe("case feed comment events", () => {
   it("renders comment activity copy in the feed", () => {
     render(
@@ -107,5 +121,15 @@ describe("case feed comment events", () => {
     expect(getCaseEventOption("comment_reply_updated").label).toBe(
       "Comment Reply Updated"
     )
+  })
+
+  it("renders description updates without exposing rich-text content", () => {
+    render(
+      <CaseUpdatedEvent event={buildDescriptionUpdatedEvent()} actor={actor} />
+    )
+
+    expect(screen.getByText("updated the description")).toBeInTheDocument()
+    expect(screen.queryByText(/Previous private body/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Current private body/)).not.toBeInTheDocument()
   })
 })
