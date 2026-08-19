@@ -406,16 +406,24 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
             error=e,
             retryable=retryable,
         )
-        if retryable:
-            raise ApplicationError(
-                "Failed to materialize context",
-                non_retryable=False,
-                type="StorageMaterializationError",
-            ) from e
-        raise ApplicationError(
-            "Failed to materialize context",
-            non_retryable=True,
-        ) from e
+        envelope = ErrorEnvelope.platform(
+            code=(
+                RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE
+                if retryable
+                else RuntimeErrorCode.PLATFORM_UNCLASSIFIED
+            ),
+            message="Tracecat could not retrieve stored workflow data",
+            retry_disposition=(
+                RetryDisposition.RETRYABLE
+                if retryable
+                else RetryDisposition.NON_RETRYABLE
+            ),
+            cause=e,
+        )
+        raise application_error_from_envelope(
+            envelope,
+            error_type="StorageMaterializationError",
+        ) from None
 
     # Reconstruct ACTIONS dict with materialized results
     if action_refs:

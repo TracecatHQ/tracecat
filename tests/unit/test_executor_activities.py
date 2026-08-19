@@ -29,7 +29,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.dsl.types import ActionErrorInfo
+from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.exceptions import (
     EntitlementRequired,
     ExecutionError,
@@ -37,10 +37,22 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.executor.registry_artifacts import (
+    RegistryArtifactCacheCapacityError,
+    RegistryArtifactCacheLeaseContentionError,
+    RegistryArtifactExtractionError,
+)
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorCode,
+    RuntimeErrorOwner,
+)
+from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.temporal.errors import extract_error_envelope
 
 
 @pytest.fixture
@@ -200,6 +212,87 @@ class TestExecuteActionActivity:
             assert len(app_error.details) > 0
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("cause", "code", "retry_disposition"),
+        [
+            (
+                RegistryArtifactCacheLeaseContentionError(
+                    current_bytes=80,
+                    additional_bytes=30,
+                    max_bytes=100,
+                ),
+                RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+                RetryDisposition.RETRYABLE,
+            ),
+            (
+                RegistryArtifactCacheCapacityError(
+                    current_bytes=80,
+                    additional_bytes=30,
+                    max_bytes=100,
+                ),
+                RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+                RetryDisposition.NON_RETRYABLE,
+            ),
+            (
+                RegistryArtifactExtractionError(),
+                RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                RetryDisposition.NON_RETRYABLE,
+            ),
+            (
+                SandboxExecutionError("synthetic sandbox diagnostic"),
+                RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                RetryDisposition.RETRYABLE,
+            ),
+        ],
+    )
+    async def test_executor_infrastructure_failure_is_classified(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        cause: Exception,
+        code: RuntimeErrorCode,
+        retry_disposition: RetryDisposition,
+    ) -> None:
+        """Known activity-internal failures use typed platform attribution."""
+        error_info = ExecutorActionErrorInfo(
+            type=type(cause).__name__,
+            message="masked executor error",
+            action_name="test_action",
+            filename="<test>",
+            function="test_function",
+        )
+        exec_error = ExecutionError(info=error_info)
+        exec_error.__cause__ = cause
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = exec_error
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+        envelope = extract_error_envelope(exc_info.value)
+        assert envelope is not None
+        assert envelope.owner is RuntimeErrorOwner.PLATFORM
+        assert envelope.code is code
+        assert envelope.retry_disposition is retry_disposition
+        assert envelope.cause_type == type(cause).__name__
+        assert exc_info.value.non_retryable is (
+            retry_disposition is RetryDisposition.NON_RETRYABLE
+        )
+        assert str(cause) not in str(exc_info.value)
+
+    @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(
         self, mock_run_action_input, mock_role
     ):
@@ -288,7 +381,7 @@ class TestExecuteActionActivity:
             assert app_error.type == "EntitlementRequired"
             assert app_error.non_retryable is True
             assert len(app_error.details) > 0
-            detail = app_error.details[0]
+            detail = ActionErrorInfoAdapter.validate_python(app_error.details[0])
             assert isinstance(detail, ActionErrorInfo)
             assert "custom_registry" in detail.message
 
@@ -380,7 +473,9 @@ class TestExecuteActionActivity:
             # The ActionErrorInfo in details should have the stream_id
             app_error = exc_info.value
             assert len(app_error.details) > 0
-            action_error_info = app_error.details[0]
+            action_error_info = ActionErrorInfoAdapter.validate_python(
+                app_error.details[0]
+            )
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
 

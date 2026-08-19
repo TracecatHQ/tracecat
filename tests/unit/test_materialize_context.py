@@ -9,9 +9,15 @@ from temporalio.exceptions import ApplicationError
 from tracecat.dsl import action
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorCode,
+    RuntimeErrorOwner,
+)
 from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import get_storage_client
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
+from tracecat.temporal.errors import extract_error_envelope
 
 
 def _close_run_sync_runner() -> None:
@@ -82,6 +88,39 @@ async def test_materialize_context_marks_storage_transport_errors_retryable(
 
     assert exc_info.value.non_retryable is False
     assert exc_info.value.type == "StorageMaterializationError"
+    envelope = extract_error_envelope(exc_info.value)
+    assert envelope is not None
+    assert envelope.owner is RuntimeErrorOwner.PLATFORM
+    assert envelope.code is RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE
+    assert envelope.retry_disposition is RetryDisposition.RETRYABLE
+    assert envelope.cause_type == "HTTPClientError"
+    assert exc_info.value.__cause__ is None
+
+
+@pytest.mark.anyio
+async def test_materialize_context_classifies_non_transport_errors_as_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def raise_integrity_error(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("stored object checksum did not match")
+
+    monkeypatch.setattr(action, "retrieve_stored_object", raise_integrity_error)
+
+    ctx = ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"trigger": 1}))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await materialize_context(ctx)
+
+    envelope = extract_error_envelope(exc_info.value)
+    assert envelope is not None
+    assert envelope.owner is RuntimeErrorOwner.PLATFORM
+    assert envelope.code is RuntimeErrorCode.PLATFORM_UNCLASSIFIED
+    assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert envelope.cause_type == "ValueError"
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.type == "StorageMaterializationError"
+    assert "checksum" not in exc_info.value.message
+    assert exc_info.value.__cause__ is None
 
 
 @pytest.mark.anyio

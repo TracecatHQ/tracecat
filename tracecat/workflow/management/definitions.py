@@ -17,7 +17,13 @@ from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    ErrorEnvelope,
+    RetryDisposition,
+    RuntimeErrorCode,
+)
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import application_error_from_envelope
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -176,9 +182,20 @@ async def get_workflow_definition_activity(
             input.workflow_id, version=input.version
         )
         if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
-            logger.error(msg)
-            raise ApplicationError(msg, non_retryable=True)
+            logger.error(
+                "Workflow definition not found",
+                workflow_id=input.workflow_id,
+                version=input.version,
+            )
+            envelope = ErrorEnvelope.platform(
+                code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+                message="Tracecat could not load a published workflow definition",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+            )
+            raise application_error_from_envelope(
+                envelope,
+                error_type="WorkflowDefinitionNotFound",
+            ) from None
         dsl = DSLInput(**defn.content)
     # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
     registry_lock = (

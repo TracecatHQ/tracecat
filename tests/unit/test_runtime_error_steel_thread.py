@@ -12,7 +12,8 @@ from temporalio.exceptions import ApplicationError
 from tracecat.auth.types import Role
 from tracecat.dsl.action import DSLActivities, PrepareSubflowActivityInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import ActionStatement, ExecutionContext
+from tracecat.dsl.scheduler import _classified_action_error_info
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
 from tracecat.dsl.types import (
     ActionErrorInfo,
     ActionErrorInfoAdapter,
@@ -66,6 +67,31 @@ def _classified_error_info(
         type=envelope.cause_type or "ApplicationError",
         envelope=envelope,
     )
+
+
+def test_scheduler_adapts_non_action_envelope_to_classified_error_info() -> None:
+    envelope = ErrorEnvelope.platform(
+        code=RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE,
+        message="Tracecat could not retrieve stored workflow data",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=RuntimeError("storage transport unavailable"),
+    )
+    error = application_error_from_envelope(
+        envelope,
+        error_type="StorageMaterializationError",
+    )
+
+    detail = _classified_action_error_info(
+        error,
+        ref="fetch_data",
+        stream_id=ROOT_STREAM,
+    )
+
+    assert detail is not None
+    assert detail.ref == "fetch_data"
+    assert detail.message == envelope.message
+    assert detail.type == "StorageMaterializationError"
+    assert detail.envelope == envelope
 
 
 @pytest.mark.anyio

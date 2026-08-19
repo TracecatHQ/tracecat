@@ -57,6 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
+        ClassifiedActionErrorInfo,
         Task,
         TaskExceptionInfo,
     )
@@ -72,6 +73,7 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
+    from tracecat.temporal.errors import extract_error_envelope
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -89,6 +91,34 @@ def _get_collection_size(stored: StoredObject) -> int:
                 f"Expected CollectionObject or InlineObject with list data, "
                 f"got {type(stored).__name__}"
             )
+
+
+def _classified_action_error_info(
+    error: ApplicationError,
+    *,
+    ref: str,
+    stream_id: StreamID,
+) -> ClassifiedActionErrorInfo | None:
+    """Adapt a classified activity failure into the scheduler error shape."""
+    envelope = extract_error_envelope(error)
+    if envelope is None:
+        return None
+
+    for detail in error.details:
+        try:
+            parsed = ActionErrorInfoAdapter.validate_python(detail)
+        except Exception:
+            continue
+        if isinstance(parsed, ClassifiedActionErrorInfo):
+            return parsed
+
+    return ClassifiedActionErrorInfo(
+        ref=ref,
+        message=envelope.message,
+        type=error.type or error.__class__.__name__,
+        stream_id=stream_id,
+        envelope=envelope,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +147,7 @@ class LoopRegion:
 
 
 class PlatformExecutionError(Exception):
-    """Marks platform work that should fail the workflow, even inside a stream."""
+    """Marks legacy platform work that must bypass stream error handling."""
 
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
@@ -435,7 +465,7 @@ class DSLScheduler:
         else:
             if fail_workflow:
                 self.logger.warning(
-                    "Task failed with platform error, bypassing stream handling",
+                    "Task failed through the replay-compatible platform path",
                     task=task,
                     error=exc,
                 )
@@ -443,7 +473,15 @@ class DSLScheduler:
                 self.logger.info("Task failed with no error paths", task=task)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
-            if isinstance(exc, ApplicationError) and exc.details:
+            if isinstance(exc, ApplicationError) and (
+                classified_details := _classified_action_error_info(
+                    exc,
+                    ref=ref,
+                    stream_id=task.stream_id,
+                )
+            ):
+                details = classified_details
+            elif isinstance(exc, ApplicationError) and exc.details:
                 self.logger.info(
                     "Task failed with application error",
                     ref=ref,

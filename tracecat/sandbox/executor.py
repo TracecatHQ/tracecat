@@ -546,6 +546,7 @@ class NsjailExecutor:
             return SandboxResult(
                 success=False,
                 error=error_msg,
+                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
                 stdout=stdout,
                 stderr=stderr[:500],  # Truncate for debugging
                 exit_code=process.returncode,
@@ -961,6 +962,7 @@ class NsjailExecutor:
             return SandboxResult(
                 success=False,
                 error=error_msg,
+                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
                 stdout=stdout,
                 stderr=stderr[:2000],
                 exit_code=process.returncode,

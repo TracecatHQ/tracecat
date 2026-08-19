@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -179,6 +179,7 @@ with workflow.unsafe.imports_passed_through():
 _CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 ACTION_HEARTBEAT_TIMEOUT_RETRY_PATCH = "dsl-action-heartbeat-timeout-retry-v1"
 ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH = "dsl-error-owner-search-attribute-v1"
+ERROR_OWNER_CONTROL_FLOW_PATCH = "dsl-error-owner-control-flow-v1"
 
 
 def _workflow_application_error(
@@ -380,6 +381,13 @@ class DSLWorkflow:
                 result = await self._get_workflow_definition(args.wf_id)
                 self.dsl = result.dsl
                 registry_lock = result.registry_lock
+            except ActivityError as e:
+                if isinstance(e.cause, ApplicationError) and extract_error_envelope(
+                    e.cause
+                ):
+                    self._upsert_terminal_error_owner(e.cause)
+                    raise e.cause from e
+                raise
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
                 raise ApplicationError(
@@ -534,14 +542,14 @@ class DSLWorkflow:
             raise e
         finally:
             await self._run_cancellation_safe_cleanup(
-                self._stop_workflow_permit_heartbeat(),
+                self._stop_workflow_permit_heartbeat,
                 operation="stop_workflow_permit_heartbeat",
             )
             # Release workflow permit if acquired
             if self._workflow_permit_acquired:
                 self.logger.warning("Releasing workflow permit")
                 await self._run_cancellation_safe_cleanup(
-                    self._release_workflow_permit(),
+                    self._release_workflow_permit,
                     operation="release_workflow_permit",
                 )
 
@@ -975,6 +983,8 @@ class DSLWorkflow:
                     except Exception as e:
                         if self._has_user_error_cause(e):
                             raise
+                        if workflow.patched(ERROR_OWNER_CONTROL_FLOW_PATCH):
+                            raise
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
                         )
@@ -1322,12 +1332,14 @@ class DSLWorkflow:
         finally:
             if action_permit_heartbeat_task is not None:
                 await self._run_cancellation_safe_cleanup(
-                    self._stop_action_permit_heartbeat(action_permit_heartbeat_task),
+                    lambda: self._stop_action_permit_heartbeat(
+                        action_permit_heartbeat_task
+                    ),
                     operation="stop_action_permit_heartbeat",
                 )
             if action_permit_id is not None:
                 await self._run_cancellation_safe_cleanup(
-                    self._release_action_permit(action_id=action_permit_id),
+                    lambda: self._release_action_permit(action_id=action_permit_id),
                     operation="release_action_permit",
                 )
             self.logger.trace("Setting action result", task_result=task_result)
@@ -2135,12 +2147,19 @@ class DSLWorkflow:
 
     async def _run_cancellation_safe_cleanup(
         self,
-        cleanup: Coroutine[Any, Any, None],
+        cleanup: Callable[[], Coroutine[Any, Any, None]],
         *,
         operation: str,
     ) -> None:
         """Run cleanup to completion even if workflow cancellation is requested."""
-        cleanup_task = asyncio.create_task(cleanup)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # A terminated or timed-out execution can be evicted while the
+            # Worker event loop is shutting down. There is no task left to
+            # clean up in that state, and no coroutine should be constructed.
+            return
+        cleanup_task = loop.create_task(cleanup())
         try:
             await asyncio.shield(cleanup_task)
         except BaseException as e:

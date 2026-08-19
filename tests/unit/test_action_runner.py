@@ -35,7 +35,8 @@ from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import utils as sandbox_utils
-from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.exceptions import SandboxExecutionError
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 
 def _empty_secret_projection() -> SecretEnvProjection:
@@ -548,6 +549,59 @@ class TestActionRunner:
         assert (
             captured_env["TRACECAT__EXECUTOR_TOKEN"] == resolved_context.executor_token
         )
+
+    @pytest.mark.anyio
+    async def test_sandbox_infrastructure_result_raises_typed_error(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing sandbox result remains distinct from user action output."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.http_request",
+                module="tracecat_registry.core.http",
+                name="http_request",
+            ),
+            evaluated_args={},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="synthetic-executor-token",
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            _sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            return SandboxResult(
+                success=False,
+                error="synthetic nsjail diagnostic",
+                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+                exit_code=255,
+            )
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        with pytest.raises(SandboxExecutionError, match="infrastructure failed"):
+            await runner._execute_sandboxed(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                resolved_context=resolved_context,
+            )
 
     @pytest.mark.anyio
     async def test_execute_action_disables_new_privileges_for_direct_subprocess(

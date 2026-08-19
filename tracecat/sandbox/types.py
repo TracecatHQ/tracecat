@@ -11,6 +11,7 @@ class SandboxErrorCode(StrEnum):
     """Machine-readable reasons for sandbox execution failures."""
 
     TIMEOUT = "timeout"
+    INFRASTRUCTURE_FAILURE = "infrastructure_failure"
 
 
 type IPNetwork = IPv4Network | IPv6Network
