@@ -108,6 +108,7 @@ export function useWatchtowerActions() {
   }
 
   const revokeSession = useMutation({
+    meta: { suppressErrorToast: true },
     mutationFn: (params: { sessionId: string; reason?: string }) =>
       watchtowerRevokeWatchtowerSession({
         sessionId: params.sessionId,
@@ -119,6 +120,7 @@ export function useWatchtowerActions() {
   })
 
   const disableAgent = useMutation({
+    meta: { suppressErrorToast: true },
     mutationFn: (params: { agentId: string; reason?: string }) =>
       watchtowerDisableWatchtowerAgent({
         agentId: params.agentId,
@@ -130,6 +132,7 @@ export function useWatchtowerActions() {
   })
 
   const enableAgent = useMutation({
+    meta: { suppressErrorToast: true },
     mutationFn: (params: { agentId: string }) =>
       watchtowerEnableWatchtowerAgent({
         agentId: params.agentId,
