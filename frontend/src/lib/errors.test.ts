@@ -57,7 +57,7 @@ describe("chainError", () => {
     mockToast.mockClear()
   })
 
-  it("handles globally matched errors before the local handler", () => {
+  it("handles globally matched errors before invoking the local handler", () => {
     const local = jest.fn()
     const error = Object.assign(new Error("Forbidden"), {
       status: 403,
@@ -66,13 +66,18 @@ describe("chainError", () => {
 
     chainError(local)(error, "workflow-123", undefined, { client: true })
 
-    expect(local).not.toHaveBeenCalled()
+    expect(local).toHaveBeenCalledWith(error, "workflow-123", undefined, {
+      client: true,
+    })
     expect(mockToast).toHaveBeenCalledTimes(1)
     expect(mockToast).toHaveBeenCalledWith({
       title: "Permission denied",
       description: "Missing workspace:read scope",
       variant: "destructive",
     })
+    expect(mockToast.mock.invocationCallOrder[0]).toBeLessThan(
+      local.mock.invocationCallOrder[0]
+    )
   })
 
   it("forwards unmatched errors and all callback arguments locally", () => {

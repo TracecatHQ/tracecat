@@ -2799,6 +2799,7 @@ export function useGitHubAppCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
@@ -2870,6 +2871,7 @@ export function useGitLabTokenCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGitlabTokenCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateGitLabTokenCredentialQueries(queryClient)
     },
@@ -5952,6 +5954,7 @@ export function useAgentDefaultModel() {
       await agentSetDefaultModel({
         requestBody: { catalog_id: catalogId },
       }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
       queryClient.invalidateQueries({

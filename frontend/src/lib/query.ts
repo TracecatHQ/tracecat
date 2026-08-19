@@ -15,6 +15,8 @@ export * from "@tanstack/react-query"
  * sites only need to change their import path while the facade remains in use.
  * Pass error handlers through this hook's options; per-call `onError`
  * callbacks supplied to `mutate` or `mutateAsync` bypass this composition.
+ * Set `meta.suppressErrorToast` when a caller catches `mutateAsync` and owns
+ * all user-facing error feedback; hook-level `onError` callbacks still run.
  */
 export function useMutation<
   TData = unknown,
@@ -25,10 +27,14 @@ export function useMutation<
   options: UseMutationOptions<TData, TError, TVariables, TOnMutateResult>,
   queryClient?: QueryClient
 ) {
+  const suppressErrorToast = options.meta?.suppressErrorToast === true
+
   return tanstackUseMutation(
     {
       ...options,
-      onError: chainError(options.onError),
+      onError: suppressErrorToast
+        ? options.onError
+        : chainError(options.onError),
     },
     queryClient
   )

@@ -119,7 +119,7 @@ export function showFallbackErrorToast(
  * Compose the mutation error pipeline used by the React Query facade.
  *
  * Global handlers run first, followed by the hook-local handler when present.
- * Mutations without a local handler always receive the shared fallback toast.
+ * Mutations without either form of handling receive the shared fallback toast.
  * The variadic argument tuple preserves React Query's complete callback
  * signature without coupling this module to a particular library version.
  */
@@ -127,13 +127,13 @@ export function chainError<TError, TArguments extends unknown[]>(
   local?: ErrorHandler<TError, TArguments>
 ): ErrorHandler<TError, TArguments> {
   return (error, ...args) => {
-    if (handleGlobalError(error)) {
-      return
-    }
+    const isGloballyHandled = handleGlobalError(error)
     if (local) {
       return local(error, ...args)
     }
-    showFallbackErrorToast(error)
+    if (!isGloballyHandled) {
+      showFallbackErrorToast(error)
+    }
   }
 }
 

@@ -132,4 +132,28 @@ describe("DefaultQueryClientProvider error handling", () => {
     expect(local).toHaveBeenCalledTimes(1)
     expect(mockToast).not.toHaveBeenCalled()
   })
+
+  it("allows mutateAsync callers to own error feedback", async () => {
+    const error = new Error("Contextual failure")
+    const local = jest.fn()
+    const { result } = renderHook(
+      () =>
+        useMutation({
+          mutationFn: async () => {
+            throw error
+          },
+          meta: { suppressErrorToast: true },
+          onError: local,
+          retry: false,
+        }),
+      { wrapper }
+    )
+
+    await act(async () => {
+      await expect(result.current.mutateAsync(undefined)).rejects.toBe(error)
+    })
+
+    expect(local).toHaveBeenCalledTimes(1)
+    expect(mockToast).not.toHaveBeenCalled()
+  })
 })
