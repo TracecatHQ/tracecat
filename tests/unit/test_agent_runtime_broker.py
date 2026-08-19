@@ -18,13 +18,13 @@ from claude_agent_sdk.types import (
     McpStdioServerConfig,
 )
 
-from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
-    AGENT_TIMEOUT_SECONDS_MAX,
-)
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.agent.executor.loopback import LoopbackResult
 from tracecat.agent.runtime import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import broker as broker_module
@@ -541,7 +541,7 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     # the static kill ceiling rather than the per-run timeout.
     assert "config" not in captured_spawn_kwargs
     expected_sandbox_limit = (
-        AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+        TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     )
     default_limits = AgentResourceLimits()
     assert default_limits.cpu_seconds == expected_sandbox_limit

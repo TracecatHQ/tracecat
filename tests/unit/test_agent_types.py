@@ -32,28 +32,29 @@ def test_temporal_converter_decodes_agent_config_with_mcp_servers() -> None:
     ]
 
 
-def test_resolve_agent_timeout_seconds_clamps_to_deployment_bounds() -> None:
-    # Defaults: floor 1800 (deployment default), cap 3600.
+def test_resolve_agent_timeout_seconds_clamps_to_ceiling() -> None:
+    # Hardcoded default floor 1800; default ceiling 3600.
     assert resolve_agent_timeout_seconds(None) == 1800
     assert resolve_agent_timeout_seconds(900) == 1800
     assert resolve_agent_timeout_seconds(2000) == 2000
     assert resolve_agent_timeout_seconds(100_000) == 3600
 
 
-def test_resolve_agent_timeout_seconds_caps_the_deployment_default(
+def test_resolve_agent_timeout_seconds_honors_raised_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
 
-    assert resolve_agent_timeout_seconds(None) == 3600
-    assert resolve_agent_timeout_seconds(900) == 3600
-
-
-def test_resolve_agent_timeout_seconds_honors_raised_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_TIMEOUT_MAX", 7200)
-    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
-
-    assert resolve_agent_timeout_seconds(None) == 7200
+    assert resolve_agent_timeout_seconds(None) == 1800
+    assert resolve_agent_timeout_seconds(5000) == 5000
     assert resolve_agent_timeout_seconds(100_000) == 7200
+
+
+def test_resolve_agent_timeout_seconds_lowered_ceiling_wins_over_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 900)
+
+    assert resolve_agent_timeout_seconds(None) == 900
+    assert resolve_agent_timeout_seconds(60) == 900
+    assert resolve_agent_timeout_seconds(2000) == 900

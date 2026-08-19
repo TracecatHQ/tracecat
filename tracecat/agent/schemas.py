@@ -73,8 +73,8 @@ class RunAgentArgs(BaseModel):
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
     timeout_seconds: int | None = None
-    """Maximum active runtime for this run, clamped to the deployment bounds;
-    None inherits the deployment default."""
+    """Maximum active runtime for this run, clamped to the deployment
+    ceiling; None inherits the default."""
     deferred_tool_results: DeferredToolResults | None = None
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False

@@ -394,8 +394,8 @@ class ActionStatement(BaseModel):
 
     @model_validator(mode="after")
     def apply_agent_timeout_policy(self) -> Self:
-        # Agent timeouts clamp to [deployment default, deployment cap];
-        # unset inherits the deployment default. Never rejects.
+        # Agent timeouts clamp to [default, deployment ceiling]; unset
+        # inherits the default. Never rejects.
         if not PlatformAction.is_agent(self.action):
             return self
         explicit = "timeout" in self.retry_policy.model_fields_set

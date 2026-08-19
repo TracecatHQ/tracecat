@@ -169,8 +169,8 @@ class AgentExecutorInput(BaseModel):
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
     agent_otel_auth_token: str | None = None
-    # Maximum continuous execution time, clamped to the deployment bounds at
-    # resolution; None inherits the deployment default.
+    # Maximum continuous execution time, clamped to the deployment ceiling
+    # at resolution; None inherits the default.
     timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None

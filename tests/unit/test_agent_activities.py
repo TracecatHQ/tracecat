@@ -1231,12 +1231,12 @@ class TestRunAgentActivity:
         )
 
     @pytest.mark.anyio
-    async def test_inherited_deployment_timeout_clamped_to_cap(
+    async def test_absent_timeout_inherits_hardcoded_default(
         self,
         mock_executor_input: AgentExecutorInput,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """An absent explicit timeout inherits the deployment default, capped."""
+        """An absent explicit timeout gets the default even under a raised ceiling."""
         expected_result = AgentExecutorResult(success=True)
         monkeypatch.setattr(
             "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
@@ -1259,10 +1259,10 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=3600,
+                timeout_seconds=1800,
             )
 
-    def test_timeout_above_deployment_cap_is_clamped_not_rejected(
+    def test_timeout_above_deployment_ceiling_is_clamped_not_rejected(
         self, mock_executor_input: AgentExecutorInput
     ) -> None:
         payload = mock_executor_input.model_dump()
