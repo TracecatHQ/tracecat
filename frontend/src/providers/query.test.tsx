@@ -18,19 +18,23 @@ describe("DefaultQueryClientProvider error handling", () => {
     mockToast.mockClear()
   })
 
-  it("shows a fallback for an initial query failure", async () => {
+  it("shows one fallback across repeated data-less query failures", async () => {
     const { result } = renderHook(() => useQueryClient(), { wrapper })
+    const query = {
+      queryKey: ["initial-failure"],
+      queryFn: async () => {
+        throw new Error("Could not load workflows")
+      },
+      retry: false,
+    } as const
 
     await act(async () => {
-      await expect(
-        result.current.fetchQuery({
-          queryKey: ["initial-failure"],
-          queryFn: async () => {
-            throw new Error("Could not load workflows")
-          },
-          retry: false,
-        })
-      ).rejects.toThrow("Could not load workflows")
+      await expect(result.current.fetchQuery(query)).rejects.toThrow(
+        "Could not load workflows"
+      )
+      await expect(result.current.fetchQuery(query)).rejects.toThrow(
+        "Could not load workflows"
+      )
     })
 
     expect(mockToast).toHaveBeenCalledTimes(1)
@@ -40,20 +44,21 @@ describe("DefaultQueryClientProvider error handling", () => {
     })
   })
 
-  it("does not toast when a background refresh leaves cached data", async () => {
+  it("does not toast permission failures when cached data remains", async () => {
     const { result } = renderHook(() => useQueryClient(), { wrapper })
     result.current.setQueryData(["background-failure"], ["workflow-123"])
+    const error = Object.assign(new Error("Forbidden"), { status: 403 })
 
     await act(async () => {
       await expect(
         result.current.fetchQuery({
           queryKey: ["background-failure"],
           queryFn: async () => {
-            throw new Error("Temporary refresh failure")
+            throw error
           },
           retry: false,
         })
-      ).rejects.toThrow("Temporary refresh failure")
+      ).rejects.toBe(error)
     })
 
     expect(mockToast).not.toHaveBeenCalled()
@@ -111,8 +116,8 @@ describe("DefaultQueryClientProvider error handling", () => {
   })
 
   it("does not duplicate feedback owned by a local mutation handler", async () => {
-    const local = jest.fn()
-    const error = new Error("Workflow conflict")
+    const local = jest.fn(() => mockToast({ title: "Custom forbidden" }))
+    const error = Object.assign(new Error("Forbidden"), { status: 403 })
     const { result } = renderHook(
       () =>
         useMutation({
@@ -130,12 +135,12 @@ describe("DefaultQueryClientProvider error handling", () => {
     })
 
     expect(local).toHaveBeenCalledTimes(1)
-    expect(mockToast).not.toHaveBeenCalled()
+    expect(mockToast).toHaveBeenCalledTimes(1)
+    expect(mockToast).toHaveBeenCalledWith({ title: "Custom forbidden" })
   })
 
   it("allows mutateAsync callers to own error feedback", async () => {
     const error = new Error("Contextual failure")
-    const local = jest.fn()
     const { result } = renderHook(
       () =>
         useMutation({
@@ -143,17 +148,15 @@ describe("DefaultQueryClientProvider error handling", () => {
             throw error
           },
           meta: { suppressErrorToast: true },
-          onError: local,
           retry: false,
         }),
       { wrapper }
     )
 
     await act(async () => {
-      await expect(result.current.mutateAsync(undefined)).rejects.toBe(error)
+      await expect(result.current.mutateAsync()).rejects.toBe(error)
     })
 
-    expect(local).toHaveBeenCalledTimes(1)
     expect(mockToast).not.toHaveBeenCalled()
   })
 })

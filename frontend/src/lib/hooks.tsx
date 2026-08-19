@@ -500,6 +500,7 @@ export function useAction(
         requestBody: values,
       })
     },
+    meta: { suppressErrorToast: false },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action"],

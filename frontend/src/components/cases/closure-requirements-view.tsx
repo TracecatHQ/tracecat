@@ -69,6 +69,7 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
+    meta: { suppressErrorToast: false },
     onMutate: async ({ fieldId, requiredOnClosure }) => {
       await queryClient.cancelQueries({
         queryKey: ["case-fields", workspaceId],
@@ -115,6 +116,7 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
+    meta: { suppressErrorToast: false },
     onMutate: async ({ definitionId, requiredOnClosure }) => {
       await queryClient.cancelQueries({
         queryKey: ["case-dropdown-definitions", workspaceId],

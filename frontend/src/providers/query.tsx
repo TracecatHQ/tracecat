@@ -15,12 +15,16 @@ export const DefaultQueryClientProvider = ({
     new QueryClient({
       queryCache: new QueryCache({
         onError: (error, query) => {
-          if (handleGlobalError(error)) {
+          // A background refresh failure should not interrupt the user while
+          // previously loaded data remains available. Data-less polling
+          // queries should only notify on their first terminal failure.
+          if (
+            query.state.data !== undefined ||
+            query.state.errorUpdateCount > 1
+          ) {
             return
           }
-          // A background refresh failure should not interrupt the user while
-          // previously loaded data remains available.
-          if (query.state.data !== undefined) {
+          if (handleGlobalError(error)) {
             return
           }
           const errorMessage = query.meta?.errorMessage

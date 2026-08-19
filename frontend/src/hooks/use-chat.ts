@@ -303,6 +303,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
+    meta: { suppressErrorToast: false },
     onMutate: async ({ chatId, update }) => {
       await Promise.all([
         queryClient.cancelQueries({
