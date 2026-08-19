@@ -111,6 +111,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  AGENT_TIMEOUT_SECONDS_DEFAULT,
+  DEFAULT_ACTION_TIMEOUT_SECONDS,
+  isAgentAction,
+} from "@/lib/action-timeout"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
@@ -322,6 +327,7 @@ function ActionPanelContent({
 
   // Special-case: disable form mode for reshape actions
   const isReshapeAction = action?.type === "core.transform.reshape"
+  const isAgentBackedAction = isAgentAction(action?.type)
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -339,7 +345,7 @@ function ActionPanelContent({
       for_each: actionControlFlow?.for_each || undefined,
       run_if: actionControlFlow?.run_if || undefined,
       max_attempts: actionControlFlow?.retry_policy?.max_attempts,
-      timeout: actionControlFlow?.retry_policy?.timeout,
+      timeout: actionControlFlow?.retry_policy?.timeout ?? undefined,
       retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
@@ -1562,8 +1568,14 @@ function ActionPanelContent({
                       {/* Timeout */}
                       <ControlFlowField
                         label="Timeout"
-                        description="Define the timeout in seconds for the action."
-                        tooltip={<TimeoutTooltip />}
+                        description={
+                          isAgentBackedAction
+                            ? "Define the maximum active runtime in seconds for the agent. Values outside the deployment's allowed range are clamped. Waiting for approvals does not count."
+                            : "Define the timeout in seconds for the action."
+                        }
+                        tooltip={
+                          <TimeoutTooltip isAgent={isAgentBackedAction} />
+                        }
                       >
                         <FormField
                           name="timeout"
@@ -1582,7 +1594,12 @@ function ActionPanelContent({
                                         : undefined
                                     )
                                   }
-                                  placeholder="300"
+                                  min={1}
+                                  placeholder={String(
+                                    isAgentBackedAction
+                                      ? AGENT_TIMEOUT_SECONDS_DEFAULT
+                                      : DEFAULT_ACTION_TIMEOUT_SECONDS
+                                  )}
                                   className="text-xs"
                                 />
                               </FormControl>

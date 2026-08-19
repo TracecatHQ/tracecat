@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
 from tracecat.feature_flags.enums import FeatureFlag
 
@@ -855,19 +856,21 @@ If not set, will be auto-detected from a known dependency's location.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 1800
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
 )
-"""Default timeout for agent sandbox execution in seconds (30 minutes)."""
+"""Ceiling for agent execution timeouts in seconds (default one hour).
+
+Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_DEFAULT, this].
+"""
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
-    or (TRACECAT__AGENT_SANDBOX_TIMEOUT + 60)
+    or (TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS)
 )
 """Agent executor worker drain timeout in seconds.
 
-Defaults to the agent sandbox timeout plus a small buffer so planned worker
-shutdowns can let active agent activities finish instead of interrupting the
-sandbox.
+Defaults to the agent timeout ceiling plus the cleanup buffer so planned
+worker shutdowns can let active agent activities finish.
 """
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(

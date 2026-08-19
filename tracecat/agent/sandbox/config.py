@@ -42,6 +42,7 @@ from tracecat.agent.common.config import (
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
@@ -52,6 +53,11 @@ from tracecat.agent.runtime.session_paths import (
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _sandbox_kill_ceiling_seconds() -> int:
+    """Kernel kill ceiling: above any per-run timeout, plus the cleanup buffer."""
+    return TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -86,7 +92,11 @@ class AgentResourceLimits:
 
     Defaults are read from environment variables:
     - TRACECAT__AGENT_SANDBOX_MEMORY_MB: memory_mb (default 4096 = 4 GiB)
-    - TRACECAT__AGENT_SANDBOX_TIMEOUT: timeout_seconds and cpu_seconds (default 1800s)
+
+    Default cpu_seconds/timeout_seconds are a kill ceiling, not the per-run
+    timeout: that is enforced upstream by the executor activity, which cancels
+    the turn gracefully. The kernel limit only reaps orphaned sandboxes, so it
+    sits above the deployment ceiling.
 
     Attributes:
         memory_mb: Maximum memory in megabytes.
@@ -98,12 +108,12 @@ class AgentResourceLimits:
     """
 
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
-    cpu_seconds: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT)
+    cpu_seconds: int = field(default_factory=lambda: _sandbox_kill_ceiling_seconds())
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
     timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+        default_factory=lambda: _sandbox_kill_ceiling_seconds()
     )
 
 

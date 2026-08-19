@@ -997,6 +997,7 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1065,6 +1066,7 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1141,6 +1143,7 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
+                            timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,

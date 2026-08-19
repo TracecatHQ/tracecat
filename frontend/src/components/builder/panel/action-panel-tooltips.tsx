@@ -1,4 +1,8 @@
 import { ExternalLinkIcon } from "lucide-react"
+import {
+  AGENT_TIMEOUT_SECONDS_DEFAULT,
+  DEFAULT_ACTION_TIMEOUT_SECONDS,
+} from "@/lib/action-timeout"
 
 export function RunIfTooltip() {
   return (
@@ -137,7 +141,7 @@ export function MaxAttemptsTooltip() {
   )
 }
 
-export function TimeoutTooltip() {
+export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
   return (
     <div className="w-full space-y-3">
       <div className="flex w-full items-center justify-between text-muted-foreground">
@@ -150,17 +154,36 @@ export function TimeoutTooltip() {
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <div className="w-full items-center space-y-2 text-start text-muted-foreground">
-        <div>
-          Defines the maximum duration (in seconds) that an action is allowed to
-          run before it is terminated. If not specified, the action will run
-          until completion or failure.
-        </div>
-        <div>Defaults to 300s (5 minutes).</div>
+        {isAgent ? (
+          <>
+            <div>
+              Defines how long the agent may execute continuously. Resuming
+              after an approval starts a new timeout window.
+            </div>
+            <div>
+              Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes). Values
+              above the deployment's timeout ceiling (1 hour unless configured
+              otherwise) are clamped down to it.
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              Defines the maximum duration (in seconds) that an action is
+              allowed to run before it is terminated.
+            </div>
+            <div>
+              Defaults to {DEFAULT_ACTION_TIMEOUT_SECONDS}s (5 minutes).
+            </div>
+          </>
+        )}
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
-          timeout: 300{" "}
-          <span className="text-xs text-muted-foreground"># 5 minutes</span>
+          timeout: {isAgent ? AGENT_TIMEOUT_SECONDS_DEFAULT : 300}{" "}
+          <span className="text-xs text-muted-foreground">
+            {isAgent ? "# 30 minutes" : "# 5 minutes"}
+          </span>
         </pre>
       </div>
     </div>
