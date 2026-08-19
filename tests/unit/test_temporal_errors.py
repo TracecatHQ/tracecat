@@ -282,6 +282,44 @@ def test_action_error_map_extracts_every_classified_envelope() -> None:
     assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
 
 
+@pytest.mark.anyio
+async def test_aggregate_envelopes_survive_temporal_failure_serialization() -> None:
+    user_envelope = _user_envelope()
+    platform_envelope = _platform_envelope()
+    children: list[ActionErrorInfo] = [
+        ClassifiedActionErrorInfo(
+            ref="fanout[0]",
+            message=user_envelope.message,
+            type="ValueError",
+            envelope=user_envelope,
+        ),
+        ClassifiedActionErrorInfo(
+            ref="fanout[1]",
+            message=platform_envelope.message,
+            type="RuntimeError",
+            envelope=platform_envelope,
+        ),
+    ]
+    aggregate = ClassifiedActionErrorInfo(
+        ref="fanout",
+        message="Two child workflows failed",
+        type="ChildWorkflowAggregateError",
+        envelope=user_envelope,
+        children=children,
+    )
+    error = application_error_from_envelope(
+        user_envelope,
+        aggregate,
+        *children,
+    )
+    failure = Failure()
+
+    await DataConverter.default.encode_failure(error, failure)
+    decoded = await DataConverter.default.decode_failure(failure)
+
+    assert extract_error_envelopes(decoded) == (user_envelope, platform_envelope)
+
+
 def test_arbitrary_nested_envelope_does_not_collide_with_action_error_map() -> None:
     envelope = _user_envelope()
     error = ApplicationError(

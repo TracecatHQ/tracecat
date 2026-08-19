@@ -23,6 +23,7 @@ from tracecat.dsl.types import (
 from tracecat.dsl.workflow import (
     ERROR_OWNER_SEARCH_ATTRIBUTE_PATCH,
     DSLWorkflow,
+    _child_failures_application_error,
     _workflow_application_error,
 )
 from tracecat.runtime.errors import (
@@ -254,6 +255,65 @@ def test_workflow_error_preserves_all_action_envelopes() -> None:
     assert error.details[0]["platform_action"]["envelope"]["schema"] == (
         "tracecat.error.v1"
     )
+
+
+def test_workflow_error_preserves_all_envelopes_from_one_aggregate() -> None:
+    user_envelope = ErrorEnvelope.user(
+        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        message="The action failed",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    platform_envelope = ErrorEnvelope.platform(
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    user_detail = _classified_error_info(user_envelope, ref="fanout[0]")
+    platform_detail = _classified_error_info(platform_envelope, ref="fanout[1]")
+    aggregate_error = application_error_from_envelope(
+        user_envelope,
+        user_detail,
+        platform_detail,
+        error_type="ChildWorkflowAggregateError",
+    )
+
+    error = _workflow_application_error(
+        {
+            "fanout": TaskExceptionInfo(
+                exception=aggregate_error,
+                details=user_detail,
+            )
+        }
+    )
+
+    assert extract_error_envelopes(error) == (user_envelope, platform_envelope)
+
+
+def test_child_failure_aggregate_is_terminal_and_keeps_loop_indexes() -> None:
+    platform_envelope = ErrorEnvelope.platform(
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        message="Tracecat could not execute the action",
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+    child_error = application_error_from_envelope(platform_envelope)
+
+    error = _child_failures_application_error(
+        task_ref="fanout",
+        failures=[(7, child_error)],
+    )
+
+    assert error is not None
+    assert error.non_retryable is True
+    aggregate = ActionErrorInfoAdapter.validate_python(error.details[0])
+    assert isinstance(aggregate, ClassifiedActionErrorInfo)
+    assert aggregate.children is not None
+    assert [child.ref for child in aggregate.children] == ["fanout[7]"]
+    assert {
+        envelope.retry_disposition for envelope in extract_error_envelopes(error)
+    } == {
+        RetryDisposition.RETRYABLE,
+        RetryDisposition.NON_RETRYABLE,
+    }
 
 
 def test_legacy_workflow_error_shape_is_unchanged() -> None:

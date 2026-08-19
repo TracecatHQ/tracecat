@@ -99,6 +99,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
+        ClassifiedActionErrorInfo,
         TaskExceptionInfo,
     )
     from tracecat.dsl.validation import format_input_schema_validation_error
@@ -118,7 +119,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
-    from tracecat.runtime.errors import RuntimeErrorOwner
+    from tracecat.runtime.errors import RetryDisposition, RuntimeErrorOwner
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -131,6 +132,7 @@ with workflow.unsafe.imports_passed_through():
         trigger_key,
     )
     from tracecat.temporal.errors import (
+        TemporalErrorDetails,
         application_error_from_envelope,
         extract_error_envelope,
         extract_error_envelopes,
@@ -187,22 +189,21 @@ def _workflow_application_error(
 ) -> ApplicationError:
     """Build the terminal workflow error without changing legacy payloads."""
     n_exceptions = len(task_exceptions)
-    primary_envelope = next(
-        (
-            envelope
-            for info in task_exceptions.values()
-            if (envelope := extract_error_envelope(info.exception)) is not None
-        ),
-        None,
-    )
-    if primary_envelope is not None:
+    envelopes = []
+    for info in task_exceptions.values():
+        for envelope in extract_error_envelopes(info.exception):
+            if envelope not in envelopes:
+                envelopes.append(envelope)
+
+    if envelopes:
         error_details = {
             ref: ActionErrorInfoAdapter.dump_python(info.details, mode="json")
             for ref, info in task_exceptions.items()
         }
         return application_error_from_envelope(
-            primary_envelope,
+            envelopes[0],
             error_details,
+            *(TemporalErrorDetails(envelope=envelope) for envelope in envelopes),
         )
 
     formatted_exceptions = "\n".join(
@@ -232,6 +233,64 @@ def _inherit_search_attributes_with_alias(
             if p.key != TemporalSearchAttr.ALIAS.key
         )
     return TypedSearchAttributes(search_attributes=pairs)
+
+
+def _without_terminal_error_owner(
+    attrs: TypedSearchAttributes,
+) -> TypedSearchAttributes:
+    """Prevent a successful child from inheriting its parent's terminal owner."""
+    return TypedSearchAttributes(
+        search_attributes=[
+            pair
+            for pair in attrs.search_attributes
+            if pair.key != TemporalSearchAttr.ERROR_OWNER.key
+        ]
+    )
+
+
+def _child_failures_application_error(
+    *, task_ref: str, failures: list[tuple[int, BaseException]]
+) -> ApplicationError | None:
+    """Aggregate classified child failures without discarding their envelopes."""
+    children: list[ActionErrorInfo] = []
+    primary_envelope = None
+    for child_index, failure in failures:
+        for envelope_index, envelope in enumerate(extract_error_envelopes(failure)):
+            primary_envelope = primary_envelope or envelope
+            suffix = f".{envelope_index}" if envelope_index else ""
+            children.append(
+                ClassifiedActionErrorInfo(
+                    ref=f"{task_ref}[{child_index}]{suffix}",
+                    message=envelope.message,
+                    type=envelope.cause_type or type(failure).__name__,
+                    envelope=envelope,
+                )
+            )
+
+    if primary_envelope is None:
+        return None
+
+    message = f"{len(failures)} child workflow(s) failed"
+    aggregate_envelope = primary_envelope.model_copy(
+        update={
+            "message": message,
+            "retry_disposition": RetryDisposition.NON_RETRYABLE,
+            "cause_type": "ChildWorkflowAggregateError",
+        }
+    )
+    aggregate = ClassifiedActionErrorInfo(
+        ref=task_ref,
+        message=message,
+        type="ChildWorkflowAggregateError",
+        children=children,
+        envelope=aggregate_envelope,
+    )
+    return application_error_from_envelope(
+        aggregate.envelope,
+        aggregate,
+        *children,
+        error_type=aggregate.type,
+    )
 
 
 def _build_agent_child_search_attributes(
@@ -1268,8 +1327,8 @@ class DSLWorkflow:
         except (ActivityError, ChildWorkflowError, FailureError) as e:
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
-            msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            cause = e.cause
+            msg = self.ERROR_TYPE_TO_MESSAGE.get(err_type, "Workflow execution failed")
+            cause = e if isinstance(e, ApplicationError) else e.cause
             root_error, root_message = self._unwrap_temporal_failure_cause(
                 cause if isinstance(cause, BaseException) else e
             )
@@ -1288,11 +1347,15 @@ class DSLWorkflow:
                     err_type = cause.type or err_type
                     task_result = task_result.with_error(err_info, err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
+                    if cause is e:
+                        raise
                     raise cause from e
                 case ApplicationError() as app_err:
                     err_type = app_err.type or err_type
                     err_message = app_err.message or root_message
                     task_result = task_result.with_error(err_message, err_type)
+                    if app_err is e:
+                        raise
                     raise app_err from e
                 case _:
                     resolved_type = root_error.__class__.__name__
@@ -1552,7 +1615,17 @@ class DSLWorkflow:
         )
 
         if fail_strategy == FailStrategy.ALL:
-            if any(isinstance(val, BaseException) for val in gather_result):
+            failures = [
+                (index, val)
+                for index, val in enumerate(gather_result)
+                if isinstance(val, BaseException)
+            ]
+            if failures:
+                if aggregate_error := _child_failures_application_error(
+                    task_ref=task.ref,
+                    failures=failures,
+                ):
+                    raise aggregate_error
                 raise RuntimeError("One or more child workflows failed")
 
         result: list[StoredObject] = []
@@ -2104,7 +2177,9 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
             memo=memo.model_dump(),
-            search_attributes=wf_info.typed_search_attributes,
+            search_attributes=_without_terminal_error_owner(
+                wf_info.typed_search_attributes
+            ),
         )
 
     # ==================== Tier Limit Enforcement ====================

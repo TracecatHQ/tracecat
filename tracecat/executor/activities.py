@@ -284,7 +284,7 @@ class ExecutorActivities:
                 envelope,
                 err_info,
                 error_type=kind,
-            ) from e
+            ) from None
         except EntitlementRequired as e:
             # Entitlement errors are user-facing and non-retryable
             kind = e.__class__.__name__
@@ -307,7 +307,7 @@ class ExecutorActivities:
                 envelope,
                 err_info,
                 error_type=kind,
-            ) from e
+            ) from None
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__
@@ -338,7 +338,7 @@ class ExecutorActivities:
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
-            ) from e
+            ) from None
         except LoopExecutionError as e:
             # LoopExecutionError from dispatch_action (for_each loop failure)
             kind = e.__class__.__name__
@@ -373,7 +373,7 @@ class ExecutorActivities:
                 ref=task.ref,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
-            ) from e
+            ) from None
         except ApplicationError as e:
             # Pass through ApplicationError
             log.error("ApplicationError occurred", error=e)
