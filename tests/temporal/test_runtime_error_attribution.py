@@ -1,1220 +1,446 @@
+"""Declarative coverage matrix for runtime error attribution semantics."""
+
 from __future__ import annotations
 
-import asyncio
-import uuid
-from collections.abc import AsyncGenerator, Callable
-from dataclasses import dataclass
-from datetime import timedelta
-from types import SimpleNamespace
+from collections import Counter
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Literal
-from unittest.mock import AsyncMock, patch
 
 import pytest
-from botocore.exceptions import HTTPClientError
-from temporalio.api.enums.v1 import EventType, WorkflowExecutionStatus
-from temporalio.client import WorkflowFailureError, WorkflowHandle
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 
-from tracecat import config
-from tracecat.auth.types import Role
-from tracecat.dsl import action as action_module
-from tracecat.dsl import init_activities as init_activities_module
-from tracecat.dsl._converter import get_data_converter
-from tracecat.dsl.common import (
-    DSLEntrypoint,
-    DSLInput,
-    DSLRunArgs,
-    PreparedSubflowResult,
-)
-from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
-from tracecat.dsl.init_activities import (
-    resolve_time_anchor_activity,
-    resolve_workflow_concurrency_limits_enabled_activity,
-)
-from tracecat.dsl.schemas import (
-    ActionRetryPolicy,
-    ActionStatement,
-    DSLConfig,
-    RunActionInput,
-)
-from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.exceptions import ExecutionError
-from tracecat.executor.activities import ExecutorActivities
+from tests.temporal import runtime_error_attribution_harness as harness
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheLeaseContentionError,
     RegistryArtifactExtractionError,
 )
-from tracecat.executor.schemas import ExecutorActionErrorInfo
-from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
-from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorCode,
     RuntimeErrorOwner,
 )
 from tracecat.sandbox.exceptions import SandboxExecutionError
-from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
 from tracecat.temporal.errors import extract_error_envelope, extract_error_envelopes
 from tracecat.workflow.executions.enums import TemporalSearchAttr
-from tracecat.workflow.management.definitions import (
-    WorkflowDefinitionsService,
-    get_workflow_definition_activity,
-)
-from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [pytest.mark.temporal]
 
+# Re-export the harness fixtures under the names collected by this test module.
+disable_workflow_concurrency_limits = harness.disable_workflow_concurrency_limits
+temporal_env = harness.env
 
-@pytest.fixture(autouse=True)
-def disable_workflow_concurrency_limits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the minimal Worker focused on error attribution."""
-    monkeypatch.setattr(
-        init_activities_module,
-        "is_feature_enabled",
-        lambda _feature: False,
+
+class _Topology(StrEnum):
+    SINGLE_ACTION = "single_action"
+    DEFINITION_LOOKUP = "definition_lookup"
+    FANOUT = "fanout"
+    ERROR_HANDLER = "error_handler"
+    AUTHORED_ERROR_EDGE = "authored_error_edge"
+    ENGINE_TERMINAL = "engine_terminal"
+
+
+class _FaultPoint(StrEnum):
+    MATERIALIZATION = "retrieve_stored_object"
+    EXECUTOR_DISPATCH = "dispatch_action"
+    DEFINITION_SERVICE = "get_definition_by_workflow_id"
+    CHILD_EXECUTION = "child_dispatch"
+    SUBFLOW_PREPARATION = "prepare_subflow"
+    TEMPORAL_CONTROL = "temporal_control"
+
+
+type _TerminalOperation = Literal["cancel", "terminate", "timeout"]
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionExpectation:
+    status: WorkflowExecutionStatus
+    owner: RuntimeErrorOwner | None
+
+
+@dataclass(frozen=True, slots=True)
+class _AttributionScenario:
+    """One row in the complete runtime-attribution acceptance matrix."""
+
+    id: str
+    topology: _Topology
+    fault_point: _FaultPoint
+    fault: str
+    root: _ExecutionExpectation
+    runner: Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]] = (
+        field(repr=False)
     )
+    children: tuple[_ExecutionExpectation, ...] = ()
+    envelope_owners: frozenset[RuntimeErrorOwner] = frozenset()
+    code: RuntimeErrorCode | None = None
+    retry_disposition: RetryDisposition | None = None
+    attempts: int | None = None
 
 
-@pytest.fixture
-async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
-    """Run attribution tests against an ephemeral Temporal dev server."""
-    async with await WorkflowEnvironment.start_local(
-        data_converter=get_data_converter(compression_enabled=False),
-        search_attributes=[TemporalSearchAttr.ERROR_OWNER.key],
-        dev_server_log_level="error",
-    ) as environment:
-        yield environment
+@dataclass(frozen=True, slots=True)
+class _ScenarioContext:
+    env: WorkflowEnvironment
+    test_worker_factory: Any
+    monkeypatch: pytest.MonkeyPatch
 
 
-@dataclass(slots=True)
-class _MaterializationFault:
-    """Deterministically fail StoredObject retrieval before eventually succeeding."""
-
-    error_factory: Callable[[], Exception]
-    failures: int
-    attempts: int = 0
-
-    async def retrieve(self, _stored: object) -> object:
-        self.attempts += 1
-        if self.attempts <= self.failures:
-            raise self.error_factory()
-        return {"source": "stored-trigger"}
+type _BasicRunner = Callable[
+    [WorkflowEnvironment, Any], Awaitable[harness.ScenarioObservation]
+]
+type _MonkeypatchRunner = Callable[
+    [WorkflowEnvironment, Any, pytest.MonkeyPatch],
+    Awaitable[harness.ScenarioObservation],
+]
 
 
-@dataclass(slots=True)
-class _DispatchFault:
-    """Inject a typed dependency failure behind the real executor activity."""
+def _basic_runner(
+    run: _BasicRunner,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await run(context.env, context.test_worker_factory)
 
-    error_factory: Callable[[], Exception]
-    failures: int
-    attempts: int = 0
-
-    async def dispatch(self, *, backend: object, input: object) -> object:
-        del backend, input
-        self.attempts += 1
-        if self.attempts <= self.failures:
-            cause = self.error_factory()
-            info = ExecutorActionErrorInfo(
-                type=type(cause).__name__,
-                message="masked executor failure",
-                action_name="core.noop",
-                filename="<executor>",
-                function="dispatch",
-            )
-            raise ExecutionError(info=info) from cause
-        return {"ok": True}
+    return wrapped
 
 
-@dataclass(slots=True)
-class _ChildDispatch:
-    """Fail child actions by trigger mode while allowing parent recovery work."""
-
-    user_diagnostic: str
-    platform_diagnostic: str
-    calls: list[str]
-
-    async def dispatch(self, *, backend: object, input: RunActionInput) -> object:
-        del backend
-        trigger = input.exec_context.get("TRIGGER")
-        mode = trigger.get("mode") if isinstance(trigger, dict) else None
-        self.calls.append(mode if isinstance(mode, str) else "success")
-        if mode not in {"platform", "user"}:
-            return {"ok": True}
-
-        if mode == "platform":
-            cause = RuntimeError(self.platform_diagnostic)
-            cause.__cause__ = RegistryArtifactExtractionError()
-        else:
-            cause = ValueError(self.user_diagnostic)
-
-        info = ExecutorActionErrorInfo(
-            type=type(cause).__name__,
-            message="masked child action failure",
-            action_name="core.noop",
-            filename="<executor>",
-            function="dispatch",
+def _monkeypatch_runner(
+    run: _MonkeypatchRunner,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await run(
+            context.env,
+            context.test_worker_factory,
+            context.monkeypatch,
         )
-        raise ExecutionError(info=info) from cause
+
+    return wrapped
 
 
-def _role() -> Role:
-    return Role(
-        type="service",
-        service_id="tracecat-runner",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
-
-
-def _external_trigger() -> ExternalObject:
-    return ExternalObject(
-        ref=ObjectRef(
-            bucket="workflow-data",
-            key="synthetic/trigger.json",
-            size_bytes=128,
-            sha256="0" * 64,
-        )
-    )
-
-
-def _run_args(*, max_attempts: int) -> DSLRunArgs:
-    action_name = "core.noop"
-    return DSLRunArgs(
-        role=_role(),
-        wf_id=WorkflowUUID.new_uuid4(),
-        dsl=DSLInput(
-            title="Runtime error attribution probe",
-            description="Exercise activity-origin error attribution",
-            entrypoint=DSLEntrypoint(ref="run"),
-            actions=[
-                ActionStatement(
-                    ref="run",
-                    action=action_name,
-                    args={},
-                    retry_policy=ActionRetryPolicy(
-                        max_attempts=max_attempts,
-                        timeout=10,
-                    ),
-                )
-            ],
-        ),
-        trigger_inputs=_external_trigger(),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={action_name: "tracecat_registry"},
-        ),
-    )
-
-
-def _inline_run_args(*, max_attempts: int) -> DSLRunArgs:
-    return _run_args(max_attempts=max_attempts).model_copy(
-        update={"trigger_inputs": InlineObject(data={"source": "inline-trigger"})}
-    )
-
-
-def _transport_error(secret: str) -> HTTPClientError:
-    return HTTPClientError(error=RuntimeError(secret))
-
-
-async def _describe_owner(handle: WorkflowHandle[Any, Any]) -> str | None:
-    description = await handle.describe()
-    return description.typed_search_attributes.get(TemporalSearchAttr.ERROR_OWNER.key)
-
-
-async def _describe_status(handle: WorkflowHandle[Any, Any]) -> int:
-    status = (await handle.describe()).status
-    assert status is not None
-    return int(status)
-
-
-async def _child_workflow_ids(handle: WorkflowHandle[Any, Any]) -> list[str]:
-    history = await handle.fetch_history()
-    return [
-        event.child_workflow_execution_started_event_attributes.workflow_execution.workflow_id
-        for event in history.events
-        if event.event_type == EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED
-    ]
-
-
-def _child_dsl() -> DSLInput:
-    return DSLInput(
-        title="Attribution child",
-        description="Exercise attribution across a real child workflow",
-        entrypoint=DSLEntrypoint(ref="child_action"),
-        actions=[
-            ActionStatement(
-                ref="child_action",
-                action="core.noop",
-                args={},
-                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
-            )
-        ],
-    )
-
-
-def _prepared_fanout(
-    *, child_wf_id: WorkflowUUID, modes: list[str]
-) -> PreparedSubflowResult:
-    return PreparedSubflowResult(
-        wf_id=child_wf_id,
-        dsl=_child_dsl(),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={"core.noop": "tracecat_registry"},
-        ),
-        trigger_inputs=InlineObject(
-            data=[{"mode": mode} for mode in modes],
-            typename="list",
-        ),
-        runtime_configs=DSLConfig(),
-    )
-
-
-def _fanout_run_args(
-    *, child_wf_id: WorkflowUUID, modes: list[str], fail_strategy: FailStrategy
-) -> DSLRunArgs:
-    return DSLRunArgs(
-        role=_role(),
-        wf_id=WorkflowUUID.new_uuid4(),
-        dsl=DSLInput(
-            title="Attribution fanout parent",
-            description="Exercise real child terminal attribution",
-            entrypoint=DSLEntrypoint(ref="fanout"),
-            actions=[
-                ActionStatement(
-                    ref="fanout",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    for_each="${{ for var.item in TRIGGER.items }}",
-                    args={
-                        "workflow_id": child_wf_id.short(),
-                        "trigger_inputs": "${{ var.item }}",
-                        "wait_strategy": WaitStrategy.WAIT.value,
-                        "fail_strategy": fail_strategy.value,
-                    },
-                )
-            ],
-        ),
-        trigger_inputs=InlineObject(data={"items": modes}),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={},
-        ),
-    )
-
-
-@pytest.mark.anyio
-async def test_retryable_materialization_failure_sets_platform_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An exhausted storage transport failure is terminally platform-owned."""
-    secret = "s3 transport diagnostic must not enter history"
-    fault = _MaterializationFault(
-        error_factory=lambda: _transport_error(secret),
-        failures=2,
-    )
-    monkeypatch.setattr(action_module, "retrieve_stored_object", fault.retrieve)
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _run_args(max_attempts=2)
-
-    async with (
-        test_worker_factory(
-            env.client,
-            activities=[
-                resolve_time_anchor_activity,
-                resolve_workflow_concurrency_limits_enabled_activity,
-                WorkflowsManagementService.get_error_handler_workflow_id,
-            ],
-            task_queue=dsl_queue,
-        ),
-        test_worker_factory(
-            env.client,
-            activities=[ExecutorActivities.execute_action_activity],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=generate_exec_id(run_args.wf_id),
-            task_queue=dsl_queue,
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
-
-    envelope = extract_error_envelope(exc_info.value)
-    assert envelope is not None
-    assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE
-    assert envelope.retry_disposition is RetryDisposition.RETRYABLE
-    assert fault.attempts == 2
-
-    description = await handle.describe()
-    assert (
-        description.status == WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_FAILED
-    )
-    assert await _describe_owner(handle) == RuntimeErrorOwner.PLATFORM.value
-    assert secret not in (await handle.fetch_history()).to_json()
-
-
-@pytest.mark.anyio
-async def test_non_retryable_materialization_failure_does_not_retry(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An integrity-like retrieval failure is platform-owned and non-retryable."""
-    fault = _MaterializationFault(
-        error_factory=lambda: ValueError("synthetic checksum mismatch"),
-        failures=3,
-    )
-    monkeypatch.setattr(action_module, "retrieve_stored_object", fault.retrieve)
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _run_args(max_attempts=3)
-
-    async with (
-        test_worker_factory(
-            env.client,
-            activities=[
-                resolve_time_anchor_activity,
-                resolve_workflow_concurrency_limits_enabled_activity,
-                WorkflowsManagementService.get_error_handler_workflow_id,
-            ],
-            task_queue=dsl_queue,
-        ),
-        test_worker_factory(
-            env.client,
-            activities=[ExecutorActivities.execute_action_activity],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=generate_exec_id(run_args.wf_id),
-            task_queue=dsl_queue,
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
-
-    envelope = extract_error_envelope(exc_info.value)
-    assert envelope is not None
-    assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_UNCLASSIFIED
-    assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
-    assert fault.attempts == 1
-    assert await _describe_owner(handle) == RuntimeErrorOwner.PLATFORM.value
-
-
-@pytest.mark.anyio
-async def test_successful_materialization_retry_does_not_set_terminal_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A transient classified attempt remains invisible after eventual success."""
-    secret = "transient transport diagnostic must not enter history"
-    fault = _MaterializationFault(
-        error_factory=lambda: _transport_error(secret),
-        failures=2,
-    )
-    monkeypatch.setattr(action_module, "retrieve_stored_object", fault.retrieve)
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _run_args(max_attempts=3)
-
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=AsyncMock(return_value={"ok": True}),
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            await handle.result()
-
-    description = await handle.describe()
-    assert (
-        description.status
-        == WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED
-    )
-    assert fault.attempts == 3
-    assert await _describe_owner(handle) is None
-    assert secret not in (await handle.fetch_history()).to_json()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    (
-        "error_factory",
-        "max_attempts",
-        "expected_attempts",
-        "expected_code",
-        "expected_retry_disposition",
-    ),
-    [
-        (
-            lambda: RegistryArtifactCacheLeaseContentionError(
-                current_bytes=80,
-                additional_bytes=30,
-                max_bytes=100,
-            ),
-            2,
-            2,
-            RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
-            RetryDisposition.RETRYABLE,
-        ),
-        (
-            lambda: RegistryArtifactCacheCapacityError(
-                current_bytes=80,
-                additional_bytes=30,
-                max_bytes=100,
-            ),
-            3,
-            1,
-            RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
-            RetryDisposition.NON_RETRYABLE,
-        ),
-        (
-            RegistryArtifactExtractionError,
-            3,
-            1,
-            RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
-            RetryDisposition.NON_RETRYABLE,
-        ),
-        (
-            lambda: SandboxExecutionError(
-                "sandbox supervisor diagnostic must not enter history"
-            ),
-            2,
-            2,
-            RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
-            RetryDisposition.RETRYABLE,
-        ),
-    ],
-)
-async def test_executor_internal_failure_sets_platform_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
+def _executor_runner(
+    *,
     error_factory: Callable[[], Exception],
     max_attempts: int,
-    expected_attempts: int,
-    expected_code: RuntimeErrorCode,
-    expected_retry_disposition: RetryDisposition,
-) -> None:
-    """Typed executor internals survive the activity and workflow boundaries."""
-    fault = _DispatchFault(error_factory=error_factory, failures=max_attempts)
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _inline_run_args(max_attempts=max_attempts)
-
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=fault.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await handle.result()
-
-    envelope = extract_error_envelope(exc_info.value)
-    assert envelope is not None
-    assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is expected_code
-    assert envelope.retry_disposition is expected_retry_disposition
-    assert fault.attempts == expected_attempts
-    assert await _describe_owner(handle) == RuntimeErrorOwner.PLATFORM.value
-    assert (
-        "sandbox supervisor diagnostic" not in (await handle.fetch_history()).to_json()
-    )
-
-
-@pytest.mark.anyio
-async def test_successful_registry_contention_retry_has_no_terminal_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-) -> None:
-    """Recovered lease contention does not leave terminal attribution behind."""
-    fault = _DispatchFault(
-        error_factory=lambda: RegistryArtifactCacheLeaseContentionError(
-            current_bytes=80,
-            additional_bytes=30,
-            max_bytes=100,
-        ),
-        failures=2,
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _inline_run_args(max_attempts=3)
-
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=fault.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            await handle.result()
-
-    assert fault.attempts == 3
-    assert await _describe_owner(handle) is None
-
-
-@pytest.mark.anyio
-async def test_user_action_failure_sets_user_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-) -> None:
-    """A terminal business-logic failure is attributed to the workflow user."""
-    diagnostic = "raw child-process diagnostic must not enter history"
-    fault = _DispatchFault(
-        error_factory=lambda: ValueError(diagnostic),
-        failures=2,
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _inline_run_args(max_attempts=2)
-
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=fault.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await handle.result()
-
-    envelope = extract_error_envelope(exc_info.value)
-    assert envelope is not None
-    assert envelope.owner is RuntimeErrorOwner.USER
-    assert envelope.code is RuntimeErrorCode.USER_ACTION_FAILED
-    assert envelope.retry_disposition is RetryDisposition.RETRYABLE
-    assert fault.attempts == 2
-    assert await _describe_owner(handle) == RuntimeErrorOwner.USER.value
-    assert diagnostic not in (await handle.fetch_history()).to_json()
-
-
-@pytest.mark.anyio
-async def test_missing_published_definition_sets_platform_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A stale scheduled run with no published definition is platform-owned."""
-    get_definition = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        WorkflowDefinitionsService,
-        "get_definition_by_workflow_id",
-        get_definition,
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-    run_args = _inline_run_args(max_attempts=1).model_copy(
-        update={"dsl": None, "registry_lock": None}
-    )
-
-    async with test_worker_factory(
-        env.client,
-        activities=[get_workflow_definition_activity],
-        task_queue=dsl_queue,
-    ):
-        handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=generate_exec_id(run_args.wf_id),
-            task_queue=dsl_queue,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await harness.run_executor_internal_failure_sets_platform_owner(
+            context.env,
+            context.test_worker_factory,
+            error_factory,
+            max_attempts,
         )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
 
-    envelope = extract_error_envelope(exc_info.value)
-    assert envelope is not None
-    assert envelope.owner is RuntimeErrorOwner.PLATFORM
-    assert envelope.code is RuntimeErrorCode.PLATFORM_UNCLASSIFIED
-    assert envelope.retry_disposition is RetryDisposition.NON_RETRYABLE
-    assert get_definition.await_count == 1
-    assert await _describe_owner(handle) == RuntimeErrorOwner.PLATFORM.value
+    return wrapped
 
 
-@pytest.mark.anyio
-async def test_isolated_platform_child_failure_does_not_attribute_parent(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-) -> None:
-    """A real failed child remains alertable when its parent completes."""
-    child_wf_id = WorkflowUUID.new_uuid4()
-    modes = ["platform", "success"]
-    prepared = _prepared_fanout(child_wf_id=child_wf_id, modes=modes)
-    prepare_subflow = AsyncMock(return_value=prepared)
-    dispatch = _ChildDispatch(
-        user_diagnostic="unused user diagnostic",
-        platform_diagnostic="child platform diagnostic must not enter history",
-        calls=[],
-    )
-    run_args = _fanout_run_args(
-        child_wf_id=child_wf_id,
-        modes=modes,
-        fail_strategy=FailStrategy.ISOLATED,
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-
-    with (
-        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow),
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=dispatch.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                    action_module.DSLActivities.prepare_subflow_activity,
-                    action_module.DSLActivities.synchronize_collection_object_activity,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            parent_handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            await parent_handle.result()
-
-    child_handles = [
-        env.client.get_workflow_handle(child_id)
-        for child_id in await _child_workflow_ids(parent_handle)
-    ]
-    assert len(child_handles) == 2
-    child_statuses = [await _describe_status(child) for child in child_handles]
-    failed_status = int(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_FAILED)
-    completed_status = int(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED)
-    assert child_statuses.count(failed_status) == 1
-    assert child_statuses.count(completed_status) == 1
-
-    failed_child = child_handles[child_statuses.index(failed_status)]
-    completed_child = child_handles[child_statuses.index(completed_status)]
-    assert await _describe_owner(failed_child) == RuntimeErrorOwner.PLATFORM.value
-    assert await _describe_owner(completed_child) is None
-    assert await _describe_owner(parent_handle) is None
-    assert prepare_subflow.await_count == 1
-    assert sorted(dispatch.calls) == ["platform", "success"]
-
-    diagnostic = dispatch.platform_diagnostic
-    assert diagnostic not in (await failed_child.fetch_history()).to_json()
-    assert diagnostic not in (await parent_handle.fetch_history()).to_json()
-
-
-@pytest.mark.anyio
-async def test_fail_all_preserves_mixed_child_attribution(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-) -> None:
-    """A failing fanout retains every child envelope and alerts as platform."""
-    child_wf_id = WorkflowUUID.new_uuid4()
-    modes = ["user", "platform", "success"]
-    prepared = _prepared_fanout(child_wf_id=child_wf_id, modes=modes)
-    prepare_subflow = AsyncMock(return_value=prepared)
-    dispatch = _ChildDispatch(
-        user_diagnostic="child user diagnostic must not enter history",
-        platform_diagnostic="child platform diagnostic must not enter history",
-        calls=[],
-    )
-    run_args = _fanout_run_args(
-        child_wf_id=child_wf_id,
-        modes=modes,
-        fail_strategy=FailStrategy.ALL,
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-
-    with (
-        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow),
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=dispatch.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                    action_module.DSLActivities.prepare_subflow_activity,
-                    action_module.DSLActivities.synchronize_collection_object_activity,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            parent_handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await parent_handle.result()
-
-    envelopes = extract_error_envelopes(exc_info.value)
-    assert {envelope.owner for envelope in envelopes} == {
-        RuntimeErrorOwner.USER,
-        RuntimeErrorOwner.PLATFORM,
-    }
-    assert await _describe_owner(parent_handle) == RuntimeErrorOwner.PLATFORM.value
-
-    child_handles = [
-        env.client.get_workflow_handle(child_id)
-        for child_id in await _child_workflow_ids(parent_handle)
-    ]
-    assert len(child_handles) == 3
-    child_statuses = [await _describe_status(child) for child in child_handles]
-    assert (
-        child_statuses.count(
-            int(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_FAILED)
+def _engine_runner(
+    operation: _TerminalOperation,
+) -> Callable[[_ScenarioContext], Awaitable[harness.ScenarioObservation]]:
+    async def wrapped(context: _ScenarioContext) -> harness.ScenarioObservation:
+        return await harness.run_engine_terminal_status_does_not_set_error_owner(
+            context.env,
+            context.test_worker_factory,
+            operation,
         )
-        == 2
-    )
-    assert (
-        child_statuses.count(
-            int(WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED)
-        )
-        == 1
-    )
-    child_owners = [await _describe_owner(child) for child in child_handles]
-    assert sorted(owner for owner in child_owners if owner is not None) == [
-        RuntimeErrorOwner.PLATFORM.value,
-        RuntimeErrorOwner.USER.value,
-    ]
 
-    histories = [(await parent_handle.fetch_history()).to_json()]
-    for child in child_handles:
-        histories.append((await child.fetch_history()).to_json())
-    serialized_histories = "\n".join(histories)
-    assert dispatch.user_diagnostic not in serialized_histories
-    assert dispatch.platform_diagnostic not in serialized_histories
+    return wrapped
 
 
-@pytest.mark.anyio
-async def test_successful_error_handler_does_not_inherit_terminal_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A successful handler child is not mislabeled by its failing parent."""
-    handler_wf_id = WorkflowUUID.new_uuid4()
-    handler_dsl = DSLInput(
-        title="Attribution error handler",
-        description="Complete successfully after a classified parent failure",
-        entrypoint=DSLEntrypoint(ref="handle"),
-        actions=[
-            ActionStatement(
-                ref="handle",
-                action="core.noop",
-                args={},
-                retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
-            )
-        ],
-    )
-    handler_lock = RegistryLock(
-        origins={"tracecat_registry": "test"},
-        actions={"core.noop": "tracecat_registry"},
-    )
-    handler_definition = AsyncMock(
-        return_value=SimpleNamespace(
-            content=handler_dsl.model_dump(),
-            registry_lock=handler_lock.model_dump(),
-        )
-    )
-    monkeypatch.setattr(
-        WorkflowDefinitionsService,
-        "get_definition_by_workflow_id",
-        handler_definition,
-    )
+_COMPLETED = WorkflowExecutionStatus.COMPLETED
+_FAILED = WorkflowExecutionStatus.FAILED
+_CANCELED = WorkflowExecutionStatus.CANCELED
+_TERMINATED = WorkflowExecutionStatus.TERMINATED
+_TIMED_OUT = WorkflowExecutionStatus.TIMED_OUT
 
-    parent_wf_id = WorkflowUUID.new_uuid4()
-    run_args = DSLRunArgs(
-        role=_role(),
-        wf_id=parent_wf_id,
-        dsl=DSLInput(
-            title="Failing parent with handler",
-            description="Verify terminal attribution stays on the failed execution",
-            entrypoint=DSLEntrypoint(ref="fail"),
-            actions=[
-                ActionStatement(
-                    ref="fail",
-                    action="core.noop",
-                    args={},
-                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=10),
-                )
-            ],
-            error_handler=handler_wf_id.short(),
+
+ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
+    _AttributionScenario(
+        id="materialization.transport.exhausted",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.MATERIALIZATION,
+        fault="HTTPClientError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_DEPENDENCY_UNAVAILABLE,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=2,
+        runner=_monkeypatch_runner(
+            harness.run_retryable_materialization_failure_sets_platform_owner
         ),
-        trigger_inputs=InlineObject(data={"mode": "user"}),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={"core.noop": "tracecat_registry"},
+    ),
+    _AttributionScenario(
+        id="materialization.integrity.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.MATERIALIZATION,
+        fault="ValueError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_monkeypatch_runner(
+            harness.run_non_retryable_materialization_failure_does_not_retry
         ),
-    )
-    dispatch = _ChildDispatch(
-        user_diagnostic="parent user diagnostic must not enter history",
-        platform_diagnostic="unused platform diagnostic",
-        calls=[],
-    )
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
+    ),
+    _AttributionScenario(
+        id="materialization.transport.recovered",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.MATERIALIZATION,
+        fault="HTTPClientError",
+        root=_ExecutionExpectation(_COMPLETED, None),
+        attempts=3,
+        runner=_monkeypatch_runner(
+            harness.run_successful_materialization_retry_does_not_set_terminal_owner
         ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=dispatch.dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                    get_workflow_definition_activity,
-                ],
-                task_queue=dsl_queue,
+    ),
+    _AttributionScenario(
+        id="executor.registry_lease.exhausted",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="RegistryArtifactCacheLeaseContentionError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=2,
+        runner=_executor_runner(
+            error_factory=lambda: RegistryArtifactCacheLeaseContentionError(
+                current_bytes=80,
+                additional_bytes=30,
+                max_bytes=100,
             ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            max_attempts=2,
+        ),
+    ),
+    _AttributionScenario(
+        id="executor.registry_capacity.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="RegistryArtifactCacheCapacityError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_CAPACITY_EXHAUSTED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_runner(
+            error_factory=lambda: RegistryArtifactCacheCapacityError(
+                current_bytes=80,
+                additional_bytes=30,
+                max_bytes=100,
             ),
-        ):
-            parent_handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(parent_wf_id),
-                task_queue=dsl_queue,
-            )
-            with pytest.raises(WorkflowFailureError):
-                await parent_handle.result()
-
-    [handler_id] = await _child_workflow_ids(parent_handle)
-    handler_handle = env.client.get_workflow_handle(handler_id)
-    handler_description = await handler_handle.describe()
-    assert (
-        handler_description.status
-        == WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED
-    )
-    assert await _describe_owner(parent_handle) == RuntimeErrorOwner.USER.value
-    assert await _describe_owner(handler_handle) is None
-    assert handler_definition.await_count == 1
-    assert dispatch.calls == ["user", "success"]
-
-    histories = "\n".join(
-        [
-            (await parent_handle.fetch_history()).to_json(),
-            (await handler_handle.fetch_history()).to_json(),
-        ]
-    )
-    assert dispatch.user_diagnostic not in histories
-
-
-@pytest.mark.anyio
-async def test_handled_platform_activity_failure_uses_authored_error_edge(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-) -> None:
-    """Attribution does not override the workflow's authored control flow."""
-    child_action = "core.workflow.execute"
-    recovery_action = "core.noop"
-    run_args = DSLRunArgs(
-        role=_role(),
-        wf_id=WorkflowUUID.new_uuid4(),
-        dsl=DSLInput(
-            title="Handled platform failure",
-            description="Exercise a child preparation error edge",
-            entrypoint=DSLEntrypoint(ref="call_child"),
-            actions=[
-                ActionStatement(
-                    ref="call_child",
-                    action=child_action,
-                    args={"workflow_alias": "missing-child"},
-                ),
-                ActionStatement(
-                    ref="recover",
-                    action=recovery_action,
-                    args={},
-                    depends_on=["call_child.error"],
-                ),
-            ],
+            max_attempts=3,
         ),
-        trigger_inputs=InlineObject(data={"source": "inline-trigger"}),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={recovery_action: "tracecat_registry"},
+    ),
+    _AttributionScenario(
+        id="executor.registry_extraction.non_retryable",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="RegistryArtifactExtractionError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_executor_runner(
+            error_factory=RegistryArtifactExtractionError,
+            max_attempts=3,
         ),
-    )
-    prepare_subflow = AsyncMock(
-        side_effect=RuntimeError("child preparation diagnostic must not enter history")
-    )
-    dispatch = AsyncMock(return_value={"recovered": True})
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
-
-    with (
-        patch("tracecat.dsl.action._prepare_subflow", new=prepare_subflow),
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch("tracecat.executor.activities.dispatch_action", new=dispatch),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    action_module.DSLActivities.prepare_subflow_activity,
-                ],
-                task_queue=dsl_queue,
+    ),
+    _AttributionScenario(
+        id="executor.sandbox.exhausted",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="SandboxExecutionError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=2,
+        runner=_executor_runner(
+            error_factory=lambda: SandboxExecutionError(
+                "sandbox supervisor diagnostic must not enter history"
             ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            handle = await env.client.start_workflow(
-                DSLWorkflow.run,
-                run_args,
-                id=generate_exec_id(run_args.wf_id),
-                task_queue=dsl_queue,
-            )
-            await handle.result()
-
-    description = await handle.describe()
-    assert (
-        description.status
-        == WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED
-    )
-    assert prepare_subflow.await_count == 1
-    assert dispatch.await_count == 1
-    assert await _describe_owner(handle) is None
-    history_json = (await handle.fetch_history()).to_json()
-    assert "child preparation diagnostic" not in history_json
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("terminal_operation", "expected_status"),
-    [
-        (
-            "cancel",
-            WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CANCELED,
+            max_attempts=2,
         ),
-        (
-            "terminate",
-            WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+    ),
+    _AttributionScenario(
+        id="executor.registry_lease.recovered",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="RegistryArtifactCacheLeaseContentionError",
+        root=_ExecutionExpectation(_COMPLETED, None),
+        attempts=3,
+        runner=_basic_runner(
+            harness.run_successful_registry_contention_retry_has_no_terminal_owner
         ),
-        (
-            "timeout",
-            WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+    ),
+    _AttributionScenario(
+        id="executor.user_action.exhausted",
+        topology=_Topology.SINGLE_ACTION,
+        fault_point=_FaultPoint.EXECUTOR_DISPATCH,
+        fault="ValueError",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        attempts=2,
+        runner=_basic_runner(harness.run_user_action_failure_sets_user_owner),
+    ),
+    _AttributionScenario(
+        id="definition.missing_published_version",
+        topology=_Topology.DEFINITION_LOOKUP,
+        fault_point=_FaultPoint.DEFINITION_SERVICE,
+        fault="missing definition",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        envelope_owners=frozenset({RuntimeErrorOwner.PLATFORM}),
+        code=RuntimeErrorCode.PLATFORM_UNCLASSIFIED,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_monkeypatch_runner(
+            harness.run_missing_published_definition_sets_platform_owner
         ),
-    ],
+    ),
+    _AttributionScenario(
+        id="fanout.isolated.platform_child",
+        topology=_Topology.FANOUT,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="platform child + successful child",
+        root=_ExecutionExpectation(_COMPLETED, None),
+        children=(
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+            _ExecutionExpectation(_COMPLETED, None),
+        ),
+        runner=_basic_runner(
+            harness.run_isolated_platform_child_failure_does_not_attribute_parent
+        ),
+    ),
+    _AttributionScenario(
+        id="fanout.fail_all.mixed_children",
+        topology=_Topology.FANOUT,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="user child + platform child + successful child",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+        children=(
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+            _ExecutionExpectation(_FAILED, RuntimeErrorOwner.PLATFORM),
+            _ExecutionExpectation(_COMPLETED, None),
+        ),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER, RuntimeErrorOwner.PLATFORM}),
+        runner=_basic_runner(harness.run_fail_all_preserves_mixed_child_attribution),
+    ),
+    _AttributionScenario(
+        id="error_handler.successful_child",
+        topology=_Topology.ERROR_HANDLER,
+        fault_point=_FaultPoint.CHILD_EXECUTION,
+        fault="user parent failure + successful handler",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        children=(_ExecutionExpectation(_COMPLETED, None),),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        code=RuntimeErrorCode.USER_ACTION_FAILED,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        runner=_monkeypatch_runner(
+            harness.run_successful_error_handler_does_not_inherit_terminal_owner
+        ),
+    ),
+    _AttributionScenario(
+        id="error_edge.handled_platform_failure",
+        topology=_Topology.AUTHORED_ERROR_EDGE,
+        fault_point=_FaultPoint.SUBFLOW_PREPARATION,
+        fault="platform preparation failure",
+        root=_ExecutionExpectation(_COMPLETED, None),
+        runner=_basic_runner(
+            harness.run_handled_platform_activity_failure_uses_authored_error_edge
+        ),
+    ),
+    _AttributionScenario(
+        id="engine.cancel",
+        topology=_Topology.ENGINE_TERMINAL,
+        fault_point=_FaultPoint.TEMPORAL_CONTROL,
+        fault="cancel",
+        root=_ExecutionExpectation(_CANCELED, None),
+        runner=_engine_runner("cancel"),
+    ),
+    _AttributionScenario(
+        id="engine.terminate",
+        topology=_Topology.ENGINE_TERMINAL,
+        fault_point=_FaultPoint.TEMPORAL_CONTROL,
+        fault="terminate",
+        root=_ExecutionExpectation(_TERMINATED, None),
+        runner=_engine_runner("terminate"),
+    ),
+    _AttributionScenario(
+        id="engine.timeout",
+        topology=_Topology.ENGINE_TERMINAL,
+        fault_point=_FaultPoint.TEMPORAL_CONTROL,
+        fault="timeout",
+        root=_ExecutionExpectation(_TIMED_OUT, None),
+        runner=_engine_runner("timeout"),
+    ),
 )
-async def test_engine_terminal_status_does_not_set_error_owner(
-    env: WorkflowEnvironment,
-    test_worker_factory,
-    terminal_operation: Literal["cancel", "terminate", "timeout"],
-    expected_status: WorkflowExecutionStatus,
-) -> None:
-    """Cancellation, termination, and workflow timeout retain engine semantics."""
-    started = asyncio.Event()
 
-    async def blocking_dispatch(*, backend: object, input: object) -> object:
-        del backend, input
-        started.set()
-        await asyncio.Future[None]()
-        raise AssertionError("Blocking dispatch unexpectedly resumed")
 
-    run_args = _inline_run_args(max_attempts=1)
-    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+def _scenario_id(scenario: _AttributionScenario) -> str:
+    return scenario.id
 
-    with (
-        patch(
-            "tracecat.executor.activities.get_executor_backend",
-            return_value=object(),
-        ),
-        patch(
-            "tracecat.executor.activities.dispatch_action",
-            new=blocking_dispatch,
-        ),
-    ):
-        async with (
-            test_worker_factory(
-                env.client,
-                activities=[
-                    resolve_time_anchor_activity,
-                    resolve_workflow_concurrency_limits_enabled_activity,
-                    WorkflowsManagementService.get_error_handler_workflow_id,
-                ],
-                task_queue=dsl_queue,
-            ),
-            test_worker_factory(
-                env.client,
-                activities=[ExecutorActivities.execute_action_activity],
-                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            ),
-        ):
-            if terminal_operation == "timeout":
-                handle = await env.client.start_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=generate_exec_id(run_args.wf_id),
-                    task_queue=dsl_queue,
-                    run_timeout=timedelta(seconds=1),
-                )
-            else:
-                handle = await env.client.start_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=generate_exec_id(run_args.wf_id),
-                    task_queue=dsl_queue,
-                )
 
-            await asyncio.wait_for(started.wait(), timeout=5)
-            if terminal_operation == "cancel":
-                await handle.cancel()
-            elif terminal_operation == "terminate":
-                await handle.terminate(reason="Synthetic attribution test")
-
-            with pytest.raises(WorkflowFailureError):
-                await handle.result()
-            # Let the Worker consume the terminal event and unwind the blocked
-            # activity before its context manager shuts down.
-            await asyncio.sleep(0.1)
-
+async def _execution_expectation(
+    handle: WorkflowHandle[Any, Any],
+) -> _ExecutionExpectation:
     description = await handle.describe()
-    assert description.status == expected_status
-    assert await _describe_owner(handle) is None
+    assert description.status is not None
+    owner_value = description.typed_search_attributes.get(
+        TemporalSearchAttr.ERROR_OWNER.key
+    )
+    owner = RuntimeErrorOwner(owner_value) if owner_value is not None else None
+    return _ExecutionExpectation(status=description.status, owner=owner)
+
+
+async def _assert_scenario_observation(
+    scenario: _AttributionScenario,
+    observation: harness.ScenarioObservation,
+) -> None:
+    assert await _execution_expectation(observation.root) == scenario.root
+
+    expected_failure = scenario.root.status != _COMPLETED
+    assert (observation.failure is not None) is expected_failure
+
+    observed_children = [
+        await _execution_expectation(child) for child in observation.children
+    ]
+    assert Counter(observed_children) == Counter(scenario.children)
+
+    if observation.failure is not None:
+        envelopes = extract_error_envelopes(observation.failure)
+        assert {envelope.owner for envelope in envelopes} == set(
+            scenario.envelope_owners
+        )
+        if scenario.code is not None or scenario.retry_disposition is not None:
+            envelope = extract_error_envelope(observation.failure)
+            assert envelope is not None
+            assert envelope.code is scenario.code
+            assert envelope.retry_disposition is scenario.retry_disposition
+    else:
+        assert not scenario.envelope_owners
+        assert scenario.code is None
+        assert scenario.retry_disposition is None
+
+    assert observation.attempts == scenario.attempts
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("scenario", ATTRIBUTION_SCENARIOS, ids=_scenario_id)
+async def test_runtime_error_attribution(
+    scenario: _AttributionScenario,
+    temporal_env: WorkflowEnvironment,
+    test_worker_factory: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run every attribution contract row through its real Temporal topology."""
+    context = _ScenarioContext(
+        env=temporal_env,
+        test_worker_factory=test_worker_factory,
+        monkeypatch=monkeypatch,
+    )
+    observation = await scenario.runner(context)
+    await _assert_scenario_observation(scenario, observation)
