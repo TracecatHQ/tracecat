@@ -1,7 +1,6 @@
 import { ExternalLinkIcon } from "lucide-react"
 import {
   AGENT_TIMEOUT_SECONDS_DEFAULT,
-  AGENT_TIMEOUT_SECONDS_MAX,
   DEFAULT_ACTION_TIMEOUT_SECONDS,
 } from "@/lib/action-timeout"
 
@@ -162,9 +161,9 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
               after an approval starts a new timeout window.
             </div>
             <div>
-              Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes), capped
-              at {AGENT_TIMEOUT_SECONDS_MAX}s (1 hour) in standard deployments.
-              Values outside the deployment's allowed range are clamped.
+              Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes). Values
+              above the deployment's timeout ceiling (1 hour unless configured
+              otherwise) are clamped down to it.
             </div>
           </>
         ) : (

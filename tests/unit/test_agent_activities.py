@@ -60,7 +60,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
-from tracecat.agent.types import AgentConfig, Tool, resolve_agent_timeout_seconds
+from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
@@ -1270,7 +1270,7 @@ class TestRunAgentActivity:
 
         parsed = AgentExecutorInput.model_validate(payload)
         assert parsed.timeout_seconds == 3601
-        assert resolve_agent_timeout_seconds(parsed.timeout_seconds) == 3600
+        assert clamp_agent_timeout_seconds(parsed.timeout_seconds) == 3600
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(
