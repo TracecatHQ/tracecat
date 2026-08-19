@@ -480,6 +480,7 @@ class SandboxedAgentExecutor:
         host-side socket receiver to verify.
         """
         sandbox_env = dict(resolved.sandbox_env)
+        sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
         sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
             f"Authorization=Bearer {otel_auth_token}"
         )
