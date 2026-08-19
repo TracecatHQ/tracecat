@@ -258,7 +258,7 @@ def validate_otel_header_items(headers: Mapping[str, Any]) -> None:
         if not isinstance(key, str) or not key.strip():
             raise ValueError("OTel header names must be non-empty strings")
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
-        if not isinstance(raw_value, str) or not raw_value:
+        if not isinstance(raw_value, str) or not raw_value.strip():
             raise ValueError(f"OTel header {key} must have a non-empty string value")
 
 

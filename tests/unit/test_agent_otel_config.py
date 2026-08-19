@@ -301,6 +301,13 @@ def test_load_platform_override_rejects_empty_header_value() -> None:
         )
 
 
+def test_load_platform_override_rejects_blank_header_value() -> None:
+    with pytest.raises(ValueError, match="must have a non-empty string value"):
+        load_agent_otel_platform_override(
+            config_json='{"enabled":false}', headers='{"x-api-key":"   "}'
+        )
+
+
 def test_load_platform_override_rejects_blank_header_name() -> None:
     with pytest.raises(ValueError, match="header names must be non-empty strings"):
         load_agent_otel_platform_override(
