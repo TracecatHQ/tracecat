@@ -1,8 +1,9 @@
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from tracecat.agent.otel_config import AgentOtelConfig, validate_otel_header_items
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -228,6 +229,32 @@ class AgentSettingsUpdate(BaseSettingsGroup):
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
     )
+
+
+class AgentOtelSettingsRead(BaseSettingsGroup):
+    agent_otel_config: AgentOtelConfig = Field(default_factory=AgentOtelConfig)
+
+
+class AgentOtelSettingsUpdate(BaseSettingsGroup):
+    agent_otel_config: AgentOtelConfig = Field(
+        default_factory=AgentOtelConfig,
+        description="Claude Code OTel telemetry configuration for agent runs.",
+    )
+    agent_otel_headers: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Encrypted headers for the Claude Code OTLP exporter. Omitted values "
+            "leave existing headers unchanged."
+        ),
+    )
+
+    @field_validator("agent_otel_headers", mode="before")
+    @classmethod
+    def validate_agent_otel_headers(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, dict):
+            return value
+        validate_otel_header_items(cast(dict[str, Any], value))
+        return value
 
 
 class ValueType(StrEnum):

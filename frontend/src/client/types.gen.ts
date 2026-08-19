@@ -519,6 +519,98 @@ export type AgentModelAccessRead = {
   catalog_id: string
 }
 
+/**
+ * Organization-scoped Claude Code OTel configuration.
+ *
+ * See https://code.claude.com/docs/en/monitoring-usage for the env vars
+ * these fields map onto.
+ */
+export type AgentOtelConfig = {
+  /**
+   * Whether Claude Code telemetry is enabled for agent runs.
+   */
+  enabled?: boolean
+  /**
+   * OTLP transport protocol for all signals.
+   */
+  protocol?: "grpc" | "http/json" | "http/protobuf" | null
+  /**
+   * OTLP collector endpoint for all signals.
+   */
+  endpoint?: string | null
+  /**
+   * Whether metrics are exported.
+   */
+  metrics_enabled?: boolean
+  /**
+   * Whether logs and events are exported.
+   */
+  logs_enabled?: boolean
+  /**
+   * Whether traces are exported. Enables Claude Code beta tracing.
+   */
+  traces_enabled?: boolean
+  /**
+   * Metrics aggregation temporality.
+   */
+  metrics_temporality?: "delta" | "cumulative" | null
+  /**
+   * Metrics export interval in milliseconds.
+   */
+  metric_export_interval_ms?: number | null
+  /**
+   * Logs export interval in milliseconds.
+   */
+  logs_export_interval_ms?: number | null
+  /**
+   * Whether metrics include the Claude Code session identifier.
+   */
+  metrics_include_session_id?: boolean | null
+  /**
+   * Whether metrics include the Claude Code version.
+   */
+  metrics_include_version?: boolean | null
+  /**
+   * Whether metrics include the authenticated account identifier.
+   */
+  metrics_include_account_uuid?: boolean | null
+  /**
+   * Whether telemetry includes user prompt content.
+   */
+  log_user_prompts?: boolean | null
+  /**
+   * Whether telemetry includes tool parameters and input arguments.
+   */
+  log_tool_details?: boolean | null
+  /**
+   * Whether telemetry includes tool input and output content.
+   */
+  log_tool_content?: boolean | null
+  /**
+   * Resource attributes attached to exported telemetry.
+   */
+  resource_attributes?: {
+    [key: string]: string
+  }
+}
+
+export type AgentOtelSettingsRead = {
+  agent_otel_config?: AgentOtelConfig
+}
+
+export type AgentOtelSettingsUpdate = {
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -12600,6 +12692,14 @@ export type SettingsUpdateAgentSettingsData = {
 
 export type SettingsUpdateAgentSettingsResponse = void
 
+export type SettingsGetAgentOtelSettingsResponse = AgentOtelSettingsRead
+
+export type SettingsUpdateAgentOtelSettingsData = {
+  requestBody: AgentOtelSettingsUpdate
+}
+
+export type SettingsUpdateAgentOtelSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -18430,6 +18530,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent-otel": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentOtelSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentOtelSettingsData
       res: {
         /**
          * Successful Response
