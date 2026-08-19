@@ -685,11 +685,6 @@ variable "agent_otel_platform_override_headers_arn" {
   default     = null
 }
 
-variable "agent_otel_relay_timeout_seconds" {
-  type        = string
-  description = "Timeout in seconds for the Agent OTel relay to forward telemetry."
-  default     = "10"
-}
 
 variable "llm_proxy_read_timeout" {
   type        = string

@@ -53,53 +53,50 @@ class AgentOtelConfig(BaseModel):
         default=False,
         description="Whether Claude Code telemetry is enabled for agent runs.",
     )
+
+    # Transport
     protocol: OtelProtocol | None = Field(
-        default=None,
-        description="OTLP transport protocol for all signals.",
+        default=None, description="OTLP transport protocol for all signals."
     )
     endpoint: OtlpEndpoint | None = Field(
-        default=None,
-        description="OTLP collector endpoint for all signals.",
+        default=None, description="OTLP collector endpoint for all signals."
     )
+
+    # Signals
     metrics_enabled: bool = Field(
-        default=True,
-        description="Whether metrics are exported.",
+        default=True, description="Whether metrics are exported."
     )
     logs_enabled: bool = Field(
-        default=True,
-        description="Whether logs and events are exported.",
+        default=True, description="Whether logs and events are exported."
     )
     traces_enabled: bool = Field(
         default=False,
         description="Whether traces are exported. Enables Claude Code beta tracing.",
     )
     metrics_temporality: MetricsTemporality | None = Field(
-        default=None,
-        description="Metrics aggregation temporality.",
+        default=None, description="Metrics aggregation temporality."
     )
     metric_export_interval_ms: PositiveInt | None = Field(
-        default=None,
-        description="Metrics export interval in milliseconds.",
+        default=None, description="Metrics export interval in milliseconds."
     )
     logs_export_interval_ms: PositiveInt | None = Field(
-        default=None,
-        description="Logs export interval in milliseconds.",
+        default=None, description="Logs export interval in milliseconds."
     )
+
+    # Privacy and metric cardinality
     metrics_include_session_id: bool | None = Field(
         default=None,
         description="Whether metrics include the Claude Code session identifier.",
     )
     metrics_include_version: bool | None = Field(
-        default=None,
-        description="Whether metrics include the Claude Code version.",
+        default=None, description="Whether metrics include the Claude Code version."
     )
     metrics_include_account_uuid: bool | None = Field(
         default=None,
         description="Whether metrics include the authenticated account identifier.",
     )
     log_user_prompts: bool | None = Field(
-        default=None,
-        description="Whether telemetry includes user prompt content.",
+        default=None, description="Whether telemetry includes user prompt content."
     )
     log_tool_details: bool | None = Field(
         default=None,
@@ -109,6 +106,8 @@ class AgentOtelConfig(BaseModel):
         default=None,
         description="Whether telemetry includes tool input and output content.",
     )
+
+    # Resource
     resource_attributes: dict[str, str] = Field(
         default_factory=dict,
         description="Resource attributes attached to exported telemetry.",
