@@ -14,7 +14,7 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema, core_schema
 
-from tracecat.agent.types import resolve_agent_timeout_seconds
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import (
     JoinStrategy,
@@ -399,7 +399,7 @@ class ActionStatement(BaseModel):
         if not PlatformAction.is_agent(self.action):
             return self
         explicit = "timeout" in self.retry_policy.model_fields_set
-        self.retry_policy.timeout = resolve_agent_timeout_seconds(
+        self.retry_policy.timeout = clamp_agent_timeout_seconds(
             self.retry_policy.timeout if explicit else None
         )
         return self

@@ -82,7 +82,7 @@ from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketReceiv
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.types import AgentConfig, resolve_agent_timeout_seconds
+from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
@@ -287,7 +287,7 @@ class SandboxedAgentExecutor:
 
     input: AgentExecutorInput
     timeout_seconds: int = field(
-        default_factory=lambda: resolve_agent_timeout_seconds(None)
+        default_factory=lambda: clamp_agent_timeout_seconds(None)
     )
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
 
@@ -1362,7 +1362,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
             subagent.config.mcp_servers, role=input.role
         )
 
-    timeout_seconds = resolve_agent_timeout_seconds(input.timeout_seconds)
+    timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
     executor = SandboxedAgentExecutor(
         input=input,
         timeout_seconds=timeout_seconds,

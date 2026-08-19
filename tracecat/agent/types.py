@@ -38,7 +38,7 @@ else:
     CustomToolList = list[Any]
 
 
-def resolve_agent_timeout_seconds(timeout_seconds: int | None) -> int:
+def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
     """Clamp an agent timeout to the deployment ceiling.
 
     ``None`` inherits the hardcoded default; explicit values clamp to

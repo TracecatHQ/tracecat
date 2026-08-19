@@ -172,3 +172,33 @@ def test_git_sync_parse_normalizes_out_of_bounds() -> None:
     assert spec.definition.actions[0].retry_policy.timeout == (
         TRACECAT__AGENT_SANDBOX_TIMEOUT
     )
+
+
+def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
+    """Rows persisted before clamping stored the full ActionControlFlow dump,
+    baking the generic 300s default in as an explicit author value. Rebuilding
+    statements from such rows must clamp the timeout up to the agent default."""
+    import uuid
+
+    from tracecat.db.models import Action
+    from tracecat.dsl.common import build_action_statements_from_actions
+    from tracecat.workflow.actions.schemas import ActionControlFlow
+
+    workflow_id = uuid.uuid4()
+    legacy_row = Action(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        workflow_id=workflow_id,
+        type="ai.agent",
+        title="Agent",
+        description="",
+        inputs="",
+        # Exactly what pre-clamp code persisted: model_dump() with defaults.
+        control_flow=ActionControlFlow().model_dump(),
+        upstream_edges=[
+            {"source_id": f"trigger-{workflow_id}", "source_type": "trigger"}
+        ],
+    )
+    stmts = build_action_statements_from_actions([legacy_row])
+    assert len(stmts) == 1
+    assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT

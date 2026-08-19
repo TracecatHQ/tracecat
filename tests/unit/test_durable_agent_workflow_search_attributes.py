@@ -855,11 +855,9 @@ async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> No
             approved_tools=approved_tools,
             denied_tools=[],
             registry_lock=build_result.registry_lock,
-            mcp_auth_token="stale-token",
             mcp_build_result=build_result,
             internal_tool_context=None,
             token_ttl_seconds=365,
-            refresh_mcp_token_per_tool=True,
             active_stream_id=None,
         )
 

@@ -90,7 +90,7 @@ with workflow.unsafe.imports_passed_through():
         mint_llm_token,
         mint_mcp_token,
     )
-    from tracecat.agent.types import AgentConfig, resolve_agent_timeout_seconds
+    from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.chat.schemas import ChatMessage
@@ -142,10 +142,6 @@ PERSIST_SESSION_ERROR_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 AGENT_REQUEST_CANCEL_PATCH = "durable-agent-request-cancel-v1"
-CONFIGURABLE_AGENT_TIMEOUT_PATCH = "durable-agent-configurable-timeout-v1"
-REFRESH_TOKENS_AFTER_APPROVED_TOOLS_PATCH = (
-    "durable-agent-refresh-tokens-after-approved-tools-v1"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1215,20 +1211,11 @@ class DurableAgentWorkflow:
         """
         logger.info("Running agent executor", session_id=self.session_id)
 
-        configurable_timeout = workflow.patched(CONFIGURABLE_AGENT_TIMEOUT_PATCH)
-        timeout_seconds = (
-            resolve_agent_timeout_seconds(args.agent_args.timeout_seconds)
-            if configurable_timeout
-            else config.TRACECAT__AGENT_SANDBOX_TIMEOUT
+        timeout_seconds = clamp_agent_timeout_seconds(args.agent_args.timeout_seconds)
+        activity_timeout_seconds = (
+            timeout_seconds + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
         )
-        activity_timeout_seconds = timeout_seconds + (
-            AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS if configurable_timeout else 0
-        )
-        token_ttl_seconds = (
-            _agent_token_ttl_seconds(activity_timeout_seconds)
-            if configurable_timeout
-            else None
-        )
+        token_ttl_seconds = _agent_token_ttl_seconds(activity_timeout_seconds)
 
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
@@ -1376,11 +1363,10 @@ class DurableAgentWorkflow:
             sdk_session_data=load_result.sdk_session_data,
             is_fork=load_result.is_fork,
         )
-        if configurable_timeout:
-            executor_input = _apply_configured_timeout(
-                executor_input,
-                args.agent_args.timeout_seconds,
-            )
+        executor_input = _apply_configured_timeout(
+            executor_input,
+            args.agent_args.timeout_seconds,
+        )
 
         # Run the executor activity
         while True:
@@ -1522,9 +1508,6 @@ class DurableAgentWorkflow:
 
                 # Approval waits are unbounded. Tokens are turn-scoped, so resumed
                 # user-MCP tool execution and the continuation need fresh tokens.
-                refresh_tokens_after_approved_tools = workflow.patched(
-                    REFRESH_TOKENS_AFTER_APPROVED_TOOLS_PATCH
-                )
                 if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
                     compiled_run = self._remint_scope_tokens(
                         compiled_run,
@@ -1573,11 +1556,9 @@ class DurableAgentWorkflow:
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
-                        mcp_auth_token=compiled_run.root.mcp_auth_token,
                         mcp_build_result=compiled_run.root.build_result,
                         internal_tool_context=internal_tool_context,
                         token_ttl_seconds=token_ttl_seconds,
-                        refresh_mcp_token_per_tool=refresh_tokens_after_approved_tools,
                         # Post-approval: emit to the (possibly rotated) stream.
                         # set_approvals rotated self.active_stream_id when the
                         # rotation patch is active; otherwise it is the original.
@@ -1620,24 +1601,23 @@ class DurableAgentWorkflow:
 
                 # Refresh after reconciliation so the next turn
                 # window receives a full token TTL.
-                if refresh_tokens_after_approved_tools:
-                    compiled_run = self._remint_scope_tokens(
-                        compiled_run,
-                        internal_tool_context=internal_tool_context,
-                        ttl_seconds=token_ttl_seconds,
-                    )
-                    llm_gateway_auth_token = mint_llm_token(
-                        workspace_id=self.workspace_id,
-                        organization_id=self.organization_id,
-                        session_id=self.session_id,
-                        model=cfg.model_name,
-                        provider=cfg.model_provider,
-                        catalog_id=cfg.catalog_id,
-                        base_url=cfg.base_url,
-                        model_settings=cfg.model_settings,
-                        routes=compiled_run.llm_routes,
-                        ttl_seconds=token_ttl_seconds,
-                    )
+                compiled_run = self._remint_scope_tokens(
+                    compiled_run,
+                    internal_tool_context=internal_tool_context,
+                    ttl_seconds=token_ttl_seconds,
+                )
+                llm_gateway_auth_token = mint_llm_token(
+                    workspace_id=self.workspace_id,
+                    organization_id=self.organization_id,
+                    session_id=self.session_id,
+                    model=cfg.model_name,
+                    provider=cfg.model_provider,
+                    catalog_id=cfg.catalog_id,
+                    base_url=cfg.base_url,
+                    model_settings=cfg.model_settings,
+                    routes=compiled_run.llm_routes,
+                    ttl_seconds=token_ttl_seconds,
+                )
 
                 # Update executor input for resume. Reconcile has replaced the
                 # interrupt artifacts with the real tool_result entry; the
@@ -1661,11 +1641,10 @@ class DurableAgentWorkflow:
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )
-                if configurable_timeout:
-                    executor_input = _apply_configured_timeout(
-                        executor_input,
-                        args.agent_args.timeout_seconds,
-                    )
+                executor_input = _apply_configured_timeout(
+                    executor_input,
+                    args.agent_args.timeout_seconds,
+                )
                 self._turn += 1
                 continue
 
@@ -1864,11 +1843,9 @@ class DurableAgentWorkflow:
         approved_tools: list[ApprovedToolCall],
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
-        mcp_auth_token: str,
         mcp_build_result: BuildToolDefsResult,
         internal_tool_context: InternalToolContext | None,
         token_ttl_seconds: int | None,
-        refresh_mcp_token_per_tool: bool,
         active_stream_id: uuid.UUID | None,
     ) -> tuple[list, list[str]]:
         """Returns the reconciled results and the tool call ids the user's
@@ -1898,15 +1875,13 @@ class DurableAgentWorkflow:
             remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
             try:
                 if remote_mcp_tool_name is not None:
-                    approved_tool_mcp_token = mcp_auth_token
-                    if refresh_mcp_token_per_tool:
-                        # Approved tools run sequentially and can each consume the
-                        # full executor timeout, so no call reuses an aging token.
-                        approved_tool_mcp_token = self._mint_scope_mcp_token(
-                            build_result=mcp_build_result,
-                            internal_tool_context=internal_tool_context,
-                            ttl_seconds=token_ttl_seconds,
-                        )
+                    # Approved tools run sequentially and can each consume the
+                    # full executor timeout, so no call reuses an aging token.
+                    approved_tool_mcp_token = self._mint_scope_mcp_token(
+                        build_result=mcp_build_result,
+                        internal_tool_context=internal_tool_context,
+                        ttl_seconds=token_ttl_seconds,
+                    )
                     raw_result = await self._race_tool_activity_against_cancel(
                         _start_remote_mcp_tool_call(
                             tool_call,
