@@ -17,7 +17,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import (
@@ -61,7 +60,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
-from tracecat.agent.types import AgentConfig, Tool
+from tracecat.agent.types import AgentConfig, Tool, resolve_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
@@ -1232,15 +1231,15 @@ class TestRunAgentActivity:
         )
 
     @pytest.mark.anyio
-    async def test_inherited_deployment_timeout(
+    async def test_inherited_deployment_timeout_clamped_to_cap(
         self,
         mock_executor_input: AgentExecutorInput,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """An absent explicit timeout preserves the unrestricted deployment value."""
+        """An absent explicit timeout inherits the deployment default, capped."""
         expected_result = AgentExecutorResult(success=True)
         monkeypatch.setattr(
-            "tracecat.agent.executor.activity.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+            "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
             7200,
         )
 
@@ -1260,17 +1259,18 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=7200,
+                timeout_seconds=3600,
             )
 
-    def test_rejects_timeout_above_configurable_maximum(
+    def test_timeout_above_deployment_cap_is_clamped_not_rejected(
         self, mock_executor_input: AgentExecutorInput
     ) -> None:
         payload = mock_executor_input.model_dump()
         payload["timeout_seconds"] = 3601
 
-        with pytest.raises(ValidationError):
-            AgentExecutorInput.model_validate(payload)
+        parsed = AgentExecutorInput.model_validate(payload)
+        assert parsed.timeout_seconds == 3601
+        assert resolve_agent_timeout_seconds(parsed.timeout_seconds) == 3600
 
     @pytest.mark.anyio
     async def test_emit_session_done_pushes_done_to_active_stream(

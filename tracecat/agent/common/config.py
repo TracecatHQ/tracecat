@@ -17,6 +17,9 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 )
 """Default timeout for agent sandbox execution in seconds (30 minutes)."""
 
+TRACECAT__AGENT_TIMEOUT_MAX = int(os.environ.get("TRACECAT__AGENT_TIMEOUT_MAX") or 3600)
+"""Deployment cap for agent execution timeouts in seconds (one hour)."""
+
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )

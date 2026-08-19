@@ -120,7 +120,7 @@ export type ActionRetryPolicy = {
    */
   max_attempts?: number
   /**
-   * Timeout for the action in seconds. Agent-backed AI actions default to 1800s instead (see ActionStatement).
+   * Timeout for the action in seconds. Agent-backed AI actions clamp to the deployment's agent timeout bounds (see ActionStatement).
    */
   timeout?: number
   /**

@@ -461,7 +461,7 @@ export const $ActionRetryPolicy = {
       type: "integer",
       title: "Timeout",
       description:
-        "Timeout for the action in seconds. Agent-backed AI actions default to 1800s instead (see ActionStatement).",
+        "Timeout for the action in seconds. Agent-backed AI actions clamp to the deployment's agent timeout bounds (see ActionStatement).",
       default: 300,
     },
     retry_until: {

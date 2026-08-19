@@ -6,6 +6,7 @@ from typing import Literal, cast
 
 from tracecat.agent.constants import (
     AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
     AGENT_TIMEOUT_SECONDS_MAX,
 )
 from tracecat.auth.enums import AuthType
@@ -729,20 +730,28 @@ If not set, will be auto-detected from a known dependency's location.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 1800
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or AGENT_TIMEOUT_SECONDS_DEFAULT
 )
-"""Default timeout for agent sandbox execution in seconds (30 minutes)."""
+"""Default timeout for agent sandbox execution in seconds (30 minutes).
+
+Also the floor for per-action agent timeouts: values below it are raised to it.
+"""
+
+TRACECAT__AGENT_TIMEOUT_MAX = int(
+    os.environ.get("TRACECAT__AGENT_TIMEOUT_MAX") or AGENT_TIMEOUT_SECONDS_MAX
+)
+"""Deployment cap for agent execution timeouts in seconds (one hour)."""
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
     or (
-        max(AGENT_TIMEOUT_SECONDS_MAX, TRACECAT__AGENT_SANDBOX_TIMEOUT)
+        max(TRACECAT__AGENT_TIMEOUT_MAX, TRACECAT__AGENT_SANDBOX_TIMEOUT)
         + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     )
 )
 """Agent executor worker drain timeout in seconds.
 
-Defaults to the larger of the configurable ceiling and the unrestricted legacy
+Defaults to the larger of the deployment cap and the unrestricted legacy
 deployment timeout, plus the cleanup buffer.
 """
 

@@ -33,14 +33,13 @@ from tracecat.agent.common.config import (
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    TRACECAT__AGENT_TIMEOUT_MAX,
     TRUSTED_MCP_SOCKET_PATH,
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
-    AGENT_TIMEOUT_SECONDS_MAX,
-)
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_HOME_DIR,
     JAILED_AGENT_JOB_DIR,
@@ -51,6 +50,14 @@ from tracecat.agent.runtime.session_paths import (
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _sandbox_kill_ceiling_seconds() -> int:
+    """Kernel kill ceiling: above any per-run timeout, plus the cleanup buffer."""
+    return (
+        max(TRACECAT__AGENT_TIMEOUT_MAX, TRACECAT__AGENT_SANDBOX_TIMEOUT)
+        + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    )
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -86,10 +93,11 @@ class AgentResourceLimits:
     Defaults are read from environment variables:
     - TRACECAT__AGENT_SANDBOX_MEMORY_MB: memory_mb (default 4096 = 4 GiB)
 
-    Default cpu_seconds/timeout_seconds are a static kill ceiling, not the
-    per-run timeout: that is enforced upstream by the executor activity, which
-    cancels the turn gracefully. The kernel limit only reaps orphaned
-    sandboxes, so it sits above the maximum configurable timeout.
+    Default cpu_seconds/timeout_seconds are a kill ceiling, not the per-run
+    timeout: that is enforced upstream by the executor activity, which cancels
+    the turn gracefully. The kernel limit only reaps orphaned sandboxes, so it
+    sits above the deployment cap (and the legacy raw sandbox timeout, which
+    unpatched replays still use unclamped).
 
     Attributes:
         memory_mb: Maximum memory in megabytes.
@@ -101,12 +109,12 @@ class AgentResourceLimits:
     """
 
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
-    cpu_seconds: int = AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    cpu_seconds: int = field(default_factory=lambda: _sandbox_kill_ceiling_seconds())
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
-    timeout_seconds: int = (
-        AGENT_TIMEOUT_SECONDS_MAX + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    timeout_seconds: int = field(
+        default_factory=lambda: _sandbox_kill_ceiling_seconds()
     )
 
 
