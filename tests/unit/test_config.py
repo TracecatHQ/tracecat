@@ -337,17 +337,22 @@ def test_action_gateway_socket_uses_default_for_empty_string(
 
 
 @pytest.mark.parametrize(
-    ("sandbox_timeout", "expected_drain_timeout"),
-    [(900, 3660), (7200, 7260)],
+    ("sandbox_timeout", "timeout_max", "expected_drain_timeout"),
+    [(900, None, 3660), (7200, None, 7260), (900, 7200, 7260)],
 )
 def test_agent_executor_drain_default_covers_all_supported_timeouts(
     monkeypatch: pytest.MonkeyPatch,
     sandbox_timeout: int,
+    timeout_max: int | None,
     expected_drain_timeout: int,
 ) -> None:
     try:
         with monkeypatch.context() as env:
             env.setenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", str(sandbox_timeout))
+            if timeout_max is None:
+                env.delenv("TRACECAT__AGENT_TIMEOUT_MAX", raising=False)
+            else:
+                env.setenv("TRACECAT__AGENT_TIMEOUT_MAX", str(timeout_max))
             env.delenv(
                 "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
                 raising=False,

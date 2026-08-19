@@ -37,7 +37,7 @@ from tracecat.dsl.common import (
     DSLInput,
     build_action_statements_from_actions,
 )
-from tracecat.dsl.schemas import STRICT_TIMEOUTS_CONTEXT, DSLConfig
+from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.mcp.json_patch import validate_patch_paths
@@ -561,9 +561,7 @@ def validate_workflow_patch_payload(payload: dict[str, Any]) -> WorkflowEditDocu
                 f"Patch path '{_encode_patch_path(missing_path)}' cannot be removed via edit_workflow"
             )
     try:
-        return WorkflowEditDocument.model_validate(
-            payload, context=dict(STRICT_TIMEOUTS_CONTEXT)
-        )
+        return WorkflowEditDocument.model_validate(payload)
     except ValidationError as exc:
         details = ValidationDetail.list_from_pydantic(exc)
         message = (

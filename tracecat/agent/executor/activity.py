@@ -42,10 +42,6 @@ from tracecat.agent.common.types import (
     is_stdio_mcp_server,
     requires_sandbox_internet_access,
 )
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_MAX,
-    AGENT_TIMEOUT_SECONDS_MIN,
-)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -173,12 +169,9 @@ class AgentExecutorInput(BaseModel):
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
     agent_otel_auth_token: str | None = None
-    # Maximum continuous execution time; None inherits the deployment default.
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=AGENT_TIMEOUT_SECONDS_MIN,
-        le=AGENT_TIMEOUT_SECONDS_MAX,
-    )
+    # Maximum continuous execution time, clamped to the deployment bounds at
+    # resolution; None inherits the deployment default.
+    timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Fully resolved subagent definitions, each with scoped tools/tokens/routes.

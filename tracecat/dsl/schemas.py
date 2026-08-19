@@ -9,17 +9,12 @@ from typing import Any, ClassVar, Literal, NotRequired, Self, TypedDict
 from pydantic import (
     BaseModel,
     Field,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
 from pydantic_core import CoreSchema, core_schema
 
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_DEFAULT,
-    AGENT_TIMEOUT_SECONDS_MAX,
-    AGENT_TIMEOUT_SECONDS_MIN,
-)
+from tracecat.agent.types import resolve_agent_timeout_seconds
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import (
     JoinStrategy,
@@ -37,13 +32,6 @@ from tracecat.storage.object import InlineObject, StoredObject
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
-
-STRICT_TIMEOUTS_CONTEXT_KEY = "strict_timeouts"
-"""Validation-context key that makes out-of-bounds agent timeouts an error.
-Set it only when parsing fresh external input, never on stored or replayed data."""
-
-STRICT_TIMEOUTS_CONTEXT: Mapping[str, Any] = {STRICT_TIMEOUTS_CONTEXT_KEY: True}
-"""Validation context for external write boundaries."""
 
 TriggerInputs = Any
 """Trigger inputs JSON type."""
@@ -309,7 +297,7 @@ class ActionRetryPolicy(BaseModel):
         default=DEFAULT_ACTION_TIMEOUT,
         description=(
             "Timeout for the action in seconds. Agent-backed AI actions "
-            "default to 1800s instead (see ActionStatement)."
+            "clamp to the deployment's agent timeout bounds (see ActionStatement)."
         ),
     )
     retry_until: RequiredExpressionStr | None = Field(
@@ -405,26 +393,14 @@ class ActionStatement(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def apply_agent_timeout_policy(self, info: ValidationInfo) -> Self:
-        # Agent execution windows get 30 minutes unless the action sets one.
-        # External writes pass strict_timeouts and reject out-of-bounds values;
-        # stored rows and Temporal replay predate the bounds, so they normalize.
+    def apply_agent_timeout_policy(self) -> Self:
+        # Agent timeouts clamp to [deployment default, deployment cap];
+        # unset inherits the deployment default. Never rejects.
         if not PlatformAction.is_agent(self.action):
             return self
-        if "timeout" not in self.retry_policy.model_fields_set:
-            self.retry_policy.timeout = AGENT_TIMEOUT_SECONDS_DEFAULT
-            return self
-        timeout = self.retry_policy.timeout
-        if AGENT_TIMEOUT_SECONDS_MIN <= timeout <= AGENT_TIMEOUT_SECONDS_MAX:
-            return self
-        if (info.context or {}).get(STRICT_TIMEOUTS_CONTEXT_KEY):
-            raise ValueError(
-                "Agent action timeout must be between "
-                f"{AGENT_TIMEOUT_SECONDS_MIN} and {AGENT_TIMEOUT_SECONDS_MAX} "
-                f"seconds, got {timeout}."
-            )
-        self.retry_policy.timeout = min(
-            max(timeout, AGENT_TIMEOUT_SECONDS_MIN), AGENT_TIMEOUT_SECONDS_MAX
+        explicit = "timeout" in self.retry_policy.model_fields_set
+        self.retry_policy.timeout = resolve_agent_timeout_seconds(
+            self.retry_policy.timeout if explicit else None
         )
         return self
 

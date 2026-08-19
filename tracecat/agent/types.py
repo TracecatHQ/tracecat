@@ -17,15 +17,12 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_MAX,
-    AGENT_TIMEOUT_SECONDS_MIN,
-)
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.config import (
     TRACECAT__AGENT_MAX_RETRIES,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    TRACECAT__AGENT_TIMEOUT_MAX,
 )
 
 if TYPE_CHECKING:
@@ -42,17 +39,16 @@ else:
 
 
 def resolve_agent_timeout_seconds(timeout_seconds: int | None) -> int:
-    """Resolve an inherited agent timeout against the deployment default.
+    """Clamp an agent timeout to the deployment bounds.
 
-    The deployment default is clamped to the same bounds enforced on explicit
-    timeouts, so no path can exceed AGENT_TIMEOUT_SECONDS_MAX.
+    The floor is the deployment default, the ceiling the deployment cap;
+    ``None`` inherits the floor. Never rejects: out-of-bounds values clamp.
     """
-    if timeout_seconds is not None:
-        return timeout_seconds
-    return min(
-        max(TRACECAT__AGENT_SANDBOX_TIMEOUT, AGENT_TIMEOUT_SECONDS_MIN),
-        AGENT_TIMEOUT_SECONDS_MAX,
-    )
+    cap = TRACECAT__AGENT_TIMEOUT_MAX
+    floor = min(TRACECAT__AGENT_SANDBOX_TIMEOUT, cap)
+    if timeout_seconds is None:
+        return floor
+    return min(max(timeout_seconds, floor), cap)
 
 
 class StreamKey(str):

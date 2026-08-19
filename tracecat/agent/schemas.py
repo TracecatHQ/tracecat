@@ -16,10 +16,6 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_MAX,
-    AGENT_TIMEOUT_SECONDS_MIN,
-)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -76,12 +72,9 @@ class RunAgentArgs(BaseModel):
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
     """Maximum number of tool calls for the agent."""
-    timeout_seconds: int | None = Field(
-        default=None,
-        ge=AGENT_TIMEOUT_SECONDS_MIN,
-        le=AGENT_TIMEOUT_SECONDS_MAX,
-    )
-    """Maximum active runtime for this run; None inherits the deployment default."""
+    timeout_seconds: int | None = None
+    """Maximum active runtime for this run, clamped to the deployment bounds;
+    None inherits the deployment default."""
     deferred_tool_results: DeferredToolResults | None = None
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False

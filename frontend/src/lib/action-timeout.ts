@@ -1,8 +1,10 @@
 /**
  * Action timeout policy. Mirrors `tracecat/agent/constants.py` and
  * `tracecat/dsl/constants.py` — keep the values in sync.
+ *
+ * Agent bounds are the standard-deployment values; deployments can override
+ * them, and the server clamps out-of-range values rather than rejecting them.
  */
-export const AGENT_TIMEOUT_SECONDS_MIN = 5
 export const AGENT_TIMEOUT_SECONDS_MAX = 3600
 export const AGENT_TIMEOUT_SECONDS_DEFAULT = 1800
 export const DEFAULT_ACTION_TIMEOUT_SECONDS = 300
