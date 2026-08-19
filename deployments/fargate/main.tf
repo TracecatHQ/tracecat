@@ -154,6 +154,7 @@ module "ecs" {
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
+  agent_sandbox_timeout                    = var.agent_sandbox_timeout
   executor_queue                           = var.executor_queue
   executor_max_concurrent_activities       = var.executor_max_concurrent_activities
   executor_threadpool_max_workers          = var.executor_threadpool_max_workers

@@ -1,16 +1,14 @@
 """Generic action-timeout wiring for agent-backed actions.
 
-Agent timeouts clamp to [deployment default, deployment cap] at parse time.
+Agent timeouts clamp to [default, deployment ceiling] at parse time.
 No boundary rejects: out-of-bounds values normalize wherever they are seen.
 """
 
 import pytest
 
 from tracecat.agent import types as agent_types
-from tracecat.agent.constants import (
-    AGENT_TIMEOUT_SECONDS_DEFAULT,
-    AGENT_TIMEOUT_SECONDS_MAX,
-)
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
@@ -48,7 +46,7 @@ def test_regular_action_keeps_default_timeout() -> None:
     assert _task("core.http_request").retry_policy.timeout == DEFAULT_ACTION_TIMEOUT
 
 
-def test_agent_actions_default_to_deployment_default() -> None:
+def test_agent_actions_default_to_thirty_minutes() -> None:
     for action in ("ai.agent", "ai.action", "ai.preset_agent"):
         assert _task(action).retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
 
@@ -76,25 +74,25 @@ def test_agent_action_parsed_without_timeout_gets_default() -> None:
     [
         (1, AGENT_TIMEOUT_SECONDS_DEFAULT),
         (900, AGENT_TIMEOUT_SECONDS_DEFAULT),
-        (100_000, AGENT_TIMEOUT_SECONDS_MAX),
+        (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT),
     ],
 )
-def test_agent_timeout_clamps_to_deployment_bounds(timeout: int, expected: int) -> None:
+def test_agent_timeout_clamps_to_bounds(timeout: int, expected: int) -> None:
     """Out-of-bounds values normalize at parse time so the statement value is
-    exactly what executes. There is no minimum below the deployment default."""
+    exactly what executes. There is no minimum below the default."""
     stmt = ActionStatement.model_validate(_agent_action(timeout))
     assert stmt.retry_policy.timeout == expected
 
 
-def test_agent_timeout_floor_follows_deployment_default(
+def test_agent_timeout_lowered_ceiling_clamps_everything(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 900)
 
     low = ActionStatement.model_validate(_agent_action(60))
-    in_range = ActionStatement.model_validate(_agent_action(1200))
+    above = ActionStatement.model_validate(_agent_action(2000))
     assert low.retry_policy.timeout == 900
-    assert in_range.retry_policy.timeout == 1200
+    assert above.retry_policy.timeout == 900
 
 
 def test_non_agent_actions_are_never_clamped() -> None:
@@ -111,7 +109,7 @@ def test_non_agent_actions_are_never_clamped() -> None:
 
 @pytest.mark.parametrize(
     ("timeout", "expected"),
-    [(1, AGENT_TIMEOUT_SECONDS_DEFAULT), (100_000, AGENT_TIMEOUT_SECONDS_MAX)],
+    [(1, AGENT_TIMEOUT_SECONDS_DEFAULT), (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
 )
 def test_external_workflow_definition_upload_normalizes(
     timeout: int, expected: int
@@ -130,7 +128,7 @@ def test_mcp_workflow_yaml_payload_normalizes() -> None:
     parsed = WorkflowYamlPayload.model_validate(payload)
     assert parsed.definition is not None
     assert parsed.definition.actions[0].retry_policy.timeout == (
-        AGENT_TIMEOUT_SECONDS_MAX
+        TRACECAT__AGENT_SANDBOX_TIMEOUT
     )
 
 
@@ -150,7 +148,7 @@ def test_workflow_edit_document_patch_normalizes() -> None:
         WorkflowEditDocument.model_validate(payload)
         .definition.actions[0]
         .retry_policy.timeout
-        == AGENT_TIMEOUT_SECONDS_MAX
+        == TRACECAT__AGENT_SANDBOX_TIMEOUT
     )
 
 
@@ -172,5 +170,5 @@ def test_git_sync_parse_normalizes_out_of_bounds() -> None:
     assert diagnostic is None
     assert spec is not None
     assert spec.definition.actions[0].retry_policy.timeout == (
-        AGENT_TIMEOUT_SECONDS_MAX
+        TRACECAT__AGENT_SANDBOX_TIMEOUT
     )

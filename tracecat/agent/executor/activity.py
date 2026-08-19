@@ -127,8 +127,8 @@ class AgentExecutorInput(BaseModel):
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
-    # Maximum continuous execution time, clamped to the deployment bounds at
-    # resolution; None inherits the deployment default.
+    # Maximum continuous execution time, clamped to the deployment ceiling
+    # at resolution; None inherits the default.
     timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None

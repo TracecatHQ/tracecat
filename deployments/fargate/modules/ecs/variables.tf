@@ -616,6 +616,12 @@ variable "executor_client_timeout" {
   default = "900"
 }
 
+variable "agent_sandbox_timeout" {
+  type        = string
+  description = "Ceiling for agent execution timeouts in seconds"
+  default     = "3600"
+}
+
 variable "executor_queue" {
   type        = string
   description = "Task queue for executor workers"

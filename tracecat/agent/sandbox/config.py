@@ -34,7 +34,6 @@ from tracecat.agent.common.config import (
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
-    TRACECAT__AGENT_TIMEOUT_MAX,
     TRUSTED_MCP_SOCKET_PATH,
     build_agent_runtime_uv_env,
 )
@@ -54,10 +53,7 @@ _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 def _sandbox_kill_ceiling_seconds() -> int:
     """Kernel kill ceiling: above any per-run timeout, plus the cleanup buffer."""
-    return (
-        max(TRACECAT__AGENT_TIMEOUT_MAX, TRACECAT__AGENT_SANDBOX_TIMEOUT)
-        + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
-    )
+    return TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -96,8 +92,7 @@ class AgentResourceLimits:
     Default cpu_seconds/timeout_seconds are a kill ceiling, not the per-run
     timeout: that is enforced upstream by the executor activity, which cancels
     the turn gracefully. The kernel limit only reaps orphaned sandboxes, so it
-    sits above the deployment cap (and the legacy raw sandbox timeout, which
-    unpatched replays still use unclamped).
+    sits above the deployment ceiling.
 
     Attributes:
         memory_mb: Maximum memory in megabytes.

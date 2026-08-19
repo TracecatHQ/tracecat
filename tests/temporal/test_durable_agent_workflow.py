@@ -61,7 +61,6 @@ from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_MAX
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -104,6 +103,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ChatMessage
+from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
@@ -825,7 +825,7 @@ async def test_agent_workflow_simple_execution(
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("configured_timeout_seconds", "expected_timeout_seconds"),
-    [(None, None), (AGENT_TIMEOUT_SECONDS_MAX, AGENT_TIMEOUT_SECONDS_MAX)],
+    [(None, None), (TRACECAT__AGENT_SANDBOX_TIMEOUT, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
 )
 async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
     svc_role: Role,
