@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook, waitFor } from "@testing-library/react"
 import type {
   AgentSessionRead,
@@ -7,6 +6,7 @@ import type {
 } from "@/client"
 import { agentSessionsUpdateSession } from "@/client"
 import { useUpdateChat } from "@/hooks/use-chat"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")

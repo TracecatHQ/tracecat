@@ -1,4 +1,3 @@
-import { QueryClient } from "@tanstack/react-query"
 import { act, renderHook } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts/artifact-registry"
@@ -6,6 +5,7 @@ import {
   reduceWorkspaceChatArtifacts,
   useWorkspaceChatArtifacts,
 } from "@/hooks/use-workspace-chat-artifacts"
+import { QueryClient } from "@/lib/query"
 import { CHAT_SURFACE_CAPABILITIES } from "@/types/chat-surface"
 import {
   ARTIFACT_DATA_PART_TYPE,

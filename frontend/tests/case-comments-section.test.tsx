@@ -2,7 +2,6 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   fireEvent,
   render,
@@ -33,6 +32,7 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { getTextareaCaretCoordinates } from "@/lib/textarea-caret"
 
 const mockOpenChatSession = jest.fn()

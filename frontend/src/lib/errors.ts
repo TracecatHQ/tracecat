@@ -1,4 +1,12 @@
 import type { ApiError } from "@/client"
+import { toast } from "@/components/ui/use-toast"
+
+type ErrorHandler<TError, TArguments extends unknown[]> = (
+  error: TError,
+  ...args: TArguments
+) => unknown
+
+type GlobalErrorHandler = (error: unknown) => boolean
 
 export interface TracecatApiError<T = unknown> extends ApiError {
   readonly body: {
@@ -64,6 +72,69 @@ export function getApiErrorDetail(error: unknown): string | null {
     return message
   }
   return error.message
+}
+
+function getErrorStatus(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return null
+  }
+  return typeof error.status === "number" ? error.status : null
+}
+
+const GLOBAL_ERROR_HANDLERS: GlobalErrorHandler[] = [
+  (error) => {
+    if (getErrorStatus(error) !== 403) {
+      return false
+    }
+    toast({
+      title: "Permission denied",
+      description: getApiErrorDetail(error) ?? undefined,
+      variant: "destructive",
+    })
+    return true
+  },
+]
+
+/**
+ * Run application-wide error handlers in priority order.
+ *
+ * @returns Whether a handler displayed user-facing feedback for the error.
+ */
+export function handleGlobalError(error: unknown): boolean {
+  return GLOBAL_ERROR_HANDLERS.some((handler) => handler(error))
+}
+
+/** Display a safe destructive toast when no more specific handler exists. */
+export function showFallbackErrorToast(
+  error: unknown,
+  description?: string
+): void {
+  toast({
+    description: description ?? getApiErrorDetail(error) ?? "Please try again.",
+    variant: "destructive",
+  })
+}
+
+/**
+ * Compose the mutation error pipeline used by the React Query facade.
+ *
+ * Global handlers run first, followed by the hook-local handler when present.
+ * Mutations without a local handler always receive the shared fallback toast.
+ * The variadic argument tuple preserves React Query's complete callback
+ * signature without coupling this module to a particular library version.
+ */
+export function chainError<TError, TArguments extends unknown[]>(
+  local?: ErrorHandler<TError, TArguments>
+): ErrorHandler<TError, TArguments> {
+  return (error, ...args) => {
+    if (handleGlobalError(error)) {
+      return
+    }
+    if (local) {
+      return local(error, ...args)
+    }
+    showFallbackErrorToast(error)
+  }
 }
 
 /**

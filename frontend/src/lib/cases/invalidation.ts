@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query"
+import type { QueryClient } from "@/lib/query"
 
 /** Invalidate field metadata and case data after a field definition changes. */
 export async function invalidateCaseFieldQueries(

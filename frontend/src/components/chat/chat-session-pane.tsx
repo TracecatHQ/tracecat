@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import {
   type ChatOnDataCallback,
   type ChatStatus,
@@ -126,6 +125,7 @@ import {
   transformMessages,
 } from "@/lib/chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"

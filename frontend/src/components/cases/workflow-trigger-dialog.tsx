@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { ArrowUpRight, PlayIcon } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useMemo } from "react"
@@ -26,6 +25,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkflowTriggerInputs } from "@/hooks/use-workflow-trigger-inputs"
 import { useCreateManualWorkflowExecution } from "@/lib/hooks"
+import { useQuery } from "@/lib/query"
 import type { TracecatJsonSchema } from "@/lib/schema"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

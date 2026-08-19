@@ -1,11 +1,5 @@
 "use client"
 
-import {
-  type MutateFunction,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
 import type React from "react"
 import {
   createContext,
@@ -30,6 +24,12 @@ import {
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
+import {
+  type MutateFunction,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 type WorkflowContextType = {
   workflow: WorkflowRead | null

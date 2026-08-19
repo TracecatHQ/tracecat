@@ -1,8 +1,8 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { caseAttachmentsDownloadAttachment } from "@/client"
+import { useQuery } from "@/lib/query"
 
 /**
  * Resolve a case attachment image to a short-lived object URL.

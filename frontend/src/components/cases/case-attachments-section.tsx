@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Copy,
   Download,
@@ -64,6 +63,7 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { useAttachmentObjectUrl } from "@/lib/cases/use-attachment-object-url"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import {
   cn,
   copyToClipboard,

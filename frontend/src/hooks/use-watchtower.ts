@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type WatchtowerAgentRead,
   type WatchtowerAgentToolCallRead,
@@ -11,6 +10,7 @@ import {
   watchtowerListWatchtowerSessionToolCalls,
   watchtowerRevokeWatchtowerSession,
 } from "@/client"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 const WATCHTOWER_REFRESH_MS = 5000
 

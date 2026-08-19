@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, ShieldCheck } from "lucide-react"
 import {
   type CaseDropdownDefinitionRead,
@@ -25,6 +24,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions, useCaseFields } from "@/lib/hooks"
+import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Row shape for the unified closure requirements table. */

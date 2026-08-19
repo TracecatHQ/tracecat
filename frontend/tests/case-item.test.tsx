@@ -2,10 +2,10 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { CaseItem } from "@/components/cases/case-item"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",

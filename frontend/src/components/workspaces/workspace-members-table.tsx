@@ -1,7 +1,6 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -50,6 +49,7 @@ import {
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 
 export function WorkspaceMembersTable({
   workspace,

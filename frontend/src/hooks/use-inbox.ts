@@ -1,12 +1,5 @@
 "use client"
 
-import {
-  type InfiniteData,
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
@@ -25,6 +18,13 @@ import {
   type InboxSessionItem,
 } from "@/lib/agents"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import {
+  type InfiniteData,
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Columns the inbox API can sort on globally (server-side keyset order). */

@@ -1,9 +1,3 @@
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
 import { useMemo } from "react"
 import {
   type AgentFolderCreate,
@@ -41,7 +35,12 @@ import {
   type TagUpdate,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import {
+  getApiErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
 
 async function listAllAgentFolders({
   workspaceId,
@@ -566,7 +565,7 @@ export function useAgentFolders(
           console.error("Failed to create folder", error)
           return toast({
             title: "Failed to create folder",
-            description: `An error occurred while creating the folder: ${error.body.detail}`,
+            description: `An error occurred while creating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -614,7 +613,7 @@ export function useAgentFolders(
           console.error("Error updating folder", error)
           toast({
             title: "Error updating folder",
-            description: `An error occurred while updating the folder: ${error.body.detail}`,
+            description: `An error occurred while updating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -653,7 +652,7 @@ export function useAgentFolders(
       console.error("Error moving folder", error)
       toast({
         title: "Error moving folder",
-        description: `An error occurred while moving the folder: ${error.body.detail}`,
+        description: `An error occurred while moving the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -691,7 +690,7 @@ export function useAgentFolders(
         case 400:
           toast({
             title: "Cannot delete folder",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -704,7 +703,7 @@ export function useAgentFolders(
           console.error("Error deleting folder", error)
           toast({
             title: "Failed to delete folder",
-            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+            description: `An error occurred while deleting the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -816,7 +815,7 @@ export function useAgentTagCatalog(
         case 409:
           toast({
             title: "Error creating agent tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -829,7 +828,7 @@ export function useAgentTagCatalog(
           console.error("Failed to create agent tag", error)
           toast({
             title: "Failed to create agent tag",
-            description: `An error occurred while creating the agent tag: ${error.body.detail}`,
+            description: `An error occurred while creating the agent tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -865,7 +864,7 @@ export function useAgentTagCatalog(
         case 409:
           toast({
             title: "Error updating agent tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:

@@ -1,7 +1,7 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { inboxGetPendingCount } from "@/client"
+import { useQuery } from "@/lib/query"
 
 export function usePendingApprovalsCount(
   workspaceId: string,

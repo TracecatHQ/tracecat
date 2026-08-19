@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, Loader2, MoreVertical } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -107,6 +106,7 @@ import {
   useModelProvidersStatus,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100

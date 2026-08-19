@@ -1,17 +1,16 @@
-import {
-  type Query,
-  type QueryClient,
-  useQueries,
-  useQueryClient,
-} from "@tanstack/react-query"
 import { useEffect, useMemo } from "react"
-
 import {
   type MCPVerificationStatusRead,
   mcpIntegrationsGetMcpIntegrationVerificationStatus,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS } from "@/lib/integrations"
+import {
+  type Query,
+  type QueryClient,
+  useQueries,
+  useQueryClient,
+} from "@/lib/query"
 
 const previousVerificationStatuses = new Map<
   string,

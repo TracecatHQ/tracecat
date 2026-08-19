@@ -1,4 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
   type CatalogMappingSelection,
@@ -18,6 +17,7 @@ import {
   workflowsPreviewExportWorkspaceSync,
   workflowsPullWorkflows,
 } from "@/client"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 interface WorkflowPullOptions {
   commit_sha: string

@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
@@ -87,6 +86,7 @@ import { TableImportTableDialog } from "@/components/tables/table-import-table-d
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { useQueryClient } from "@/lib/query"
 
 const SimpleEditor = dynamic(
   () =>
