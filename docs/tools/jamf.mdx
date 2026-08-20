@@ -480,6 +480,30 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="page" type="integer | null">
+
+Zero-indexed page number. Loop over this to walk every page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_size" type="integer | null">
+
+Results per page. Defaults to 100 when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="array[string] | null">
+
+Sort expressions in property:asc or property:desc format. Defaults to id:desc.
+
+Default: `null`.
+
+</ParamField>
+
 ## List MDM commands
 
 Action ID: `tools.jamf.list_mdm_commands`

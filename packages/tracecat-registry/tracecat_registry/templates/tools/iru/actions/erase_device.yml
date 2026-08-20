@@ -29,6 +29,18 @@ definition:
       type: bool | None
       description: Whether to disallow proximity setup after erase.
       default: null
+    return_to_service:
+      type: dict[str, Any] | None
+      description: Return to Service settings for iOS 17 and later, so the device re-enrolls after erase.
+      default: null
+    erase_mode:
+      type: str | None
+      description: Erase mode. Windows only.
+      default: null
+    erase_flags:
+      type: str | None
+      description: Erase flags. Android only.
+      default: null
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -38,6 +50,9 @@ definition:
             PIN: ${{ inputs.pin }}
             PreserveDataPlan: ${{ inputs.preserve_data_plan }}
             DisallowProximitySetup: ${{ inputs.disallow_proximity_setup }}
+            ReturnToService: ${{ inputs.return_to_service }}
+            erase_mode: ${{ inputs.erase_mode }}
+            erase_flags: ${{ inputs.erase_flags }}
         script: |
           def main(params):
               return {k: v for k, v in params.items() if v is not None}

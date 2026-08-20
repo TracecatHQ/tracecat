@@ -68,10 +68,21 @@ do not break their public inputs or outputs without an explicitly planned migrat
 - Return the untouched full `core.http_request` result, including `status_code`,
   `headers`, and `data`. Do not select, rename, filter, or reshape provider output.
   SDK wrappers may only adapt values enough to make the native result serializable.
-- Pagination is the only general output-shaping exception. Follow the Slack and
-  boto3 wrapper patterns: preserve provider order, document whether the result is a
-  page list or flattened item list, and enforce the documented bound without
-  otherwise transforming items.
+- Do not paginate inside an HTTP template. One action is one request. Expose the
+  provider's own paging inputs — `page`, `page-size`, `limit`, `offset`, `cursor`,
+  or whatever it calls them — return the single page the provider returned, and
+  leave the loop to the workflow author, who drives it with a `while`/`until`
+  loop over the cursor or offset. Do not call `core.http_paginate` from a
+  template, and do not hide a fetch-all behind a `max_pages` argument.
+  Auto-pagination hides cost and rate-limit pressure from the person running the
+  workflow, and it hard-codes a stop condition that belongs to them.
+- State the provider's documented maximum in the `description` of the relevant
+  input when one exists, since callers cannot discover it from the schema and
+  exceeding it is usually an error rather than a clamp.
+- The SDK wrappers are the exception, not the precedent. Where a maintained SDK
+  paginates natively — the Slack and boto3 wrappers — preserve provider order,
+  document whether the result is a page list or a flattened item list, and
+  enforce the documented bound without otherwise transforming items.
 - For polling, stop when the documented transient HTTP code or body state is no
   longer present. Do not test exact success equality or membership in a set of
   success values. Return the raw terminal response, including provider-declared

@@ -39,7 +39,11 @@ definition:
       default: null
     offset:
       type: int | None
-      description: Number of results to skip.
+      description: Number of results to skip. Cannot be combined with cursor.
+      default: null
+    cursor:
+      type: str | None
+      description: Pagination cursor. Iru recommends cursor paging for Prism; pass an empty string to get the first cursor, then loop on the cursor returned by each page.
       default: null
   steps:
     - ref: build_params
@@ -53,6 +57,7 @@ definition:
             sort_by: ${{ inputs.sort_by }}
             limit: ${{ inputs.limit }}
             offset: ${{ inputs.offset }}
+            cursor: ${{ inputs.cursor }}
         script: |
           import json
 

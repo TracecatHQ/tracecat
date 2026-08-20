@@ -108,6 +108,22 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="erase_flags" type="string | null">
+
+Erase flags. Android only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="erase_mode" type="string | null">
+
+Erase mode. Windows only.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="pin" type="string | null">
 
 Six-character macOS erase PIN; ignored for iOS, iPadOS, and tvOS.
@@ -119,6 +135,14 @@ Default: `null`.
 <ParamField path="preserve_data_plan" type="boolean | null">
 
 Whether to preserve the cellular data plan during erase.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="return_to_service" type="object | null">
+
+Return to Service settings for iOS 17 and later, so the device re-enrolls after erase.
 
 Default: `null`.
 
@@ -838,9 +862,25 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="tag_id_in" type="string | null">
+
+Tag IDs to filter by, separated by commas. Case sensitive.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="tag_name" type="string | null">
 
 Tag name to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tag_name_in" type="string | null">
+
+Tag names to filter by, separated by commas. Case sensitive.
 
 Default: `null`.
 
@@ -857,6 +897,14 @@ Default: `null`.
 <ParamField path="user_email" type="string | null">
 
 Assigned user email to filter by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_email_exact" type="string | null">
+
+Exact match on the assigned user's email address.
 
 Default: `null`.
 
@@ -1088,6 +1136,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="cursor" type="string | null">
+
+Pagination cursor. Iru recommends cursor paging for Prism; pass an empty string to get the first cursor, then loop on the cursor returned by each page.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="device_families" type="array[string] | null">
 
 Device families to filter by.
@@ -1114,7 +1170,7 @@ Default: `null`.
 
 <ParamField path="offset" type="integer | null">
 
-Number of results to skip.
+Number of results to skip. Cannot be combined with cursor.
 
 Default: `null`.
 
@@ -1205,6 +1261,14 @@ Default: `null`.
 <ParamField path="blueprint_id" type="string | null">
 
 Blueprint UUID to assign to the device.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload" type="object | null">
+
+Extra body fields, merged over the named inputs above. Use this to send an explicit null, which is how Iru clears a field — for example an asset_tag or user key set to null.
 
 Default: `null`.
 

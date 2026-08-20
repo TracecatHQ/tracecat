@@ -19,7 +19,37 @@ definition:
       type: str | None
       description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
       default: null
+    page:
+      type: int | None
+      description: Zero-indexed page number. Loop over this to walk every page.
+      default: null
+    page_size:
+      type: int | None
+      description: Results per page. Defaults to 100 when omitted.
+      default: null
+    sort:
+      type: list[str] | None
+      description: Sort expressions in property:asc or property:desc format. Defaults to id:desc.
+      default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            page: ${{ inputs.page }}
+            page-size: ${{ inputs.page_size }}
+            sort: ${{ inputs.sort }}
+        script: |
+          def main(params):
+              query = {}
+              for key, value in params.items():
+                  if value is None:
+                      continue
+                  if key == "sort" and isinstance(value, list):
+                      value = ",".join(str(item) for item in value)
+                  query[key] = value
+              return query
     - ref: list_computer_prestages
       action: core.http_request
       args:
@@ -27,4 +57,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_computer_prestages.result }}

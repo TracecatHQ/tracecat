@@ -33,6 +33,10 @@ definition:
       type: list[str] | None
       description: Tag names to assign to the device. Replaces the current tags; pass an empty list to clear them.
       default: null
+    payload:
+      type: dict[str, Any] | None
+      description: Extra body fields, merged over the named inputs above. Use this to send an explicit null, which is how Iru clears a field — for example an asset_tag or user key set to null.
+      default: null
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -43,9 +47,13 @@ definition:
             blueprint_id: ${{ inputs.blueprint_id }}
             asset_tag: ${{ inputs.asset_tag }}
             tags: ${{ inputs.tags }}
+          payload: ${{ inputs.payload }}
         script: |
-          def main(params):
-              return {k: v for k, v in params.items() if v is not None}
+          def main(params, payload):
+              body = {k: v for k, v in params.items() if v is not None}
+              if payload:
+                  body.update(payload)
+              return body
     - ref: update_device
       action: core.http_request
       args:

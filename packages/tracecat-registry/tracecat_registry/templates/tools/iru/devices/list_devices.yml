@@ -62,6 +62,18 @@ definition:
       type: str | None
       description: Tag UUID to filter by.
       default: null
+    tag_name_in:
+      type: str | None
+      description: Tag names to filter by, separated by commas. Case sensitive.
+      default: null
+    tag_id_in:
+      type: str | None
+      description: Tag IDs to filter by, separated by commas. Case sensitive.
+      default: null
+    user_email_exact:
+      type: str | None
+      description: Exact match on the assigned user's email address.
+      default: null
     tag_name:
       type: str | None
       description: Tag name to filter by.
@@ -109,6 +121,9 @@ definition:
             serial_number: ${{ inputs.serial_number }}
             tag_id: ${{ inputs.tag_id }}
             tag_name: ${{ inputs.tag_name }}
+            tag_name_in: ${{ inputs.tag_name_in }}
+            tag_id_in: ${{ inputs.tag_id_in }}
+            user_email_exact: ${{ inputs.user_email_exact }}
             user: ${{ inputs.user }}
             user_email: ${{ inputs.user_email }}
             user_id: ${{ inputs.user_id }}
