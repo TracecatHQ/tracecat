@@ -978,6 +978,8 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
+  jamf_pro: createCatalogIconRenderer("jamf_mcp"),
+  iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (
     <div className={className}>
       <DatadogIcon {...rest} />
