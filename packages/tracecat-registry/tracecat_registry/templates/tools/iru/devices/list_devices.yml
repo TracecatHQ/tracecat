@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List devices
-  description: Lists tenant devices as a polymorphic bare JSON array. This list-heavy endpoint shares the tenant-wide limit of 10,000 API requests per hour across all API tokens.
+  description: List devices in the tenant. Returns a bare JSON array rather than a paged envelope, and extra fields appear when Windows or Android management is enabled.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#78209960-31a7-4e3b-a2c0-95c7e65bb5f9
   namespace: tools.iru

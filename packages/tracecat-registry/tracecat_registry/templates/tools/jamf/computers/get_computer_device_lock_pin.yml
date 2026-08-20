@@ -3,7 +3,7 @@ definition:
   title: Get computer device lock PIN
   description: Get the device lock PIN for a Jamf Pro computer.
   display_group: Jamf Pro
-  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-view-device-lock-pin
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-view-device-lock-pin
   namespace: tools.jamf
   name: get_computer_device_lock_pin
   secrets:
@@ -26,7 +26,7 @@ definition:
     - ref: get_computer_device_lock_pin
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/computers-inventory/${{ FN.url_encode(inputs.computer_id) }}/view-device-lock-pin
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v4/computers-inventory/${{ FN.url_encode(inputs.computer_id) }}/view-device-lock-pin
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}

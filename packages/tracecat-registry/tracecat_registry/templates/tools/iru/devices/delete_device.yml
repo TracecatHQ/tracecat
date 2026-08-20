@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Delete device
-  description: Deletes the device record, unenrolls the device from MDM, and causes the Iru agent to uninstall itself at next check-in. This cannot be undone.
+  description: Delete a device. Removes the device record, unenrolls the device from MDM, and causes the Iru agent to uninstall itself at next check-in. This cannot be undone.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#97deb582-d86c-444a-aa3b-3528b9a8478f
   namespace: tools.iru

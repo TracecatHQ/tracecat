@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Lock device
-  description: Locks a device. For macOS, an unlock PIN is generated and returned in the response. On Apple silicon running macOS earlier than 11.5, this deactivates the Mac and reactivation requires network access and a Secure Token administrator.
+  description: Lock a device. For macOS an unlock PIN is generated and returned in the response. On Apple silicon running macOS earlier than 11.5 this deactivates the Mac, and reactivation requires network access and a Secure Token administrator.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#f2fc0e99-c758-4eb8-bb3d-0ea72d0c0213
   namespace: tools.iru

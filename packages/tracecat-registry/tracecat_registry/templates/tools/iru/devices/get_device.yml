@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get device
-  description: Gets a device record by UUID.
+  description: Get a device record by UUID.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#10a56208-b230-455a-a835-32b6cfb2803d
   namespace: tools.iru

@@ -1,9 +1,9 @@
 type: action
 definition:
   title: List computer inventory
-  description: List Jamf Pro computer inventory records.
+  description: Search Jamf Pro computer inventory. Use section to choose which detail sections are returned.
   display_group: Jamf Pro
-  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory
   namespace: tools.jamf
   name: list_computer_inventory
   secrets:
@@ -59,11 +59,18 @@ definition:
             filter: ${{ inputs.filter }}
         script: |
           def main(params):
-              return {k: v for k, v in params.items() if v is not None}
+              query = {}
+              for key, value in params.items():
+                  if value is None:
+                      continue
+                  if key == "sort" and isinstance(value, list):
+                      value = ",".join(str(item) for item in value)
+                  query[key] = value
+              return query
     - ref: list_computer_inventory
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/computers-inventory
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v4/computers-inventory
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}

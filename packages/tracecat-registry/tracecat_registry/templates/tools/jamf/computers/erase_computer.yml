@@ -3,7 +3,7 @@ definition:
   title: Erase computer
   description: Irreversibly erase a Jamf Pro computer, optionally supplying command options such as a PIN.
   display_group: Jamf Pro
-  doc_url: https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-erase
+  doc_url: https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-erase
   namespace: tools.jamf
   name: erase_computer
   secrets:
@@ -23,27 +23,17 @@ definition:
       type: str
       description: Computer ID.
     payload:
-      type: dict[str, any] | None
+      type: dict[str, Any] | None
       description: Optional erase command fields such as pin.
       default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          payload: ${{ inputs.payload }}
-        script: |
-          def main(payload):
-              if payload is None:
-                  return {}
-              return {k: v for k, v in payload.items() if v is not None}
     - ref: erase_computer
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/computer-inventory/${{ FN.url_encode(inputs.computer_id) }}/erase
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v4/computers-inventory/${{ FN.url_encode(inputs.computer_id) }}/erase
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
           Content-Type: application/json
-        payload: ${{ steps.build_payload.result }}
+        payload: ${{ inputs.payload }}
   returns: ${{ steps.erase_computer.result }}

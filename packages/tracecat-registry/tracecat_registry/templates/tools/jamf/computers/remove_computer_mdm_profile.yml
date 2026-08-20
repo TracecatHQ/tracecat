@@ -3,7 +3,7 @@ definition:
   title: Remove computer MDM profile
   description: Remove the MDM profile from a Jamf Pro computer.
   display_group: Jamf Pro
-  doc_url: https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-remove-mdm-profile
+  doc_url: https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-remove-mdm-profile
   namespace: tools.jamf
   name: remove_computer_mdm_profile
   secrets:
@@ -26,7 +26,7 @@ definition:
     - ref: remove_computer_mdm_profile
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v1/computer-inventory/${{ FN.url_encode(inputs.computer_id) }}/remove-mdm-profile
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v4/computers-inventory/${{ FN.url_encode(inputs.computer_id) }}/remove-mdm-profile
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}

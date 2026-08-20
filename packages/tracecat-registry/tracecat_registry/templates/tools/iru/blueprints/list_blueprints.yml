@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List blueprints
-  description: Lists tenant Blueprints with optional filtering and pagination.
+  description: List Blueprints in the tenant.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#44d3765c-ef17-4226-9104-47e5cef1d370
   namespace: tools.iru

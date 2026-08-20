@@ -51,9 +51,9 @@ Default: `null`.
 
 Action ID: `tools.jamf.delete_computer`
 
-Delete only the computer inventory record from Jamf Pro without erasing the computer.
+Permanently delete a computer's inventory record from Jamf Pro. The computer is not erased, but it stops being managed and its inventory history is lost. This cannot be undone.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/delete_v1-computers-inventory-id](https://developer.jamf.com/jamf-pro/reference/delete_v1-computers-inventory-id)
+Reference: [https://developer.jamf.com/jamf-pro/reference/delete_v4-computers-inventory-id](https://developer.jamf.com/jamf-pro/reference/delete_v4-computers-inventory-id)
 
 ### Secrets
 
@@ -84,7 +84,7 @@ Action ID: `tools.jamf.erase_computer`
 
 Irreversibly erase a Jamf Pro computer, optionally supplying command options such as a PIN.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-erase](https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-erase)
+Reference: [https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-erase](https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-erase)
 
 ### Secrets
 
@@ -123,7 +123,7 @@ Action ID: `tools.jamf.get_computer_device_lock_pin`
 
 Get the device lock PIN for a Jamf Pro computer.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-view-device-lock-pin](https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-view-device-lock-pin)
+Reference: [https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-view-device-lock-pin](https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-view-device-lock-pin)
 
 ### Secrets
 
@@ -154,7 +154,7 @@ Action ID: `tools.jamf.get_computer_filevault_key`
 
 Get the FileVault recovery key for a Jamf Pro computer.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-filevault](https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-filevault)
+Reference: [https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-filevault](https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-filevault)
 
 ### Secrets
 
@@ -185,7 +185,7 @@ Action ID: `tools.jamf.get_computer_inventory_detail`
 
 Get detailed inventory for a Jamf Pro computer.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-detail-id](https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-detail-id)
+Reference: [https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-detail-id](https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-detail-id)
 
 ### Secrets
 
@@ -247,7 +247,7 @@ Action ID: `tools.jamf.get_computer_recovery_lock_password`
 
 Get the recovery lock password for a Jamf Pro computer.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-view-recovery-lock-password](https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory-id-view-recovery-lock-password)
+Reference: [https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-view-recovery-lock-password](https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory-id-view-recovery-lock-password)
 
 ### Secrets
 
@@ -338,7 +338,7 @@ Default: `null`.
 
 Action ID: `tools.jamf.list_device_enrollment_devices`
 
-List devices associated with a Jamf Pro Automated Device Enrollment (ADE/ABM/ASM) instance.
+List devices associated with an Automated Device Enrollment instance.
 
 Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-device-enrollments-id-devices](https://developer.jamf.com/jamf-pro/reference/get_v1-device-enrollments-id-devices)
 
@@ -394,9 +394,9 @@ Default: `null`.
 
 Action ID: `tools.jamf.list_computer_inventory`
 
-List Jamf Pro computer inventory records.
+Search Jamf Pro computer inventory. Use section to choose which detail sections are returned.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory](https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory)
+Reference: [https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory](https://developer.jamf.com/jamf-pro/reference/get_v4-computers-inventory)
 
 ### Secrets
 
@@ -539,7 +539,7 @@ Default: `null`.
 
 Action ID: `tools.jamf.list_mobile_devices`
 
-List Jamf Pro mobile devices in the standard paged response envelope.
+List mobile devices in Jamf Pro.
 
 Reference: [https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-devices](https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-devices)
 
@@ -555,14 +555,6 @@ Optional secrets:
 <ParamField path="base_url" type="string | null">
 
 Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="filter" type="string | null">
-
-RSQL filter expression. See https://developer.jamf.com/jamf-pro/docs/filtering-with-rsql.
 
 Default: `null`.
 
@@ -596,7 +588,7 @@ Default: `null`.
 
 Action ID: `tools.jamf.redeploy_management_framework`
 
-Reinstall the Jamf management framework (QuickAdd) on a Mac when the agent is broken; returns 202 with deviceId and commandUuid.
+Reinstall the Jamf management framework on a computer. Returns 202 with a deviceId and commandUuid.
 
 Reference: [https://developer.jamf.com/jamf-pro/reference/post_v1-jamf-management-framework-redeploy-id](https://developer.jamf.com/jamf-pro/reference/post_v1-jamf-management-framework-redeploy-id)
 
@@ -629,7 +621,7 @@ Action ID: `tools.jamf.remove_computer_mdm_profile`
 
 Remove the MDM profile from a Jamf Pro computer.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-remove-mdm-profile](https://developer.jamf.com/jamf-pro/reference/post_v1-computer-inventory-id-remove-mdm-profile)
+Reference: [https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-remove-mdm-profile](https://developer.jamf.com/jamf-pro/reference/post_v4-computers-inventory-id-remove-mdm-profile)
 
 ### Secrets
 
@@ -716,7 +708,7 @@ Optional secrets:
 
 <ParamField path="client_data" type="array[object]" required>
 
-Target clients, with each entry shaped as &#123;"managementId":"&lt;uuid>"&#125;.
+Target clients. Each entry is an object with a managementId UUID.
 
 </ParamField>
 
@@ -740,7 +732,7 @@ Action ID: `tools.jamf.update_computer_inventory_detail`
 
 Partially update computer inventory detail; use the userAndLocation section to assign the device to a user.
 
-Reference: [https://developer.jamf.com/jamf-pro/reference/patch_v1-computers-inventory-detail-id](https://developer.jamf.com/jamf-pro/reference/patch_v1-computers-inventory-detail-id)
+Reference: [https://developer.jamf.com/jamf-pro/reference/patch_v4-computers-inventory-detail-id](https://developer.jamf.com/jamf-pro/reference/patch_v4-computers-inventory-detail-id)
 
 ### Secrets
 
@@ -775,7 +767,7 @@ Default: `null`.
 
 Action ID: `tools.jamf.update_static_group`
 
-Replaces the group's entire membership — assignments must contain the full desired set of computer IDs, not just additions.
+Update a Jamf Pro static computer group. Replaces the entire membership, so assignments must be the full desired set of computer IDs rather than only the additions.
 
 Reference: [https://developer.jamf.com/jamf-pro/reference/put_v3-computer-groups-static-groups-id](https://developer.jamf.com/jamf-pro/reference/put_v3-computer-groups-static-groups-id)
 
@@ -800,7 +792,7 @@ Group name, from 1 to 255 characters.
 
 </ParamField>
 
-<ParamField path="assignments" type="array[integer] | null">
+<ParamField path="assignments" type="array[string] | null">
 
 Full desired set of computer IDs, replacing the entire current membership.
 

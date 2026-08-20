@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Redeploy Jamf management framework
-  description: Reinstall the Jamf management framework (QuickAdd) on a Mac when the agent is broken; returns 202 with deviceId and commandUuid.
+  description: Reinstall the Jamf management framework on a computer. Returns 202 with a deviceId and commandUuid.
   display_group: Jamf Pro
   doc_url: https://developer.jamf.com/jamf-pro/reference/post_v1-jamf-management-framework-redeploy-id
   namespace: tools.jamf

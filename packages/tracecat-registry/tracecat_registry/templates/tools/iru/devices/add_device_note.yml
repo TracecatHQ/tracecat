@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Add device note
-  description: Adds a note to a device record.
+  description: Add a note to a device record.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#fc3a2a64-b772-4145-a216-0b7ba8e0ff90
   namespace: tools.iru

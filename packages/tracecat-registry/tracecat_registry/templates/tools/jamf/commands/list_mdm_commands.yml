@@ -50,7 +50,14 @@ definition:
             sort: ${{ inputs.sort }}
         script: |
           def main(params):
-              return {k: v for k, v in params.items() if v is not None}
+              query = {}
+              for key, value in params.items():
+                  if value is None:
+                      continue
+                  if key == "sort" and isinstance(value, list):
+                      value = ",".join(str(item) for item in value)
+                  query[key] = value
+              return query
     - ref: list_mdm_commands
       action: core.http_request
       args:

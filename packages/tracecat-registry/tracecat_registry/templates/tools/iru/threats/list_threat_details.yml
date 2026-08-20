@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List threat details
-  description: Lists malware and potentially unwanted program detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine, and released is only a filter value.
+  description: List malware and potentially unwanted program detections. Threat state is read-only through the API; there is no endpoint to release a detection from quarantine.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#d041043a-ea47-47d5-b6f1-234ef422494d
   namespace: tools.iru

@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Erase device
-  description: Irreversibly erases a device and optionally controls platform-specific erase behavior.
+  description: Irreversibly erase a device. Optionally control platform-specific erase behavior.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#149ae2cc-fb7f-42ce-8379-187878685303
   namespace: tools.iru

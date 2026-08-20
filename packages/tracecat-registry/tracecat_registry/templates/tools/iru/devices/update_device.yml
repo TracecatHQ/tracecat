@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Update device
-  description: Updates device assignment and metadata; there is no separate blueprint-assignment endpoint, so use this action to assign a blueprint during onboarding.
+  description: Update a device's assignment and metadata. There is no separate blueprint-assignment endpoint, so use this action to assign a Blueprint during onboarding.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#b70f2ddc-cc1b-4b4f-8eec-e481d8a17927
   namespace: tools.iru
@@ -31,7 +31,7 @@ definition:
       default: null
     tags:
       type: list[str] | None
-      description: Tag UUIDs to assign to the device.
+      description: Tag names to assign to the device. Replaces the current tags; pass an empty list to clear them.
       default: null
   steps:
     - ref: build_payload

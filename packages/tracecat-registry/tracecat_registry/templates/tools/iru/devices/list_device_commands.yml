@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List device commands
-  description: Lists commands for a device. Status codes are 1 Pending, 2 Running, 3 Completed, 4 Failed, and 5 Not Now.
+  description: List commands sent to a device. Status codes are 1 Pending, 2 Running, 3 Completed, 4 Failed, and 5 Not Now.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#740d515c-218d-48db-b452-959c3c73aaeb
   namespace: tools.iru

@@ -20,10 +20,10 @@ definition:
       description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
       default: null
     client_data:
-      type: list[dict[str, any]]
-      description: Target clients, with each entry shaped as {"managementId":"<uuid>"}.
+      type: list[dict[str, Any]]
+      description: Target clients. Each entry is an object with a managementId UUID.
     command_data:
-      type: dict[str, any]
+      type: dict[str, Any]
       description: >-
         Command fields including commandType. Accepted command types:
         APPLY_REDEMPTION_CODE, CANCEL_ENHANCED_LOG_COLLECTION, CERTIFICATE_LIST,

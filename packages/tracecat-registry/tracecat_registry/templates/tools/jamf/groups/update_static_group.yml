@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Update static computer group
-  description: Replaces the group's entire membership — assignments must contain the full desired set of computer IDs, not just additions.
+  description: Update a Jamf Pro static computer group. Replaces the entire membership, so assignments must be the full desired set of computer IDs rather than only the additions.
   display_group: Jamf Pro
   doc_url: https://developer.jamf.com/jamf-pro/reference/put_v3-computer-groups-static-groups-id
   namespace: tools.jamf
@@ -34,7 +34,7 @@ definition:
       description: Jamf Pro site ID.
       default: null
     assignments:
-      type: list[int] | None
+      type: list[str] | None
       description: Full desired set of computer IDs, replacing the entire current membership.
       default: null
   steps:

@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List automated device enrollment devices
-  description: List devices associated with a Jamf Pro Automated Device Enrollment (ADE/ABM/ASM) instance.
+  description: List devices associated with an Automated Device Enrollment instance.
   display_group: Jamf Pro
   doc_url: https://developer.jamf.com/jamf-pro/reference/get_v1-device-enrollments-id-devices
   namespace: tools.jamf

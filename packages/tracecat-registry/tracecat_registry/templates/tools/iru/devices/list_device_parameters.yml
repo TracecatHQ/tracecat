@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List device parameters
-  description: Lists management parameters for a device.
+  description: List management parameter (compliance check) results for a device.
   display_group: Iru (Kandji)
   doc_url: https://api-docs.iru.com/#8ca8c0e9-654e-40c1-8d8c-c9a8a6e262c6
   namespace: tools.iru

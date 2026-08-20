@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List mobile devices
-  description: List Jamf Pro mobile devices in the standard paged response envelope.
+  description: List mobile devices in Jamf Pro.
   display_group: Jamf Pro
   doc_url: https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-devices
   namespace: tools.jamf
@@ -31,10 +31,6 @@ definition:
       type: list[str] | None
       description: Sort expressions in property:asc or property:desc format. Defaults to id:asc.
       default: null
-    filter:
-      type: str | None
-      description: RSQL filter expression. See https://developer.jamf.com/jamf-pro/docs/filtering-with-rsql.
-      default: null
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -44,10 +40,16 @@ definition:
             page: ${{ inputs.page }}
             page-size: ${{ inputs.page_size }}
             sort: ${{ inputs.sort }}
-            filter: ${{ inputs.filter }}
         script: |
           def main(params):
-              return {k: v for k, v in params.items() if v is not None}
+              query = {}
+              for key, value in params.items():
+                  if value is None:
+                      continue
+                  if key == "sort" and isinstance(value, list):
+                      value = ",".join(str(item) for item in value)
+                  query[key] = value
+              return query
     - ref: list_mobile_devices
       action: core.http_request
       args:
