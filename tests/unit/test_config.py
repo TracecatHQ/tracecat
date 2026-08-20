@@ -24,6 +24,7 @@ COMPOSE_ENV_FILES = (
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+TRACED_COMPOSE_ENV_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
 SANDBOX_POLICY_ENV_VARS = {
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
     "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
@@ -293,7 +294,7 @@ def test_boolean_env_values_preserve_defaults_and_compose_overrides() -> None:
     )
 
 
-@pytest.mark.parametrize("path", COMPOSE_ENV_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
 @pytest.mark.parametrize("service", TRACED_COMPOSE_SERVICES)
 def test_platform_otel_env_is_forwarded_to_traced_compose_services(
     path: Path, service: str
