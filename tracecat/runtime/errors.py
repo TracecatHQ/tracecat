@@ -58,6 +58,7 @@ class RuntimeErrorKind(StrEnum):
     STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE = (
         "storage.persistence.transport_unavailable"
     )
+    EXECUTOR_BACKEND_INITIALIZATION_FAILED = "executor.backend.initialization_failed"
     EXECUTOR_REGISTRY_LEASE_CONTENTION = "executor.registry.lease_contention"
     EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED = "executor.registry.capacity_exhausted"
     EXECUTOR_REGISTRY_EXTRACTION_FAILED = "executor.registry.extraction_failed"
