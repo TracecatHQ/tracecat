@@ -57,8 +57,9 @@ class UserMCPServerClaim(BaseModel):
 
     The legacy ``url``/``transport``/``headers``/``timeout`` fields are
     kept here so in-flight JWTs and Temporal activity outputs serialized
-    before this change still validate on replay. New mint paths set only
-    ``(name, id)``; trusted-server code paths use ``id``.
+    before this change still validate on replay. New mint paths set
+    ``(name, id, environment)``; trusted-server code paths use the latter two
+    values to resolve credentials.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -68,6 +69,8 @@ class UserMCPServerClaim(BaseModel):
     id: uuid.UUID | None = None
     """UUID of the source ``mcp_integrations`` row. Required on new tokens;
     optional only to support replay of pre-rollout tokens that lack it."""
+    environment: str | None = None
+    """Effective workflow/action environment for trusted template resolution."""
 
     # --- Legacy fields kept for replay of in-flight tokens. ---
     # New mint paths leave these unset. Trusted server reads only (name, id).

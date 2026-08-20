@@ -18,6 +18,7 @@ _BASE_CONFIG = ConfigDict(extra="ignore")
 class AgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 
+    environment: str | None = None
     user_prompt: str
     model_name: str
     model_provider: str
@@ -79,6 +80,7 @@ class AgentActionArgs(BaseModel):
 class PresetAgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 
+    environment: str | None = None
     preset: str
     preset_version: int | None = None
     user_prompt: str

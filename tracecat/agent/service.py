@@ -1079,6 +1079,7 @@ class AgentManagementService(BaseOrgService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        environment: str | None = None,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1103,6 +1104,7 @@ class AgentManagementService(BaseOrgService):
             slug=slug,
             preset_version_id=preset_version_id,
             preset_version=preset_version,
+            environment=environment,
         )
 
         credentials: dict[str, str] | None = None

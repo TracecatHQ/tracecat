@@ -133,6 +133,8 @@ def _inject_runtime_aws_external_id(secrets: dict[str, Any]) -> None:
 async def get_action_secrets(
     secret_exprs: builtins.set[str],
     action_secrets: builtins.set[RegistrySecretType],
+    *,
+    environment: str | None = None,
 ) -> dict[str, Any]:
     # Handle secrets from the task args
     args_secrets = secret_exprs
@@ -198,7 +200,7 @@ async def get_action_secrets(
     secrets: dict[str, Any] = {}
     async with AuthSandbox(
         secrets=all_basic_secrets,
-        environment=get_runtime_env(),
+        environment=environment if environment is not None else get_runtime_env(),
         optional_secrets=optional_basic_secrets,
     ) as sandbox:
         secrets |= sandbox.secrets.copy()

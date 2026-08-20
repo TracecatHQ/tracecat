@@ -381,7 +381,10 @@ async def _resolve_user_mcp_config(
             metadata = refs[0]
             if not is_http_mcp_server(metadata):
                 raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
-            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+            secrets = await svc.resolve_mcp_integration_secrets(
+                ref.id,
+                environment=ref.environment,
+            )
     except ToolError:
         raise
     except MCPSecretResolutionError as e:
