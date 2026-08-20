@@ -202,3 +202,33 @@ def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     stmts = build_action_statements_from_actions([legacy_row])
     assert len(stmts) == 1
     assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+
+
+def test_action_write_api_rejects_out_of_bounds_agent_timeout() -> None:
+    """The authoring surface rejects with the deployment's exact range;
+    import/sync/legacy paths clamp instead."""
+    from fastapi import HTTPException
+
+    from tracecat.workflow.actions.router import _validate_agent_timeout_bounds
+    from tracecat.workflow.actions.schemas import ActionControlFlow
+
+    for timeout in (60, 100_000):
+        out_of_bounds = ActionControlFlow.model_validate(
+            {"retry_policy": {"timeout": timeout}}
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_agent_timeout_bounds("ai.agent", out_of_bounds)
+        assert exc_info.value.status_code == 422
+
+    # In-range, non-agent, unset, and absent control flow all pass.
+    in_range = ActionControlFlow.model_validate({"retry_policy": {"timeout": 2000}})
+    _validate_agent_timeout_bounds("ai.agent", in_range)
+    _validate_agent_timeout_bounds(
+        "core.http_request",
+        ActionControlFlow.model_validate({"retry_policy": {"timeout": 100_000}}),
+    )
+    _validate_agent_timeout_bounds(
+        "ai.agent",
+        ActionControlFlow.model_validate({"retry_policy": {"max_attempts": 3}}),
+    )
+    _validate_agent_timeout_bounds("ai.agent", None)
