@@ -1,0 +1,28 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/get_secret_scanning_alert.yml
+  s_c653c725ac7ac2::t_169da82d681017 41
+  s_c653c725ac7ac2::t_6b33d38a5d6c5f 25
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_org_secret_scanning_alerts.yml
+  s_c653c725ac7ac2::t_15713fcf8b6273 35
+  s_c653c725ac7ac2::t_9d1ee1aad135ad 19
+packages/tracecat-registry/tracecat_registry/templates/tools/github/security/list_repo_secret_scanning_alerts.yml
+  s_c653c725ac7ac2::t_99e464c4be085a 22
+  s_c653c725ac7ac2::t_e527cfab015ad7 38
+docs/tools/github.mdx
+  s_c653c725ac7ac2::t_1fd45f20bd3ee3 1673,2121,2479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4435388945cd35391e1d20eac98e4142c98201b0",
+  "prompts": {},
+  "sessions": {
+    "s_c653c725ac7ac2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "932ae2c0-af30-4c0e-accf-fa55b6aa5fbf",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
