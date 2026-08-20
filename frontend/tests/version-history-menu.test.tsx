@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type {
   VersionFileEntry,
@@ -150,13 +151,17 @@ describe("VersionHistoryMenu", () => {
         `Restoring ${version.label} replaces the current value.`
     )
     const props = renderMenu({
-      listControls: <div>Field filters</div>,
+      listControls: <DropdownMenuItem>Field filters</DropdownMenuItem>,
       renderComparisonDescription,
       renderRestoreConfirmationDescription,
     })
 
     await openDropdown(user)
-    expect(screen.getByText("Field filters")).toBeInTheDocument()
+    const listControls = screen.getByRole("menuitem", {
+      name: "Field filters",
+    })
+    await user.keyboard("{ArrowDown}")
+    expect(listControls).toHaveFocus()
     await user.click(screen.getByText("v1"))
 
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()

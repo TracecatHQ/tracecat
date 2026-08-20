@@ -46,7 +46,11 @@ export type VersionHistoryMenuProps = {
   renderVersionDiff: (versionId: string) => ReactNode
   /** Human-readable kind of document used in copy, e.g. `agent` or `skill`. */
   entityLabel: string
-  /** Optional host-owned controls rendered above the version list. */
+  /**
+   * Optional host-owned menu controls rendered above the version list.
+   * Interactive controls must use menu-aware primitives such as
+   * `DropdownMenuItem` so they participate in the menu's keyboard focus model.
+   */
   listControls?: ReactNode
   /**
    * Renders comparison copy for the selected entry. Defaults to comparing the
@@ -248,7 +252,7 @@ export function VersionHistoryMenu({
             <DropdownMenuSeparator className="mx-0 my-0" />
             {listControls !== undefined && listControls !== null ? (
               <>
-                <div className="px-3 py-2">{listControls}</div>
+                {listControls}
                 <DropdownMenuSeparator className="mx-0 my-0" />
               </>
             ) : null}
