@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Update device
+  description: Updates device assignment and metadata; there is no separate blueprint-assignment endpoint, so use this action to assign a blueprint during onboarding.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/
+  namespace: tools.iru
+  name: update_device
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    user:
+      type: str | None
+      description: User UUID to assign to the device.
+      default: null
+    blueprint_id:
+      type: str | None
+      description: Blueprint UUID to assign to the device.
+      default: null
+    asset_tag:
+      type: str | None
+      description: Asset tag to set on the device.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tag UUIDs to assign to the device.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            user: ${{ inputs.user }}
+            blueprint_id: ${{ inputs.blueprint_id }}
+            asset_tag: ${{ inputs.asset_tag }}
+            tags: ${{ inputs.tags }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: update_device
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_device.result }}

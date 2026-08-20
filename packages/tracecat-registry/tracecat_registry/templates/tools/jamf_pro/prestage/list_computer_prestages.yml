@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List computer PreStage enrollments
+  description: List Jamf Pro computer PreStage enrollment objects.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v3-computer-prestages
+  namespace: tools.jamf_pro
+  name: list_computer_prestages
+  secrets:
+    - type: oauth
+      provider_id: jamf_pro
+      grant_type: client_credentials
+      optional: true
+    - name: jamf_pro
+      keys: ["JAMF_PRO_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+  steps:
+    - ref: list_computer_prestages
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf_pro.base_url }}/api/v3/computer-prestages
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_pro_oauth.JAMF_PRO_SERVICE_TOKEN || SECRETS.jamf_pro.JAMF_PRO_API_TOKEN }}
+  returns: ${{ steps.list_computer_prestages.result }}

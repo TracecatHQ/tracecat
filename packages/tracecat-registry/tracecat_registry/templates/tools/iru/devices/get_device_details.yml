@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Get device details
+  description: Gets detailed inventory information for a device.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/
+  namespace: tools.iru
+  name: get_device_details
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+  steps:
+    - ref: get_device_details
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/details
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+  returns: ${{ steps.get_device_details.result }}

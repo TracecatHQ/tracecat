@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: List audit events
+  description: Lists cursor-paginated audit events, including Blueprint and Library Item changes, access to sensitive data such as FileVault and recovery keys, device lifecycle events, and API token management. Responses include next and previous URLs. This list-heavy endpoint shares the tenant-wide limit of 10,000 API requests per hour across all API tokens.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/
+  namespace: tools.iru
+  name: list_audit_events
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    limit:
+      type: int | None
+      description: Results per page. Maximum 500.
+      default: null
+    sort_by:
+      type: str | None
+      description: Sort field, occurred_at or id; prefix with - for descending order.
+      default: null
+    start_date:
+      type: str | None
+      description: Earliest event date to include.
+      default: null
+    end_date:
+      type: str | None
+      description: Latest event date to include.
+      default: null
+    cursor:
+      type: str | None
+      description: Cursor identifying the requested page.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            limit: ${{ inputs.limit }}
+            sort_by: ${{ inputs.sort_by }}
+            start_date: ${{ inputs.start_date }}
+            end_date: ${{ inputs.end_date }}
+            cursor: ${{ inputs.cursor }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: list_audit_events
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/audit/events
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_audit_events.result }}

@@ -1,0 +1,71 @@
+type: action
+definition:
+  title: List computer inventory
+  description: List Jamf Pro computer inventory records.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory
+  namespace: tools.jamf_pro
+  name: list_computer_inventory
+  secrets:
+    - type: oauth
+      provider_id: jamf_pro
+      grant_type: client_credentials
+      optional: true
+    - name: jamf_pro
+      keys: ["JAMF_PRO_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    section:
+      type: list[str] | None
+      description: >-
+        Inventory sections to return. Defaults to GENERAL when omitted. Accepted
+        values: GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE,
+        USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, SERVICES, HARDWARE,
+        LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PACKAGE_RECEIPTS,
+        SECURITY, OPERATING_SYSTEM, LICENSED_SOFTWARE, IBEACONS,
+        SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING,
+        GROUP_MEMBERSHIPS.
+      default: null
+    page:
+      type: int | None
+      description: Zero-indexed page number.
+      default: null
+    page_size:
+      type: int | None
+      description: Number of results per page.
+      default: null
+    sort:
+      type: list[str] | None
+      description: Sort expressions in property:asc or property:desc format.
+      default: null
+    filter:
+      type: str | None
+      description: RSQL filter expression. See https://developer.jamf.com/jamf-pro/docs/filtering-with-rsql.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            section: ${{ inputs.section }}
+            page: ${{ inputs.page }}
+            page-size: ${{ inputs.page_size }}
+            sort: ${{ inputs.sort }}
+            filter: ${{ inputs.filter }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: list_computer_inventory
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf_pro.base_url }}/api/v1/computers-inventory
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_pro_oauth.JAMF_PRO_SERVICE_TOKEN || SECRETS.jamf_pro.JAMF_PRO_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_computer_inventory.result }}

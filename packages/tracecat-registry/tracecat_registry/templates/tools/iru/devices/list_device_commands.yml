@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List device commands
+  description: Lists commands for a device. Status codes are 1 Pending, 2 Running, 3 Completed, 4 Failed, and 5 Not Now.
+  display_group: Iru (Kandji)
+  doc_url: https://api-docs.iru.com/
+  namespace: tools.iru
+  name: list_device_commands
+  secrets:
+    - name: iru
+      keys: ["IRU_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Iru (Kandji) API base URL (e.g. https://acme.api.kandji.io).
+      default: null
+    device_id:
+      type: str
+      description: Device UUID.
+    limit:
+      type: int | None
+      description: Results per page. Maximum 300.
+      default: null
+    offset:
+      type: int | None
+      description: Number of results to skip.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            limit: ${{ inputs.limit }}
+            offset: ${{ inputs.offset }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: list_device_commands
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.iru.base_url }}/api/v1/devices/${{ FN.url_encode(inputs.device_id) }}/commands
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.iru.IRU_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_device_commands.result }}
