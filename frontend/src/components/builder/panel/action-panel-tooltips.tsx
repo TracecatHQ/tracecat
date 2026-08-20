@@ -1,8 +1,5 @@
 import { ExternalLinkIcon } from "lucide-react"
-import {
-  AGENT_TIMEOUT_SECONDS_DEFAULT,
-  DEFAULT_ACTION_TIMEOUT_SECONDS,
-} from "@/lib/action-timeout"
+import { DEFAULT_ACTION_TIMEOUT_SECONDS } from "@/lib/action-timeout"
 
 export function RunIfTooltip() {
   return (
@@ -161,9 +158,10 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
               after an approval starts a new timeout window.
             </div>
             <div>
-              Defaults to {AGENT_TIMEOUT_SECONDS_DEFAULT}s (30 minutes). Values
-              outside the deployment's allowed range are rejected when saving;
-              imported workflows are clamped instead.
+              Leave this blank to use the default (30 minutes, capped by the
+              deployment's timeout ceiling). Explicit values outside the
+              deployment's allowed range are rejected when saving; imported
+              workflows are clamped instead.
             </div>
           </>
         ) : (
@@ -180,10 +178,14 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
-          timeout: {isAgent ? AGENT_TIMEOUT_SECONDS_DEFAULT : 300}{" "}
-          <span className="text-xs text-muted-foreground">
-            {isAgent ? "# 30 minutes" : "# 5 minutes"}
-          </span>
+          {isAgent ? (
+            "# Omit timeout for the default (30 minutes)"
+          ) : (
+            <>
+              timeout: {DEFAULT_ACTION_TIMEOUT_SECONDS}{" "}
+              <span className="text-xs text-muted-foreground"># 5 minutes</span>
+            </>
+          )}
         </pre>
       </div>
     </div>
