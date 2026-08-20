@@ -117,9 +117,12 @@ describe("VersionHistoryMenu", () => {
     expect(screen.queryByText("No versions yet.")).not.toBeInTheDocument()
   })
 
-  it("lists versions and marks the current one", async () => {
+  it("lists versions, marks the current one, and disables its restore", async () => {
     const user = userEvent.setup()
-    renderMenu()
+    const isRestoreDisabled = jest.fn(
+      (version: VersionHistoryEntry) => version.isCurrent === true
+    )
+    renderMenu({ isRestoreDisabled })
 
     await openDropdown(user)
 
@@ -127,21 +130,45 @@ describe("VersionHistoryMenu", () => {
     expect(screen.getByText("v1")).toBeInTheDocument()
     expect(screen.getByText("2 files")).toBeInTheDocument()
     expect(screen.getByText("Current")).toBeInTheDocument()
+
+    await user.click(screen.getByText("v2"))
+
+    expect(isRestoreDisabled).toHaveBeenCalledWith(VERSIONS[0])
+    expect(
+      screen.getByRole("button", { name: "Restore version" })
+    ).toBeDisabled()
   })
 
   it("invokes renderVersionDiff with the selected version id", async () => {
     const user = userEvent.setup()
-    const props = renderMenu()
+    const renderComparisonDescription = jest.fn(
+      (version: VersionHistoryEntry) =>
+        `Compare ${version.label} with its predecessor.`
+    )
+    const renderRestoreConfirmationDescription = jest.fn(
+      (version: VersionHistoryEntry) =>
+        `Restoring ${version.label} replaces the current value.`
+    )
+    const props = renderMenu({
+      listControls: <div>Field filters</div>,
+      renderComparisonDescription,
+      renderRestoreConfirmationDescription,
+    })
 
     await openDropdown(user)
+    expect(screen.getByText("Field filters")).toBeInTheDocument()
     await user.click(screen.getByText("v1"))
 
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(props.renderVersionDiff).toHaveBeenCalledWith("ver-1")
     expect(screen.getByTestId("diff-body")).toHaveTextContent("ver-1")
+    expect(renderComparisonDescription).toHaveBeenCalledWith(VERSIONS[1])
+    expect(renderRestoreConfirmationDescription).toHaveBeenCalledWith(
+      VERSIONS[1]
+    )
     expect(
       screen.getByText(
-        "Compare v1 with the current draft of Triage agent. Restoring replaces unsaved changes."
+        "Compare v1 with its predecessor. Restoring v1 replaces the current value."
       )
     ).toBeInTheDocument()
   })
@@ -229,6 +256,11 @@ describe("VersionHistoryMenu", () => {
     await openDropdown(user)
     await user.click(screen.getByText("v1"))
 
+    expect(
+      screen.getByText(
+        "Compare v1 with the current draft of Triage agent. Restoring replaces unsaved changes."
+      )
+    ).toBeInTheDocument()
     expect(screen.getByText("Current draft → v1")).toBeInTheDocument()
     expect(screen.getByTestId("inline-diff-view")).toHaveTextContent(
       "instructions.md"
