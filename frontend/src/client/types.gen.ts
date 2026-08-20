@@ -8512,7 +8512,7 @@ export type UpdatedEventRead = {
    */
   wf_exec_id?: string | null
   type?: "case_updated"
-  field: "summary" | "description"
+  field: "summary"
   old: string | null
   new: string | null
   /**
@@ -8524,8 +8524,6 @@ export type UpdatedEventRead = {
    */
   created_at: string
 }
-
-export type field2 = "summary" | "description"
 
 export type UserCreate = {
   email: string

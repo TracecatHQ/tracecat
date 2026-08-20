@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import (
 from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
 from tracecat.cases.enums import (
-    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -123,16 +122,6 @@ async def test_case_version_lifecycle(
         (CaseVersionField.DESCRIPTION, 2, "<p>Updated description</p>"),
     ]
     assert {version.user_id for version in versions} == {svc_role.user_id}
-
-    description_events = [
-        event
-        for event in await service.events.list_events(case)
-        if event.type == CaseEventType.CASE_UPDATED
-        and event.data["field"] == "description"
-    ]
-    assert len(description_events) == 1
-    assert description_events[0].data["old"] == "<p>Initial description</p>"
-    assert description_events[0].data["new"] == "<p>Updated description</p>"
 
     await service.delete_case(case)
     assert (

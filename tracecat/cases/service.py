@@ -1063,22 +1063,24 @@ class CasesService(BaseWorkspaceService):
         for key, value in set_fields.items():
             old = getattr(case, key, None)
             setattr(case, key, value)
+            if key in {"summary", "description"} and old != value:
+                await self.versions.append_version(
+                    case_id=case.id,
+                    field=CaseVersionField(key),
+                    content=value,
+                )
+
             if key == "assignee_id":
                 # Only record event if the assignee actually changed
                 if old != value:
                     events.append(
                         AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
                     )
-            elif key in {"summary", "description"}:
+            elif key == "summary":
                 if old != value:
-                    await self.versions.append_version(
-                        case_id=case.id,
-                        field=CaseVersionField(key),
-                        content=value,
-                    )
                     events.append(
                         UpdatedEvent(
-                            field=typing_cast(Literal["summary", "description"], key),
+                            field="summary",
                             old=old,
                             new=value,
                             wf_exec_id=wf_exec_id,
