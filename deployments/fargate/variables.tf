@@ -685,7 +685,6 @@ variable "agent_otel_platform_override_headers_arn" {
   default     = null
 }
 
-
 variable "llm_proxy_read_timeout" {
   type        = string
   description = "LLM proxy read timeout in seconds (default: 600)"

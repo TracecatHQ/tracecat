@@ -1322,6 +1322,19 @@ class TestClaudeAgentRuntimeRun:
 
         assert env["ENABLE_TOOL_SEARCH"] == expected
 
+    def test_passthrough_keeps_experimental_beta_features_enabled(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(update={"passthrough": True}),
+        )
+
+        env = ClaudeAgentRuntime._sdk_env(payload)
+
+        assert "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS" not in env
+
     @pytest.mark.anyio
     async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
         self,

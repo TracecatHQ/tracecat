@@ -1504,6 +1504,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(

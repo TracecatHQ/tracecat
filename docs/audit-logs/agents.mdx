@@ -1,11 +1,96 @@
 ---
 title: "Organization agent logs"
 description: "Export OpenTelemetry metrics, log events, and traces for agent runs to your observability backend."
+keywords: ["agent telemetry", "OpenTelemetry", "OTLP", "Claude Code"]
 ---
 
-This page is a work in progress.
+Agent runs emit Claude Code OpenTelemetry signals. Point them at your own OTLP collector to track token usage, cost, tool activity, and session outcomes alongside the rest of your observability data.
 
-Agent runs export OpenTelemetry signals to your observability backend. Configure the exporter under Organization settings, then open **Agent OTel**.
+Tracecat exports metrics, log events, and traces over OTLP/HTTP with protobuf. Traces are off by default while Claude Code tracing is in beta; when you turn them on, Tracecat sets the beta tracing flag for the agent run.
+
+Telemetry is off until an organization administrator enables it, and each organization configures its own exporter.
+See [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage) for the metrics and events each signal carries.
+
+## Configure the exporter
+
+Read the current configuration with `GET /settings/agent-otel` and update it with `PATCH /settings/agent-otel`:
+
+```json
+{
+  "agent_otel_config": {
+    "enabled": true,
+    "endpoint": "https://otel.example.com",
+    "metrics_enabled": true,
+    "logs_enabled": true,
+    "traces_enabled": false
+  },
+  "agent_otel_headers": {
+    "Authorization": "Bearer <collector-token>"
+  }
+}
+```
+
+Tracecat rejects a configuration that enables telemetry with a signal turned on and no endpoint. The endpoint must not embed credentials or a query string; authenticate the exporter through `agent_otel_headers` instead.
+
+### Exporter headers
+
+Supply `agent_otel_headers` as a name-to-value map, such as an `Authorization` header for your collector. Tracecat encrypts headers at rest and attaches them to outbound telemetry in the OTLP gateway, outside the agent sandbox, so sandboxed agent code never reads a collector credential.
+
+Omitting `agent_otel_headers` from an update leaves the stored headers unchanged; send an empty object to clear them.
+
+## Privacy controls
+
+Telemetry can carry prompt and tool content, so decide what leaves your deployment before you enable it. Each control below follows Claude Code's own default when you leave it unset:
+
+- `log_user_prompts` includes user prompt content in log events.
+- `log_tool_details` includes tool parameters and input arguments.
+- `log_tool_content` includes tool input and output content.
+- `metrics_include_session_id` attaches the Claude Code session identifier to metrics.
+- `metrics_include_version` attaches the Claude Code version to metrics.
+- `metrics_include_account_uuid` attaches the authenticated account identifier to metrics.
+
+Turn on the content controls only when your collector is a trusted destination, because a credential pasted into a prompt reaches any telemetry that captures prompts.
+
+## Resource attributes and tuning
+
+Set `resource_attributes` to a string map that Tracecat attaches to every exported signal. Use it to separate Tracecat telemetry from the rest of your collector's traffic:
+
+```json
+{
+  "deployment.environment": "production",
+  "service.namespace": "tracecat"
+}
+```
+
+Attribute names and values must both be non-empty.
+
+The remaining fields tune transport and export cadence:
+
+| Field | Values | Description |
+| :---- | :----- | :---------- |
+| `metrics_temporality` | `delta`, `cumulative` | Metrics aggregation temporality. |
+| `metric_export_interval_ms` | Positive integer | Metrics export interval in milliseconds. |
+| `logs_export_interval_ms` | Positive integer | Logs export interval in milliseconds. |
+
+Leave a field unset to keep the Claude Code default.
+
+## Platform override for self-hosted deployments
+
+Self-hosted operators can pin every organization to one collector. Set `TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG` on the agent executor to a JSON object with the same fields as the organization configuration:
+
+```bash
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG='{"enabled":true,"endpoint":"https://otel.example.com","metrics_enabled":true,"logs_enabled":true,"log_user_prompts":false,"resource_attributes":{"deployment.environment":"production"}}'
+```
+
+The override wins wholesale: when it is set, every organization's own settings are ignored, including an override that sets `enabled` to `false` to disable telemetry platform-wide. Leave the variable unset so organization settings apply.
+
+Configure headers separately in `TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS`, a JSON object of header name to value. Tracecat rejects a `headers` key inside the config variable:
+
+```bash
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS='{"Authorization":"Bearer <collector-token>"}'
+```
+
+Store this value as a secret in your deployment rather than in plain environment configuration.
 
 ## Related pages
 

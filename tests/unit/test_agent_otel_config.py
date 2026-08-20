@@ -9,7 +9,7 @@ from tracecat.agent.otel_config import (
 )
 
 
-def test_resolve_org_agent_otel_config_redirects_sandbox_to_relay() -> None:
+def test_resolve_org_agent_otel_config_keeps_endpoint_host_side() -> None:
     resolved = resolve_agent_otel_config(
         org_config=AgentOtelConfig(
             enabled=True,
@@ -17,40 +17,19 @@ def test_resolve_org_agent_otel_config_redirects_sandbox_to_relay() -> None:
         ),
         org_headers={"Authorization": "Bearer token"},
         platform_override=None,
-        relay_endpoint="http://127.0.0.1:4318",
     )
 
     assert resolved.enabled is True
     assert resolved.source == "org"
     assert resolved.sandbox_env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert (
-        resolved.sandbox_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:4318"
-    )
+    # The shim is the endpoint's single writer; the resolver never emits one.
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in resolved.sandbox_env
     assert resolved.sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"
     assert (
         resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"]
         == "https://collector.example.com/"
     )
     assert resolved.headers["Authorization"].get_secret_value() == "Bearer token"
-
-
-def test_resolve_org_agent_otel_config_without_relay_keeps_endpoint() -> None:
-    resolved = resolve_agent_otel_config(
-        org_config=AgentOtelConfig(
-            enabled=True,
-            protocol="grpc",
-            endpoint=HttpUrl("https://collector.example.com"),
-        ),
-        org_headers=None,
-        platform_override=None,
-    )
-
-    assert resolved.sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "grpc"
-    assert (
-        resolved.sandbox_env["OTEL_EXPORTER_OTLP_ENDPOINT"]
-        == "https://collector.example.com/"
-    )
-    assert resolved.headers == {}
 
 
 def test_platform_override_wins_over_enabled_org_config() -> None:
@@ -114,6 +93,11 @@ def test_agent_otel_config_rejects_raw_env_map() -> None:
         AgentOtelConfig.model_validate(
             {"enabled": True, "env": {"OTEL_LOGS_EXPORTER": "console"}}
         )
+
+
+def test_agent_otel_config_rejects_receiver_managed_protocol() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        AgentOtelConfig.model_validate({"protocol": "grpc"})
 
 
 def test_agent_otel_config_rejects_exporter_lists() -> None:
@@ -205,7 +189,6 @@ def test_disabled_traces_do_not_set_beta_flag() -> None:
 def test_agent_otel_config_serializes_typed_fields_to_env() -> None:
     otel_config = AgentOtelConfig(
         enabled=True,
-        protocol="http/protobuf",
         endpoint=HttpUrl("https://collector.example.com:4318"),
         logs_enabled=False,
         metrics_temporality="cumulative",
@@ -221,7 +204,6 @@ def test_agent_otel_config_serializes_typed_fields_to_env() -> None:
     )
 
     assert otel_config.to_env() == {
-        "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com:4318/",
         "OTEL_METRICS_EXPORTER": "otlp",
         "OTEL_LOGS_EXPORTER": "none",
